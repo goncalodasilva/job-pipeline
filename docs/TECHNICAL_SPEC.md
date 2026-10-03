@@ -294,7 +294,7 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 ### 2.9 Security model
 
 1. The server MUST bind to 127.0.0.1. Requests whose `Host` header is not `127.0.0.1:<port>` or `localhost:<port>` are rejected (defeats DNS rebinding).
-2. A random launch token (32 bytes, URL-safe) is generated at startup and embedded in the base template. htmx sends it on every request as `X-JP-Token` via `hx-headers`. Every fragment, JSON and state-changing endpoint MUST require it. Full-page GETs MAY omit it.
+2. A random launch token (32 bytes, URL-safe) is generated at startup and embedded in the base template. htmx sends it on every request as `X-JP-Token` via `hx-headers`. Every fragment, JSON and state-changing endpoint MUST require it. Full-page GETs, static files and `GET /health` MAY omit it (ADR-023).
 3. State-changing requests MUST also carry an `Origin` or `Referer` matching the app's own origin.
 4. Jinja2 autoescaping stays on. AI output and job text MUST NOT be marked safe. Where Markdown from AI is rendered, it is converted and then sanitized with nh3.
 5. Uploads: 10 MB limit, type checked by content (PDF, DOCX, plain text), stored under the data folder with generated names, parsed with timeouts.
@@ -367,6 +367,8 @@ job-pipeline/
     templates/      Jinja2 pages and fragments
     static/         htmx, SortableJS, scripts, CSS
     wiring.py       builds providers from settings
+    config.py       runtime config and data folder resolution (ADR-030)
+    logging_config.py  logging setup with redaction (ADR-030)
     cli.py          jobpipeline command
     main.py         app factory and lifespan
   prompts/          default prompt templates and output schemas (3.6)
@@ -503,7 +505,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 ### 4.3 Coverage
 
 - At least 85% line coverage across `app/`, excluding live-only provider code paths.
-- At least 95% branch coverage for critical modules: `app/domain/honesty.py`, `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware. `scripts/check_critical_coverage.py` enforces this.
+- At least 95% branch coverage for critical modules: `app/domain/honesty.py`, `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware (`app/api/middleware.py`). `scripts/check_critical_coverage.py` enforces this with a registry of these modules and the milestone that introduces each (ADR-028).
 
 ### 4.4 What every feature's tests must include
 
@@ -592,7 +594,7 @@ flowchart LR
 - App factory and lifespan (open database, apply migrations, start the task runner stub); base template with vendored htmx; CSS tokens for light and dark themes; responsive app shell (sidebar collapses at narrow widths).
 - `jobpipeline` CLI: `--port`, `--data-dir`, `--no-browser`, `--setup`, `--demo`, `--version`; opens the browser once the server responds.
 - Bootstrap config and data folder resolution (`platformdirs`); demo mode uses its own folder.
-- Database module, migration runner and migration `0001` (settings, setup_state, tasks, usage_records, schema_migrations).
+- Database module, migration runner and migration `0001` (settings, setup_state, tasks, usage_records, schema_migrations). Every mutable table carries `created_at`, `updated_at` and `version` (2.7), even where the detailed design's table list omits them. No full-text search tables yet; the active-task dedupe index and `usage_records.task_id` come in M2 (ADR-027).
 - Middleware: host check, launch token, origin check; binding to 127.0.0.1.
 - Logging with redaction; `/health`.
 - `app/domain` skeleton with `Clock` and `IdFactory`; module protocols from 2.4; fakes in `tests/fakes/`.
@@ -658,6 +660,7 @@ flowchart LR
   8. Reconnecting pages re-fetch task state, so missed events don't matter.
   9. SQLite in WAL mode with a busy timeout and short transactions.
   10. Failure tests for each of the above.
+- A migration adding the unique partial index on active `tasks.dedupe_key` (queued or running) and a `task_id` link from `usage_records` to `tasks` (deferred from M0, ADR-027).
 - Server-sent events endpoint and htmx SSE wiring; top-bar task indicator and tasks panel.
 - Usage service: optional budgets per provider (allowance, two warnings, blocking point, reset day), per-tier caps, provider-reported usage where available (the higher count wins), warning dialogs once per threshold per cycle, blocking with alternatives, budget hook for web search tool calls.
 - Setup step 3 (web search and optional budget); Settings > Usage budgets; usage breakdown by tier and task.
@@ -1004,6 +1007,7 @@ Start in the default (manual) mode until the workflow feels trustworthy, use pla
 | Variable | Purpose |
 | --- | --- |
 | `JOBPIPELINE_DATA_DIR` | Data folder override |
+| `JOBPIPELINE_CONFIG_DIR` | Config folder override (bootstrap config location; used by tests, ADR-024) |
 | `JOBPIPELINE_PORT` | Port override |
 | `JOBPIPELINE_LOG_LEVEL` | Log level |
 | `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | `1` makes fake providers selectable (tests and demos only) |

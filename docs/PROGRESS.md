@@ -6,38 +6,67 @@ How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/
 
 ## M0 — Foundation and tooling
 
-Status: planned (draft plan; confirm with `/plan-milestone M0` before starting)
+Status: planned
 
-- [ ] M0.1 Project scaffold and tooling
-  - AC: `uv sync` works on a fresh clone; ruff, mypy and pytest run with the markers from spec 7.2; pre-commit runs ruff and gitleaks.
-  - Tests: a package import test; manual check that gitleaks blocks a staged file containing a fake key.
-- [ ] M0.2 Module boundary contracts
-  - AC: AC-M0.6; import-linter contracts encode spec 2.3.
-  - Tests: contract self-test with a deliberately violating fixture module.
-- [ ] M0.3 Domain skeleton, module protocols and fakes
-  - AC: protocols from spec 2.4 exist; `Clock` and `IdFactory` are injectable; fakes live in `tests/fakes/`.
-  - Tests: unit tests for fakes' basic behavior.
-- [ ] M0.4 Bootstrap config and data folder resolution
-  - AC: precedence CLI > env > bootstrap config > defaults; demo mode uses its own folder.
-  - Tests: table-driven unit tests for precedence.
-- [ ] M0.5 Database and migrations
-  - AC: AC-M0.4.
-  - Tests: migration ordering, idempotency, backup before upgrade, fresh-vs-upgraded schema equality.
-- [ ] M0.6 App factory, CLI and health endpoint
-  - AC: AC-M0.1; server binds to 127.0.0.1 only.
-  - Tests: CLI flag parsing; integration test for `/health`.
-- [ ] M0.7 Security middleware
-  - AC: AC-M0.2, AC-M0.3.
-  - Tests: integration tests for host, token and origin cases.
-- [ ] M0.8 Logging with redaction
-  - AC: AC-M0.5.
-  - Tests: unit tests that push secrets and token-shaped strings through the logger.
-- [ ] M0.9 App shell
-  - AC: base template with vendored htmx, light and dark tokens, responsive shell with collapsing sidebar.
-  - Tests: e2e load at desktop and 390x844, axe with no serious or critical violations.
-- [ ] M0.10 Verification and CI
-  - AC: AC-M0.7; smoke test; `scripts/check_critical_coverage.py`; GitHub Actions workflow per spec 4.6.
-  - Tests: the verify script passes locally; CI green on three operating systems.
+Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-030. Open before M0.1: the dependency list (needs approval). Open before M0.5: how CI runs on macOS and Windows.
+
+- [ ] M0.1 Project scaffold, dependencies, pytest markers
+  - AC: AC-M0.7 (part); `uv sync` works on a fresh clone; ruff, mypy (strict, `app`), pytest with `--strict-markers` and the markers from spec 7.2; empty package tree from spec 2.13; `jobpipeline --version`; approved dependency set recorded in an ADR.
+  - Tests: unit `test_package_exposes_version_from_metadata`, `test_markers_registered_and_strict` (pytester), `test_live_tests_skipped_without_env`, `test_live_tests_run_with_env`, `test_cli_version_prints_package_version_and_exits_0`.
+- [ ] M0.2 Spike: import-linter contracts and self-test
+  - AC: AC-M0.6; contracts encode spec 2.3 (domain purity, modules never import services/api/onboarding/tasks, services free of web frameworks and providers, api free of modules and sqlite3, composition root not imported by layers, layers contract). If forbidding not-yet-installed vendor packages errors, those contracts are added in the milestone that installs the package (ADR), never weakened.
+  - Tests: integration `test_ac_m0_6_lint_imports_passes_on_repo`; `test_ac_m0_6_violation_detected[<contract>]` with one violating fixture per contract (stored as `.py.txt`, run in a temp copy).
+- [ ] M0.3 Spike: pre-commit with ruff and gitleaks
+  - AC: AC-M0.7 (part); `.pre-commit-config.yaml` with pinned ruff-format, ruff check and gitleaks; tests build key-shaped strings at runtime, no gitleaks allowlist.
+  - Tests: unit `test_precommit_config_has_pinned_ruff_and_gitleaks`; manual check that a staged file with a fake key is blocked (recorded as evidence).
+- [ ] M0.4 Spike: Playwright and axe helper
+  - AC: e2e helper `assert_no_serious_violations(page)` with vendored axe-core (MPL-2.0, license kept); desktop and 390x844 page fixtures; Chromium install proven in this environment.
+  - Tests: e2e `test_axe_helper_flags_image_without_alt_and_low_contrast`, `test_axe_helper_passes_clean_page`.
+- [ ] M0.5 CI workflow skeleton
+  - AC: AC-M0.7 (part); GitHub Actions lint job (format, lint, types, import contracts, gitleaks via pre-commit) and fast-test job on Python 3.11 and 3.14; OS coverage per the CI decision.
+  - Tests: unit `test_ci_matrix_covers_three_os_and_oldest_newest_python`; evidence: URL of a CI run.
+- [ ] M0.6 Critical coverage script
+  - AC: spec 4.3; `scripts/check_critical_coverage.py` enforces 95% branch coverage per critical module using the registry from ADR-028 (module, milestone); existing file below threshold or unmeasured fails; missing file fails once its milestone is current or past at acceptance (`--milestone`), otherwise reported as not yet present; registry matches spec 4.3.
+  - Tests: unit with JSON fixtures: `test_passes_when_all_present_modules_at_or_above_95_branch`, `test_fails_and_names_module_below_threshold`, `test_existing_critical_file_missing_from_report_fails`, `test_future_module_absent_reported_not_failed`, `test_module_due_by_milestone_but_absent_fails`, `test_threshold_uses_branch_not_line_coverage`, `test_registry_matches_spec_section_4_3`.
+- [ ] M0.7 Domain skeleton: Clock, IdFactory, errors, fakes
+  - AC: `Clock` and `IdFactory` protocols with `SystemClock` (aware UTC) and `UuidIdFactory`; spec 2.11 error classes; `FrozenClock` and `SequentialIdFactory` in `tests/fakes/`.
+  - Tests: unit `test_system_clock_returns_aware_utc`, `test_frozen_clock_advance`, `test_sequential_ids_are_deterministic`, `test_uuid_factory_ids_unique`, `test_no_wall_clock_or_uuid_calls_outside_clock_and_ids` (AST scan of `app/`).
+- [ ] M0.8 Module interfaces from spec 2.4
+  - AC: interface types only (ADR-026) for ai, search, calendar, secrets and fetch; implementations and contract suites come in their milestones.
+  - Tests: unit `test_ai_request_defaults_no_web_search_and_no_hook`, `test_ai_capabilities_default_false`, `test_dataclasses_are_frozen[...]`, `test_protocol_conformance` (mypy over conforming dummies).
+- [ ] M0.9 Runtime config and data folder resolution
+  - AC: precedence CLI > env > bootstrap config > defaults; `JOBPIPELINE_CONFIG_DIR` overrides the config folder (ADR-024); demo uses `user_data_dir("jobpipeline-demo")` and `--data-dir` wins over `--demo` (ADR-025); malformed bootstrap config gives a plain error.
+  - Tests: unit table-driven `test_precedence_cli_env_bootstrap_default[data_dir|port|log_level]`, `test_demo_uses_its_own_folder_and_ignores_bootstrap_data_dir`, `test_data_dir_wins_over_demo`, `test_invalid_port_env_raises_config_error`, `test_missing_bootstrap_is_none`, `test_malformed_bootstrap_raises_config_error`, `test_config_dir_override_env`.
+- [ ] M0.10 Logging with redaction
+  - AC: AC-M0.5; JSON formatter; rotating files (5 x 1 MB); redaction filter on handlers so uvicorn logs pass through it; no module-level mutable state.
+  - Tests: unit `test_ac_m0_5_registered_secret_redacted_in_message_args_extra_and_traceback`, `test_ac_m0_5_anthropic_key_and_oauth_shapes_redacted[api03|oat01]`, `test_ac_m0_5_secret_embedded_in_arbitrary_text_redacted` (Hypothesis), `test_ac_m0_5_uvicorn_access_log_redacted`, `test_json_formatter_fields`, `test_rotation_1mb_5_files`.
+- [ ] M0.11 Database and migration runner
+  - AC: AC-M0.4; WAL, foreign keys, busy timeout; `transaction()` with `BEGIN IMMEDIATE`; numbered migrations applied in order, each in its own transaction, recorded in `schema_migrations`; backup with the sqlite3 backup API before pending migrations on an existing database, last 5 kept.
+  - Tests: integration `test_ac_m0_4_empty_db_gets_schema`, `test_ac_m0_4_rerun_is_noop_and_makes_no_backup`, `test_ac_m0_4_existing_db_backed_up_before_new_migration`, `test_backup_includes_uncheckpointed_wal_rows`, `test_backups_keep_last_five`, `test_migrations_apply_in_numeric_order`, `test_duplicate_migration_number_rejected`, `test_failed_migration_rolls_back_and_is_not_recorded`, `test_pragmas_wal_fk_busy_timeout`, `test_transaction_rolls_back_on_exception`.
+- [ ] M0.12 Migration 0001 and schema equality
+  - AC: AC-M0.4; `0001_initial.sql` with schema_migrations, settings, setup_state, tasks and usage_records; every mutable table has `created_at`, `updated_at` and `version` (ADR-027); no FTS tables, dedupe index or `usage_records.task_id` yet (M2).
+  - Tests: integration `test_schema_fresh_equals_upgraded_step_by_step`, `test_0001_creates_expected_tables`, `test_mutable_tables_have_created_updated_version`, `test_tasks_status_check_rejects_unknown_state`, `test_settings_value_must_be_json`, `test_sqlite_build_supports_fts5_and_json`.
+- [ ] M0.13 App factory, lifespan, task runner stub, /health
+  - AC: AC-M0.1 (part); lifespan opens the database, applies migrations, starts and stops the runner stub; `/health` returns version, database and runner status, 503 when the database is not ok (ADR-023).
+  - Tests: integration `test_health_returns_version_database_ok_runner_running`, `test_lifespan_creates_db_and_applies_migrations_in_tmp_data_dir`, `test_shutdown_stops_runner_and_closes_db`, `test_health_reports_database_error_with_503`; unit `test_runner_stub_start_stop_idempotent`.
+- [ ] M0.14 Security middleware (host, token, origin)
+  - AC: AC-M0.2, AC-M0.3; host check, launch token (`X-JP-Token`, constant-time compare) on everything except page GETs, static files and `/health` (ADR-023), origin or referer check on state-changing requests.
+  - Tests: integration `test_ac_m0_2_foreign_host_rejected[...]`, `test_ac_m0_2_loopback_hosts_allowed[...]`, `test_ac_m0_3_fragment_without_token_403`, `test_ac_m0_3_post_without_token_403`, `test_ac_m0_3_wrong_token_403`, `test_ac_m0_3_post_with_token_and_origin_handled`, `test_post_origin_mismatch_403`, `test_post_referer_fallback_ok`, `test_post_without_origin_or_referer_403`, `test_origin_null_403`, `test_page_get_without_token_ok`, `test_health_and_static_without_token_ok`; unit `test_launch_token_32_bytes_urlsafe_unique_per_app`.
+- [ ] M0.15 CLI flags, 127.0.0.1 binding, browser opening
+  - AC: AC-M0.1 (part); `--port`, `--data-dir`, `--no-browser`, `--setup` (stored only, ADR-030), `--demo`, `--version`; host fixed to 127.0.0.1; browser opened once after `/health` responds; friendly port-in-use message.
+  - Tests: unit `test_cli_parses_all_flags`, `test_cli_binds_127_0_0_1_only`, `test_cli_has_no_host_flag`, `test_cli_opens_browser_once_after_health_200`, `test_cli_no_browser_never_opens`, `test_cli_port_in_use_prints_hint_and_exits_1`, `test_cli_setup_flag_sets_force_setup`, `test_cli_demo_selects_demo_data_dir`.
+- [ ] M0.16 Running-app fixture and smoke test
+  - AC: AC-M0.1, AC-M0.5 end to end; subprocess fixture with temp data and config folders that works on Windows too.
+  - Tests: smoke `test_ac_m0_1_health_200_within_5_seconds`, `test_smoke_root_page_200`, `test_ac_m0_5_launch_token_not_in_log_files`.
+- [ ] M0.17 App shell templates, vendored htmx, page routes
+  - AC: base template with vendored htmx 2.0.x, skip link, sidebar in design order (Today, Job inbox, Board, Fact bank, Companies; Settings pinned), top bar placeholders, live region, token in `hx-headers`; placeholder empty-state page per future area (ADR-029); fragment vs page rendering.
+  - Tests: integration `test_root_renders_shell_with_sidebar_in_design_order`, `test_page_embeds_launch_token_in_body_hx_headers`, `test_vendored_htmx_served_and_matches_pinned_version`, `test_render_returns_fragment_for_hx_request`, `test_autoescape_on_for_templates`, `test_pages_send_no_store`, `test_placeholder_pages_have_empty_state`.
+- [ ] M0.18 CSS tokens, responsive sidebar, e2e and axe
+  - AC: light and dark tokens; responsive shell with collapsing sidebar operable by keyboard; visible focus; 24 px targets; reduced motion respected.
+  - Tests: e2e `test_shell_desktop_sidebar_visible`, `test_shell_phone_390x844_sidebar_collapsed_and_opens_by_keyboard`, `test_no_horizontal_scroll_at_360px`, `test_dark_scheme_changes_background_token`, `test_axe_no_serious_or_critical[desktop-light|desktop-dark|phone-light|phone-dark]`, `test_nav_targets_at_least_24px`.
+- [ ] M0.19 CI completion, full verification, docs
+  - AC: AC-M0.7; smoke, e2e and coverage jobs in CI; README and CLAUDE.md commands updated; verify.sh coverage run aligned with spec 4.5.
+  - Tests: unit `test_ci_has_smoke_e2e_and_coverage_jobs`; `verify.sh full` passes; CI run green on Ubuntu, macOS and Windows (URL as evidence).
 
 ## M1 — Secrets, AI provider and the setup guide
 
@@ -82,3 +111,4 @@ Status: not planned
 ## Session log
 
 - 2026-10-03: Specs, references and the agentic system created. No application code yet.
+- 2026-10-03: M0 planned (19 tasks) with `/plan-milestone M0`; decisions recorded as ADR-022 to ADR-030. Dependency list and CI operating-system policy still awaiting the user.

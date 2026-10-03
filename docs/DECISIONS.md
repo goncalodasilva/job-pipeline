@@ -94,3 +94,56 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 ## ADR-021 — Built with a Claude Code agentic system (2026-10-03)
 
 - Decision: one orchestrating session, ten project subagents, workflow and procedure skills, hooks and permission rules, with progress and decisions kept in `docs/` (spec section 6).
+
+## ADR-022 — Supported Python versions and accessibility test tooling (2026-10-03)
+
+- Context: CI tests the oldest and newest supported Python (spec 4.6). Python 3.15.0 has only just been released, and binary wheels (for example pydantic-core) may lag. The e2e suite needs axe-core.
+- Decision: support Python 3.11 to 3.14; CI tests 3.11 and 3.14. Revisit 3.15 at M9. axe-core is vendored under `tests/e2e/vendor/` with its MPL-2.0 license, instead of adding a dev dependency.
+- Consequences: `requires-python = ">=3.11"`; updating axe-core is a manual, reviewed file change.
+
+## ADR-023 — `/health` is exempt from the launch token (2026-10-03)
+
+- Context: spec 2.9 requires the launch token on every JSON endpoint, but AC-M0.1, the smoke test and the CLI's browser-opening probe call `/health` without one.
+- Decision: `GET /health` needs no launch token; the host check still applies. It returns only the app version, database status and task runner status, never personal data. It responds 503 when the database is not usable.
+- Consequences: spec 2.9 updated. Static files and full-page GETs are the only other token-free routes.
+
+## ADR-024 — `JOBPIPELINE_CONFIG_DIR` overrides the config folder (2026-10-03)
+
+- Context: subprocess tests (smoke, e2e) would otherwise read the developer's real platform config folder, which the privacy rules forbid. On Windows, platformdirs ignores environment overrides.
+- Decision: add `JOBPIPELINE_CONFIG_DIR`, which replaces `platformdirs.user_config_dir("jobpipeline")` when set. Precedence is unchanged otherwise.
+- Consequences: spec 7.3 updated. Every test that starts the app sets both the data and the config folder to temporary folders.
+
+## ADR-025 — Demo mode folder (2026-10-03)
+
+- Decision: demo mode uses `platformdirs.user_data_dir("jobpipeline-demo")`, a sibling of the real data folder, and ignores the bootstrap config's `data_dir`. An explicit `--data-dir` wins over `--demo`. M0 only resolves the path; demo data seeding is M9.
+
+## ADR-026 — Module interfaces in M0, implementations in their milestones (2026-10-03)
+
+- Context: the M0 scope lists the module protocols from spec 2.4, and the M1 scope lists "AI module core: provider protocol".
+- Decision: M0 adds the interface types only (protocols and dataclasses for ai, search, calendar, secrets, fetch; the storage `Database` comes with M0.11). Implementations, fake providers and contract suites arrive in the milestone that needs them, which may refine the types.
+- Open: spec 4.2 puts `FakeAIProvider` and `MemorySecretStore` in `tests/fakes/`, but the running app must be able to select the fake provider, and spec 2.13 lists a memory store under `secrets/providers/`. Settle where app-selectable fakes live when planning M1. M0's only fakes are `FrozenClock` and `SequentialIdFactory`.
+
+## ADR-027 — Migration 0001 contents (2026-10-03)
+
+- Context: the detailed design's columns for `settings`, `setup_state`, `tasks` and `usage_records` lack the `created_at`, `updated_at` and `version` columns that spec 2.7 requires on mutable tables. The spec takes precedence.
+- Decision: every mutable table in `0001` carries `created_at`, `updated_at` and `version`. `0001` has no full-text search tables (their source tables arrive in M3 and M4); M0 only tests that SQLite supports FTS5 and JSON. The unique partial index on active `tasks.dedupe_key` and the `usage_records.task_id` link are added by an M2 migration.
+- Consequences: spec section 5 (M0 and M2 scope) updated.
+
+## ADR-028 — Critical coverage registry with due milestones (2026-10-03)
+
+- Context: spec 4.3 lists critical modules that do not exist yet (for example `honesty.py` in M6). The check must work now and must not let a critical module silently escape later (renamed, moved or never created).
+- Decision: `scripts/check_critical_coverage.py` holds one registry of critical modules, each with the milestone that introduces it:
+  - `app/api/middleware.py` (M0), `app/tasks/runner.py` (M0), `app/onboarding/detection.py` (M1), `app/domain/budgets.py` (M2), `app/services/usage.py` (M2), `app/modules/fetch/guard.py` (M4), `app/domain/honesty.py` (M6).
+  - A module that exists must be measured and reach 95% branch coverage, whatever its milestone.
+  - A module that does not exist is reported as "not yet present" while its milestone is still ahead. With `--milestone M<n>` (used by `/milestone-acceptance` and CI), a missing module whose milestone is M<n> or earlier fails.
+  - A unit test checks that the registry matches the list in spec 4.3, so the two cannot drift.
+- Consequences: moving or adding a critical module means updating spec 4.3 and the registry together.
+
+## ADR-029 — App shell: placeholder pages and htmx version (2026-10-03)
+
+- Decision: sidebar links to areas that do not exist yet open a placeholder page with an empty state, so there are no broken links and keyboard navigation works. htmx 2.0.x (latest patch) is vendored now with its version and license noted; the SSE extension and `sse-connect` are added in M2 with the `/events` endpoint.
+
+## ADR-030 — Composition-root files and the `--setup` flag in M0 (2026-10-03)
+
+- Decision: add `app/config.py` (runtime config resolution) and `app/logging_config.py` (logging setup) beside `app/main.py`, `app/wiring.py` and `app/cli.py` as composition-root files, and `app/domain/redaction.py` as a pure redaction helper. Layers must not import the composition root. `--setup` is parsed and stored in the runtime config in M0 and has no behavior until M1.
+- Consequences: spec 2.13 updated.
