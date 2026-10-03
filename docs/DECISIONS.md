@@ -147,3 +147,17 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 
 - Decision: add `app/config.py` (runtime config resolution) and `app/logging_config.py` (logging setup) beside `app/main.py`, `app/wiring.py` and `app/cli.py` as composition-root files, and `app/domain/redaction.py` as a pure redaction helper. Layers must not import the composition root. `--setup` is parsed and stored in the runtime config in M0 and has no behavior until M1.
 - Consequences: spec 2.13 updated.
+
+## ADR-031 — M0 dependency set (2026-10-03)
+
+- Decision: approved by the user.
+  - Runtime: `fastapi`, `uvicorn` (without `[standard]`), `jinja2`, `pydantic>=2`, `platformdirs`.
+  - Development only: `ruff`, `mypy`, `pytest`, `pytest-asyncio`, `pytest-cov`, `hypothesis`, `import-linter`, `pre-commit`, `playwright`, `httpx` (test client), `pyyaml` with `types-PyYAML`.
+  - Build backend: `hatchling`.
+- Consequences: the remaining libraries from spec 2.12 (keyring, claude-agent-sdk, nh3, icalendar, tomli-w, PDF and Word libraries) are added in the milestone that needs them, each with the user's approval. `httpx` becomes a runtime dependency in M4.
+
+## ADR-032 — CI operating-system policy (2026-10-03)
+
+- Context: the repository is private, so GitHub Actions minutes count against the plan (Windows ×2, macOS ×10).
+- Decision: lint and fast tests run on Ubuntu on every push and pull request. macOS and Windows run on pull requests to `main`, on manual dispatch (`workflow_dispatch`) and on a weekly schedule. Before a milestone is accepted, a run on all three operating systems must be green.
+- Consequences: AC-M0.7 is met by a manually dispatched or pull-request run on all three systems.

@@ -8,7 +8,7 @@ How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/
 
 Status: planned
 
-Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-030. Open before M0.1: the dependency list (needs approval). Open before M0.5: how CI runs on macOS and Windows.
+Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-032 (dependencies in ADR-031, CI operating systems in ADR-032).
 
 - [ ] M0.1 Project scaffold, dependencies, pytest markers
   - AC: AC-M0.7 (part); `uv sync` works on a fresh clone; ruff, mypy (strict, `app`), pytest with `--strict-markers` and the markers from spec 7.2; empty package tree from spec 2.13; `jobpipeline --version`; approved dependency set recorded in an ADR.
@@ -23,7 +23,7 @@ Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-030. Open befor
   - AC: e2e helper `assert_no_serious_violations(page)` with vendored axe-core (MPL-2.0, license kept); desktop and 390x844 page fixtures; Chromium install proven in this environment.
   - Tests: e2e `test_axe_helper_flags_image_without_alt_and_low_contrast`, `test_axe_helper_passes_clean_page`.
 - [ ] M0.5 CI workflow skeleton
-  - AC: AC-M0.7 (part); GitHub Actions lint job (format, lint, types, import contracts, gitleaks via pre-commit) and fast-test job on Python 3.11 and 3.14; OS coverage per the CI decision.
+  - AC: AC-M0.7 (part); GitHub Actions lint job (format, lint, types, import contracts, gitleaks via pre-commit) and fast-test job on Python 3.11 and 3.14; Ubuntu on every push; macOS and Windows on pull requests to main, manual dispatch and weekly (ADR-032).
   - Tests: unit `test_ci_matrix_covers_three_os_and_oldest_newest_python`; evidence: URL of a CI run.
 - [ ] M0.6 Critical coverage script
   - AC: spec 4.3; `scripts/check_critical_coverage.py` enforces 95% branch coverage per critical module using the registry from ADR-028 (module, milestone); existing file below threshold or unmeasured fails; missing file fails once its milestone is current or past at acceptance (`--milestone`), otherwise reported as not yet present; registry matches spec 4.3.
@@ -112,3 +112,4 @@ Status: not planned
 
 - 2026-10-03: Specs, references and the agentic system created. No application code yet.
 - 2026-10-03: M0 planned (19 tasks) with `/plan-milestone M0`; decisions recorded as ADR-022 to ADR-030. Dependency list and CI operating-system policy still awaiting the user.
+- 2026-10-03: Dependency set (ADR-031) and CI policy (ADR-032) approved; pushing to `m0-foundation` allowed.
