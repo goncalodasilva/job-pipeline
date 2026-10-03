@@ -30,9 +30,10 @@ Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-032 (dependenci
   - AC: AC-M0.7 (part); GitHub Actions lint job (format, lint, types, import contracts, and secrets via `pre-commit run --hook-stage manual gitleaks-history` on a full-history checkout, `fetch-depth: 0`) and fast-test job on Python 3.11 and 3.14; Ubuntu on every push; macOS and Windows on pull requests to main, manual dispatch and weekly (ADR-032).
   - Tests: unit `test_ci_matrix_covers_three_os_and_oldest_newest_python`; evidence: URL of a CI run.
   - Evidence: 2026-10-03, CI run https://github.com/goncalodasilva/job-pipeline/actions/runs/37144804054 green on push: lint job (format, lint, mypy, lint-imports, `gitleaks-history` over full history) and fast tests on Ubuntu with Python 3.11 and 3.14; macOS/Windows job skipped on push as designed (ADR-032). `verify.sh quick` PASS (96). Tests: `test_ci_matrix_covers_three_os_and_oldest_newest_python`, `test_ci_runs_macos_and_windows_only_off_push`, `test_ci_lint_job_runs_all_static_checks_and_history_secret_scan`, `test_ci_actions_pinned_to_commit_shas`, `test_ci_has_read_only_permissions`, `test_ci_concurrency_never_cancels_scheduled_or_dispatched_runs`, `test_ci_jobs_have_timeouts_and_drop_checkout_credentials`. Note: manual dispatch and the weekly schedule only work once the workflow is on `main`; before that, the three-OS run for AC-M0.7 comes from a (draft) pull request to `main` (M0.19, with the user's go-ahead).
-- [ ] M0.6 Critical coverage script
+- [x] M0.6 Critical coverage script
   - AC: spec 4.3; `scripts/check_critical_coverage.py` enforces 95% branch coverage per critical module using the registry from ADR-028 (module, milestone); existing file below threshold or unmeasured fails; missing file fails once its milestone is current or past at acceptance (`--milestone`), otherwise reported as not yet present; registry matches spec 4.3.
   - Tests: unit with JSON fixtures: `test_passes_when_all_present_modules_at_or_above_95_branch`, `test_fails_and_names_module_below_threshold`, `test_existing_critical_file_missing_from_report_fails`, `test_future_module_absent_reported_not_failed`, `test_module_due_by_milestone_but_absent_fails`, `test_threshold_uses_branch_not_line_coverage`, `test_registry_matches_spec_section_4_3`.
+  - Evidence: 2026-10-03, `verify.sh quick` PASS; 20 tests in `tests/unit/test_check_critical_coverage.py` (the seven named above plus Windows paths, invalid milestone, fail-closed without branch data, absolute path outside root, default report built from `.coverage` from any working directory with real measured coverage, missing data, unreadable report); `mypy --strict` clean on the script. On the repo: no flag → all seven "not yet present", exit 0; `--milestone M0` → middleware and runner fail "due by M0" until M0.13/M0.14. `/milestone-acceptance` now runs the script with `--milestone M<n>`.
 - [ ] M0.7 Domain skeleton: Clock, IdFactory, errors, fakes
   - AC: `Clock` and `IdFactory` protocols with `SystemClock` (aware UTC) and `UuidIdFactory`; spec 2.11 error classes; `FrozenClock` and `SequentialIdFactory` in `tests/fakes/`.
   - Tests: unit `test_system_clock_returns_aware_utc`, `test_frozen_clock_advance`, `test_sequential_ids_are_deterministic`, `test_uuid_factory_ids_unique`, `test_no_wall_clock_or_uuid_calls_outside_clock_and_ids` (AST scan of `app/`).
@@ -70,7 +71,7 @@ Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-032 (dependenci
   - AC: light and dark tokens; responsive shell with collapsing sidebar operable by keyboard; visible focus; 24 px targets; reduced motion respected.
   - Tests: e2e `test_shell_desktop_sidebar_visible`, `test_shell_phone_390x844_sidebar_collapsed_and_opens_by_keyboard`, `test_no_horizontal_scroll_at_360px`, `test_dark_scheme_changes_background_token`, `test_axe_no_serious_or_critical[desktop-light|desktop-dark|phone-light|phone-dark]`, `test_nav_targets_at_least_24px`.
 - [ ] M0.19 CI completion, full verification, docs
-  - AC: AC-M0.7; smoke, e2e and coverage jobs in CI; README and CLAUDE.md commands updated; verify.sh coverage run aligned with spec 4.5.
+  - AC: AC-M0.7; smoke, e2e and coverage jobs in CI; README and CLAUDE.md commands updated; verify.sh coverage run aligned with spec 4.5; mypy also type-checks `scripts/` (`files = ["app", "scripts"]`, bare `uv run mypy` in verify, CI, CLAUDE.md and spec 4.5).
   - Tests: unit `test_ci_has_smoke_e2e_and_coverage_jobs`; `verify.sh full` passes; CI run green on Ubuntu, macOS and Windows (URL as evidence).
 
 ## M1 — Secrets, AI provider and the setup guide
@@ -123,3 +124,4 @@ Status: not planned
 - 2026-10-03: M0.3 done: pre-commit with SHA-pinned ruff and gitleaks, plus a history scan for CI and full verification.
 - 2026-10-03: M0.4 done: vendored axe-core, accessibility helper, desktop and phone browser fixtures (ADR-035).
 - 2026-10-03: M0.5 done: CI workflow; first run green on Ubuntu.
+- 2026-10-03: M0.6 done: critical coverage script with milestone-aware registry (ADR-028).
