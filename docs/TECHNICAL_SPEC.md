@@ -1012,6 +1012,7 @@ Start in the default (manual) mode until the workflow feels trustworthy, use pla
 | `JOBPIPELINE_LOG_LEVEL` | Log level |
 | `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | `1` makes fake providers selectable (tests and demos only) |
 | `JOBPIPELINE_LIVE_TESTS` | `1` enables live tests |
+| `JOBPIPELINE_E2E_CHROMIUM` | Path to a Chromium executable for e2e tests instead of Playwright's managed one (tests only, ADR-035) |
 | `ANTHROPIC_API_KEY` | Fallback when no keychain is available |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Fallback when no keychain is available |
 

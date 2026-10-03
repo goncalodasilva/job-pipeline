@@ -182,3 +182,9 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Context: spec 2.3 rule 6 says task handlers only call services; the spec 2.5 diagram shows the runner calling the AI module and saving results itself (open question in ADR-033).
 - Decision: rule 6 wins. The task runner and its handlers call service functions only; services call the AI module, record usage and save drafts. The "Task handlers stay thin" contract stays as it is.
 - Consequences: the spec 2.5 diagram is read as the logical flow; in code, the runner's "AI call" and "save draft + mark succeeded" steps are service calls. Services enqueue tasks through an interface injected by `app/wiring.py`.
+
+## ADR-035 — e2e browser selection and vendored-file handling (2026-10-03)
+
+- Context: the e2e fixtures use Playwright's managed Chromium (`uv run playwright install chromium`). Some environments, such as the cloud sandbox used for development, only have a different pre-installed Chromium build that Playwright won't pick by itself.
+- Decision: the test-only variable `JOBPIPELINE_E2E_CHROMIUM` points the e2e fixtures at a Chromium executable; when unset, Playwright's managed Chromium is used. Vendored third-party files (`tests/e2e/vendor/`, `app/static/vendor/`) are marked `-text` in `.gitattributes` so every OS checks them out byte-identical to upstream, which their hash tests rely on.
+- Consequences: spec 7.3 lists the variable. Managed Chromium is proven by the CI e2e job (M0.19); M0.4's evidence used a pre-installed Chromium 141 driven by Playwright 1.63.
