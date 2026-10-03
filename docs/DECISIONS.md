@@ -188,3 +188,15 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Context: the e2e fixtures use Playwright's managed Chromium (`uv run playwright install chromium`). Some environments, such as the cloud sandbox used for development, only have a different pre-installed Chromium build that Playwright won't pick by itself.
 - Decision: the test-only variable `JOBPIPELINE_E2E_CHROMIUM` points the e2e fixtures at a Chromium executable; when unset, Playwright's managed Chromium is used. Vendored third-party files (`tests/e2e/vendor/`, `app/static/vendor/`) are marked `-text` in `.gitattributes` so every OS checks them out byte-identical to upstream, which their hash tests rely on.
 - Consequences: spec 7.3 lists the variable. Managed Chromium is proven by the CI e2e job (M0.19); M0.4's evidence used a pre-installed Chromium 141 driven by Playwright 1.63.
+
+## ADR-036 — Interface refinements to spec 2.4 (2026-10-03)
+
+- Context: M0.8 wrote the spec 2.4 interfaces as code; spec 2.4 says its shapes hold unless an ADR changes them.
+- Decision:
+  - Fetching is exposed to services as an injected `JobPageFetcher` protocol (`async fetch(url, limits) -> FetchedPage`) instead of a bare module function, so services receive it through wiring like every other integration (spec 2.3 rule 7) and tests can substitute a fake. The SSRF-guarded `fetch_job_page` from spec 2.4 is implemented in M4 behind this protocol.
+  - `AIRequest.output_schema` and `AIResponse.data` are typed `Mapping[str, Any]` (read-only views) rather than `dict`, matching the frozen dataclasses.
+  - Fields the spec leaves unspecified are minimal: `ConnectionResult(ok, message, model)`, `ModelChoice(id, label)`, `TokenUsage(input_tokens, output_tokens)`, `CancelToken.cancelled`, `SearchResult(title, url, snippet)`, `EventData(title, starts_at, ends_at, time_zone, details)` with aware and ordered times, `CalendarFile(filename, content, media_type)`, `ExternalRef(provider, external_id)`, `FetchLimits(max_bytes=5 MB, timeout_seconds=15, max_redirects=5)`, `FetchedPage(requested_url, final_url, status, content_type, text)`.
+  - Protocol data members (`name`, `capabilities`, `mode`, `storage_allowed`, `reports_usage`, `supports_sync`, `available`) are read-only properties, so implementations may use plain or narrower attributes or computed properties.
+  - `EventData` carries a stable `uid` (RFC 5545), so re-exporting an event updates it instead of duplicating it; calendar providers take an injected `Clock` for timestamps.
+  - Fetchers clamp `FetchLimits` to the spec 2.9.6 maximums; `max_redirects=5` is an added limit. Unfetchable pages raise `FetchRefused` or `NetworkUnavailable`.
+- Consequences: spec 2.4 points here. Later milestones may extend these types (ADR-026), each change with a test.

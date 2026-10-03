@@ -152,7 +152,7 @@ These rules are enforced by import-linter contracts in `pyproject.toml` and chec
 
 ### 2.4 Key interfaces
 
-Signatures are abbreviated. Implementations MUST keep these shapes unless an ADR changes them.
+Signatures are abbreviated. Implementations MUST keep these shapes unless an ADR changes them. The code versions, with fetching behind an injected `JobPageFetcher`, are recorded in ADR-036.
 
 ```python
 # app/modules/ai/__init__.py

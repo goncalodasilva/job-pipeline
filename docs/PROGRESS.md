@@ -38,9 +38,10 @@ Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-032 (dependenci
   - AC: `Clock` and `IdFactory` protocols with `SystemClock` (aware UTC) and `UuidIdFactory`; spec 2.11 error classes; `FrozenClock` and `SequentialIdFactory` in `tests/fakes/`.
   - Tests: unit `test_system_clock_returns_aware_utc`, `test_frozen_clock_advance`, `test_sequential_ids_are_deterministic`, `test_uuid_factory_ids_unique`, `test_no_wall_clock_or_uuid_calls_outside_clock_and_ids` (AST scan of `app/`).
   - Evidence: 2026-10-03, `verify.sh quick` PASS (183 fast tests). Named tests plus: mypy `--strict` conformance of `SystemClock`, `FrozenClock`, `UuidIdFactory`, `SequentialIdFactory` against the protocols (and a wrong-signature clock rejected); spec 2.11 messages per error; `detail` never in `user_message`; locale-independent reset dates ("1 November 2026"); the scanner flags any reference (including `default_factory=datetime.now`, `uuid7`, implicit-now `time` functions) with 23 self-test snippets and allows `time.monotonic`, `perf_counter` and `secrets`. Copy decision: the generic `AppError` fallback reads "Something went wrong. Try again." (not in the spec 2.11 table).
-- [ ] M0.8 Module interfaces from spec 2.4
+- [x] M0.8 Module interfaces from spec 2.4
   - AC: interface types only (ADR-026) for ai, search, calendar, secrets and fetch; implementations and contract suites come in their milestones.
   - Tests: unit `test_ai_request_defaults_no_web_search_and_no_hook`, `test_ai_capabilities_default_false`, `test_dataclasses_are_frozen[...]`, `test_protocol_conformance` (mypy over conforming dummies).
+  - Evidence: 2026-10-03, `verify.sh quick` PASS (207 fast tests); 24 tests in `tests/unit/modules/test_module_interfaces.py`: the named ones plus spec 2.9 fetch limits, event time and uid validation, mypy `--strict` acceptance of narrowed and property-based implementations, and rejection of three mismatches; no vendor SDK imported. Refinements to spec 2.4 recorded in ADR-036 (fetch behind an injected `JobPageFetcher`, read-only protocol members, `EventData.uid`).
 - [ ] M0.9 Runtime config and data folder resolution
   - AC: precedence CLI > env > bootstrap config > defaults; `JOBPIPELINE_CONFIG_DIR` overrides the config folder (ADR-024); demo uses `user_data_dir("jobpipeline-demo")` and `--data-dir` wins over `--demo` (ADR-025); malformed bootstrap config gives a plain error.
   - Tests: unit table-driven `test_precedence_cli_env_bootstrap_default[data_dir|port|log_level]`, `test_demo_uses_its_own_folder_and_ignores_bootstrap_data_dir`, `test_data_dir_wins_over_demo`, `test_invalid_port_env_raises_config_error`, `test_missing_bootstrap_is_none`, `test_malformed_bootstrap_raises_config_error`, `test_config_dir_override_env`.
@@ -127,3 +128,4 @@ Status: not planned
 - 2026-10-03: M0.5 done: CI workflow; first run green on Ubuntu.
 - 2026-10-03: M0.6 done: critical coverage script with milestone-aware registry (ADR-028).
 - 2026-10-03: M0.7 done: Clock, IdFactory, user-facing errors, FrozenClock and SequentialIdFactory fakes.
+- 2026-10-03: M0.8 done: interface types for the ai, search, calendar, secrets and fetch modules (ADR-036).
