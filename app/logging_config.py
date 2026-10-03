@@ -15,9 +15,12 @@ import logging
 import logging.handlers
 import os
 import sys
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import TracebackType
 
 from app.domain.redaction import Redactor
 
@@ -105,6 +108,22 @@ class PrivateRotatingFileHandler(logging.handlers.RotatingFileHandler):
         return stream
 
 
+_TRACEBACK_START = "Traceback (most recent call last)"
+
+
+class ConsoleFormatter(logging.Formatter):
+    """One plain line per record; tracebacks go only to the log file.
+
+    Some libraries put a traceback in the message text itself (uvicorn does on a failed
+    start-up), so the console also cuts the message where a traceback begins.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = record.getMessage().split(_TRACEBACK_START, 1)[0].strip()
+        first_line = message.splitlines()[0] if message else "details are in the log file"
+        return f"{record.levelname} {record.name}: {first_line}"
+
+
 @dataclass(frozen=True)
 class LoggingSetup:
     """The handlers ``configure_logging`` added, so they can be removed again."""
@@ -130,7 +149,7 @@ def configure_logging(log_dir: Path, level: str, redactor: Redactor) -> LoggingS
     )
     file_handler.setFormatter(JsonFormatter())
     stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    stderr_handler.setFormatter(ConsoleFormatter())
 
     root = logging.getLogger()
     for handler in (file_handler, stderr_handler):
@@ -145,3 +164,35 @@ def configure_logging(log_dir: Path, level: str, redactor: Redactor) -> LoggingS
         logger.handlers.clear()
         logger.propagate = True
     return LoggingSetup(handlers=(file_handler, stderr_handler))
+
+
+def install_exception_hooks(logger_name: str = "jobpipeline") -> Callable[[], None]:
+    """Log uncaught exceptions (main and other threads) instead of printing them raw.
+
+    Returns a function that puts the previous hooks back.
+    """
+    logger = logging.getLogger(logger_name)
+    previous_sys, previous_thread = sys.excepthook, threading.excepthook
+
+    def log_uncaught(
+        exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None
+    ) -> None:
+        logger.critical("Uncaught exception", exc_info=(exc_type, exc, tb))
+
+    def log_thread(args: threading.ExceptHookArgs) -> None:
+        if args.exc_value is None:
+            return
+        name = args.thread.name if args.thread is not None else "unknown"
+        logger.critical(
+            "Uncaught exception in thread %s",
+            name,
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    sys.excepthook = log_uncaught
+    threading.excepthook = log_thread
+
+    def restore() -> None:
+        sys.excepthook, threading.excepthook = previous_sys, previous_thread
+
+    return restore

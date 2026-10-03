@@ -11,6 +11,7 @@ import logging
 import logging.handlers
 import os
 import sys
+import threading
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -523,3 +524,93 @@ def test_log_folder_and_files_are_private_on_posix(
     assert len(files) >= 2
     for path in files:
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+# --- console output and exception hooks (M0.15) -----------------------------------------------
+
+
+def test_console_omits_traceback_but_file_keeps_it(
+    make_logging: Callable[..., LoggingSetup],
+    log_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    make_logging("INFO")
+    logger = logging.getLogger("jobpipeline.test.console")
+
+    try:
+        raise RuntimeError(f"fictional startup failure {FICTIONAL_HIDDEN}")
+    except RuntimeError:
+        logger.exception("startup failed")
+
+    records = read_log_records(log_dir)
+    err = capsys.readouterr().err
+    assert "Traceback" in str(records[-1]["exception"])
+    assert "fictional startup failure" in str(records[-1]["exception"])
+    assert "startup failed" in err
+    assert "Traceback" not in err
+    assert FICTIONAL_HIDDEN not in err
+
+
+@pytest.fixture
+def restore_hooks() -> Iterator[None]:
+    saved = (sys.excepthook, threading.excepthook)
+    yield
+    sys.excepthook, threading.excepthook = saved
+
+
+def test_install_exception_hooks_routes_sys_excepthook_to_logger(
+    restore_hooks: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    from app.logging_config import install_exception_hooks
+
+    restore = install_exception_hooks("jobpipeline.test.hooks")
+    try:
+        raise ValueError("fictional uncaught error")
+    except ValueError:
+        exc_type, exc_value, exc_tb = sys.exc_info()
+    with caplog.at_level(logging.DEBUG, logger="jobpipeline.test.hooks"):
+        assert exc_type is not None and exc_value is not None
+        sys.excepthook(exc_type, exc_value, exc_tb)
+    restore()
+
+    records = [r for r in caplog.records if r.name == "jobpipeline.test.hooks"]
+    assert len(records) == 1
+    assert records[0].levelno == logging.CRITICAL
+    assert records[0].exc_info is not None
+    assert records[0].exc_info[1] is exc_value
+
+
+def test_install_exception_hooks_routes_thread_excepthook_to_logger(
+    restore_hooks: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    from app.logging_config import install_exception_hooks
+
+    restore = install_exception_hooks("jobpipeline.test.hooks")
+
+    def fail() -> None:
+        raise ValueError("fictional thread error")
+
+    with caplog.at_level(logging.DEBUG, logger="jobpipeline.test.hooks"):
+        worker = threading.Thread(target=fail, name="fictional-worker")
+        worker.start()
+        worker.join(5.0)
+    restore()
+
+    records = [r for r in caplog.records if r.name == "jobpipeline.test.hooks"]
+    assert len(records) == 1
+    assert records[0].levelno == logging.CRITICAL
+    assert records[0].exc_info is not None
+    assert isinstance(records[0].exc_info[1], ValueError)
+
+
+def test_install_exception_hooks_default_logger_and_restore(restore_hooks: None) -> None:
+    from app.logging_config import install_exception_hooks
+
+    before = (sys.excepthook, threading.excepthook)
+
+    restore = install_exception_hooks()
+
+    assert sys.excepthook is not before[0]
+    assert threading.excepthook is not before[1]
+    restore()
+    assert (sys.excepthook, threading.excepthook) == before
