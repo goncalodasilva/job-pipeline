@@ -10,9 +10,10 @@ Status: planned
 
 Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-032 (dependencies in ADR-031, CI operating systems in ADR-032).
 
-- [ ] M0.1 Project scaffold, dependencies, pytest markers
+- [x] M0.1 Project scaffold, dependencies, pytest markers
   - AC: AC-M0.7 (part); `uv sync` works on a fresh clone; ruff, mypy (strict, `app`), pytest with `--strict-markers` and the markers from spec 7.2; empty package tree from spec 2.13; `jobpipeline --version`; approved dependency set recorded in an ADR.
   - Tests: unit `test_package_exposes_version_from_metadata`, `test_markers_registered_and_strict` (pytester), `test_live_tests_skipped_without_env`, `test_live_tests_run_with_env`, `test_cli_version_prints_package_version_and_exits_0`.
+  - Evidence: 2026-10-03, `verify.sh quick` PASS (format, lint, mypy strict on 19 files, 28 fast tests; smoke has no tests yet). Fresh clone: `uv sync --locked` OK, `jobpipeline --version` prints `jobpipeline 0.1.0`, 28 passed. Added after review: `test_unmarked_tests_named_live_are_not_skipped` (live gating now uses the marker, not keywords) and `test_cli_console_script_points_to_main`; pytest uses `--import-mode=importlib`. Ruff excludes `.claude/` and `docs/` (existing hook scripts and spec code samples are not project code); formatting the hooks is left to the user.
 - [ ] M0.2 Spike: import-linter contracts and self-test
   - AC: AC-M0.6; contracts encode spec 2.3 (domain purity, modules never import services/api/onboarding/tasks, services free of web frameworks and providers, api free of modules and sqlite3, composition root not imported by layers, layers contract). If forbidding not-yet-installed vendor packages errors, those contracts are added in the milestone that installs the package (ADR), never weakened.
   - Tests: integration `test_ac_m0_6_lint_imports_passes_on_repo`; `test_ac_m0_6_violation_detected[<contract>]` with one violating fixture per contract (stored as `.py.txt`, run in a temp copy).
@@ -113,3 +114,4 @@ Status: not planned
 - 2026-10-03: Specs, references and the agentic system created. No application code yet.
 - 2026-10-03: M0 planned (19 tasks) with `/plan-milestone M0`; decisions recorded as ADR-022 to ADR-030. Dependency list and CI operating-system policy still awaiting the user.
 - 2026-10-03: Dependency set (ADR-031) and CI policy (ADR-032) approved; pushing to `m0-foundation` allowed.
+- 2026-10-03: M0.1 done: scaffold, approved dependencies, pytest markers and live-test gating, `jobpipeline --version`.
