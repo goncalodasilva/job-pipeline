@@ -304,7 +304,7 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 9. Secrets live only in the keychain (or the environment fallback). They MUST NOT be stored in the database, written to logs, returned by any endpoint, or included in exports. A logging filter redacts configured secret values and token-shaped strings.
 10. The app sends no telemetry.
 11. Every HTTP response, rejections included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so no other site can frame the app and trick a click (ADR-039).
-12. Only routes the server registers as pages (`tags=[PAGE_TAG]`) may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Token-free GETs return only full HTML pages. Never add CORS headers, and never put the token in a URL or log (ADR-039).
+12. Only routes the server registers as pages (`register_pages`, `tags=[PAGE_TAG]`) and that dispatch actually picks may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Token-free GETs return only full HTML pages. Never add CORS headers, and never put the token in a URL or log (ADR-039).
 13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it.
 
 ### 2.10 Logging and diagnostics

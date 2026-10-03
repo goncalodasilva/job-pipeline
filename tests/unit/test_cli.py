@@ -681,3 +681,37 @@ def test_real_uvicorn_lifespan_failure_prints_plain_message_and_exits_1(
     err = capsys.readouterr().err
     assert "couldn't start" in err
     assert "Traceback" not in err
+
+
+def test_cli_ctrl_c_after_start_is_a_normal_stop(env: dict[str, str]) -> None:
+    # uvicorn re-raises the captured Ctrl+C after shutting down cleanly (ADR-040: exit 0).
+    def stopped_by_ctrl_c(_config: Any) -> None:
+        raise KeyboardInterrupt
+
+    result = run_main(["--no-browser"], env, FakeLaunch(on_serve=stopped_by_ctrl_c))
+
+    assert result is None  # returned normally: exit code 0
+
+
+def test_cli_maps_windows_ctrl_break_to_keyboard_interrupt_while_serving(
+    env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # uvicorn re-raises Ctrl+Break after shutting down; Python's default for SIGBREAK would end
+    # the process with code 3, so the CLI treats it like Ctrl+C while serving (ADR-040).
+    import signal as real_signal
+    import types
+
+    installed: dict[int, object] = {}
+    fake_signal = types.SimpleNamespace(
+        SIGBREAK=21,
+        default_int_handler=real_signal.default_int_handler,
+        getsignal=lambda signum: installed.get(signum, "previous"),
+        signal=lambda signum, handler: installed.__setitem__(signum, handler),
+    )
+    monkeypatch.setattr("app.cli.signal", fake_signal)
+    seen: list[object] = []
+
+    run_main(["--no-browser"], env, FakeLaunch(on_serve=lambda _c: seen.append(installed.get(21))))
+
+    assert seen == [real_signal.default_int_handler]
+    assert installed[21] == "previous"

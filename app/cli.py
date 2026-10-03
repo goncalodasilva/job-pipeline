@@ -6,19 +6,22 @@ browser opens once ``/health`` answers. Errors print one plain line, never a tra
 log file keeps the details.
 
 Exit codes: 0 after a normal stop, 1 when the port is taken or start-up fails, 2 for an
-invalid setting or command-line option, 130 for Ctrl+C before the server starts (ADR-040).
+invalid setting or command-line option, 130 for Ctrl+C before serving begins (ADR-040). Once
+serving has begun, Ctrl+C (or Ctrl+Break on Windows) is a normal stop.
 """
 
 import argparse
 import logging
 import os
+import signal
 import socket
 import sys
 import threading
 import time
 import urllib.request
 import webbrowser
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
@@ -151,11 +154,32 @@ def _start(
     if not config.no_browser:
         _open_browser_when_ready(launcher, config.port, stop_polling)
     try:
-        started = launcher.serve(server_config(app, config.port))
+        with _ctrl_break_as_interrupt():
+            started = launcher.serve(server_config(app, config.port))
     except SystemExit:  # uvicorn exits on a lifespan or bind failure after logging it
         started = False
+    except KeyboardInterrupt:  # uvicorn re-raises Ctrl+C (and Ctrl+Break) after shutting down
+        started = True
     if not started:
         _fail(1, f"The app couldn't start. Details are in {config.data_dir / 'logs'}.")
+
+
+@contextmanager
+def _ctrl_break_as_interrupt() -> Iterator[None]:
+    """On Windows, make the Ctrl+Break that uvicorn re-raises a KeyboardInterrupt.
+
+    Python's default SIGBREAK action ends the process with code 3 and skips clean-up.
+    """
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is None:
+        yield
+        return
+    previous = signal.getsignal(sigbreak)
+    signal.signal(sigbreak, signal.default_int_handler)
+    try:
+        yield
+    finally:
+        signal.signal(sigbreak, previous)
 
 
 def _open_browser_when_ready(launcher: Launcher, port: int, stop: threading.Event) -> None:

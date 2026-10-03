@@ -29,6 +29,8 @@ pytestmark = pytest.mark.integration
 START = datetime(2026, 1, 3, 9, 0, 0, tzinfo=UTC)
 PORT = 8000
 HOST = f"127.0.0.1:{PORT}"
+# The counting test page; the app's own placeholder page keeps "/".
+PAGE_PATH = "/page-demo"
 ORIGIN = f"http://{HOST}"
 STATIC_TEXT = "body { color: black; }\n"
 
@@ -82,7 +84,7 @@ def _add_test_routes(app: FastAPI, hits: Counter[str], static_dir: Path) -> None
         await websocket.send_text("hello")
         await websocket.close()
 
-    app.add_api_route("/", page, methods=["GET", "HEAD"], tags=[PAGE_TAG])
+    app.add_api_route(PAGE_PATH, page, methods=["GET", "HEAD"], tags=[PAGE_TAG])
     app.add_api_route("/fragments/demo", fragment, methods=["GET"])
     app.add_api_route("/actions/demo", action, methods=["POST", "PUT", "PATCH", "DELETE"])
     app.add_api_route("/api/demo", api, methods=["GET"])
@@ -130,7 +132,7 @@ FOREIGN_HOSTS = [
 
 @pytest.mark.parametrize("host", FOREIGN_HOSTS)
 def test_ac_m0_2_foreign_host_rejected(harness: Harness, host: str) -> None:
-    for method, path in (("GET", "/"), ("GET", "/health"), ("POST", "/actions/demo")):
+    for method, path in (("GET", PAGE_PATH), ("GET", "/health"), ("POST", "/actions/demo")):
         response = harness.client.request(
             method, path, headers=harness.headers(host=host, origin=f"http://{host}")
         )
@@ -156,8 +158,8 @@ def test_ac_m0_2_missing_host_header_rejected(harness: Harness) -> None:
         "http_version": "1.1",
         "method": "GET",
         "scheme": "http",
-        "path": "/",
-        "raw_path": b"/",
+        "path": PAGE_PATH,
+        "raw_path": PAGE_PATH.encode(),
         "root_path": "",
         "query_string": b"",
         "headers": [],
@@ -174,7 +176,7 @@ def test_ac_m0_2_missing_host_header_rejected(harness: Harness) -> None:
 
 @pytest.mark.parametrize("host", ["127.0.0.1:8000", "localhost:8000", "LOCALHOST:8000"])
 def test_ac_m0_2_loopback_hosts_allowed(harness: Harness, host: str) -> None:
-    page = harness.client.get("/", headers={"host": host})
+    page = harness.client.get(PAGE_PATH, headers={"host": host})
     assert page.status_code == 200
     assert harness.hits["page"] == 1
 
@@ -371,18 +373,18 @@ def test_origin_null_403(harness: Harness) -> None:
 
 
 def test_page_get_without_token_ok(harness: Harness) -> None:
-    response = harness.client.get("/")
+    response = harness.client.get(PAGE_PATH)
     assert response.status_code == 200
     assert response.text == "<p>page</p>"
 
-    head = harness.client.head("/")
+    head = harness.client.head(PAGE_PATH)
     assert head.status_code == 200
     assert harness.hits["page"] == 2
 
 
 def test_page_get_needs_no_origin(harness: Harness) -> None:
     """Safe methods skip the origin check, even with a foreign Origin."""
-    response = harness.client.get("/", headers={"origin": "http://evil.example:8000"})
+    response = harness.client.get(PAGE_PATH, headers={"origin": "http://evil.example:8000"})
     assert response.status_code == 200
 
 
@@ -442,7 +444,7 @@ def test_untagged_get_without_hx_request_still_needs_token(harness: Harness) -> 
 
 
 def test_page_route_with_hx_request_needs_token(harness: Harness) -> None:
-    response = harness.client.get("/", headers={"HX-Request": "true"})
+    response = harness.client.get(PAGE_PATH, headers={"HX-Request": "true"})
 
     assert response.status_code == 403
     assert harness.hits["page"] == 0
@@ -465,7 +467,7 @@ def _raw_request(app: FastAPI, method: str, headers: list[tuple[bytes, bytes]]) 
     async def send(message: dict[str, Any]) -> None:
         messages.append(message)
 
-    path = "/actions/demo" if method == "POST" else "/"
+    path = "/actions/demo" if method == "POST" else PAGE_PATH
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -535,11 +537,11 @@ PROTECTIVE_HEADERS = {
 @pytest.mark.parametrize(
     ("method", "path", "headers", "status"),
     [
-        ("GET", "/", {}, 200),
+        ("GET", PAGE_PATH, {}, 200),
         ("GET", "/health", {}, 200),
         ("GET", "/static/app.css", {}, 200),
         ("GET", "/fragments/demo", {}, 403),
-        ("GET", "/", {"host": "evil.example:8000"}, 400),
+        ("GET", PAGE_PATH, {"host": "evil.example:8000"}, 400),
     ],
     ids=["page", "health", "static", "rejected-403", "rejected-400"],
 )
@@ -551,3 +553,88 @@ def test_every_response_forbids_framing_and_sniffing(
     assert response.status_code == status
     for name, value in PROTECTIVE_HEADERS.items():
         assert response.headers.get_list(name) == [value], name
+
+
+# --- page decision follows real dispatch (M0.16 review regressions) --------------------------
+
+
+def _create(tmp_path: Path) -> FastAPI:
+    return create_app(_config(tmp_path), clock=FrozenClock(START))
+
+
+def test_non_page_get_in_an_included_router_needs_token(tmp_path: Path) -> None:
+    from fastapi import APIRouter
+
+    app = _create(tmp_path)
+    router = APIRouter()
+    router.add_api_route("/included/data", lambda: {"secret": "fictional"}, methods=["GET"])
+    app.include_router(router)
+
+    with TestClient(app, base_url=f"http://{HOST}") as client:
+        assert client.get("/included/data").status_code == 403
+        token = {TOKEN_HEADER: app.state.launch_token}
+        assert client.get("/included/data", headers=token).status_code == 200
+
+
+def test_page_tag_in_another_included_router_is_not_token_free(tmp_path: Path) -> None:
+    # Pages must be registered with app.api.pages.register_pages; anything else needs the token.
+    from fastapi import APIRouter
+
+    app = _create(tmp_path)
+    router = APIRouter()
+    router.add_api_route("/elsewhere", lambda: {"page": False}, methods=["GET"], tags=[PAGE_TAG])
+    app.include_router(router)
+
+    with TestClient(app, base_url=f"http://{HOST}") as client:
+        assert client.get("/elsewhere").status_code == 403
+
+
+def test_earlier_non_page_route_on_a_page_path_needs_token(tmp_path: Path) -> None:
+    # The route dispatch actually picks decides, not "any page route matches".
+    from fastapi.routing import APIRoute
+
+    app = _create(tmp_path)
+    shadow = APIRoute("/", lambda: {"secret": "fictional"}, methods=["GET"])
+    app.router.routes.insert(0, shadow)
+
+    with TestClient(app, base_url=f"http://{HOST}") as client:
+        response = client.get("/")
+        assert response.status_code == 403
+        assert "fictional" not in response.text
+
+
+def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) -> None:
+    from fastapi.routing import APIRoute
+
+    app = _create(tmp_path)
+    pages = [
+        route
+        for route in app.router.routes
+        if isinstance(route, APIRoute) and PAGE_TAG in route.tags
+    ]
+    assert pages, "the app must register at least the root page"
+    with TestClient(app, base_url=f"http://{HOST}") as client:
+        for route in pages:
+            response = client.get(route.path)
+            assert response.status_code == 200, route.path
+            assert response.headers["content-type"].startswith("text/html"), route.path
+
+
+def test_included_routers_hold_no_page_routes(tmp_path: Path) -> None:
+    # Uses FastAPI's private _IncludedRouter on purpose: an upgrade that changes it fails here.
+    from fastapi.routing import APIRoute
+
+    app = _create(tmp_path)
+    for route in app.router.routes:
+        original = getattr(route, "original_router", None)
+        if original is None:
+            continue
+        for inner in original.routes:
+            assert not (isinstance(inner, APIRoute) and PAGE_TAG in inner.tags), inner.path
+
+
+def test_page_responses_are_never_cached(harness: Harness) -> None:
+    response = harness.client.get(PAGE_PATH)
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"

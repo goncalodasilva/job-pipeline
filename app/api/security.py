@@ -15,7 +15,7 @@ WebSocket connections are refused; the app doesn't use them.
 
 import hmac
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from urllib.parse import urlsplit
 
 from fastapi.routing import APIRoute
@@ -42,15 +42,20 @@ def generate_launch_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def page_route_matcher(routes: Callable[[], list[BaseRoute]]) -> Callable[[Scope], bool]:
-    """Return a check: does this request fully match a route tagged ``PAGE_TAG``?"""
+def page_route_matcher(routes: Callable[[], Iterable[BaseRoute]]) -> Callable[[Scope], bool]:
+    """Return a check: will dispatch hand this request to a route tagged ``PAGE_TAG``?
+
+    Mirrors the router: the first route that fully matches decides. A page route only counts
+    when it is that first match, so an earlier non-page route on the same path still needs the
+    token. Routes inside included routers are opaque here, so pages must be registered on the
+    app itself (``app.api.pages.register_pages``); a page anywhere else needs the token.
+    """
 
     def is_page(scope: Scope) -> bool:
         for route in routes():
-            if isinstance(route, APIRoute) and PAGE_TAG in route.tags:
-                match, _ = route.matches(scope)
-                if match is Match.FULL:
-                    return True
+            match, _ = route.matches(scope)
+            if match is Match.FULL:
+                return isinstance(route, APIRoute) and PAGE_TAG in route.tags
         return False
 
     return is_page
@@ -89,7 +94,10 @@ class SecurityMiddleware:
             await _plain(send, 400, "Invalid host.")
             return
         method = scope["method"].upper()
-        if self._needs_token(scope, method, headers) and not self._token_ok(headers):
+        page = method in _PAGE_METHODS and self._is_page(scope)
+        if page:  # pages embed the launch token, so no cache may keep them
+            send = _with_header(send, (b"cache-control", b"no-store"))
+        if self._needs_token(scope, method, headers, page) and not self._token_ok(headers):
             await _plain(send, 403, "Forbidden.")
             return
         if method not in _SAFE_METHODS and not _same_origin(headers, host):
@@ -97,13 +105,15 @@ class SecurityMiddleware:
             return
         await self._app(scope, receive, send)
 
-    def _needs_token(self, scope: Scope, method: str, headers: dict[bytes, list[bytes]]) -> bool:
+    def _needs_token(
+        self, scope: Scope, method: str, headers: dict[bytes, list[bytes]], page: bool
+    ) -> bool:
         if method not in _PAGE_METHODS:
             return True
         path = scope["path"]
         if path in _TOKEN_FREE_PATHS or path.startswith(_TOKEN_FREE_PREFIXES):
             return False
-        return b"hx-request" in headers or not self._is_page(scope)
+        return b"hx-request" in headers or not page
 
     def _token_ok(self, headers: dict[bytes, list[bytes]]) -> bool:
         values = headers.get(TOKEN_HEADER.lower().encode("latin-1"), [])
@@ -119,6 +129,16 @@ def _with_protective_headers(send: Send) -> Send:
         await send(message)
 
     return send_protected
+
+
+def _with_header(send: Send, header: tuple[bytes, bytes]) -> Send:
+    async def send_with_header(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            kept = [(k, v) for k, v in message.get("headers", []) if k.lower() != header[0]]
+            message = {**message, "headers": [*kept, header]}
+        await send(message)
+
+    return send_with_header
 
 
 def _headers(scope: Scope) -> dict[bytes, list[bytes]]:

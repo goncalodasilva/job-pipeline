@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api.health import router as health_router
+from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.config import RuntimeConfig
 from app.domain.clock import Clock, SystemClock
@@ -68,4 +69,5 @@ def create_app(
         is_page=page_route_matcher(lambda: app.router.routes),
     )
     app.include_router(health_router)
+    register_pages(app)
     return app
