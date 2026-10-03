@@ -176,3 +176,9 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - The domain's network submodules (`http.client`, `http.cookiejar`, `http.server`, `urllib.request`) are blocked by an AST test (`tests/unit/test_domain_purity.py`), so pure parts such as `urllib.parse` stay allowed.
   - A test checks every entry of every forbidden contract, and another checks that the expected legal import chain keeps every contract.
 - Consequences: because tasks sit above services, services cannot import `app.tasks`; enqueueing from a service goes through an interface injected by `app/wiring.py`. Whether the task runner may call module interfaces directly (spec 2.5 diagram) or only services (spec 2.3 rule 6) is open with the user; the contract currently follows rule 6.
+
+## ADR-034 — The task runner works only through services (2026-10-03)
+
+- Context: spec 2.3 rule 6 says task handlers only call services; the spec 2.5 diagram shows the runner calling the AI module and saving results itself (open question in ADR-033).
+- Decision: rule 6 wins. The task runner and its handlers call service functions only; services call the AI module, record usage and save drafts. The "Task handlers stay thin" contract stays as it is.
+- Consequences: the spec 2.5 diagram is read as the logical flow; in code, the runner's "AI call" and "save draft + mark succeeded" steps are service calls. Services enqueue tasks through an interface injected by `app/wiring.py`.
