@@ -5,6 +5,8 @@ schemas. The step-by-step path replays the real migrations folder one file at a 
 check stays meaningful as later milestones add migrations. All values are fictional.
 """
 
+import hashlib
+import json
 import re
 import shutil
 import sqlite3
@@ -184,6 +186,71 @@ def test_tasks_status_check_rejects_unknown_state(db: Database) -> None:
             insert_task(conn, f"bad-{index:04d}", status)
 
 
+STAMP = "2026-01-03T09:00:00+00:00"
+VALID_ROWS: dict[str, dict[str, object]] = {
+    "settings": {"key": "theme", "value": '"light"', "created_at": STAMP, "updated_at": STAMP},
+    "setup_state": {
+        "step_id": "welcome",
+        "status": "pending",
+        "created_at": STAMP,
+        "updated_at": STAMP,
+    },
+    "tasks": {
+        "id": "task-0001",
+        "type": "fictional_task",
+        "status": "queued",
+        "dedupe_key": "fictional_task:1",
+        "created_at": STAMP,
+        "updated_at": STAMP,
+    },
+    "usage_records": {
+        "id": "usage-0001",
+        "provider": "fake",
+        "task_type": "fictional_task",
+        "requested_at": STAMP,
+        "created_at": STAMP,
+        "updated_at": STAMP,
+    },
+}
+WHOLE_NUMBER_COLUMNS = [
+    ("settings", "version", 2),
+    ("setup_state", "version", 2),
+    ("tasks", "version", 2),
+    ("tasks", "attempt", 2),
+    ("tasks", "progress", 50),
+    ("tasks", "cancel_requested", 1),
+    ("usage_records", "version", 2),
+    ("usage_records", "units", 3),
+    ("usage_records", "success", 1),
+]
+
+
+def insert_row(conn: sqlite3.Connection, table: str, row: dict[str, object]) -> None:
+    columns = ", ".join(row)
+    marks = ", ".join("?" for _ in row)
+    conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({marks})", tuple(row.values()))  # noqa: S608
+
+
+@pytest.mark.parametrize(
+    ("table", "column", "good"),
+    WHOLE_NUMBER_COLUMNS,
+    ids=[f"{table}.{column}" for table, column, _ in WHOLE_NUMBER_COLUMNS],
+)
+def test_whole_number_columns_reject_text_and_fractions(
+    db: Database, table: str, column: str, good: int
+) -> None:
+    # Tables aren't STRICT (ADR-027), so 0001 checks typeof() itself: text such as 'abc'
+    # would otherwise pass a numeric CHECK because SQLite sorts text above every number.
+    conn = db.connection
+    for bad in ("abc", 1.5):
+        with pytest.raises(sqlite3.IntegrityError):
+            insert_row(conn, table, {**VALID_ROWS[table], column: bad})
+
+    insert_row(conn, table, {**VALID_ROWS[table], column: good})
+    stored = conn.execute(f"SELECT {column}, typeof({column}) FROM {table}").fetchone()  # noqa: S608
+    assert tuple(stored) == (good, "integer")
+
+
 def test_setup_state_status_check(db: Database) -> None:
     conn = db.connection
     for status in SETUP_STATES:
@@ -240,3 +307,24 @@ def test_0001_schema_migrations_matches_the_runner_table() -> None:
 
     initial = (MIGRATIONS_DIR / "0001_initial.sql").read_text(encoding="utf-8")
     assert columns(initial) == columns(_SCHEMA_MIGRATIONS)
+
+
+MIGRATION_HASHES = Path(__file__).parents[1] / "fixtures" / "migration_hashes.json"
+
+
+def test_committed_migrations_are_never_edited() -> None:
+    # Migrations are forward-only and never edited after commit (.claude/rules/database.md).
+    # A new migration gets its SHA-256 added here once; changing an existing one fails.
+    recorded: dict[str, str] = json.loads(MIGRATION_HASHES.read_text(encoding="utf-8"))
+    actual = {
+        migration.path.name: hashlib.sha256(migration.path.read_bytes()).hexdigest()
+        for migration in load_migrations(MIGRATIONS_DIR)
+    }
+
+    missing = sorted(set(actual) - set(recorded))
+    assert not missing, f"record new migrations in {MIGRATION_HASHES.name}: " + ", ".join(
+        f'"{name}": "{actual[name]}"' for name in missing
+    )
+    assert sorted(set(recorded) - set(actual)) == [], "a recorded migration was deleted"
+    changed = sorted(name for name in actual if actual[name] != recorded[name])
+    assert changed == [], f"committed migrations were edited: {changed}; fix forward instead"

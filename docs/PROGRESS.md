@@ -138,3 +138,4 @@ Status: not planned
 - 2026-10-03: M0.10 done: JSON logging with rotating files and a redaction filter on handlers (ADR-037).
 - 2026-10-03: M0.11 done: SQLite database wrapper and forward-only migration runner with backups (ADR-038).
 - 2026-10-03: M0.12 done: migration 0001 (settings, setup_state, tasks, usage_records) and schema-equality test.
+- 2026-10-03: M0.12 follow-up (user request): migration hash check, and a one-time approved edit of 0001 adding `typeof` checks to whole-number columns; `verify.sh full` PASS (360 fast tests, 9 e2e).

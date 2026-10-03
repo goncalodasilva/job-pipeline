@@ -1,3 +1,5 @@
 # Vendored third-party files stay byte-identical to upstream on every OS (their hashes are tested).
 tests/e2e/vendor/** -text
 app/static/vendor/** -text
+# Committed migrations are hash-checked (tests/integration/test_schema.py); never convert line endings.
+app/modules/storage/migrations/*.sql -text
