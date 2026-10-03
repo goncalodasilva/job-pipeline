@@ -200,3 +200,9 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - `EventData` carries a stable `uid` (RFC 5545), so re-exporting an event updates it instead of duplicating it; calendar providers take an injected `Clock` for timestamps.
   - Fetchers clamp `FetchLimits` to the spec 2.9.6 maximums; `max_redirects=5` is an added limit. Unfetchable pages raise `FetchRefused` or `NetworkUnavailable`.
 - Consequences: spec 2.4 points here. Later milestones may extend these types (ADR-026), each change with a test.
+
+## ADR-037 — Logging details (2026-10-03)
+
+- Context: M0.10 implements JSON logging with rotating files and a redaction filter.
+- Decision: 5 x 1 MiB means 1 MiB per file, the live file plus 4 backups; log folder 0700 and files 0600 on POSIX; redaction covers registered secrets and their repr/JSON/bytes/URL-encoded forms plus case-insensitive `sk-ant-<kind><n>-` token shapes; the filter is on our root handlers only, so `configure_logging` must run before other handlers exist and uvicorn needs `log_config=None` (startup wiring in M0.15); Python warnings are captured into logging; extras never overwrite the core JSON fields and uvicorn's `color_message` is dropped.
+- Consequences: spec 2.10 updated.

@@ -306,7 +306,7 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 
 ### 2.10 Logging and diagnostics
 
-Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MB). Prompt contents and personal data are not logged by default; a local debug setting can enable prompt logging and shows a warning while on. `GET /health` returns app version, database status and task runner status.
+Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MiB; ADR-037). Prompt contents and personal data are not logged by default; a local debug setting can enable prompt logging and shows a warning while on. `GET /health` returns app version, database status and task runner status.
 
 ### 2.11 Errors
 
