@@ -128,6 +128,7 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Context: the detailed design's columns for `settings`, `setup_state`, `tasks` and `usage_records` lack the `created_at`, `updated_at` and `version` columns that spec 2.7 requires on mutable tables. The spec takes precedence.
 - Decision: every mutable table in `0001` carries `created_at`, `updated_at` and `version`. `0001` has no full-text search tables (their source tables arrive in M3 and M4); M0 only tests that SQLite supports FTS5 and JSON. The unique partial index on active `tasks.dedupe_key` and the `usage_records.task_id` link are added by an M2 migration.
 - Consequences: spec section 5 (M0 and M2 scope) updated.
+- Details (M0.12): CHECK constraints on tasks.status (six states), setup_state.status (pending, done, skipped), settings.value json_valid, cancel_requested 0/1, attempt >= 1, units >= 0, version >= 1; tier left unconstrained; usage_records.success NULL while a call is in flight; progress INTEGER 0-100; no STRICT tables because Linux Python builds may ship SQLite older than 3.37, so repositories must bind integers; indexes tasks(status) and usage_records(provider, requested_at). Changing a CHECK later needs a table rebuild (see migrations README).
 
 ## ADR-028 — Critical coverage registry with due milestones (2026-10-03)
 
