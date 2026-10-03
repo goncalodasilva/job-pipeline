@@ -658,7 +658,7 @@ flowchart LR
   6. Cancellation: a flag checked between steps; the provider call is aborted where possible; partial output discarded.
   7. Usage accounting: a usage record is reserved before each external call and completed after it.
   8. Reconnecting pages re-fetch task state, so missed events don't matter.
-  9. SQLite in WAL mode with a busy timeout and short transactions.
+  9. SQLite in WAL mode with a busy timeout and short transactions. The runner works on the event-loop thread, so its database calls go through `asyncio.to_thread` and nothing is awaited inside `Database.transaction()`: the transaction lock is per thread (ADR-038), so two coroutines interleaving inside one transaction would collide, and a blocking call would stall the loop.
   10. Failure tests for each of the above.
 - A migration adding the unique partial index on active `tasks.dedupe_key` (queued or running) and a `task_id` link from `usage_records` to `tasks` (deferred from M0, ADR-027).
 - Server-sent events endpoint and htmx SSE wiring; top-bar task indicator and tasks panel.
@@ -1029,3 +1029,11 @@ Start in the default (manual) mode until the workflow feels trustworthy, use pla
 - **Controlled list:** the allowed values for a structured field, with aliases.
 - **Untrusted content:** any text that did not come from the user's own direct input, delimited before reaching a prompt.
 - **Setup guide:** the onboarding module that runs on first launch and can be re-run.
+
+### 7.5 Known technical debt
+
+Accepted shortcuts to revisit; each names its trigger.
+
+| Item | Why it is accepted now | Revisit when |
+| --- | --- | --- |
+| Tests use `httpx` with `starlette.testclient`, which Starlette deprecates in favour of `httpx2` (a `StarletteDeprecationWarning` in every test run). | Works with the versions locked in `uv.lock`; `httpx` stays anyway as the M4 fetch dependency; switching adds a dev dependency (user decision, 2026-10-03). | A Starlette or FastAPI upgrade drops `httpx` support in `TestClient`, or before M9 release hardening. |
