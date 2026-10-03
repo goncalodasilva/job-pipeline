@@ -18,6 +18,7 @@ from tests.fakes.clock import FrozenClock
 pytestmark = pytest.mark.integration
 
 START = datetime(2026, 1, 3, 9, 0, 0, tzinfo=UTC)
+BASE_URL = "http://127.0.0.1:8000"  # must pass the host check (spec 2.9 rule 1)
 TABLES_FROM_0001 = {"schema_migrations", "settings", "setup_state", "tasks", "usage_records"}
 
 
@@ -69,7 +70,7 @@ def test_lifespan_sets_app_state(tmp_path: Path) -> None:
 
 
 def test_health_returns_version_database_ok_runner_running(tmp_path: Path) -> None:
-    with TestClient(_app(tmp_path)) as client:
+    with TestClient(_app(tmp_path), base_url=BASE_URL) as client:
         response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {
@@ -81,7 +82,7 @@ def test_health_returns_version_database_ok_runner_running(tmp_path: Path) -> No
 
 def test_health_needs_no_launch_token_and_exposes_no_paths(tmp_path: Path) -> None:
     """ADR-023: reachable without a token, and never includes personal data such as paths."""
-    with TestClient(_app(tmp_path)) as client:
+    with TestClient(_app(tmp_path), base_url=BASE_URL) as client:
         response = client.get("/health")
     assert response.status_code == 200
     assert set(response.json()) == {"version", "database", "runner"}
@@ -102,7 +103,7 @@ def test_shutdown_stops_runner_and_closes_db(tmp_path: Path) -> None:
 
 def test_health_reports_database_error_with_503(tmp_path: Path) -> None:
     app = _app(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(app, base_url=BASE_URL) as client:
         app.state.db.close()
         response = client.get("/health")
     assert response.status_code == 503

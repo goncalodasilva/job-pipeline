@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api.health import router as health_router
+from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.config import RuntimeConfig
 from app.domain.clock import Clock, SystemClock
 from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
@@ -48,6 +49,23 @@ def create_app(
             finally:
                 db.close()
 
-    app = FastAPI(title="Job Search Pipeline", version=__version__, lifespan=lifespan)
+    # No generated API docs: page GETs need no token, so they would expose every route.
+    app = FastAPI(
+        title="Job Search Pipeline",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    launch_token = generate_launch_token()
+    app.state.launch_token = launch_token
+    # Added last, so it stays the outermost user middleware: nothing runs before these checks.
+    app.add_middleware(
+        SecurityMiddleware,
+        port=config.port,
+        launch_token=launch_token,
+        is_page=page_route_matcher(lambda: app.router.routes),
+    )
     app.include_router(health_router)
     return app

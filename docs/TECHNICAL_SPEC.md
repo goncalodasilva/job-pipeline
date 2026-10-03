@@ -303,6 +303,9 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 8. When the app calls the Agent SDK, it MUST isolate the call from any developer configuration: run in an empty temporary working directory and disable loading of filesystem settings (the SDK's `setting_sources` option at the time of writing; verify against the installed SDK version).
 9. Secrets live only in the keychain (or the environment fallback). They MUST NOT be stored in the database, written to logs, returned by any endpoint, or included in exports. A logging filter redacts configured secret values and token-shaped strings.
 10. The app sends no telemetry.
+11. Every HTTP response, rejections included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so no other site can frame the app and trick a click (ADR-039).
+12. Only routes the server registers as pages (`tags=[PAGE_TAG]`) may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Token-free GETs return only full HTML pages. Never add CORS headers, and never put the token in a URL or log (ADR-039).
+13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it.
 
 ### 2.10 Logging and diagnostics
 
@@ -661,7 +664,7 @@ flowchart LR
   9. SQLite in WAL mode with a busy timeout and short transactions. The runner works on the event-loop thread, so its database calls go through `asyncio.to_thread` and nothing is awaited inside `Database.transaction()`: the transaction lock is per thread (ADR-038), so two coroutines interleaving inside one transaction would collide, and a blocking call would stall the loop.
   10. Failure tests for each of the above.
 - A migration adding the unique partial index on active `tasks.dedupe_key` (queued or running) and a `task_id` link from `usage_records` to `tasks` (deferred from M0, ADR-027).
-- Server-sent events endpoint and htmx SSE wiring; top-bar task indicator and tasks panel.
+- Server-sent events endpoint and htmx SSE wiring; top-bar task indicator and tasks panel. The browser's `EventSource` can't send the `X-JP-Token` header, so decide how the stream is authorised (never with the token in the URL; ADR-039).
 - Usage service: optional budgets per provider (allowance, two warnings, blocking point, reset day), per-tier caps, provider-reported usage where available (the higher count wins), warning dialogs once per threshold per cycle, blocking with alternatives, budget hook for web search tool calls.
 - Setup step 3 (web search and optional budget); Settings > Usage budgets; usage breakdown by tier and task.
 
