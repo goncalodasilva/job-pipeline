@@ -1,0 +1,118 @@
+"""User-facing error classes (spec 2.11; task M0.7)."""
+
+from datetime import date
+
+import pytest
+
+from app.domain import errors
+from app.domain.errors import (
+    AppError,
+    BudgetBlocked,
+    FetchRefused,
+    InvalidModelOutput,
+    NetworkUnavailable,
+    ProviderAuthError,
+    ProviderNotInstalled,
+    UsageLimitReached,
+    VersionConflict,
+)
+
+FIXED_MESSAGES: dict[type[AppError], str] = {
+    ProviderNotInstalled: ("Claude Code wasn't found. Install it, or choose Claude via API key."),
+    ProviderAuthError: ("The token or key was rejected. Create a new one and paste it again."),
+    UsageLimitReached: (
+        "Your Claude plan's usage limit was reached. Try later or switch provider."
+    ),
+    NetworkUnavailable: "No connection. Nothing was lost; try again.",
+    InvalidModelOutput: "The AI response didn't have the expected shape. Try again.",
+    VersionConflict: "This item changed elsewhere. Reload to see the latest version.",
+    FetchRefused: "This address can't be fetched. Paste the job text instead.",
+}
+
+SPEC_ERROR_NAMES = (
+    "ProviderNotInstalled",
+    "ProviderAuthError",
+    "UsageLimitReached",
+    "BudgetBlocked",
+    "NetworkUnavailable",
+    "InvalidModelOutput",
+    "VersionConflict",
+    "FetchRefused",
+)
+
+
+def fake_key() -> str:
+    # Built at runtime so no key-shaped literal exists in the repo (M0.3).
+    return "sk-ant-" + "x" * 10
+
+
+def build(cls: type[AppError], detail: str | None = None) -> AppError:
+    if cls is BudgetBlocked:
+        if detail is None:
+            return BudgetBlocked("Claude", date(2026, 11, 1))
+        return BudgetBlocked("Claude", date(2026, 11, 1), detail=detail)
+    if detail is None:
+        return cls()
+    return cls(detail=detail)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize(
+    ("cls", "expected"),
+    list(FIXED_MESSAGES.items()),
+    ids=[cls.__name__ for cls in FIXED_MESSAGES],
+)
+def test_error_user_messages_match_spec_2_11(cls: type[AppError], expected: str) -> None:
+    assert cls().user_message == expected
+
+
+def test_budget_blocked_message_names_service_and_reset_date() -> None:
+    error = BudgetBlocked("Claude", date(2026, 11, 1))
+
+    assert error.user_message == ("Monthly limit reached for Claude. Resets on 1 November 2026.")
+
+
+def test_budget_blocked_message_uses_given_service() -> None:
+    error = BudgetBlocked(service="Web search", resets_on=date(2027, 2, 1))
+
+    assert error.user_message == (
+        "Monthly limit reached for Web search. Resets on 1 February 2027."
+    )
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [*FIXED_MESSAGES, BudgetBlocked],
+    ids=[*(cls.__name__ for cls in FIXED_MESSAGES), "BudgetBlocked"],
+)
+def test_user_message_never_includes_internal_detail(cls: type[AppError]) -> None:
+    secret_like = fake_key()
+    detail = f"upstream said: invalid credential {secret_like}"
+
+    error = build(cls, detail=detail)
+
+    assert secret_like not in error.user_message
+    assert "upstream said" not in error.user_message
+    assert error.user_message == build(cls).user_message
+    assert str(error) == detail  # detail is for logs only
+
+
+@pytest.mark.parametrize("name", SPEC_ERROR_NAMES)
+def test_all_errors_derive_from_app_error(name: str) -> None:
+    cls = getattr(errors, name)
+
+    assert issubclass(cls, AppError)
+    assert cls is not AppError
+    assert issubclass(AppError, Exception)
+    with pytest.raises(AppError):
+        raise build(cls)
+
+
+def test_reset_date_is_written_the_same_whatever_the_system_locale() -> None:
+    # Month names come from a fixed list, not strftime, so the OS language can't change them.
+    for month, name in [(1, "January"), (5, "May"), (12, "December")]:
+        error = BudgetBlocked("Claude", date(2027, month, 9))
+        assert error.user_message.endswith(f"Resets on 9 {name} 2027.")
+
+
+def test_generic_app_error_makes_no_promise_it_cannot_keep() -> None:
+    assert AppError().user_message == "Something went wrong. Try again."
