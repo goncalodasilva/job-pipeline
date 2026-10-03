@@ -24,7 +24,7 @@ If sources conflict, stop and ask the user. Record the answer in `docs/DECISIONS
 
 ## Commands (available once M0 is done)
 
-- Install: `uv sync` (e2e browsers once: `uv run playwright install chromium`)
+- Install: `uv sync`, then `uv run pre-commit install` once per clone (e2e browsers once: `uv run playwright install chromium`)
 - Run: `uv run jobpipeline` (`--demo`, `--setup`, `--data-dir PATH`, `--port N`, `--no-browser`)
 - Quick verification: `bash .claude/skills/verify/scripts/verify.sh quick`
 - Full verification: `bash .claude/skills/verify/scripts/verify.sh full`

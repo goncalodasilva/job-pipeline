@@ -519,7 +519,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 
 | Purpose | Command |
 | --- | --- |
-| Install | `uv sync` |
+| Install | `uv sync`, then `uv run pre-commit install` once per clone |
 | Install browsers for e2e (once) | `uv run playwright install chromium` |
 | Format and lint | `uv run ruff format .` and `uv run ruff check .` |
 | Types | `uv run mypy app` |

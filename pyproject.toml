@@ -51,6 +51,8 @@ target-version = "py311"
 line-length = 100
 # Agent tooling (.claude/) and the spec's abbreviated code samples (docs/) are not project code.
 extend-exclude = [".claude", "docs"]
+# Pre-commit passes file names explicitly; keep honouring the excludes then too.
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S", "DTZ"]

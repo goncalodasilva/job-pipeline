@@ -69,6 +69,9 @@ pytest_step "smoke" -q -m smoke
 if [ "$MODE" = "full" ]; then
   pytest_step "end-to-end" -q -m e2e
   if [ -f .pre-commit-config.yaml ]; then step "pre-commit (all files)" uv run pre-commit run --all-files; fi
+  if [ -f .pre-commit-config.yaml ] && grep -q "gitleaks-history" .pre-commit-config.yaml; then
+    step "secrets in git history" uv run pre-commit run --hook-stage manual gitleaks-history
+  fi
 fi
 
 echo
