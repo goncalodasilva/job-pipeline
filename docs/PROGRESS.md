@@ -42,9 +42,10 @@ Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-032 (dependenci
   - AC: interface types only (ADR-026) for ai, search, calendar, secrets and fetch; implementations and contract suites come in their milestones.
   - Tests: unit `test_ai_request_defaults_no_web_search_and_no_hook`, `test_ai_capabilities_default_false`, `test_dataclasses_are_frozen[...]`, `test_protocol_conformance` (mypy over conforming dummies).
   - Evidence: 2026-10-03, `verify.sh quick` PASS (207 fast tests); 24 tests in `tests/unit/modules/test_module_interfaces.py`: the named ones plus spec 2.9 fetch limits, event time and uid validation, mypy `--strict` acceptance of narrowed and property-based implementations, and rejection of three mismatches; no vendor SDK imported. Refinements to spec 2.4 recorded in ADR-036 (fetch behind an injected `JobPageFetcher`, read-only protocol members, `EventData.uid`).
-- [ ] M0.9 Runtime config and data folder resolution
+- [x] M0.9 Runtime config and data folder resolution
   - AC: precedence CLI > env > bootstrap config > defaults; `JOBPIPELINE_CONFIG_DIR` overrides the config folder (ADR-024); demo uses `user_data_dir("jobpipeline-demo")` and `--data-dir` wins over `--demo` (ADR-025); malformed bootstrap config gives a plain error.
   - Tests: unit table-driven `test_precedence_cli_env_bootstrap_default[data_dir|port|log_level]`, `test_demo_uses_its_own_folder_and_ignores_bootstrap_data_dir`, `test_data_dir_wins_over_demo`, `test_invalid_port_env_raises_config_error`, `test_missing_bootstrap_is_none`, `test_malformed_bootstrap_raises_config_error`, `test_config_dir_override_env`.
+  - Evidence: tests/unit/test_config.py (72 cases, includes test_precedence_cli_env_bootstrap_default[data_dir|port|log_level], test_demo_uses_its_own_folder_and_ignores_bootstrap_data_dir, test_data_dir_wins_over_demo, test_invalid_port_env_raises_config_error, test_missing_bootstrap_is_none, test_malformed_bootstrap_raises_config_error, test_config_dir_override_env); VERIFY quick PASS (279 passed, ruff, mypy, 9 import contracts kept); code-review approved, review fixes applied.
 - [ ] M0.10 Logging with redaction
   - AC: AC-M0.5; JSON formatter; rotating files (5 x 1 MB); redaction filter on handlers so uvicorn logs pass through it; no module-level mutable state.
   - Tests: unit `test_ac_m0_5_registered_secret_redacted_in_message_args_extra_and_traceback` (including an `AppError` whose `detail` holds a secret), `test_ac_m0_5_anthropic_key_and_oauth_shapes_redacted[api03|oat01]`, `test_ac_m0_5_secret_embedded_in_arbitrary_text_redacted` (Hypothesis), `test_ac_m0_5_uvicorn_access_log_redacted`, `test_json_formatter_fields`, `test_rotation_1mb_5_files`.
@@ -61,7 +62,7 @@ Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-032 (dependenci
   - AC: AC-M0.2, AC-M0.3; host check, launch token (`X-JP-Token`, constant-time compare) on everything except page GETs, static files and `/health` (ADR-023), origin or referer check on state-changing requests.
   - Tests: integration `test_ac_m0_2_foreign_host_rejected[...]`, `test_ac_m0_2_loopback_hosts_allowed[...]`, `test_ac_m0_3_fragment_without_token_403`, `test_ac_m0_3_post_without_token_403`, `test_ac_m0_3_wrong_token_403`, `test_ac_m0_3_post_with_token_and_origin_handled`, `test_post_origin_mismatch_403`, `test_post_referer_fallback_ok`, `test_post_without_origin_or_referer_403`, `test_origin_null_403`, `test_page_get_without_token_ok`, `test_health_and_static_without_token_ok`; unit `test_launch_token_32_bytes_urlsafe_unique_per_app`.
 - [ ] M0.15 CLI flags, 127.0.0.1 binding, browser opening
-  - AC: AC-M0.1 (part); `--port`, `--data-dir`, `--no-browser`, `--setup` (stored only, ADR-030), `--demo`, `--version`; host fixed to 127.0.0.1; browser opened once after `/health` responds; friendly port-in-use message.
+  - AC: AC-M0.1 (part); `--port`, `--data-dir`, `--no-browser`, `--setup` (stored only, ADR-030), `--demo`, `--version`; host fixed to 127.0.0.1; browser opened once after `/health` responds; friendly port-in-use message. Map the flags to `CliOptions` (app/config.py, M0.9); print a `ConfigError`'s `detail` (it names the setting, never its value), because `user_message` is fixed generic text and config resolves before logging exists.
   - Tests: unit `test_cli_parses_all_flags`, `test_cli_binds_127_0_0_1_only`, `test_cli_has_no_host_flag`, `test_cli_opens_browser_once_after_health_200`, `test_cli_no_browser_never_opens`, `test_cli_port_in_use_prints_hint_and_exits_1`, `test_cli_setup_flag_sets_force_setup`, `test_cli_demo_selects_demo_data_dir`.
 - [ ] M0.16 Running-app fixture and smoke test
   - AC: AC-M0.1, AC-M0.5 end to end; subprocess fixture with temp data and config folders that works on Windows too.
@@ -75,6 +76,7 @@ Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-032 (dependenci
 - [ ] M0.19 CI completion, full verification, docs
   - AC: AC-M0.7; smoke, e2e and coverage jobs in CI; README and CLAUDE.md commands updated; verify.sh coverage run aligned with spec 4.5; mypy also type-checks `scripts/` (`files = ["app", "scripts"]`, bare `uv run mypy` in verify, CI, CLAUDE.md and spec 4.5).
   - Tests: unit `test_ci_has_smoke_e2e_and_coverage_jobs`; `verify.sh full` passes; CI run green on Ubuntu, macOS and Windows (URL as evidence).
+
 
 ## M1 — Secrets, AI provider and the setup guide
 
@@ -129,3 +131,4 @@ Status: not planned
 - 2026-10-03: M0.6 done: critical coverage script with milestone-aware registry (ADR-028).
 - 2026-10-03: M0.7 done: Clock, IdFactory, user-facing errors, FrozenClock and SequentialIdFactory fakes.
 - 2026-10-03: M0.8 done: interface types for the ai, search, calendar, secrets and fetch modules (ADR-036).
+- 2026-10-03: M0.9 done: runtime config resolution with CLI/env/bootstrap/defaults precedence, bootstrap config validation, demo folder, ConfigError handling.

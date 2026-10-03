@@ -113,9 +113,9 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Decision: add `JOBPIPELINE_CONFIG_DIR`, which replaces `platformdirs.user_config_dir("jobpipeline")` when set. Precedence is unchanged otherwise.
 - Consequences: spec 7.3 updated. Every test that starts the app sets both the data and the config folder to temporary folders.
 
-## ADR-025 — Demo mode folder (2026-10-03)
+## ADR-025 — Demo mode folder and config defaults (2026-10-03)
 
-- Decision: demo mode uses `platformdirs.user_data_dir("jobpipeline-demo")`, a sibling of the real data folder, and ignores the bootstrap config's `data_dir`. An explicit `--data-dir` wins over `--demo`. M0 only resolves the path; demo data seeding is M9.
+- Decision: demo mode uses `platformdirs.user_data_dir("jobpipeline-demo")`, a sibling of the real data folder, and ignores the bootstrap config's `data_dir`. An explicit `--data-dir` wins over `--demo`; `JOBPIPELINE_DATA_DIR` beats both. Bootstrap config `data_dir` must be an absolute path (with `~` expanded). The bootstrap file `config.toml` is always parsed, so a malformed file is reported even with `--demo` or `--data-dir`. Log levels are `DEBUG`, `INFO`, `WARNING`, `ERROR` (case-insensitive on input, uppercase in runtime config). Defaults are port 8000 and log level INFO. M0 only resolves the path; demo data seeding is M9.
 
 ## ADR-026 — Module interfaces in M0, implementations in their milestones (2026-10-03)
 

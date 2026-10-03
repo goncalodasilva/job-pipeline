@@ -76,5 +76,11 @@ class VersionConflict(AppError):
     message = "This item changed elsewhere. Reload to see the latest version."
 
 
+class ConfigError(AppError):
+    """A start-up setting is invalid. ``detail`` names the setting, never its value."""
+
+    message = "A setting isn't valid. Check the command options, environment and settings file."
+
+
 class FetchRefused(AppError):
     message = "This address can't be fetched. Paste the job text instead."

@@ -286,9 +286,9 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 
 ### 2.8 Configuration
 
-- **Bootstrap config:** `config.toml` in the platform config folder (`platformdirs.user_config_dir("jobpipeline")`), holding `data_dir` and the app version that created it. Its absence means first run (see M1).
+- **Bootstrap config:** `config.toml` in the platform config folder (`platformdirs.user_config_dir("jobpipeline")`), holding `data_dir` (absolute path; `~` is expanded) and the app version that created it. Its absence means first run (see M1). The file is always parsed, so malformed TOML is reported even with `--demo` or `--data-dir`.
 - **Settings:** a `settings` table of JSON values, each validated by a typed model (providers, tiers, budgets, preferences, lists, statuses, appearance, session frequency).
-- **Precedence:** CLI flag, then environment variable, then bootstrap config, then defaults.
+- **Precedence:** CLI flag, then environment variable, then bootstrap config, then defaults (port 8000, log level INFO). See 7.3 for environment variables and defaults.
 - **Environment variables:** listed in 7.3. `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` are fallbacks only, for systems without a keychain and for development.
 
 ### 2.9 Security model
@@ -1002,19 +1002,19 @@ Start in the default (manual) mode until the workflow feels trustworthy, use pla
 | `live` | Real providers; skipped unless `JOBPIPELINE_LIVE_TESTS=1` |
 | `slow` | Longer property or performance tests |
 
-### 7.3 Environment variables
+### 7.3 Environment variables and defaults
 
-| Variable | Purpose |
-| --- | --- |
-| `JOBPIPELINE_DATA_DIR` | Data folder override |
-| `JOBPIPELINE_CONFIG_DIR` | Config folder override (bootstrap config location; used by tests, ADR-024) |
-| `JOBPIPELINE_PORT` | Port override |
-| `JOBPIPELINE_LOG_LEVEL` | Log level |
-| `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | `1` makes fake providers selectable (tests and demos only) |
-| `JOBPIPELINE_LIVE_TESTS` | `1` enables live tests |
-| `JOBPIPELINE_E2E_CHROMIUM` | Path to a Chromium executable for e2e tests instead of Playwright's managed one (tests only, ADR-035) |
-| `ANTHROPIC_API_KEY` | Fallback when no keychain is available |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Fallback when no keychain is available |
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `JOBPIPELINE_DATA_DIR` | Data folder override | `user_data_dir("jobpipeline")`; `user_data_dir("jobpipeline-demo")` with `--demo` |
+| `JOBPIPELINE_CONFIG_DIR` | Config folder override (bootstrap config location; used by tests, ADR-024) | `user_config_dir("jobpipeline")` |
+| `JOBPIPELINE_PORT` | Port override (1–65535) | 8000 |
+| `JOBPIPELINE_LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, case-insensitive) | `INFO` |
+| `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | `1` makes fake providers selectable (tests and demos only) | unset |
+| `JOBPIPELINE_LIVE_TESTS` | `1` enables live tests | unset |
+| `JOBPIPELINE_E2E_CHROMIUM` | Path to a Chromium executable for e2e tests instead of Playwright's managed one (tests only, ADR-035) | unset |
+| `ANTHROPIC_API_KEY` | Fallback when no keychain is available | unset |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Fallback when no keychain is available | unset |
 
 ### 7.4 Glossary
 
