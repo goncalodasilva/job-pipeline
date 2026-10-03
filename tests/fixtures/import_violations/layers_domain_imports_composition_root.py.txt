@@ -1,0 +1,2 @@
+# Deliberate violation of contract "Layering (spec 2.3)" for the import-linter contract self-test (AC-M0.6).
+import app.cli

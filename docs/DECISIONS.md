@@ -161,3 +161,18 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Context: the repository is private, so GitHub Actions minutes count against the plan (Windows ×2, macOS ×10).
 - Decision: lint and fast tests run on Ubuntu on every push and pull request. macOS and Windows run on pull requests to `main`, on manual dispatch (`workflow_dispatch`) and on a weekly schedule. Before a milestone is accepted, a run on all three operating systems must be green.
 - Consequences: AC-M0.7 is met by a manually dispatched or pull-request run on all three systems.
+
+## ADR-033 — How the module boundaries are enforced (2026-10-03)
+
+- Context: spec 2.3 is enforced with import-linter 2.15 (M0.2). The spike found:
+  - forbidden contracts accept standard-library modules and packages that are not installed yet;
+  - protected contracts fail while nothing imports the package, or while an allowed importer does not exist yet;
+  - submodules of external packages (for example `urllib.request`) cannot be forbidden.
+- Decision: nine contracts in `pyproject.toml`, each self-tested in `tests/integration/test_import_contracts.py`.
+  - Layering, top to bottom: composition root (`app.cli`, `app.main`, `app.wiring`, `app.config`, `app.logging_config`; they may import each other), `app.api`, `app.onboarding | app.tasks`, `app.services`, `app.modules | app.render`, `app.domain`. A `|` means the two sides must not import each other, which is stricter than the spec says about `app.modules` and `app.render`.
+  - The API and task-handler contracts check direct imports only, because routes and handlers legitimately reach storage through services. The services contract also checks indirect imports, so a module interface that re-exports a provider still fails.
+  - Vendor SDKs (rule 3) are forbidden contracts over all of `app`, exempting the provider package: `app.modules.ai.providers` for `claude_agent_sdk`, `app.modules.secrets.providers` for `keyring`, `app.modules.fetch` for `httpx`. M1 narrows the first two to `claude_sdk` and `keyring_store` once those files exist. Each further vendor library (icalendar, nh3, weasyprint, python-docx, pypdf or pdfplumber) gets its contract in the milestone that installs it.
+  - Rule 7: `app.onboarding`, `app.render` and `app.tasks` must not import any `providers` package; services and the API are already blocked by their own contracts.
+  - The domain's network submodules (`http.client`, `http.cookiejar`, `http.server`, `urllib.request`) are blocked by an AST test (`tests/unit/test_domain_purity.py`), so pure parts such as `urllib.parse` stay allowed.
+  - A test checks every entry of every forbidden contract, and another checks that the expected legal import chain keeps every contract.
+- Consequences: because tasks sit above services, services cannot import `app.tasks`; enqueueing from a service goes through an interface injected by `app/wiring.py`. Whether the task runner may call module interfaces directly (spec 2.5 diagram) or only services (spec 2.3 rule 6) is open with the user; the contract currently follows rule 6.

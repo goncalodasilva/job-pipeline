@@ -1,0 +1,2 @@
+# Deliberate violation of contract "API does not reach modules or SQLite (spec 2.3 rule 5)" for the import-linter contract self-test (AC-M0.6).
+import sqlite3

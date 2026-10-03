@@ -85,3 +85,100 @@ source = ["app"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+
+# Module boundaries from spec 2.3. Never weaken a contract to get green; propose an ADR instead.
+# Vendor rules are forbidden contracts over all of `app` with the provider package exempted,
+# because protected contracts require the package to be imported already (ADR-033).
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layering (spec 2.3)"
+type = "layers"
+layers = [
+    "(app.cli) : (app.main) : (app.wiring) : (app.config) : (app.logging_config)",
+    "app.api",
+    "app.onboarding | app.tasks",
+    "app.services",
+    "app.modules | app.render",
+    "app.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain is pure (spec 2.3 rule 1)"
+# Network submodules of http and urllib are blocked by tests/unit/test_domain_purity.py,
+# because import-linter cannot forbid submodules of external packages (ADR-033).
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = [
+    "claude_agent_sdk",
+    "fastapi",
+    "httpx",
+    "jinja2",
+    "keyring",
+    "platformdirs",
+    "socket",
+    "sqlite3",
+    "starlette",
+    "subprocess",
+    "uvicorn",
+]
+
+[[tool.importlinter.contracts]]
+name = "Services use module interfaces only and no web frameworks (spec 2.3 rule 4)"
+type = "forbidden"
+source_modules = ["app.services"]
+forbidden_modules = ["app.modules.*.providers", "fastapi", "jinja2", "starlette", "uvicorn"]
+
+[[tool.importlinter.contracts]]
+name = "API does not reach modules or SQLite (spec 2.3 rule 5)"
+type = "forbidden"
+source_modules = ["app.api"]
+forbidden_modules = ["app.modules", "sqlite3"]
+# Direct imports only: routes legitimately reach storage through services.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Task handlers stay thin (spec 2.3 rule 6)"
+type = "forbidden"
+source_modules = ["app.tasks"]
+forbidden_modules = ["app.modules", "app.render"]
+# Direct imports only: handlers legitimately reach modules through services.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Providers are chosen only in wiring (spec 2.3 rule 7)"
+type = "forbidden"
+source_modules = ["app.onboarding", "app.render", "app.tasks"]
+forbidden_modules = ["app.modules.*.providers"]
+
+[[tool.importlinter.contracts]]
+name = "claude_agent_sdk only in AI providers (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["claude_agent_sdk"]
+ignore_imports = [
+    "app.modules.ai.providers -> claude_agent_sdk",
+    "app.modules.ai.providers.** -> claude_agent_sdk",
+]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "keyring only in secrets providers (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["keyring"]
+ignore_imports = [
+    "app.modules.secrets.providers -> keyring",
+    "app.modules.secrets.providers.** -> keyring",
+]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "httpx only in the fetch module (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["httpx"]
+ignore_imports = ["app.modules.fetch -> httpx", "app.modules.fetch.** -> httpx"]
+unmatched_ignore_imports_alerting = "none"

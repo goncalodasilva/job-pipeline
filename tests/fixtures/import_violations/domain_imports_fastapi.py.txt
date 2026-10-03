@@ -1,0 +1,2 @@
+# Deliberate violation of contract "Domain is pure (spec 2.3 rule 1)" for the import-linter contract self-test (AC-M0.6).
+import fastapi

@@ -1,0 +1,2 @@
+# Deliberate violation of contract "Services use module interfaces only and no web frameworks (spec 2.3 rule 4)" for the import-linter contract self-test (AC-M0.6).
+import jinja2

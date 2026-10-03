@@ -1,0 +1,2 @@
+# Deliberate violation of contract "Providers are chosen only in wiring (spec 2.3 rule 7)" for the import-linter contract self-test (AC-M0.6).
+import app.modules.ai.providers
