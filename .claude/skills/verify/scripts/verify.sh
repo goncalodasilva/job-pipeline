@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Project verification recipe.
+# Usage: verify.sh [quick|full]
+#   quick: format, lint, types, module boundaries, fast tests, smoke run
+#   full:  quick, plus end-to-end tests, coverage thresholds and all pre-commit hooks
+# Prints "VERIFY <mode>: PASS" or "VERIFY <mode>: FAIL (...)" as its last line.
+set -u
+MODE="${1:-quick}"
+if [ "$MODE" != "quick" ] && [ "$MODE" != "full" ]; then
+  echo "Usage: verify.sh [quick|full]"; exit 2
+fi
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+cd "$ROOT" || exit 1
+
+if [ ! -f pyproject.toml ]; then
+  echo "No pyproject.toml yet (task M0.1 creates it). Nothing to verify."
+  echo "VERIFY $MODE: PASS (nothing to verify)"
+  exit 0
+fi
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv is not installed, so verification can't run. Install it from https://docs.astral.sh/uv/"
+  echo "VERIFY $MODE: FAIL (uv missing)"
+  exit 1
+fi
+
+failures=()
+step() {
+  local name="$1"; shift
+  echo "== $name: $*"
+  "$@"
+  local rc=$?
+  if [ $rc -eq 0 ]; then
+    echo "   PASS: $name"
+  else
+    echo "   FAIL: $name (exit $rc)"
+    failures+=("$name")
+  fi
+}
+pytest_step() {
+  # pytest exits 5 when no tests match the marker; that is not a failure early in the project.
+  local name="$1"; shift
+  echo "== $name: uv run pytest $*"
+  uv run pytest "$@"
+  local rc=$?
+  if [ $rc -eq 0 ]; then
+    echo "   PASS: $name"
+  elif [ $rc -eq 5 ]; then
+    echo "   SKIP: $name (no tests collected yet)"
+  else
+    echo "   FAIL: $name (exit $rc)"
+    failures+=("$name")
+  fi
+}
+
+step "format" uv run ruff format --check .
+step "lint" uv run ruff check .
+if grep -q "\[tool.mypy\]" pyproject.toml; then step "types" uv run mypy app; fi
+if grep -q "\[tool.importlinter\]" pyproject.toml; then step "module boundaries" uv run lint-imports; fi
+
+FAST='not e2e and not smoke and not live'
+if [ "$MODE" = "full" ]; then
+  pytest_step "fast tests with coverage" -q -m "$FAST" --cov=app --cov-report=term-missing --cov-fail-under=85
+  if [ -f scripts/check_critical_coverage.py ]; then step "critical coverage" uv run python scripts/check_critical_coverage.py; fi
+else
+  pytest_step "fast tests" -q -m "$FAST"
+fi
+pytest_step "smoke" -q -m smoke
+
+if [ "$MODE" = "full" ]; then
+  pytest_step "end-to-end" -q -m e2e
+  if [ -f .pre-commit-config.yaml ]; then step "pre-commit (all files)" uv run pre-commit run --all-files; fi
+fi
+
+echo
+if [ ${#failures[@]} -eq 0 ]; then
+  echo "VERIFY $MODE: PASS"
+  exit 0
+fi
+echo "VERIFY $MODE: FAIL (${failures[*]})"
+exit 1

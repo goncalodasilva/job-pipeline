@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Tooling caches and reports
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+test-results/
+playwright-report/
+
+# Secrets and local configuration (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local data (the real data folder lives outside the repo; these guard against accidents)
+*.db
+*.db-wal
+*.db-shm
+.devdata/
+exports/
+
+# Claude Code local files
+.claude/settings.local.json
+.claude/agent-memory-local/
+CLAUDE.local.md
+
+# OS
+.DS_Store
+Thumbs.db
