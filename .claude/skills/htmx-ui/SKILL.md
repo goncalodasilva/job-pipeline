@@ -13,6 +13,7 @@ Read `references/patterns.md` for code. These rules apply to every UI change.
 - Templates: `app/templates/pages/<area>.html` extend `base.html`; fragments live in `app/templates/fragments/<area>/_<name>.html` and never extend anything.
 - Routes call services only. No SQL, no providers, no business rules in routes or templates.
 - Every non-page request carries the launch token through `hx-headers` on `<body>`; never remove it or add a route that skips the token middleware.
+- Page routes are registered directly on the app through `register_pages` (app/api/pages.py) with `tags=[PAGE_TAG]`, never through an included router; every other route needs the token. GET routes never have side effects (spec 2.9 rule 12).
 
 ## Interaction rules
 

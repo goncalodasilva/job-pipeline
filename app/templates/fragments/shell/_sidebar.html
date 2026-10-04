@@ -1,0 +1,12 @@
+<nav id="sidebar" class="sidebar" aria-label="Main">
+  <ul class="sidebar-areas">
+    {% for item in areas if not item.pinned %}
+    <li><a href="{{ item.path }}"{% if item == area %} aria-current="page"{% endif %}>{{ item.name }}</a></li>
+    {% endfor %}
+  </ul>
+  <ul class="sidebar-pinned">
+    {% for item in areas if item.pinned %}
+    <li><a href="{{ item.path }}"{% if item == area %} aria-current="page"{% endif %}>{{ item.name }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>

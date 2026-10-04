@@ -1,0 +1,2 @@
+# Deliberate violation of contract "Task handlers stay thin (spec 2.3 rule 6)" for the import-linter contract self-test (AC-M0.6).
+import app.modules.storage

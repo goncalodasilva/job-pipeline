@@ -1,0 +1,191 @@
+[project]
+name = "jobpipeline"
+version = "0.1.0"
+description = "A local web app that helps one person run an honest, organized job search."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "fastapi>=0.142",
+    "jinja2>=3.1.6",
+    "platformdirs>=4.12",
+    "pydantic>=2.13",
+    "uvicorn>=0.54",
+]
+
+[project.scripts]
+jobpipeline = "app.cli:main"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.168",
+    "httpx>=0.28.1",
+    "import-linter>=2.15",
+    "mypy>=2.4",
+    "playwright>=1.63",
+    "pre-commit>=4.6",
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4",
+    "pytest-cov>=7.1",
+    "pyyaml>=6.0.3",
+    "ruff>=0.16",
+    "types-pyyaml>=6.0.12",
+]
+
+[build-system]
+requires = ["hatchling>=1.32"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+# Agent tooling (.claude/) and the spec's abbreviated code samples (docs/) are not project code.
+extend-exclude = [".claude", "docs"]
+# Pre-commit passes file names explicitly; keep honouring the excludes then too.
+force-exclude = true
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S", "DTZ"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["app", "scripts"]
+
+[tool.pytest.ini_options]
+minversion = "9.1"
+testpaths = ["tests"]
+# Lets tests import shared helpers and fakes as `tests.<package>`.
+pythonpath = ["."]
+addopts = ["--strict-markers", "--strict-config", "--import-mode=importlib", "-ra"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: uses real SQLite and HTTP routes, with fake providers",
+    "contract: shared provider contract suites",
+    "e2e: Playwright against the running app",
+    "smoke: start, health check, stop",
+    "live: real providers; skipped unless JOBPIPELINE_LIVE_TESTS=1",
+    "slow: longer property or performance tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+# Module boundaries from spec 2.3. Never weaken a contract to get green; propose an ADR instead.
+# Vendor rules are forbidden contracts over all of `app` with the provider package exempted,
+# because protected contracts require the package to be imported already (ADR-033).
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layering (spec 2.3)"
+type = "layers"
+layers = [
+    "(app.cli) : (app.main) : (app.wiring) : (app.config) : (app.logging_config)",
+    "app.api",
+    "app.onboarding | app.tasks",
+    "app.services",
+    "app.modules | app.render",
+    "app.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain is pure (spec 2.3 rule 1)"
+# Network submodules of http and urllib are blocked by tests/unit/test_domain_purity.py,
+# because import-linter cannot forbid submodules of external packages (ADR-033).
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = [
+    "claude_agent_sdk",
+    "fastapi",
+    "httpx",
+    "jinja2",
+    "keyring",
+    "platformdirs",
+    "socket",
+    "sqlite3",
+    "starlette",
+    "subprocess",
+    "uvicorn",
+]
+
+[[tool.importlinter.contracts]]
+name = "Services use module interfaces only and no web frameworks (spec 2.3 rule 4)"
+type = "forbidden"
+source_modules = ["app.services"]
+forbidden_modules = ["app.modules.*.providers", "fastapi", "jinja2", "starlette", "uvicorn"]
+
+[[tool.importlinter.contracts]]
+name = "API does not reach modules or SQLite (spec 2.3 rule 5)"
+type = "forbidden"
+source_modules = ["app.api"]
+forbidden_modules = ["app.modules", "sqlite3"]
+# Direct imports only: routes legitimately reach storage through services.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Task handlers stay thin (spec 2.3 rule 6)"
+type = "forbidden"
+source_modules = ["app.tasks"]
+forbidden_modules = ["app.modules", "app.render"]
+# Direct imports only: handlers legitimately reach modules through services.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Providers are chosen only in wiring (spec 2.3 rule 7)"
+type = "forbidden"
+source_modules = ["app.onboarding", "app.render", "app.tasks"]
+forbidden_modules = ["app.modules.*.providers"]
+
+[[tool.importlinter.contracts]]
+name = "claude_agent_sdk only in AI providers (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["claude_agent_sdk"]
+ignore_imports = [
+    "app.modules.ai.providers -> claude_agent_sdk",
+    "app.modules.ai.providers.** -> claude_agent_sdk",
+]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "keyring only in secrets providers (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["keyring"]
+ignore_imports = [
+    "app.modules.secrets.providers -> keyring",
+    "app.modules.secrets.providers.** -> keyring",
+]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "httpx only in the fetch module (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["httpx"]
+ignore_imports = ["app.modules.fetch -> httpx", "app.modules.fetch.** -> httpx"]
+unmatched_ignore_imports_alerting = "none"

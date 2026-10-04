@@ -147,12 +147,12 @@ These rules are enforced by import-linter contracts in `pyproject.toml` and chec
 3. Vendor SDKs MUST be imported only inside the provider package that wraps them. For example, `claude_agent_sdk` is imported only in `app.modules.ai.providers.claude_sdk`, and `keyring` only in `app.modules.secrets.providers.keyring_store`.
 4. `app.services` MAY import `app.domain` and the public interface of each module (`app.modules.<name>`, not its `providers` subpackage). Services MUST NOT import FastAPI, Starlette or Jinja2.
 5. `app.api` MAY import services, onboarding and the task runner's public functions. It MUST NOT import `app.modules.*` or `sqlite3`.
-6. `app.tasks` MAY import services and domain. Task handlers are thin: they call a service function.
+6. `app.tasks` MAY import services and domain. Task handlers are thin: they call a service function. The runner reaches the AI module and storage only through services; the 2.5 diagram shows the logical flow (ADR-034).
 7. Provider selection happens in one place, `app/wiring.py`, which builds concrete providers from settings and hands them to services through constructor injection.
 
 ### 2.4 Key interfaces
 
-Signatures are abbreviated. Implementations MUST keep these shapes unless an ADR changes them.
+Signatures are abbreviated. Implementations MUST keep these shapes unless an ADR changes them. The code versions, with fetching behind an injected `JobPageFetcher`, are recorded in ADR-036.
 
 ```python
 # app/modules/ai/__init__.py
@@ -278,7 +278,7 @@ Data folder layout:
 
 SQLite settings: `journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`. Transactions are short and use `BEGIN IMMEDIATE` for writes.
 
-Migrations are numbered SQL files in `app/modules/storage/migrations/NNNN_description.sql`, applied in order, each in a transaction, and recorded in `schema_migrations`. They are forward-only. Before applying pending migrations to an existing database, the app copies `app.db` to `backups/`. A test MUST prove that a fresh database and a database upgraded step by step end with identical schemas.
+Migrations are numbered SQL files in `app/modules/storage/migrations/NNNN_description.sql`, applied in order, each in a transaction, and recorded in `schema_migrations`. They are forward-only. Before applying pending migrations to an existing database, the app copies `app.db` to `backups/`. A test MUST prove that a fresh database and a database upgraded step by step end with identical schemas. On POSIX systems, database files and backups are created with 0600 permissions and data folders with 0700 (ADR-038).
 
 Full-text search uses FTS5 tables for facts and jobs, kept in sync by triggers.
 
@@ -286,15 +286,15 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 
 ### 2.8 Configuration
 
-- **Bootstrap config:** `config.toml` in the platform config folder (`platformdirs.user_config_dir("jobpipeline")`), holding `data_dir` and the app version that created it. Its absence means first run (see M1).
+- **Bootstrap config:** `config.toml` in the platform config folder (`platformdirs.user_config_dir("jobpipeline")`), holding `data_dir` (absolute path; `~` is expanded) and the app version that created it. Its absence means first run (see M1). The file is always parsed, so malformed TOML is reported even with `--demo` or `--data-dir`.
 - **Settings:** a `settings` table of JSON values, each validated by a typed model (providers, tiers, budgets, preferences, lists, statuses, appearance, session frequency).
-- **Precedence:** CLI flag, then environment variable, then bootstrap config, then defaults.
+- **Precedence:** CLI flag, then environment variable, then bootstrap config, then defaults (port 8000, log level INFO). See 7.3 for environment variables and defaults.
 - **Environment variables:** listed in 7.3. `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` are fallbacks only, for systems without a keychain and for development.
 
 ### 2.9 Security model
 
 1. The server MUST bind to 127.0.0.1. Requests whose `Host` header is not `127.0.0.1:<port>` or `localhost:<port>` are rejected (defeats DNS rebinding).
-2. A random launch token (32 bytes, URL-safe) is generated at startup and embedded in the base template. htmx sends it on every request as `X-JP-Token` via `hx-headers`. Every fragment, JSON and state-changing endpoint MUST require it. Full-page GETs MAY omit it.
+2. A random launch token (32 bytes, URL-safe) is generated at startup and embedded in the base template. htmx sends it on every request as `X-JP-Token` via `hx-headers`. Every fragment, JSON and state-changing endpoint MUST require it. Full-page GETs, static files and `GET /health` MAY omit it (ADR-023).
 3. State-changing requests MUST also carry an `Origin` or `Referer` matching the app's own origin.
 4. Jinja2 autoescaping stays on. AI output and job text MUST NOT be marked safe. Where Markdown from AI is rendered, it is converted and then sanitized with nh3.
 5. Uploads: 10 MB limit, type checked by content (PDF, DOCX, plain text), stored under the data folder with generated names, parsed with timeouts.
@@ -303,10 +303,13 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 8. When the app calls the Agent SDK, it MUST isolate the call from any developer configuration: run in an empty temporary working directory and disable loading of filesystem settings (the SDK's `setting_sources` option at the time of writing; verify against the installed SDK version).
 9. Secrets live only in the keychain (or the environment fallback). They MUST NOT be stored in the database, written to logs, returned by any endpoint, or included in exports. A logging filter redacts configured secret values and token-shaped strings.
 10. The app sends no telemetry.
+11. Every HTTP response, rejections included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so no other site can frame the app and trick a click (ADR-039).
+12. Only routes the server registers as pages (`register_pages`, `tags=[PAGE_TAG]`) and that dispatch actually picks may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Token-free GETs return only full HTML pages. Never add CORS headers, and never put the token in a URL or log (ADR-039).
+13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it.
 
 ### 2.10 Logging and diagnostics
 
-Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MB). Prompt contents and personal data are not logged by default; a local debug setting can enable prompt logging and shows a warning while on. `GET /health` returns app version, database status and task runner status.
+Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MiB; ADR-037). Prompt contents and personal data are not logged by default; a local debug setting can enable prompt logging and shows a warning while on. `GET /health` returns app version, database status and task runner status.
 
 ### 2.11 Errors
 
@@ -367,6 +370,8 @@ job-pipeline/
     templates/      Jinja2 pages and fragments
     static/         htmx, SortableJS, scripts, CSS
     wiring.py       builds providers from settings
+    config.py       runtime config and data folder resolution (ADR-030)
+    logging_config.py  logging setup with redaction (ADR-030)
     cli.py          jobpipeline command
     main.py         app factory and lifespan
   prompts/          default prompt templates and output schemas (3.6)
@@ -503,7 +508,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 ### 4.3 Coverage
 
 - At least 85% line coverage across `app/`, excluding live-only provider code paths.
-- At least 95% branch coverage for critical modules: `app/domain/honesty.py`, `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware. `scripts/check_critical_coverage.py` enforces this.
+- At least 95% branch coverage for critical modules: `app/domain/honesty.py`, `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware (`app/api/security.py`, ADR-039). `scripts/check_critical_coverage.py` enforces this with a registry of these modules and the milestone that introduces each (ADR-028).
 
 ### 4.4 What every feature's tests must include
 
@@ -517,15 +522,15 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 
 | Purpose | Command |
 | --- | --- |
-| Install | `uv sync` |
+| Install | `uv sync`, then `uv run pre-commit install` once per clone |
 | Install browsers for e2e (once) | `uv run playwright install chromium` |
 | Format and lint | `uv run ruff format .` and `uv run ruff check .` |
-| Types | `uv run mypy app` |
+| Types | `uv run mypy` (checks `app` and `scripts`, from `pyproject.toml`) |
 | Module boundaries | `uv run lint-imports` |
 | Fast tests | `uv run pytest -m "not e2e and not smoke and not live"` |
 | End-to-end | `uv run pytest -m e2e` |
 | Smoke | `uv run pytest -m smoke` |
-| Coverage | `uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing` then `uv run python scripts/check_critical_coverage.py` |
+| Coverage | `uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing --cov-fail-under=85` then `uv run python scripts/check_critical_coverage.py --from-progress` |
 | Quick verification (all of the above except e2e and coverage) | `bash .claude/skills/verify/scripts/verify.sh quick` |
 | Full verification | `bash .claude/skills/verify/scripts/verify.sh full` |
 
@@ -534,9 +539,9 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 A GitHub Actions workflow (created in M0) runs on every push and pull request:
 
 1. Lint, format check, types, import contracts, gitleaks.
-2. Unit, integration and contract tests on Ubuntu, macOS and Windows, with the oldest and newest supported Python versions.
+2. Unit, integration and contract tests on Ubuntu, macOS and Windows, with the oldest and newest supported Python versions; smoke tests on all three (on Windows they check the Ctrl+Break stop, ADR-040). macOS and Windows run on pull requests to `main`, manual dispatch and weekly (ADR-032).
 3. Smoke and e2e tests on Ubuntu with Playwright Chromium.
-4. Coverage thresholds.
+4. Coverage thresholds, with `scripts/check_critical_coverage.py --from-progress`: a critical module due before the current milestone in `docs/PROGRESS.md` that is missing (for example after a rename) fails. The current milestone's own modules are not required in CI while it is in progress (in M0 nothing is); milestone acceptance runs `--milestone M<n>`, which requires them, as the backstop.
 
 Keychain access is never exercised in CI; tests use `MemorySecretStore`, and the keyring adapter is tested with a fake keyring backend.
 
@@ -592,7 +597,7 @@ flowchart LR
 - App factory and lifespan (open database, apply migrations, start the task runner stub); base template with vendored htmx; CSS tokens for light and dark themes; responsive app shell (sidebar collapses at narrow widths).
 - `jobpipeline` CLI: `--port`, `--data-dir`, `--no-browser`, `--setup`, `--demo`, `--version`; opens the browser once the server responds.
 - Bootstrap config and data folder resolution (`platformdirs`); demo mode uses its own folder.
-- Database module, migration runner and migration `0001` (settings, setup_state, tasks, usage_records, schema_migrations).
+- Database module, migration runner and migration `0001` (settings, setup_state, tasks, usage_records, schema_migrations). Every mutable table carries `created_at`, `updated_at` and `version` (2.7), even where the detailed design's table list omits them. No full-text search tables yet; the active-task dedupe index and `usage_records.task_id` come in M2 (ADR-027).
 - Middleware: host check, launch token, origin check; binding to 127.0.0.1.
 - Logging with redaction; `/health`.
 - `app/domain` skeleton with `Clock` and `IdFactory`; module protocols from 2.4; fakes in `tests/fakes/`.
@@ -656,9 +661,10 @@ flowchart LR
   6. Cancellation: a flag checked between steps; the provider call is aborted where possible; partial output discarded.
   7. Usage accounting: a usage record is reserved before each external call and completed after it.
   8. Reconnecting pages re-fetch task state, so missed events don't matter.
-  9. SQLite in WAL mode with a busy timeout and short transactions.
+  9. SQLite in WAL mode with a busy timeout and short transactions. The runner works on the event-loop thread, so its database calls go through `asyncio.to_thread` and nothing is awaited inside `Database.transaction()`: the transaction lock is per thread (ADR-038), so two coroutines interleaving inside one transaction would collide, and a blocking call would stall the loop.
   10. Failure tests for each of the above.
-- Server-sent events endpoint and htmx SSE wiring; top-bar task indicator and tasks panel.
+- A migration adding the unique partial index on active `tasks.dedupe_key` (queued or running) and a `task_id` link from `usage_records` to `tasks` (deferred from M0, ADR-027).
+- Server-sent events endpoint and htmx SSE wiring; top-bar task indicator and tasks panel. The browser's `EventSource` can't send the `X-JP-Token` header, so decide how the stream is authorised (never with the token in the URL; ADR-039).
 - Usage service: optional budgets per provider (allowance, two warnings, blocking point, reset day), per-tier caps, provider-reported usage where available (the higher count wins), warning dialogs once per threshold per cycle, blocking with alternatives, budget hook for web search tool calls.
 - Setup step 3 (web search and optional budget); Settings > Usage budgets; usage breakdown by tier and task.
 
@@ -999,17 +1005,19 @@ Start in the default (manual) mode until the workflow feels trustworthy, use pla
 | `live` | Real providers; skipped unless `JOBPIPELINE_LIVE_TESTS=1` |
 | `slow` | Longer property or performance tests |
 
-### 7.3 Environment variables
+### 7.3 Environment variables and defaults
 
-| Variable | Purpose |
-| --- | --- |
-| `JOBPIPELINE_DATA_DIR` | Data folder override |
-| `JOBPIPELINE_PORT` | Port override |
-| `JOBPIPELINE_LOG_LEVEL` | Log level |
-| `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | `1` makes fake providers selectable (tests and demos only) |
-| `JOBPIPELINE_LIVE_TESTS` | `1` enables live tests |
-| `ANTHROPIC_API_KEY` | Fallback when no keychain is available |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Fallback when no keychain is available |
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `JOBPIPELINE_DATA_DIR` | Data folder override | `user_data_dir("jobpipeline")`; `user_data_dir("jobpipeline-demo")` with `--demo` |
+| `JOBPIPELINE_CONFIG_DIR` | Config folder override (bootstrap config location; used by tests, ADR-024) | `user_config_dir("jobpipeline")` |
+| `JOBPIPELINE_PORT` | Port override (1–65535) | 8000 |
+| `JOBPIPELINE_LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, case-insensitive) | `INFO` |
+| `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | `1` makes fake providers selectable (tests and demos only) | unset |
+| `JOBPIPELINE_LIVE_TESTS` | `1` enables live tests | unset |
+| `JOBPIPELINE_E2E_CHROMIUM` | Path to a Chromium executable for e2e tests instead of Playwright's managed one (tests only, ADR-035) | unset |
+| `ANTHROPIC_API_KEY` | Fallback when no keychain is available | unset |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Fallback when no keychain is available | unset |
 
 ### 7.4 Glossary
 
@@ -1024,3 +1032,11 @@ Start in the default (manual) mode until the workflow feels trustworthy, use pla
 - **Controlled list:** the allowed values for a structured field, with aliases.
 - **Untrusted content:** any text that did not come from the user's own direct input, delimited before reaching a prompt.
 - **Setup guide:** the onboarding module that runs on first launch and can be re-run.
+
+### 7.5 Known technical debt
+
+Accepted shortcuts to revisit; each names its trigger.
+
+| Item | Why it is accepted now | Revisit when |
+| --- | --- | --- |
+| Tests use `httpx` with `starlette.testclient`, which Starlette deprecates in favour of `httpx2` (a `StarletteDeprecationWarning` in every test run). | Works with the versions locked in `uv.lock`; `httpx` stays anyway as the M4 fetch dependency; switching adds a dev dependency (user decision, 2026-10-03). | A Starlette or FastAPI upgrade drops `httpx` support in `TestClient`, or before M9 release hardening. |

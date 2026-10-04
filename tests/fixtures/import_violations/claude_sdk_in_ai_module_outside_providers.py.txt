@@ -1,0 +1,2 @@
+# Deliberate violation of contract "claude_agent_sdk only in AI providers (spec 2.3 rule 3)" for the import-linter contract self-test (AC-M0.6).
+import claude_agent_sdk

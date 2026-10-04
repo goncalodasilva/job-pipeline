@@ -8,7 +8,7 @@ disable-model-invocation: true
 # Milestone acceptance for $ARGUMENTS
 
 1. **Tasks.** Confirm every task of the milestone in `docs/PROGRESS.md` is ticked. If not, list the open ones and stop.
-2. **Full verification.** Delegate to `verifier` in full mode. If it fails, stop and report.
+2. **Full verification.** Delegate to `verifier` in full mode, then run `uv run python scripts/check_critical_coverage.py --milestone M<n>` so a critical module due by this milestone that is missing fails (ADR-028). If either fails, stop and report.
 3. **Criteria to tests.** For each acceptance criterion of the milestone in `docs/TECHNICAL_SPEC.md` section 5, find its tests (named `test_ac_m<n>_<k>_...`) and their results. A criterion without a passing test is not accepted.
 4. **Report.** Write `docs/acceptance/M<n>.md`:
 
