@@ -1,12 +1,12 @@
 # Progress
 
-Current milestone: M0
+Current milestone: M1
 
 How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/next-task` works through them, and `docs-keeper` ticks each task with evidence. Scripts parse this format, so keep it: a `Current milestone:` line, `## M<n> — Title` headings, and tasks written as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines.
 
 ## M0 — Foundation and tooling
 
-Status: ready for acceptance (19 of 19 tasks completed)
+Status: accepted (2026-10-04)
 
 Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-043 (dependencies in ADR-031, CI operating systems in ADR-032, Windows Ctrl+Break verification in ADR-040, data folder ownership check in ADR-043).
 
@@ -153,3 +153,4 @@ Status: not planned
 - 2026-10-04: M0.17 done; htmx 2.0.11 vendored from the npm tarball (sha512 integrity checked, user approved the download); stray untracked "* 2" duplicate files deleted at the user's request.
 - 2026-10-04: M0.18 done: CSS tokens and responsive sidebar; e2e test suite (36 tests, including focus, reduced motion, axe accessibility); 560 fast tests, coverage 97.28%, all checks pass.
 - 2026-10-04: M0.19 done: CI green on Ubuntu, macOS and Windows with 10 jobs; smoke, e2e and coverage in CI proven; critical coverage registry fixed; --from-progress; favicon; data-folder ownership check; README troubleshooting. 576 tests, 97.28% coverage, M0 ready for acceptance.
+- 2026-10-04: M0 accepted; acceptance report docs/acceptance/M0.md; user confirmed visual check (light, dark, phone width) and accepted AC-M0.7 on CI evidence (https://github.com/goncalodasilva/job-pipeline/actions/runs/37194424406) plus verify results; next: `/plan-milestone M1`.
