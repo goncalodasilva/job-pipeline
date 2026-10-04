@@ -30,7 +30,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from app import __version__
-from app.config import CliOptions, RuntimeConfig, resolve_config
+from app.config import CliOptions, RuntimeConfig, owned_by_another_user, resolve_config
 from app.domain.errors import ConfigError
 from app.domain.redaction import Redactor
 from app.logging_config import configure_logging, install_exception_hooks
@@ -127,7 +127,7 @@ def _run(config: RuntimeConfig, launcher: Launcher) -> None:
         _fail(1, create_failed)
     # Checked after mkdir (which writes nothing into an existing folder), so a folder someone
     # else created in the meantime is caught too; before logging writes anything (ADR-043).
-    if _owned_by_another_user(config.data_dir):
+    if owned_by_another_user(config.data_dir):
         _fail(
             2,
             f"The data folder {config.data_dir} belongs to another user. "
@@ -206,23 +206,6 @@ def _open_browser_when_ready(launcher: Launcher, port: int, stop: threading.Even
             _log.warning("Open http://%s:%d/ in your browser.", HOST, port)
 
     threading.Thread(target=poll, name="open-browser", daemon=True).start()
-
-
-def _owned_by_another_user(folder: Path) -> bool:
-    """Whether an existing folder belongs to another account (POSIX only; ADR-043).
-
-    Whoever owns the data folder can replace files or plant symlinks in it, so the app never
-    writes into someone else's folder. ``stat`` follows symlinks: the folder a link points to
-    is what matters.
-    """
-    geteuid = getattr(os, "geteuid", None)
-    if geteuid is None:  # Windows: no POSIX owner ids
-        return False
-    try:
-        owner = folder.stat().st_uid
-    except OSError:  # unusable; configure_logging then reports it with a plain message
-        return False
-    return bool(owner != geteuid())
 
 
 def _fail(code: int, message: str) -> NoReturn:

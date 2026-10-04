@@ -4,6 +4,8 @@ Precedence is CLI flag, then environment variable, then bootstrap config, then d
 environment is passed in, never read from ``os.environ``, so resolution is easy to test.
 """
 
+import os
+import tempfile
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -82,6 +84,79 @@ def load_bootstrap(config_dir: Path) -> BootstrapConfig | None:
     if not data_path.is_absolute():
         raise ConfigError(detail="settings file data_dir must be an absolute path")
     return BootstrapConfig(data_dir=data_path, version=version)
+
+
+def write_bootstrap(config_dir: Path, *, data_dir: Path, version: str) -> Path:
+    """Save ``config.toml`` atomically (spec 2.8; ADR-038, ADR-043, ADR-048).
+
+    A missing final folder is created 0700; it must belong to the current user. The file
+    is 0600. A reader sees either the old file or the new one, never a partial write.
+    """
+    if not data_dir.is_absolute():
+        raise ConfigError(detail="data_dir must be an absolute path")
+    text = (
+        f"data_dir = {_toml_string(str(data_dir), 'data_dir')}\n"
+        f"version = {_toml_string(version, 'version')}\n"
+    )
+    try:
+        config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as error:
+        raise ConfigError(
+            detail=f"config folder can't be created ({type(error).__name__})"
+        ) from None
+    # Checked after mkdir, before writing, like the data folder (ADR-043).
+    if owned_by_another_user(config_dir):
+        raise ConfigError(detail="the config folder belongs to another user")
+    target = config_dir / BOOTSTRAP_FILE
+    temporary: str | None = None
+    try:
+        descriptor, temporary = tempfile.mkstemp(dir=config_dir, prefix=".config-", suffix=".tmp")
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)  # mkstemp made it 0600, so the result is 0600
+        temporary = None
+    except OSError as error:
+        raise ConfigError(detail=f"settings file can't be saved ({type(error).__name__})") from None
+    finally:
+        if temporary is not None:  # any failure, interrupts included, leaves no temp file
+            Path(temporary).unlink(missing_ok=True)
+    return target
+
+
+def _toml_string(value: str, setting: str) -> str:
+    """A TOML basic string; TOML forbids raw control characters and lone surrogates."""
+    parts = ['"']
+    for character in value:
+        code = ord(character)
+        if 0xD800 <= code <= 0xDFFF:
+            raise ConfigError(detail=f"{setting} contains characters a settings file can't hold")
+        if character in '"\\':
+            parts.append("\\" + character)
+        elif code < 0x20 or code == 0x7F:
+            parts.append(f"\\u{code:04X}")
+        else:
+            parts.append(character)
+    parts.append('"')
+    return "".join(parts)
+
+
+def owned_by_another_user(folder: Path) -> bool:
+    """Whether an existing folder belongs to another account (POSIX only; ADR-043).
+
+    Whoever owns a folder can replace files or plant symlinks in it, so the app never writes
+    into someone else's folder. ``stat`` follows symlinks: the folder a link points to is
+    what matters.
+    """
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is None:  # Windows: no POSIX owner ids
+        return False
+    try:
+        owner = folder.stat().st_uid
+    except OSError:  # unusable; callers report that with a plain message
+        return False
+    return bool(owner != geteuid())
 
 
 def resolve_config(cli: CliOptions, env: Mapping[str, str]) -> RuntimeConfig:
