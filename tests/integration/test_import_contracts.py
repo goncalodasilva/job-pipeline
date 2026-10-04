@@ -68,6 +68,10 @@ VIOLATION_CASES: dict[str, ViolationCase] = {
     "claude_sdk_in_ai_module_outside_providers": ViolationCase(
         "app/modules/ai/_violation.py", CLAUDE_SDK
     ),
+    # M1.1 narrows the exemption to the one provider that wraps the SDK (ADR-033).
+    "claude_sdk_in_other_ai_provider": ViolationCase(
+        "app/modules/ai/providers/_violation.py", CLAUDE_SDK
+    ),
     "httpx_outside_fetch": ViolationCase("app/modules/ai/_violation.py", HTTPX),
     "onboarding_imports_provider": ViolationCase(
         "app/onboarding/_violation.py", PROVIDER_SELECTION

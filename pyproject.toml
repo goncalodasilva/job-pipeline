@@ -13,6 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
+    "claude-agent-sdk==0.2.163",
     "fastapi>=0.142",
     "jinja2>=3.1.6",
     "platformdirs>=4.12",
@@ -166,8 +167,8 @@ type = "forbidden"
 source_modules = ["app"]
 forbidden_modules = ["claude_agent_sdk"]
 ignore_imports = [
-    "app.modules.ai.providers -> claude_agent_sdk",
-    "app.modules.ai.providers.** -> claude_agent_sdk",
+    "app.modules.ai.providers.claude_sdk -> claude_agent_sdk",
+    "app.modules.ai.providers.claude_sdk.** -> claude_agent_sdk",
 ]
 unmatched_ignore_imports_alerting = "none"
 

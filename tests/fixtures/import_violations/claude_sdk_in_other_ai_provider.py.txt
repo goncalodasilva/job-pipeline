@@ -1,0 +1,2 @@
+# Deliberate violation of contract "claude_agent_sdk only in AI providers (spec 2.3 rule 3)": another AI provider (not app.modules.ai.providers.claude_sdk) imports the SDK (M1.1, ADR-033).
+import claude_agent_sdk
