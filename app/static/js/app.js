@@ -23,9 +23,39 @@
     announce(message);
   }
 
-  document.getElementById("app-status-reload").addEventListener("click", function () {
-    window.location.reload();
-  });
+  var reload = document.getElementById("app-status-reload");
+  if (reload) {
+    reload.addEventListener("click", function () {
+      window.location.reload();
+    });
+  }
+
+  // Narrow layouts: the top-bar toggle shows and hides the sidebar (CSS hides it by default).
+  var toggle = document.querySelector(".sidebar-toggle");
+  var sidebar = document.getElementById("sidebar");
+
+  function setSidebarOpen(open, focusTarget) {
+    sidebar.classList.toggle("is-open", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    if (focusTarget) focusTarget.focus();
+  }
+
+  if (toggle && sidebar) {
+    toggle.addEventListener("click", function () {
+      var open = toggle.getAttribute("aria-expanded") !== "true";
+      setSidebarOpen(open, open ? sidebar.querySelector("a") : null);
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (toggle.getAttribute("aria-expanded") !== "true") return;
+      if (window.getComputedStyle(toggle).display === "none") return; // wide layout
+      // Only when the user is in the menu; Escape elsewhere belongs to other features.
+      var active = document.activeElement;
+      if (active !== toggle && !sidebar.contains(active)) return;
+      event.preventDefault();
+      setSidebarOpen(false, toggle);
+    });
+  }
 
   // Routes can ask for an announcement with the header HX-Trigger: {"announce": "..."}.
   document.body.addEventListener("announce", function (event) {
