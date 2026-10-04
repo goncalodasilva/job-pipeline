@@ -84,3 +84,9 @@ class ConfigError(AppError):
 
 class FetchRefused(AppError):
     message = "This address can't be fetched. Paste the job text instead."
+
+
+class SecretStoreUnavailable(AppError):
+    """The system keychain can't be used. ``detail`` names the error type, never a value."""
+
+    message = "Your system keychain isn't available. You can use an environment variable instead."

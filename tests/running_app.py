@@ -7,8 +7,10 @@ flag, which Python 3.14 skips, so the console script may fail to import ``app``.
 Every ``JOBPIPELINE_*``, ``ANTHROPIC_*`` and ``CLAUDE_*`` variable from the caller's
 environment is dropped, the home and platform folders point into the test's temporary folder,
 and so do the data and config folders (ADR-024), so the real user folders and any real
-credentials are never read or written. The server binds to 127.0.0.1 only; nothing here uses
-the network beyond loopback.
+credentials are never read or written. Any inherited ``PYTHON_KEYRING_BACKEND`` is replaced
+by the file-backed test keyring (``tests/fakes/keyring_backends.py``) whose JSON file sits in
+the test's temporary folder, so the app never touches the real system keychain (ADR-044). The
+server binds to 127.0.0.1 only; nothing here uses the network beyond loopback.
 
 Stopping is graceful first: SIGINT on POSIX, CTRL_BREAK_EVENT on Windows (the child runs in
 its own process group so the event reaches only it; it must share the test runner's console,
@@ -31,6 +33,9 @@ import httpx
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOOPBACK = "127.0.0.1"
 DROPPED_ENV_PREFIXES = ("JOBPIPELINE_", "ANTHROPIC_", "CLAUDE_")
+KEYRING_BACKEND_VARIABLE = "PYTHON_KEYRING_BACKEND"
+TEST_KEYRING_BACKEND = "tests.fakes.keyring_backends.FileKeyring"
+TEST_KEYRING_FILE_VARIABLE = "JOBPIPELINE_TEST_KEYRING_FILE"
 HOME_VARIABLES = (
     "HOME",
     "USERPROFILE",
@@ -70,7 +75,10 @@ def isolated_env(data_dir: Path, config_dir: Path) -> dict[str, str]:
         key: value
         for key, value in os.environ.items()
         if not key.upper().startswith(DROPPED_ENV_PREFIXES)
+        and key.upper() not in (KEYRING_BACKEND_VARIABLE, TEST_KEYRING_FILE_VARIABLE)
     }
+    env[KEYRING_BACKEND_VARIABLE] = TEST_KEYRING_BACKEND
+    env[TEST_KEYRING_FILE_VARIABLE] = str(data_dir.parent / "keyring.json")
     home = data_dir.parent / "home"
     home.mkdir(parents=True, exist_ok=True)
     for name in HOME_VARIABLES:

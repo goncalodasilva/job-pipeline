@@ -72,6 +72,10 @@ VIOLATION_CASES: dict[str, ViolationCase] = {
     "claude_sdk_in_other_ai_provider": ViolationCase(
         "app/modules/ai/providers/_violation.py", CLAUDE_SDK
     ),
+    # M1.2 narrows the exemption to the one provider that wraps keyring (ADR-033).
+    "keyring_in_other_secrets_provider": ViolationCase(
+        "app/modules/secrets/providers/_violation.py", KEYRING
+    ),
     "httpx_outside_fetch": ViolationCase("app/modules/ai/_violation.py", HTTPX),
     "onboarding_imports_provider": ViolationCase(
         "app/onboarding/_violation.py", PROVIDER_SELECTION

@@ -323,6 +323,7 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | `InvalidModelOutput` | AI module | "The AI response didn't have the expected shape. Try again." (after one automatic retry) |
 | `VersionConflict` | Repositories | "This item changed elsewhere. Reload to see the latest version." |
 | `FetchRefused` | Fetch | "This address can't be fetched. Paste the job text instead." |
+| `SecretStoreUnavailable` | Secrets (keychain store) | "Your system keychain isn't available. You can use an environment variable instead." (ADR-046) |
 
 ### 2.12 Technology stack
 
