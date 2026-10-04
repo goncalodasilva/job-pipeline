@@ -58,9 +58,13 @@ class AIRequest:
 @dataclass(frozen=True)
 class AIResponse:
     raw_text: str
-    data: Mapping[str, Any]  # parsed and schema-validated
+    data: Mapping[str, Any]  # parsed JSON object; the task executor validates the schema (M1.12)
     model: str
     usage: TokenUsage | None  # when the provider reports it
+
+
+class CallCancelled(Exception):
+    """The call was cancelled before or while it ran; nothing to retry."""
 
 
 class AIProvider(Protocol):

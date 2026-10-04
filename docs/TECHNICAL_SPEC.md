@@ -179,7 +179,7 @@ class AIRequest:
 @dataclass(frozen=True)
 class AIResponse:
     raw_text: str
-    data: dict                     # parsed and schema-validated
+    data: dict                     # parsed JSON object; schema validated by the task executor (ADR-054)
     model: str
     usage: TokenUsage | None       # when the provider reports it
 
@@ -324,6 +324,8 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | `VersionConflict` | Repositories | "This item changed elsewhere. Reload to see the latest version." |
 | `FetchRefused` | Fetch | "This address can't be fetched. Paste the job text instead." |
 | `SecretStoreUnavailable` | Secrets (keychain store) | "Your system keychain isn't available. You can use an environment variable instead." (ADR-046) |
+
+`CallCancelled` (AI module) is not a user-facing error: a cancelled call ends quietly and the task shows as cancelled (ADR-054).
 
 ### 2.12 Technology stack
 
