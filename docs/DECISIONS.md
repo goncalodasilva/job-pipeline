@@ -292,6 +292,7 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - M1.13/M1.14: consider `CLAUDE_CONFIG_DIR` set to an empty temporary folder for token and API-key modes, so the CLI neither reads nor writes `~/.claude*` and can't prefer a keychain login over the given token; `existing_login` keeps the default and is documented as the exception.
   - M1.25 live check (by the user): `MAX_TURNS=2` suffices; `--tools ""` with `dontAsk` still allows `StructuredOutput`; blanked `""` values count as unset (base URL, `USE_*`, credentials); which credential wins in token mode when a keychain login exists; files written under `~/.claude*` per mode; whether managed (enterprise) settings and their hooks still load; the fixture shapes match real frames.
 - Open (user decision): Windows has no bundled CLI. Recommended: Windows users install Claude Code natively (`claude.exe`) and the guide explains this; the README states it.
+- Update (2026-10-04, user decision): approved. On Windows the provider uses a natively installed `claude.exe`, accepted only at or above the `verbatim_prompts` minimum CLI version (otherwise `ProviderNotInstalled`); the setup guide and README explain the install. macOS and Linux use only the bundled CLI (M1.13, M1.17, M1.25).
 
 ## ADR-046 — Keychain store details (2026-10-04)
 
@@ -308,3 +309,22 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - M1.15/M1.17: reading the real credential item on macOS prompts again whenever the Python interpreter path changes (venv recreated), so start-up provider health records only whether a credential was saved (a flag, never the value) instead of reading it.
   - Windows Credential Manager limits a value to 2,560 bytes (about 1,280 characters); current keys and tokens fit, and an oversized value maps to `SecretStoreUnavailable`.
 
+
+## ADR-047 — Secret store composition (2026-10-04)
+
+- Context: M1.3 adds the memory, environment, chained and redacting stores. Code and security review found that how they are put together decides whether values reach the redactor and whether start-up reads the keychain.
+- Decision:
+  - `MemorySecretStore(available=True)` lives in `app/modules/secrets/providers/memory.py` (ADR-044 item 2); `available=False` behaves like an unusable keychain.
+  - `EnvSecretStore(environ)` is read-only and never "available": it maps `anthropic_api_key` to `ANTHROPIC_API_KEY` and `claude_code_oauth_token` to `CLAUDE_CODE_OAUTH_TOKEN`, reads the mapping at call time, ignores empty values and strips whitespace; `set` and `delete` raise `SecretStoreUnavailable`.
+  - `ChainedSecretStore(primary, fallback, redactor=None)`: keychain first, then environment (ADR-044 item 7); writes and deletes go to the keychain only. `lookup(key)` returns a `SecretLookup(value, source, keychain_failed)` from a single read (its repr never shows the value); `get` and `source` are derived from it. A keychain that is available but fails to read falls back to the environment and sets `keychain_failed`, so the interface can say so instead of silently using a different credential. With a `redactor`, it registers every value it reads, and every value it is asked to write before writing.
+  - Environment secrets are registered at start-up with `register_environment_secrets(env_store, redactor)`, which accepts only an `EnvSecretStore`, so start-up can never read the keychain (ADR-046). `RedactingSecretStore` remains as a general wrapper for any other store.
+- Wiring (M1.15):
+
+  ```
+  env = EnvSecretStore({} if demo else os.environ)
+  register_environment_secrets(env, redactor)
+  secrets = ChainedSecretStore(KeyringSecretStore(service), env, redactor=redactor)
+  ```
+
+  Only `secrets` is injected. Demo mode passes an empty environment as well as the `jobpipeline-demo` service, so demo runs never pick up real credentials. Tests: no keyring backend call during `create_app`; environment values registered at start-up; a keychain value registered on its first read.
+- Follow-ups: M1.15/M1.21 show "Keychain couldn't be read; using the ANTHROPIC_API_KEY environment variable" when `keychain_failed`, compute the source after start-up or a POST and cache it (never on GET, spec 2.9.12), and after a delete say when an environment variable still provides the credential. M1.17 strips and checks the shape of pasted credentials before saving. M1.23's environment leak test includes a non-key-shaped `ANTHROPIC_AUTH_TOKEN` and decides whether to register it.
