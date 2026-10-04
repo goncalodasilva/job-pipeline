@@ -10,11 +10,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from starlette.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
+from app.api.templating import STATIC_DIR, STATIC_URL
 from app.config import RuntimeConfig
 from app.domain.clock import Clock, SystemClock
 from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
@@ -70,4 +72,5 @@ def create_app(
     )
     app.include_router(health_router)
     register_pages(app)
+    app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="static")
     return app

@@ -16,7 +16,6 @@ import pytest
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.testclient import TestClient
-from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect
 
 from app.api.security import PAGE_TAG, TOKEN_HEADER
@@ -32,7 +31,9 @@ HOST = f"127.0.0.1:{PORT}"
 # The counting test page; the app's own placeholder page keeps "/".
 PAGE_PATH = "/page-demo"
 ORIGIN = f"http://{HOST}"
-STATIC_TEXT = "body { color: black; }\n"
+# A real vendored file under the app's own /static mount (M0.17); /static/ is token-free.
+STATIC_PATH = "/static/vendor/htmx.min.js"
+STATIC_FILE = Path(__file__).resolve().parents[2] / "app" / "static" / "vendor" / "htmx.min.js"
 
 
 @dataclass
@@ -61,7 +62,7 @@ def _config(tmp_path: Path) -> RuntimeConfig:
     )
 
 
-def _add_test_routes(app: FastAPI, hits: Counter[str], static_dir: Path) -> None:
+def _add_test_routes(app: FastAPI, hits: Counter[str]) -> None:
     def page() -> HTMLResponse:
         hits["page"] += 1
         return HTMLResponse("<p>page</p>")
@@ -89,17 +90,13 @@ def _add_test_routes(app: FastAPI, hits: Counter[str], static_dir: Path) -> None
     app.add_api_route("/actions/demo", action, methods=["POST", "PUT", "PATCH", "DELETE"])
     app.add_api_route("/api/demo", api, methods=["GET"])
     app.add_api_websocket_route("/ws/demo", socket)
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 @pytest.fixture
 def harness(tmp_path: Path) -> Iterator[Harness]:
-    static_dir = tmp_path / "static"
-    static_dir.mkdir()
-    (static_dir / "app.css").write_text(STATIC_TEXT, encoding="utf-8")
     app = create_app(_config(tmp_path), clock=FrozenClock(START))
     hits: Counter[str] = Counter()
-    _add_test_routes(app, hits, static_dir)
+    _add_test_routes(app, hits)
     with TestClient(app, base_url=f"http://{HOST}") as client:
         yield Harness(app=app, client=client, token=app.state.launch_token, hits=hits)
 
@@ -396,11 +393,11 @@ def test_health_and_static_without_token_ok(harness: Harness) -> None:
     health_hx = harness.client.get("/health", headers={"HX-Request": "true"})
     assert health_hx.status_code == 200
 
-    static = harness.client.get("/static/app.css")
+    static = harness.client.get(STATIC_PATH)
     assert static.status_code == 200
-    assert static.text == STATIC_TEXT
+    assert static.content == STATIC_FILE.read_bytes()
 
-    static_hx = harness.client.get("/static/app.css", headers={"HX-Request": "true"})
+    static_hx = harness.client.get(STATIC_PATH, headers={"HX-Request": "true"})
     assert static_hx.status_code == 200
 
 
@@ -539,7 +536,7 @@ PROTECTIVE_HEADERS = {
     [
         ("GET", PAGE_PATH, {}, 200),
         ("GET", "/health", {}, 200),
-        ("GET", "/static/app.css", {}, 200),
+        ("GET", STATIC_PATH, {}, 200),
         ("GET", "/fragments/demo", {}, 403),
         ("GET", PAGE_PATH, {"host": "evil.example:8000"}, 400),
     ],

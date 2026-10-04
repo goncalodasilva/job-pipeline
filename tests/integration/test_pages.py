@@ -1,7 +1,7 @@
-"""Placeholder root page (M0.16; spec 2.9 rules 2, 11, 12; ADR-023, ADR-039).
+"""Root page (M0.16, templated in M0.17; spec 2.9 rules 2, 11, 12; ADR-023, ADR-039).
 
-Until M0.17 adds the templates, ``GET /`` is a tiny HTML page registered as a page route. It
-loads without the launch token and hands the token to htmx through ``<body hx-headers>``.
+``GET /`` (Today) is registered as a page route. It loads without the launch token and hands
+the token to htmx through ``<body hx-headers>``. The rest of the shell: test_app_shell.py.
 Every value here is fictional.
 """
 
@@ -25,7 +25,7 @@ pytestmark = pytest.mark.integration
 START = datetime(2026, 1, 3, 9, 0, 0, tzinfo=UTC)
 PORT = 8000
 BASE_URL = f"http://127.0.0.1:{PORT}"  # must pass the host check (spec 2.9 rule 1)
-TITLE = "<title>Job Search Pipeline</title>"
+TITLE = "<title>Today \u00b7 Job Search Pipeline</title>"
 PROTECTIVE_HEADERS = {
     "x-frame-options": "DENY",
     "content-security-policy": "frame-ancestors 'none'",

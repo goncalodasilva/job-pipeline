@@ -18,7 +18,7 @@ from tests.running_app import RunningApp
 pytestmark = pytest.mark.smoke
 
 HEALTH_DEADLINE_SECONDS = 5.0
-TITLE = "<title>Job Search Pipeline</title>"
+TITLE = "<title>Today \u00b7 Job Search Pipeline</title>"
 TOKEN_SHAPE = re.compile(r"[A-Za-z0-9_-]{43}")
 REDACTED = "[REDACTED]"
 PROTECTIVE_HEADERS = {

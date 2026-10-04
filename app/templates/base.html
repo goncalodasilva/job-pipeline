@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ area.name }} · Job Search Pipeline</title>
+  {# Read by htmx when it loads, so it comes first. Hardened settings: ADR-041. #}
+  <meta name="htmx-config" content='{"selfRequestsOnly":true,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0,"refreshOnHistoryMiss":true,"historyRestoreAsHxRequest":false}'>
+  <script src="{{ static('vendor/htmx.min.js') }}" defer></script>
+  <script src="{{ static('js/app.js') }}" defer></script>
+</head>
+<body hx-headers="{{ hx_headers }}">
+  <a class="skip-link" href="#main">Skip to main content</a>
+  {% include "fragments/shell/_topbar.html" %}
+  {% include "fragments/shell/_sidebar.html" %}
+  <div id="app-status" class="app-status" hidden
+       data-msg-restarted="The app was restarted, so that last action didn't go through. Reload the page and try again."
+       data-msg-offline="The app isn't responding, so that last action didn't go through. Check that it's still running, then try again."
+       data-msg-failed="Something went wrong and that action didn't go through. Nothing was lost. Please try again.">
+    <p id="app-status-message"></p>
+    <button type="button" id="app-status-reload" hidden>Reload the page</button>
+  </div>
+  <main id="main" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+  <div id="announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
