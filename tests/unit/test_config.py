@@ -189,6 +189,7 @@ def test_defaults_when_nothing_is_set(
         demo=False,
         setup=False,
         no_browser=False,
+        data_dir_source="default",
     )
 
 
@@ -539,3 +540,129 @@ def test_cli_options_default_to_unset() -> None:
     assert cli == CliOptions(
         data_dir=None, port=None, log_level=None, demo=False, setup=False, no_browser=False
     )
+
+
+# --- data folder source and deferred workspace (M1.5; AC-M1.1; ADR-044 items 3 and 4) -------
+
+
+def _source_case(name: str, tmp_path: Path, config_dir: Path) -> tuple[CliOptions, dict[str, str]]:
+    """The CLI options and extra environment for one data-folder source case."""
+    chosen, from_env = tmp_path / "from-cli", str(tmp_path / "from-env")
+    if name in ("bootstrap", "demo_ignores_bootstrap", "env_wins_over_bootstrap"):
+        write_bootstrap(config_dir, data_dir=tmp_path / "from-boot")
+    cases: dict[str, tuple[CliOptions, dict[str, str]]] = {
+        "cli": (CliOptions(data_dir=chosen), {}),
+        "environment": (CliOptions(), {"JOBPIPELINE_DATA_DIR": from_env}),
+        "demo": (CliOptions(demo=True), {}),
+        "bootstrap": (CliOptions(), {}),
+        "default": (CliOptions(), {}),
+        "cli_wins_over_demo": (CliOptions(demo=True, data_dir=chosen), {}),
+        "cli_wins_over_environment": (
+            CliOptions(data_dir=chosen),
+            {"JOBPIPELINE_DATA_DIR": from_env},
+        ),
+        "env_wins_over_demo": (CliOptions(demo=True), {"JOBPIPELINE_DATA_DIR": from_env}),
+        "env_wins_over_bootstrap": (CliOptions(), {"JOBPIPELINE_DATA_DIR": from_env}),
+        "demo_ignores_bootstrap": (CliOptions(demo=True), {}),
+    }
+    return cases[name]
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("cli", "cli"),
+        ("environment", "environment"),
+        ("demo", "demo"),
+        ("bootstrap", "bootstrap"),
+        ("default", "default"),
+        ("cli_wins_over_demo", "cli"),
+        ("cli_wins_over_environment", "cli"),
+        ("env_wins_over_demo", "environment"),
+        ("env_wins_over_bootstrap", "environment"),
+        ("demo_ignores_bootstrap", "demo"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_data_dir_source_reported(
+    name: str,
+    expected: str,
+    platform_dirs: Path,
+    tmp_path: Path,
+    config_dir: Path,
+    make_env: Callable[..., dict[str, str]],
+) -> None:
+    cli, extra = _source_case(name, tmp_path, config_dir)
+
+    resolved = resolve_config(cli, make_env(**extra))
+
+    assert resolved.data_dir_source == expected
+
+
+def test_data_dir_source_does_not_create_any_folder(
+    platform_dirs: Path, make_env: Callable[..., dict[str, str]]
+) -> None:
+    resolve_config(CliOptions(), make_env())
+
+    assert not platform_dirs.exists()
+
+
+def test_runtime_config_source_defaults_to_cli(tmp_path: Path) -> None:
+    """A RuntimeConfig built directly names an explicit folder, as before M1.5."""
+    config = RuntimeConfig(
+        data_dir=tmp_path / "data",
+        config_dir=tmp_path / "cfg",
+        port=8000,
+        log_level="INFO",
+        demo=False,
+        setup=False,
+        no_browser=False,
+    )
+
+    assert config.data_dir_source == "cli"
+
+
+def _runtime(data_dir: Path, source: str) -> RuntimeConfig:
+    return RuntimeConfig(
+        data_dir=data_dir,
+        config_dir=data_dir.parent / "cfg",
+        port=8000,
+        log_level="INFO",
+        demo=source == "demo",
+        setup=False,
+        no_browser=False,
+        data_dir_source=source,  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "folder", "expected"),
+    [
+        ("default", "missing", False),
+        ("default", "empty", False),
+        ("default", "with_db", True),
+        ("bootstrap", "missing", False),
+        ("bootstrap", "empty", False),
+        ("bootstrap", "with_db", True),
+        ("cli", "missing", True),
+        ("cli", "with_db", True),
+        ("environment", "missing", True),
+        ("environment", "with_db", True),
+        ("demo", "missing", True),
+        ("demo", "with_db", True),
+    ],
+    ids=lambda value: value if isinstance(value, str) else str(value).lower(),
+)
+def test_opens_workspace_at_startup_rules(
+    source: str, folder: str, expected: bool, tmp_path: Path
+) -> None:
+    data_dir = tmp_path / "data"
+    if folder in ("empty", "with_db"):
+        data_dir.mkdir()
+    if folder == "with_db":
+        (data_dir / "app.db").write_bytes(b"")  # presence is what counts
+    before = sorted(tmp_path.rglob("*"))
+    from app.config import opens_workspace_at_startup
+
+    assert opens_workspace_at_startup(_runtime(data_dir, source)) is expected
+    assert sorted(tmp_path.rglob("*")) == before, "the check must never create anything"

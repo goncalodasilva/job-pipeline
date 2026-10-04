@@ -64,7 +64,7 @@ def test_lifespan_creates_db_and_applies_migrations_in_tmp_data_dir(tmp_path: Pa
 def test_lifespan_sets_app_state(tmp_path: Path) -> None:
     app = _app(tmp_path)
     with TestClient(app):
-        assert app.state.db.path == tmp_path / "data" / "app.db"
+        assert app.state.workspace.db.path == tmp_path / "data" / "app.db"
         assert app.state.runner.status == "running"
         assert app.state.health is not None
 
@@ -92,7 +92,7 @@ def test_health_needs_no_launch_token_and_exposes_no_paths(tmp_path: Path) -> No
 def test_shutdown_stops_runner_and_closes_db(tmp_path: Path) -> None:
     app = _app(tmp_path)
     with TestClient(app):
-        db = app.state.db
+        db = app.state.workspace.db
         runner = app.state.runner
         assert runner.status == "running"
 
@@ -104,7 +104,7 @@ def test_shutdown_stops_runner_and_closes_db(tmp_path: Path) -> None:
 def test_health_reports_database_error_with_503(tmp_path: Path) -> None:
     app = _app(tmp_path)
     with TestClient(app, base_url=BASE_URL) as client:
-        app.state.db.close()
+        app.state.workspace.db.close()
         response = client.get("/health")
     assert response.status_code == 503
     assert response.json() == {

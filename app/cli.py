@@ -1,7 +1,10 @@
 """The ``jobpipeline`` command (spec 7.1; ADR-024, 025, 030, 037, 039, 040).
 
 Start-up order matters: resolve the config, create the data folder, set up redacted logging
-and the exception hooks, build the app, check the port, then serve on 127.0.0.1 only. The
+and the exception hooks, build the app, check the port, then serve on 127.0.0.1 only. On a
+first run (no database yet and no folder named by a flag or the environment) nothing is
+created: logs are buffered in memory until step 1 opens the workspace (ADR-044 item 3), and a
+start-up failure points at the console instead of a log folder. The
 browser opens once ``/health`` answers. Errors print one plain line, never a traceback; the
 log file keeps the details.
 
@@ -30,11 +33,17 @@ import uvicorn
 from fastapi import FastAPI
 
 from app import __version__
-from app.config import CliOptions, RuntimeConfig, owned_by_another_user, resolve_config
+from app.config import (
+    CliOptions,
+    RuntimeConfig,
+    opens_workspace_at_startup,
+    owned_by_another_user,
+    resolve_config,
+)
 from app.domain.errors import ConfigError
 from app.domain.redaction import Redactor
-from app.logging_config import configure_logging, install_exception_hooks
-from app.main import create_app
+from app.logging_config import LoggingSetup, configure_logging, install_exception_hooks
+from app.main import LOG_FOLDER, create_app
 
 HOST = "127.0.0.1"
 HEALTH_POLL_SECONDS = 0.25
@@ -114,9 +123,56 @@ def main(
         raise SystemExit(INTERRUPTED_EXIT) from None
 
 
+@dataclass(frozen=True)
+class _StartPlan:
+    """Whether start-up opens the data folder, decided once (ADR-044 item 3)."""
+
+    open_at_startup: bool
+    attach_log_folder: Callable[[Path], None] | None
+    failed: str  # the one line printed when start-up fails
+
+
 def _run(config: RuntimeConfig, launcher: Launcher) -> None:
-    log_dir = config.data_dir / "logs"
     redactor = Redactor()
+    if opens_workspace_at_startup(config):
+        logging_setup = _log_to_data_folder(config, redactor)
+        plan = _StartPlan(
+            True, None, f"The app couldn't start. Details are in {config.data_dir / LOG_FOLDER}."
+        )
+    else:
+        # First run: create nothing yet; step 1 opens the folder and the buffered records
+        # move into its log file then. Until that, the console has them.
+        logging_setup = configure_logging(None, config.log_level, redactor)
+        plan = _StartPlan(
+            False, logging_setup.attach_log_folder, "The app couldn't start. Details are above."
+        )
+    restore_hooks = install_exception_hooks()
+    stop_polling = threading.Event()
+    try:
+        _start(config, launcher, redactor, stop_polling, plan)
+    except Exception as error:
+        _log_start_failure(error, to_file=plan.open_at_startup)
+        _fail(1, plan.failed)
+    finally:
+        stop_polling.set()
+        restore_hooks()
+        logging_setup.close()
+
+
+def _log_start_failure(error: Exception, *, to_file: bool) -> None:
+    """Logged while the handlers are still attached.
+
+    With a log file it keeps the traceback (the console shows one line). Without one the
+    console line names the exception type only: its text may hold paths or values.
+    """
+    if to_file:
+        _log.critical("Start-up failed", exc_info=True)
+    else:
+        _log.critical("Start-up failed (%s)", type(error).__name__)
+
+
+def _log_to_data_folder(config: RuntimeConfig, redactor: Redactor) -> LoggingSetup:
+    """Create the data folder (0700) and log into its ``logs`` folder from the start."""
     create_failed = (
         "Couldn't create the data folder or its logs. "
         "Check --data-dir, JOBPIPELINE_DATA_DIR or the settings file."
@@ -134,27 +190,21 @@ def _run(config: RuntimeConfig, launcher: Launcher) -> None:
             "Choose a folder you own with --data-dir.",
         )
     try:
-        logging_setup = configure_logging(log_dir, config.log_level, redactor)
+        return configure_logging(config.data_dir / LOG_FOLDER, config.log_level, redactor)
     except OSError:
         _fail(1, create_failed)
-    restore_hooks = install_exception_hooks()
-    stop_polling = threading.Event()
-    try:
-        _start(config, launcher, redactor, stop_polling)
-    except Exception:
-        # Logged while the handlers are still attached: the file keeps the traceback.
-        _log.critical("Start-up failed", exc_info=True)
-        _fail(1, f"The app couldn't start. Details are in {log_dir}.")
-    finally:
-        stop_polling.set()
-        restore_hooks()
-        logging_setup.close()
 
 
 def _start(
-    config: RuntimeConfig, launcher: Launcher, redactor: Redactor, stop_polling: threading.Event
+    config: RuntimeConfig,
+    launcher: Launcher,
+    redactor: Redactor,
+    stop_polling: threading.Event,
+    plan: _StartPlan,
 ) -> None:
-    app = create_app(config)
+    app = create_app(
+        config, attach_log_folder=plan.attach_log_folder, open_at_startup=plan.open_at_startup
+    )
     redactor.register(app.state.launch_token)
     if not launcher.port_free(config.port):
         _fail(
@@ -172,7 +222,7 @@ def _start(
     except KeyboardInterrupt:  # uvicorn re-raises Ctrl+C (and Ctrl+Break) after shutting down
         started = True
     if not started:
-        _fail(1, f"The app couldn't start. Details are in {config.data_dir / 'logs'}.")
+        _fail(1, plan.failed)
 
 
 @contextmanager

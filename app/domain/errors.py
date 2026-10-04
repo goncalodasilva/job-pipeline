@@ -82,6 +82,21 @@ class ConfigError(AppError):
     message = "A setting isn't valid. Check the command options, environment and settings file."
 
 
+class DataFolderUnavailable(ConfigError):
+    """The chosen data folder can't be created, opened or logged into (step 1; ADR-044).
+
+    ``detail`` names the error type only, never the path.
+    """
+
+    message = "This folder can't be used. Choose another folder."
+
+
+class DataFolderNotYours(ConfigError):
+    """The chosen data folder belongs to another account (ADR-043)."""
+
+    message = "This folder belongs to another user. Choose a folder you own."
+
+
 class FetchRefused(AppError):
     message = "This address can't be fetched. Paste the job text instead."
 

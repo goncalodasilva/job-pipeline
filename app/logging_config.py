@@ -1,8 +1,11 @@
 """Logging setup with redaction (spec 2.9 rule 9 and 2.10; ADR-030).
 
 Records are written as JSON lines to rotating files in the data folder's ``logs/`` and as
-plain text to stderr. The redaction filter sits on the handlers, not on loggers, so records
-from every logger, including uvicorn's, pass through it before they are written.
+plain text to stderr. Before the data folder exists (a first run, ADR-044 item 3) the file is
+replaced by a bounded in-memory buffer that is written out once the folder is attached.
+
+The redaction filter sits on the handlers, not on loggers, so records from every logger,
+including uvicorn's, pass through it before they are written.
 
 Limits: only the handlers added here are filtered, so ``configure_logging`` must run before any
 other handler is installed, and uvicorn must be started with ``log_config=None`` (its default
@@ -16,8 +19,9 @@ import logging.handlers
 import os
 import sys
 import threading
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections import deque
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
@@ -28,6 +32,7 @@ LOG_FILE_NAME = "jobpipeline.log"
 MAX_LOG_BYTES = 1_048_576
 LOG_BACKUP_COUNT = 4  # the live file plus 4 backups: 5 files in total
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+_LOG = logging.getLogger("jobpipeline.logging")
 
 # Attributes every LogRecord has; anything else on a record came from ``extra``.
 _STANDARD_ATTRS = frozenset(vars(logging.LogRecord("", logging.INFO, "", 0, "", None, None))) | {
@@ -124,37 +129,153 @@ class ConsoleFormatter(logging.Formatter):
         return f"{record.levelname} {record.name}: {first_line}"
 
 
-@dataclass(frozen=True)
-class LoggingSetup:
-    """The handlers ``configure_logging`` added, so they can be removed again."""
+class _BufferHandler(logging.Handler):
+    """Keeps the most recent records in memory until the log folder exists (ADR-044 item 3).
 
-    handlers: tuple[logging.Handler, ...]
+    Its redaction filter runs before a record is stored, and the file handler's filter runs
+    again when the record is written out, so a secret registered in between is caught too.
+    Once handed over, any record still arriving (a thread that was waiting for the lock while
+    the buffer was replaced) is forwarded to the file handler instead of being lost.
+    """
+
+    def __init__(self, limit: int) -> None:
+        super().__init__()
+        self._records: deque[logging.LogRecord] = deque(maxlen=limit)
+        self._dropped = 0
+        self._target: logging.Handler | None = None
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self._target is not None:
+            self._target.handle(record)
+            return
+        if len(self._records) == self._records.maxlen:
+            self._dropped += 1
+        self._records.append(record)
+
+    def hand_over(self, target: logging.Handler) -> None:
+        """Write the dropped-records note and the stored records to ``target``, oldest first,
+        and forward later records to it (call with the lock held)."""
+        if self._dropped:
+            note = _LOG.makeRecord(
+                _LOG.name,
+                logging.INFO,
+                __file__,
+                0,
+                "%d earlier log records were dropped",
+                (self._dropped,),
+                None,
+            )
+            target.handle(note)
+        for record in self._records:
+            target.handle(record)
+        self._records.clear()
+        self._dropped = 0
+        self._target = target
+
+    def stop_forwarding(self) -> None:
+        """Stop forwarding (call with the lock held), so nothing reopens a closed file."""
+        self._target = None
+
+
+class LoggingSetup:
+    """The handlers ``configure_logging`` added, so a log folder can be attached later and
+    every handler removed again."""
+
+    def __init__(
+        self,
+        redactor: Redactor,
+        console: logging.Handler,
+        *,
+        file_handler: logging.Handler | None = None,
+        buffer: _BufferHandler | None = None,
+    ) -> None:
+        self._redactor = redactor
+        self._console = console
+        self._file_handler = file_handler
+        self._buffer = buffer
+        self._lock = threading.Lock()
+
+    def attach_log_folder(self, log_dir: Path) -> None:
+        """Start writing the log file in ``log_dir``, first the buffered records in order.
+
+        Raises ``RuntimeError`` when a log folder is already attached.
+        """
+        with self._lock:
+            if self._file_handler is not None:
+                raise RuntimeError("a log folder is already attached")
+            file_handler = _file_handler(log_dir, self._redactor)
+            root = logging.getLogger()
+            buffer = self._buffer
+            if buffer is None:
+                root.addHandler(file_handler)
+            else:
+                # Under the buffer's lock no record lands in the buffer while it is replaced.
+                with _handler_lock(buffer):
+                    buffer.hand_over(file_handler)
+                    root.addHandler(file_handler)
+                    root.removeHandler(buffer)
+                # Kept until close(), which stops its forwarding before the file closes.
+            self._file_handler = file_handler
 
     def close(self) -> None:
         root = logging.getLogger()
-        for handler in self.handlers:
-            root.removeHandler(handler)
-            handler.close()
+        with self._lock:
+            if self._buffer is not None:
+                with _handler_lock(self._buffer):
+                    self._buffer.stop_forwarding()
+            handlers = (self._buffer, self._file_handler, self._console)
+            for handler in handlers:
+                if handler is not None:
+                    root.removeHandler(handler)
+                    handler.close()
+            self._file_handler = self._buffer = None
         logging.captureWarnings(False)
 
 
-def configure_logging(log_dir: Path, level: str, redactor: Redactor) -> LoggingSetup:
+@contextmanager
+def _handler_lock(handler: logging.Handler) -> Iterator[None]:
+    handler.acquire()
+    try:
+        yield
+    finally:
+        handler.release()
+
+
+def _file_handler(log_dir: Path, redactor: Redactor) -> logging.Handler:
     log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(log_dir, 0o700)
-    file_handler = PrivateRotatingFileHandler(
+    handler = PrivateRotatingFileHandler(
         log_dir / LOG_FILE_NAME,
         maxBytes=MAX_LOG_BYTES,
         backupCount=LOG_BACKUP_COUNT,
         encoding="utf-8",
     )
-    file_handler.setFormatter(JsonFormatter())
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setFormatter(ConsoleFormatter())
+    handler.setFormatter(JsonFormatter())
+    handler.addFilter(RedactionFilter(redactor))
+    return handler
+
+
+def configure_logging(
+    log_dir: Path | None, level: str, redactor: Redactor, *, buffer_limit: int = 1000
+) -> LoggingSetup:
+    """Install redacted console logging plus a log file in ``log_dir``.
+
+    Without a folder (before the workspace exists) the most recent ``buffer_limit`` records
+    are kept in memory instead, and nothing is written to disk until
+    ``LoggingSetup.attach_log_folder`` is called.
+    """
+    file_handler = _file_handler(log_dir, redactor) if log_dir is not None else None
+    buffer = _BufferHandler(buffer_limit) if log_dir is None else None
+    if buffer is not None:
+        buffer.addFilter(RedactionFilter(redactor))
+    console = logging.StreamHandler(sys.stderr)
+    console.setFormatter(ConsoleFormatter())
+    console.addFilter(RedactionFilter(redactor))
 
     root = logging.getLogger()
-    for handler in (file_handler, stderr_handler):
-        handler.addFilter(RedactionFilter(redactor))
-        root.addHandler(handler)
+    for handler in (file_handler or buffer, console):
+        if handler is not None:
+            root.addHandler(handler)
     root.setLevel(level)
     logging.captureWarnings(True)
 
@@ -163,7 +284,7 @@ def configure_logging(log_dir: Path, level: str, redactor: Redactor) -> LoggingS
         logger = logging.getLogger(name)
         logger.handlers.clear()
         logger.propagate = True
-    return LoggingSetup(handlers=(file_handler, stderr_handler))
+    return LoggingSetup(redactor, console, file_handler=file_handler, buffer=buffer)
 
 
 def install_exception_hooks(logger_name: str = "jobpipeline") -> Callable[[], None]:

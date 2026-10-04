@@ -787,3 +787,262 @@ def test_cli_checks_ownership_after_creating_the_folder(
     assert "another user" in capsys.readouterr().err
     assert list(data_dir.iterdir()) == []
     assert fake.calls("serve") == []
+
+
+# --- M1.5: deferred workspace on a first run (AC-M1.1 cases 1 and 2; ADR-044 item 3) ---------
+
+
+@pytest.fixture
+def platform_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point the platformdirs defaults into ``tmp_path``; return their root."""
+    root = tmp_path / "platform"
+
+    def fake_data_dir(appname: str | None = None, *args: object, **kwargs: object) -> str:
+        return str(root / "data" / (appname or ""))
+
+    def fake_config_dir(appname: str | None = None, *args: object, **kwargs: object) -> str:
+        return str(root / "config" / (appname or ""))
+
+    monkeypatch.setattr("app.config.user_data_dir", fake_data_dir)
+    monkeypatch.setattr("app.config.user_config_dir", fake_config_dir)
+    return root
+
+
+@pytest.fixture
+def first_run_env(tmp_path: Path) -> dict[str, str]:
+    """No JOBPIPELINE_DATA_DIR and a config folder without config.toml: a first run."""
+    return {"JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg")}
+
+
+def capture_create_app_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, dict[str, Any]]]:
+    """Wrap ``app.cli.create_app`` and record its config and keyword arguments."""
+    from app.main import create_app as real_create_app
+
+    calls: list[tuple[Any, dict[str, Any]]] = []
+
+    def wrapper(config: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append((config, kwargs))
+        return real_create_app(config, *args, **kwargs)
+
+    monkeypatch.setattr("app.cli.create_app", wrapper)
+    return calls
+
+
+def _file_handler_folders() -> list[Path]:
+    from app.logging_config import PrivateRotatingFileHandler
+
+    return [
+        Path(h.baseFilename).parent
+        for h in logging.getLogger().handlers
+        if isinstance(h, PrivateRotatingFileHandler)
+    ]
+
+
+def test_cli_first_run_does_not_create_default_data_folder(
+    tmp_path: Path,
+    platform_root: Path,
+    first_run_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = capture_create_app_calls(monkeypatch)
+    observed: dict[str, object] = {}
+
+    def inspect(_config: Any) -> None:
+        observed["file_logs"] = _file_handler_folders()
+
+    run_main(["--no-browser"], first_run_env, FakeLaunch(on_serve=inspect))
+
+    default_dir = platform_root / "data" / "jobpipeline"
+    assert not default_dir.exists()
+    assert not (platform_root / "data").exists()
+    assert not (tmp_path / "cfg").exists(), "the CLI never writes the bootstrap config"
+    assert len(calls) == 1
+    config, kwargs = calls[0]
+    assert config.data_dir == default_dir
+    assert config.data_dir_source == "default"
+    assert callable(kwargs.get("attach_log_folder")), "step 1 needs the log-folder callback"
+    assert observed["file_logs"] == [], "no log file until the workspace is opened"
+
+
+def test_cli_bootstrap_without_database_does_not_create_anything(
+    tmp_path: Path,
+    platform_root: Path,
+    first_run_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import write_bootstrap
+
+    moved = tmp_path / "moved-data"  # the folder the bootstrap names no longer exists
+    write_bootstrap(tmp_path / "cfg", data_dir=moved, version="0.0.1-test")
+    calls = capture_create_app_calls(monkeypatch)
+
+    run_main(["--no-browser"], first_run_env, FakeLaunch())
+
+    assert not moved.exists()
+    assert calls[0][0].data_dir_source == "bootstrap"
+    assert callable(calls[0][1].get("attach_log_folder"))
+
+
+def test_cli_first_run_skips_ownership_check(
+    platform_root: Path, first_run_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No folder is created at start-up, so there is nothing to check yet (step 1 checks)."""
+    monkeypatch.setattr("app.cli.os.geteuid", lambda: -1, raising=False)
+    monkeypatch.setattr("app.config.os.geteuid", lambda: -1, raising=False)
+    fake = FakeLaunch()
+
+    run_main(["--no-browser"], first_run_env, fake)
+
+    assert len(fake.calls("serve")) == 1
+
+
+def test_cli_explicit_data_dir_still_created(
+    tmp_path: Path,
+    platform_root: Path,
+    first_run_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.logging_config import LOG_FILE_NAME
+
+    chosen = tmp_path / "chosen"
+    calls = capture_create_app_calls(monkeypatch)
+    observed: dict[str, object] = {}
+
+    def inspect(_config: Any) -> None:
+        observed["file_logs"] = _file_handler_folders()
+
+    run_main(
+        ["--no-browser", "--data-dir", str(chosen)], first_run_env, FakeLaunch(on_serve=inspect)
+    )
+
+    assert chosen.is_dir()
+    assert (chosen / "logs" / LOG_FILE_NAME).is_file()
+    if os.name == "posix":
+        assert chosen.stat().st_mode & 0o777 == 0o700
+    assert observed["file_logs"] == [chosen / "logs"]
+    assert calls[0][0].data_dir_source == "cli"
+    assert not (platform_root / "data").exists()
+
+
+def test_cli_existing_database_in_default_folder_logs_to_file_from_start(
+    platform_root: Path, first_run_env: dict[str, str]
+) -> None:
+    from app.logging_config import LOG_FILE_NAME
+
+    default_dir = platform_root / "data" / "jobpipeline"
+    default_dir.mkdir(parents=True)
+    (default_dir / "app.db").write_bytes(b"")
+    observed: dict[str, object] = {}
+
+    def inspect(_config: Any) -> None:
+        observed["file_logs"] = _file_handler_folders()
+
+    run_main(["--no-browser"], first_run_env, FakeLaunch(on_serve=inspect))
+
+    assert observed["file_logs"] == [default_dir / "logs"]
+    assert (default_dir / "logs" / LOG_FILE_NAME).is_file()
+
+
+def test_cli_existing_database_in_foreign_default_folder_is_refused(
+    platform_root: Path,
+    first_run_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    default_dir = platform_root / "data" / "jobpipeline"
+    default_dir.mkdir(parents=True)
+    (default_dir / "app.db").write_bytes(b"")
+    other_user = default_dir.stat().st_uid + 1
+    monkeypatch.setattr("app.cli.os.geteuid", lambda: other_user, raising=False)
+    fake = FakeLaunch()
+
+    code = exit_code(lambda: run_main(["--no-browser"], first_run_env, fake))
+
+    assert code == 2
+    assert "another user" in capsys.readouterr().err
+    assert sorted(p.name for p in default_dir.iterdir()) == ["app.db"]
+    assert fake.calls("serve") == []
+
+
+def test_cli_start_failure_without_log_folder_says_details_are_above(
+    platform_root: Path,
+    first_run_env: dict[str, str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail_like_uvicorn(_config: Any) -> None:
+        logging.getLogger("uvicorn.error").error("Application startup failed. Exiting.")
+        raise SystemExit(3)
+
+    code = exit_code(
+        lambda: run_main(["--no-browser"], first_run_env, FakeLaunch(on_serve=fail_like_uvicorn))
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "jobpipeline: The app couldn't start. Details are above." in err
+    assert "Details are in" not in err
+    assert "Application startup failed" in err  # the console kept the details
+    assert "Traceback" not in err
+    assert not (platform_root / "data").exists()
+
+
+def test_cli_unexpected_error_without_log_folder_says_details_are_above(
+    platform_root: Path,
+    first_run_env: dict[str, str],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken_create_app(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("fictional factory failure")
+
+    monkeypatch.setattr("app.cli.create_app", broken_create_app)
+
+    code = exit_code(lambda: run_main(["--no-browser"], first_run_env, FakeLaunch()))
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "jobpipeline: The app couldn't start. Details are above." in err
+    assert "Start-up failed" in err
+    assert "Traceback" not in err
+    assert not (platform_root / "data").exists()
+
+
+def test_cli_first_run_failure_console_names_exception_type_only(
+    platform_root: Path,
+    first_run_env: dict[str, str],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ "Details are above" must be true: the console line names the failure's type, and only
+    the type, since its text may hold paths or values (M1.5 review)."""
+
+    class FictionalStartupFailure(Exception):
+        pass
+
+    def broken_create_app(*_args: object, **_kwargs: object) -> None:
+        raise FictionalStartupFailure("fictional detail /fictional/path")
+
+    monkeypatch.setattr("app.cli.create_app", broken_create_app)
+
+    code = exit_code(lambda: run_main(["--no-browser"], first_run_env, FakeLaunch()))
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "Start-up failed (FictionalStartupFailure)" in err
+    assert "fictional detail" not in err
+    assert "/fictional/path" not in err
+    assert "jobpipeline: The app couldn't start. Details are above." in err
+
+
+def test_cli_passes_its_open_at_startup_decision_to_the_app(
+    tmp_path: Path,
+    platform_root: Path,
+    first_run_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = capture_create_app_calls(monkeypatch)
+
+    run_main(["--no-browser"], first_run_env, FakeLaunch())
+    run_main(["--no-browser", "--data-dir", str(tmp_path / "chosen")], first_run_env, FakeLaunch())
+
+    assert [kwargs.get("open_at_startup") for _config, kwargs in calls] == [False, True]

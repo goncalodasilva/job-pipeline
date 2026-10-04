@@ -11,6 +11,7 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from platformdirs import user_config_dir, user_data_dir
 
@@ -27,6 +28,11 @@ ENV_DATA_DIR = "JOBPIPELINE_DATA_DIR"
 ENV_CONFIG_DIR = "JOBPIPELINE_CONFIG_DIR"
 ENV_PORT = "JOBPIPELINE_PORT"
 ENV_LOG_LEVEL = "JOBPIPELINE_LOG_LEVEL"
+DATABASE_FILE = "app.db"
+
+DataDirSource = Literal["cli", "environment", "bootstrap", "demo", "default"]
+# A folder the user named explicitly is created and opened at start-up (ADR-044 item 4).
+_EXPLICIT_SOURCES: frozenset[DataDirSource] = frozenset({"cli", "environment", "demo"})
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,18 @@ class RuntimeConfig:
     demo: bool
     setup: bool
     no_browser: bool
+    data_dir_source: DataDirSource = "cli"
+
+
+def opens_workspace_at_startup(config: RuntimeConfig) -> bool:
+    """Whether start-up opens the data folder, or waits for step 1 (ADR-044 item 3).
+
+    A first run ("default") or a bootstrap config naming a folder without a database must not
+    create anything. Only reads the file system.
+    """
+    if config.data_dir_source in _EXPLICIT_SOURCES:
+        return True
+    return (config.data_dir / DATABASE_FILE).exists()
 
 
 def resolve_config_dir(env: Mapping[str, str]) -> Path:
@@ -169,29 +187,31 @@ def owned_by_another_user(folder: Path) -> bool:
 def resolve_config(cli: CliOptions, env: Mapping[str, str]) -> RuntimeConfig:
     config_dir = resolve_config_dir(env)
     bootstrap = load_bootstrap(config_dir)
+    data_dir, source = _resolve_data_dir(cli, env, bootstrap)
     return RuntimeConfig(
-        data_dir=_resolve_data_dir(cli, env, bootstrap),
+        data_dir=data_dir,
         config_dir=config_dir,
         port=_resolve_port(cli, env),
         log_level=_resolve_log_level(cli, env),
         demo=cli.demo,
         setup=cli.setup,
         no_browser=cli.no_browser,
+        data_dir_source=source,
     )
 
 
 def _resolve_data_dir(
     cli: CliOptions, env: Mapping[str, str], bootstrap: BootstrapConfig | None
-) -> Path:
+) -> tuple[Path, DataDirSource]:
     if cli.data_dir is not None:
-        return cli.data_dir
+        return cli.data_dir, "cli"
     if ENV_DATA_DIR in env:
-        return _env_path(ENV_DATA_DIR, env[ENV_DATA_DIR])
+        return _env_path(ENV_DATA_DIR, env[ENV_DATA_DIR]), "environment"
     if cli.demo:
-        return Path(user_data_dir(DEMO_APP_NAME))
+        return Path(user_data_dir(DEMO_APP_NAME)), "demo"
     if bootstrap is not None:
-        return bootstrap.data_dir
-    return Path(user_data_dir(APP_NAME))
+        return bootstrap.data_dir, "bootstrap"
+    return Path(user_data_dir(APP_NAME)), "default"
 
 
 def _resolve_port(cli: CliOptions, env: Mapping[str, str]) -> int:

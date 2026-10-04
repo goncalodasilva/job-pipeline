@@ -106,6 +106,7 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Context: spec 2.9 requires the launch token on every JSON endpoint, but AC-M0.1, the smoke test and the CLI's browser-opening probe call `/health` without one.
 - Decision: `GET /health` needs no launch token; the host check still applies. It returns only the app version, database status and task runner status, never personal data. It responds 503 when the database is not usable.
 - Consequences: spec 2.9 updated. Static files and full-page GETs are the only other token-free routes.
+- Update (2026-10-04, M1.5, ADR-044 item 3): before the setup guide creates the workspace there is no database; `/health` then returns 200 with `database: "not_created"`. It returns 503 only when a database exists but isn't usable (`"error"`).
 
 ## ADR-024 — `JOBPIPELINE_CONFIG_DIR` overrides the config folder (2026-10-03)
 
@@ -230,6 +231,7 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Consequences: the M0.16 smoke test must not rely on the console script on macOS (see below).
 - Update (M0.16, 2026-10-04): once serving has begun, Ctrl+C is a normal stop with exit 0 (uvicorn re-raises it after a clean shutdown); 130 only before serving begins. On Windows the CLI maps SIGBREAK to KeyboardInterrupt while serving, because uvicorn re-raises Ctrl+Break and Python's default for it exits with code 3 and skips clean-up. `python -m app` is equivalent to the `jobpipeline` command. Windows behaviour is unverified until the Windows CI run (M0.19).
 - Update (M0.19, 2026-10-04): Windows CI run https://github.com/goncalodasilva/job-pipeline/actions/runs/37194424406 verified smoke tests stop with exit 0 on both Python 3.11 and 3.14, confirming Ctrl+Break handling.
+- Update (M1.5, 2026-10-04): on a first run (no database yet and the data folder not given by `--data-dir`, `JOBPIPELINE_DATA_DIR` or `--demo`) the CLI creates no folder and no log file; logs wait in memory (ADR-049). A start-up failure then prints "The app couldn't start. Details are above." after a console line naming the error type.
 
 ## ADR-041 — Hardened htmx configuration and shell error messages (2026-10-04)
 
@@ -339,3 +341,20 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - TOML is written by hand as basic strings: `"` and `\` escaped, control characters U+0000–U+001F and U+007F as `\uXXXX`, lone surrogates (undecodable file names) refused with `ConfigError`; everything else verbatim UTF-8. A Hypothesis round trip through `load_bootstrap` checks it.
 - Symlinks: resolved by the ADR-043 amendment (a link owned by another account is refused). Still not covered: group- or world-writable existing folders are not refused (ADR-038 keeps existing permissions); the README could mention it.
 - Follow-ups: M1.16 shows `ConfigError.user_message` in the guide and keeps `detail` for the log; demo mode never calls `write_bootstrap` (test in M1.16). On Windows, `os.replace` can fail while another program holds `config.toml` open; the guide offers "try again".
+
+## ADR-049 — Workspace lifecycle (2026-10-04)
+
+- Context: M1.5 implements ADR-044 items 3 and 4: a first run must not create the default data folder or database; step 1 of the setup guide does (detection cases 1 and 2, AC-M1.1).
+- Decision:
+  - `RuntimeConfig.data_dir_source` records where the folder came from: `cli`, `environment`, `demo`, `bootstrap` or `default` (direct constructions default to `cli`, so tests and callers that build a config by hand get an explicit folder). `opens_workspace_at_startup(config)` is true when `app.db` exists or the source is `cli`, `environment` or `demo`; it never creates anything. The CLI decides once and passes the answer to `create_app(open_at_startup=...)`.
+  - Without a workspace at start-up the CLI creates no folder, skips the ownership check and configures logging with no folder: console output plus an in-memory buffer of the most recent 1,000 records, redacted when logged and again when written out (so a secret registered later is still caught in the file; the console has already shown the record). The buffer is discarded if no workspace is ever opened.
+  - `app.state.workspace` is a `Workspace(data_dir, db)` or `None`. `app.state.open_workspace(folder)` (blocking, guarded by a lock) creates the folder 0700, refuses one owned by another user, opens and migrates `app.db` (backups in `backups/`), and only then moves logging into `logs/`, writing the buffered records first (and a line saying how many were dropped). Any failure leaves nothing attached, so the user can retry with the same or another folder. Errors are `DataFolderUnavailable` or `DataFolderNotYours` (both `ConfigError`s with plain copy for the guide). A second open raises `WorkspaceAlreadyOpen`; an open after shutdown raises `WorkspaceClosed`.
+  - The health service reads the current workspace on each check (ADR-023 update).
+- Requirements for the step 1 route (M1.16), from the security review:
+  1. POST only, behind the launch token and origin checks; never reachable from a GET. Call `open_workspace` from a sync route or a worker thread, never directly in an async handler.
+  2. When the source is `cli`, `environment` or `demo`, ignore any folder in the request and use `config.data_dir` (the field is read-only, ADR-044 item 4). Only `default` and `bootstrap` take a user-chosen folder.
+  3. A chosen folder must be absolute after `expanduser`, contain no NUL, and be missing, empty or an existing jobpipeline workspace (an `app.db` with this app's `schema_migrations`), so the app never migrates a foreign SQLite file or drops `logs/` and `backups/` into an unrelated folder. Refuse the config folder, the demo folder outside demo mode, and the real default folder in demo mode.
+  4. Map every failure (`ConfigError` subclasses, sqlite errors, `OSError`, `WorkspaceAlreadyOpen`) to plain copy; log only error types (sqlite messages can contain paths). Never put the folder in `/health`.
+  5. Write `config.toml` only after `open_workspace` succeeds, and never in demo mode.
+- Accepted: an existing folder keeps its permissions (ADR-038), and parent folders created along the way get the default mode; folder contents are private (database 0600, `logs/` and `backups/` 0700). M1.16 may offer to tighten an existing folder the user owns. Demo seeding (M9) must refuse a folder that holds a non-demo workspace, since `JOBPIPELINE_DATA_DIR` beats `--demo` (ADR-025).
+

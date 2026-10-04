@@ -614,3 +614,233 @@ def test_install_exception_hooks_default_logger_and_restore(restore_hooks: None)
     assert threading.excepthook is not before[1]
     restore()
     assert (sys.excepthook, threading.excepthook) == before
+
+
+# --- buffered logging before the data folder exists (M1.5; ADR-044 item 3) --------------------
+
+
+@pytest.fixture
+def make_buffered_logging(
+    redactor: Redactor, restore_logging: None
+) -> Iterator[Callable[..., LoggingSetup]]:
+    """Configure logging without a folder (in-memory buffer); closed afterwards."""
+    setups: list[LoggingSetup] = []
+
+    def factory(level: str = "DEBUG", **kwargs: int) -> LoggingSetup:
+        setup = configure_logging(None, level, redactor, **kwargs)
+        setups.append(setup)
+        return setup
+
+    yield factory
+    for setup in setups:
+        setup.close()
+
+
+def test_buffered_logging_creates_no_files(
+    make_buffered_logging: Callable[..., LoggingSetup],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = logging.getLogger()
+    before = list(root.handlers)
+
+    make_buffered_logging("INFO")
+    logging.getLogger("jobpipeline.test.buffer").warning("buffered with %s", FICTIONAL_HIDDEN)
+    flush_root()
+
+    assert list(tmp_path.iterdir()) == []
+    added = [h for h in root.handlers if h not in before]
+    assert not any(isinstance(h, logging.FileHandler) for h in added)
+    assert any(type(h) is logging.StreamHandler and h.stream is sys.stderr for h in added)
+    for handler in added:
+        assert any(isinstance(f, RedactionFilter) for f in handler.filters)
+    err = capsys.readouterr().err
+    assert "buffered with" in err  # the console still shows records before the folder exists
+    assert FICTIONAL_HIDDEN not in err
+
+
+def test_attach_log_folder_flushes_buffer_in_order_redacted(
+    make_buffered_logging: Callable[..., LoggingSetup], log_dir: Path
+) -> None:
+    import stat
+
+    setup = make_buffered_logging("INFO")
+    logger = logging.getLogger("jobpipeline.test.buffer")
+    logger.info("first fictional record")
+    logger.debug("dropped below the level")
+    logger.warning("second with %s", FICTIONAL_HIDDEN)
+    try:
+        raise RuntimeError(f"fictional failure {FICTIONAL_HIDDEN}")
+    except RuntimeError:
+        logger.exception("third with a traceback")
+    assert not log_dir.exists()
+
+    setup.attach_log_folder(log_dir)
+    logger.info("fourth after attaching")
+
+    records = read_log_records(log_dir)
+    assert [r["message"] for r in records] == [
+        "first fictional record",
+        f"second with {REDACTED}",
+        "third with a traceback",
+        "fourth after attaching",
+    ]
+    assert "Traceback" in str(records[2]["exception"])
+    assert REDACTED in str(records[2]["exception"])
+    assert records[0]["logger"] == "jobpipeline.test.buffer"
+    assert FICTIONAL_HIDDEN not in read_log_text(log_dir)
+    if os.name == "posix":
+        assert stat.S_IMODE(log_dir.stat().st_mode) == 0o700
+        assert stat.S_IMODE((log_dir / LOG_FILE_NAME).stat().st_mode) == 0o600
+
+
+def test_attach_log_folder_leaves_file_and_console_handlers_only(
+    make_buffered_logging: Callable[..., LoggingSetup], log_dir: Path
+) -> None:
+    root = logging.getLogger()
+    before = list(root.handlers)
+    setup = make_buffered_logging("INFO")
+
+    setup.attach_log_folder(log_dir)
+
+    added = [h for h in root.handlers if h not in before]
+    assert len(added) == 2, "the buffer is removed once the file handler takes over"
+    assert any(isinstance(h, logging.handlers.RotatingFileHandler) for h in added)
+    assert any(type(h) is logging.StreamHandler and h.stream is sys.stderr for h in added)
+
+    setup.close()
+    assert root.handlers == before
+
+
+def test_buffer_keeps_most_recent_records_only(
+    make_buffered_logging: Callable[..., LoggingSetup], log_dir: Path
+) -> None:
+    setup = make_buffered_logging("INFO", buffer_limit=3)
+    logger = logging.getLogger("jobpipeline.test.buffer")
+    for index in range(5):
+        logger.info("record %d", index)
+
+    setup.attach_log_folder(log_dir)
+
+    assert [r["message"] for r in read_log_records(log_dir)] == [
+        "2 earlier log records were dropped",  # added by the M1.5 review: drops are reported
+        "record 2",
+        "record 3",
+        "record 4",
+    ]
+
+
+def test_attach_log_folder_reports_dropped_records(
+    make_buffered_logging: Callable[..., LoggingSetup], log_dir: Path
+) -> None:
+    setup = make_buffered_logging("INFO", buffer_limit=2)
+    logger = logging.getLogger("jobpipeline.test.buffer")
+    for index in range(7):
+        logger.info("record %d", index)
+
+    setup.attach_log_folder(log_dir)
+    logger.info("after attaching")
+
+    records = read_log_records(log_dir)
+    assert records[0]["message"] == "5 earlier log records were dropped"
+    assert records[0]["level"] == "INFO"
+    assert [r["message"] for r in records[1:]] == ["record 5", "record 6", "after attaching"]
+
+
+def test_attach_log_folder_without_drops_writes_no_note(
+    make_buffered_logging: Callable[..., LoggingSetup], log_dir: Path
+) -> None:
+    setup = make_buffered_logging("INFO", buffer_limit=3)
+    logging.getLogger("jobpipeline.test.buffer").info("only record")
+
+    setup.attach_log_folder(log_dir)
+
+    assert [r["message"] for r in read_log_records(log_dir)] == ["only record"]
+
+
+def test_buffered_record_redacted_with_secret_registered_later(
+    make_buffered_logging: Callable[..., LoggingSetup], redactor: Redactor, log_dir: Path
+) -> None:
+    late = "FictionalLateSecret-0077-notreal"
+    setup = make_buffered_logging("INFO")
+    logger = logging.getLogger("jobpipeline.test.buffer")
+    logger.warning("logged before registration: %s", late, extra={"note": [late]})
+    try:
+        raise RuntimeError(f"fictional failure {late}")
+    except RuntimeError:
+        logger.exception("traceback before registration")
+
+    redactor.register(late)
+    setup.attach_log_folder(log_dir)
+
+    text = read_log_text(log_dir)
+    assert late not in text
+    assert f"logged before registration: {REDACTED}" in text
+
+
+def test_buffer_forwards_records_arriving_after_hand_over(
+    make_buffered_logging: Callable[..., LoggingSetup], log_dir: Path
+) -> None:
+    """A thread that reached the buffer while it was being replaced loses nothing."""
+    from app.logging_config import _BufferHandler
+
+    setup = make_buffered_logging("INFO")
+    buffer = next(h for h in logging.getLogger().handlers if isinstance(h, _BufferHandler))
+    setup.attach_log_folder(log_dir)
+
+    buffer.handle(logging.LogRecord("jobpipeline.late", logging.INFO, "", 0, "late", None, None))
+
+    assert [r["message"] for r in read_log_records(log_dir)] == ["late"]
+
+
+def test_attach_log_folder_twice_raises(
+    make_buffered_logging: Callable[..., LoggingSetup], log_dir: Path, tmp_path: Path
+) -> None:
+    setup = make_buffered_logging("INFO")
+    setup.attach_log_folder(log_dir)
+    other = tmp_path / "other" / "logs"
+
+    with pytest.raises(RuntimeError):
+        setup.attach_log_folder(other)
+
+    assert not other.exists()
+
+
+def test_attach_log_folder_when_configured_with_folder_raises(
+    make_logging: Callable[..., LoggingSetup], tmp_path: Path
+) -> None:
+    setup = make_logging("INFO")
+    other = tmp_path / "other" / "logs"
+
+    with pytest.raises(RuntimeError):
+        setup.attach_log_folder(other)
+
+    assert not other.exists()
+
+
+def test_close_without_folder_removes_buffer_and_console(
+    make_buffered_logging: Callable[..., LoggingSetup], tmp_path: Path
+) -> None:
+    root = logging.getLogger()
+    before = list(root.handlers)
+    setup = make_buffered_logging("INFO")
+    logging.getLogger("jobpipeline.test.buffer").info("never written to a file")
+
+    setup.close()
+
+    assert root.handlers == before
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_late_record_after_close_does_not_reopen_the_log_file(tmp_path: Path) -> None:
+    """A thread stuck at the old buffer until shutdown must not reopen the closed file."""
+    setup = configure_logging(None, "INFO", Redactor())
+    buffer = next(h for h in logging.getLogger().handlers if type(h).__name__ == "_BufferHandler")
+    log_dir = tmp_path / "logs"
+    setup.attach_log_folder(log_dir)
+    setup.close()
+    size_after_close = sum(f.stat().st_size for f in log_dir.iterdir())
+
+    buffer.handle(logging.makeLogRecord({"msg": "late record", "levelno": logging.INFO}))
+
+    assert sum(f.stat().st_size for f in log_dir.iterdir()) == size_after_close
