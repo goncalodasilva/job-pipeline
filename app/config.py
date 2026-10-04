@@ -5,6 +5,7 @@ environment is passed in, never read from ``os.environ``, so resolution is easy 
 """
 
 import os
+import stat
 import tempfile
 import tomllib
 from collections.abc import Mapping
@@ -143,20 +144,26 @@ def _toml_string(value: str, setting: str) -> str:
 
 
 def owned_by_another_user(folder: Path) -> bool:
-    """Whether an existing folder belongs to another account (POSIX only; ADR-043).
+    """Whether a folder, or a link standing in for it, belongs to another account (POSIX only;
+    ADR-043 and its amendment).
 
     Whoever owns a folder can replace files or plant symlinks in it, so the app never writes
-    into someone else's folder. ``stat`` follows symlinks: the folder a link points to is
-    what matters.
+    into someone else's folder. A link is judged twice: the link itself must not belong to
+    another account (one planted in a shared folder could point anywhere the user can write),
+    and the folder it points to must belong to the user.
     """
     geteuid = getattr(os, "geteuid", None)
     if geteuid is None:  # Windows: no POSIX owner ids
         return False
+    user = geteuid()
     try:
-        owner = folder.stat().st_uid
+        entry = os.lstat(folder)
+        if stat.S_ISLNK(entry.st_mode) and entry.st_uid != user:
+            return True
+        owner = os.stat(folder).st_uid
     except OSError:  # unusable; callers report that with a plain message
         return False
-    return bool(owner != geteuid())
+    return bool(owner != user)
 
 
 def resolve_config(cli: CliOptions, env: Mapping[str, str]) -> RuntimeConfig:

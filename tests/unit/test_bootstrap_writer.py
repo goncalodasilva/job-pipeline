@@ -376,3 +376,60 @@ def test_write_bootstrap_interrupted_leaves_no_temp_file(
         write_bootstrap(config_dir, data_dir=tmp_path / "data", version="0.1.0")
 
     assert list(config_dir.iterdir()) == []
+
+
+def _link_owned_by(monkeypatch: pytest.MonkeyPatch, link: Path, owner: int) -> None:
+    """Make ``os.lstat`` report ``link`` as owned by ``owner`` (only root can chown a link)."""
+    real_lstat = os.lstat
+
+    def fake_lstat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        result = real_lstat(path, *args, **kwargs)  # type: ignore[arg-type]
+        if Path(os.fspath(path)) == link:  # type: ignore[arg-type]
+            fields = list(result)
+            fields[stat.ST_UID] = owner
+            return os.stat_result(fields)
+        return result
+
+    monkeypatch.setattr(os, "lstat", fake_lstat)
+
+
+def test_owned_by_another_user_refuses_a_link_owned_by_another_account(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A link planted by another account is refused even when it points to the user's own
+    folder (ADR-043 amendment)."""
+    target = tmp_path / "own-folder"
+    target.mkdir()
+    link = tmp_path / "planted-link"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:  # Windows without symlink rights
+        return
+    owner = target.stat().st_uid
+    monkeypatch.setattr(os, "geteuid", lambda: owner, raising=False)
+    _link_owned_by(monkeypatch, link, owner + 1)
+
+    assert owned_by_another_user(link) is True
+    assert owned_by_another_user(target) is False
+
+
+def test_write_bootstrap_refuses_config_dir_link_owned_by_another_account(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "own-app-settings"
+    target.mkdir()
+    (target / BOOTSTRAP_FILE).write_text("untouched", encoding="utf-8")
+    link = tmp_path / "shared" / "jp"
+    link.parent.mkdir()
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        return
+    owner = target.stat().st_uid
+    monkeypatch.setattr(os, "geteuid", lambda: owner, raising=False)
+    _link_owned_by(monkeypatch, link, owner + 1)
+
+    with pytest.raises(ConfigError):
+        write_bootstrap(link, data_dir=tmp_path / "data", version="0.1.0")
+
+    assert (target / BOOTSTRAP_FILE).read_text(encoding="utf-8") == "untouched"
