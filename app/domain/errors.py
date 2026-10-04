@@ -105,3 +105,11 @@ class SecretStoreUnavailable(AppError):
     """The system keychain can't be used. ``detail`` names the error type, never a value."""
 
     message = "Your system keychain isn't available. You can use an environment variable instead."
+
+
+class UnknownSetupStep(AppError):
+    message = "This setup step doesn't exist."
+
+
+class StepNotSkippable(AppError):
+    message = "This step is needed, so it can't be skipped."

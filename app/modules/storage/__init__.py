@@ -15,6 +15,7 @@ from app.modules.storage.settings_repo import (
     insert_setting,
     update_setting,
 )
+from app.modules.storage.setup_state_repo import StoredStep, list_steps, upsert_step
 
 __all__ = [
     "MIGRATIONS_DIR",
@@ -23,9 +24,12 @@ __all__ = [
     "MigrationError",
     "MigrationResult",
     "StoredSetting",
+    "StoredStep",
     "apply_migrations",
     "get_setting",
     "insert_setting",
+    "list_steps",
     "load_migrations",
     "update_setting",
+    "upsert_step",
 ]
