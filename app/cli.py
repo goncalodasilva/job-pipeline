@@ -117,15 +117,26 @@ def main(
 def _run(config: RuntimeConfig, launcher: Launcher) -> None:
     log_dir = config.data_dir / "logs"
     redactor = Redactor()
+    create_failed = (
+        "Couldn't create the data folder or its logs. "
+        "Check --data-dir, JOBPIPELINE_DATA_DIR or the settings file."
+    )
     try:
         config.data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError:
+        _fail(1, create_failed)
+    # Checked after mkdir (which writes nothing into an existing folder), so a folder someone
+    # else created in the meantime is caught too; before logging writes anything (ADR-043).
+    if _owned_by_another_user(config.data_dir):
+        _fail(
+            2,
+            f"The data folder {config.data_dir} belongs to another user. "
+            "Choose a folder you own with --data-dir.",
+        )
+    try:
         logging_setup = configure_logging(log_dir, config.log_level, redactor)
     except OSError:
-        _fail(
-            1,
-            "Couldn't create the data folder or its logs. "
-            "Check --data-dir, JOBPIPELINE_DATA_DIR or the settings file.",
-        )
+        _fail(1, create_failed)
     restore_hooks = install_exception_hooks()
     stop_polling = threading.Event()
     try:
@@ -195,6 +206,23 @@ def _open_browser_when_ready(launcher: Launcher, port: int, stop: threading.Even
             _log.warning("Open http://%s:%d/ in your browser.", HOST, port)
 
     threading.Thread(target=poll, name="open-browser", daemon=True).start()
+
+
+def _owned_by_another_user(folder: Path) -> bool:
+    """Whether an existing folder belongs to another account (POSIX only; ADR-043).
+
+    Whoever owns the data folder can replace files or plant symlinks in it, so the app never
+    writes into someone else's folder. ``stat`` follows symlinks: the folder a link points to
+    is what matters.
+    """
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is None:  # Windows: no POSIX owner ids
+        return False
+    try:
+        owner = folder.stat().st_uid
+    except OSError:  # unusable; configure_logging then reports it with a plain message
+        return False
+    return bool(owner != geteuid())
 
 
 def _fail(code: int, message: str) -> NoReturn:

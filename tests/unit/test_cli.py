@@ -715,3 +715,75 @@ def test_cli_maps_windows_ctrl_break_to_keyboard_interrupt_while_serving(
 
     assert seen == [real_signal.default_int_handler]
     assert installed[21] == "previous"
+
+
+# --- data folder ownership (security review M0.19; ADR-043) ---------------------------------
+
+
+def test_cli_refuses_data_dir_owned_by_another_user(
+    env: dict[str, str],
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Another account that owns the folder could replace files or plant symlinks in it."""
+    data_dir.mkdir()
+    other_user = data_dir.stat().st_uid + 1
+    monkeypatch.setattr("app.cli.os.geteuid", lambda: other_user, raising=False)
+    fake = FakeLaunch()
+
+    code = exit_code(lambda: run_main(["--no-browser"], env, fake))
+
+    assert code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("jobpipeline: ")
+    assert "another user" in err
+    assert str(data_dir) in err
+    assert "Traceback" not in err
+    assert list(data_dir.iterdir()) == [], "nothing may be written into a foreign folder"
+    assert fake.calls("serve") == []
+
+
+def test_cli_accepts_existing_data_dir_owned_by_current_user(
+    env: dict[str, str], data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_dir.mkdir()
+    owner = data_dir.stat().st_uid
+    monkeypatch.setattr("app.cli.os.geteuid", lambda: owner, raising=False)
+    fake = FakeLaunch()
+
+    run_main(["--no-browser"], env, fake)
+
+    assert len(fake.calls("serve")) == 1
+
+
+def test_cli_skips_owner_check_without_posix_user_ids(
+    env: dict[str, str], data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows has no geteuid; ownership there is documented, not checked (ADR-043)."""
+    data_dir.mkdir()
+    monkeypatch.delattr("app.cli.os.geteuid", raising=False)
+    fake = FakeLaunch()
+
+    run_main(["--no-browser"], env, fake)
+
+    assert len(fake.calls("serve")) == 1
+
+
+def test_cli_checks_ownership_after_creating_the_folder(
+    env: dict[str, str],
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A folder another account creates just before mkdir (a race) is refused too."""
+    assert not data_dir.exists()
+    monkeypatch.setattr("app.cli.os.geteuid", lambda: -1, raising=False)  # nobody owns it
+    fake = FakeLaunch()
+
+    code = exit_code(lambda: run_main(["--no-browser"], env, fake))
+
+    assert code == 2
+    assert "another user" in capsys.readouterr().err
+    assert list(data_dir.iterdir()) == []
+    assert fake.calls("serve") == []
