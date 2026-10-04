@@ -508,7 +508,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 ### 4.3 Coverage
 
 - At least 85% line coverage across `app/`, excluding live-only provider code paths.
-- At least 95% branch coverage for critical modules: `app/domain/honesty.py`, `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware (`app/api/middleware.py`). `scripts/check_critical_coverage.py` enforces this with a registry of these modules and the milestone that introduces each (ADR-028).
+- At least 95% branch coverage for critical modules: `app/domain/honesty.py`, `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware (`app/api/security.py`, ADR-039). `scripts/check_critical_coverage.py` enforces this with a registry of these modules and the milestone that introduces each (ADR-028).
 
 ### 4.4 What every feature's tests must include
 
@@ -525,12 +525,12 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 | Install | `uv sync`, then `uv run pre-commit install` once per clone |
 | Install browsers for e2e (once) | `uv run playwright install chromium` |
 | Format and lint | `uv run ruff format .` and `uv run ruff check .` |
-| Types | `uv run mypy app` |
+| Types | `uv run mypy` (checks `app` and `scripts`, from `pyproject.toml`) |
 | Module boundaries | `uv run lint-imports` |
 | Fast tests | `uv run pytest -m "not e2e and not smoke and not live"` |
 | End-to-end | `uv run pytest -m e2e` |
 | Smoke | `uv run pytest -m smoke` |
-| Coverage | `uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing` then `uv run python scripts/check_critical_coverage.py` |
+| Coverage | `uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing --cov-fail-under=85` then `uv run python scripts/check_critical_coverage.py` |
 | Quick verification (all of the above except e2e and coverage) | `bash .claude/skills/verify/scripts/verify.sh quick` |
 | Full verification | `bash .claude/skills/verify/scripts/verify.sh full` |
 
@@ -539,9 +539,9 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 A GitHub Actions workflow (created in M0) runs on every push and pull request:
 
 1. Lint, format check, types, import contracts, gitleaks.
-2. Unit, integration and contract tests on Ubuntu, macOS and Windows, with the oldest and newest supported Python versions.
+2. Unit, integration and contract tests on Ubuntu, macOS and Windows, with the oldest and newest supported Python versions; smoke tests on all three (on Windows they check the Ctrl+Break stop, ADR-040). macOS and Windows run on pull requests to `main`, manual dispatch and weekly (ADR-032).
 3. Smoke and e2e tests on Ubuntu with Playwright Chromium.
-4. Coverage thresholds.
+4. Coverage thresholds, with `scripts/check_critical_coverage.py --milestone M<current>` so a critical module that is due but missing fails (bumped when each milestone is accepted).
 
 Keychain access is never exercised in CI; tests use `MemorySecretStore`, and the keyring adapter is tested with a fake keyring backend.
 

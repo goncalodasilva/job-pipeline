@@ -22,7 +22,7 @@ LINT_COMMANDS = (
     SYNC_COMMAND,
     "uv run ruff format --check .",
     "uv run ruff check .",
-    "uv run mypy app",
+    "uv run mypy",
     "uv run lint-imports",
     "uv run pre-commit run --hook-stage manual gitleaks-history",
 )
@@ -271,3 +271,94 @@ def test_ci_jobs_have_timeouts_and_drop_checkout_credentials() -> None:
         for step in job.get("steps", []):
             if str(step.get("uses", "")).startswith("actions/checkout@"):
                 assert step.get("with", {}).get("persist-credentials") is False, name
+
+
+# --- M0.19: smoke, e2e and coverage in CI; mypy over app and scripts ---------------------------
+
+SMOKE_COMMAND = "uv run pytest -m smoke"
+E2E_COMMAND = "uv run pytest -m e2e"
+COVERAGE_TEST_COMMAND = (
+    'uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing'
+    " --cov-fail-under=85"
+)
+CRITICAL_COVERAGE_COMMAND = re.compile(
+    r"uv run python scripts/check_critical_coverage\.py --milestone M\d+"
+)
+VERIFY_SCRIPT = REPO_ROOT / ".claude" / "skills" / "verify" / "scripts" / "verify.sh"
+
+
+def command_lines(job: dict[str, Any]) -> list[str]:
+    return [line.strip() for line in run_commands(job).splitlines() if line.strip()]
+
+
+def test_ci_has_smoke_e2e_and_coverage_jobs() -> None:
+    """Spec 4.6 items 3 and 4: smoke and e2e on Ubuntu with Chromium, and coverage gates."""
+    workflow = load_workflow()
+
+    smoke = get_job(workflow, "smoke")
+    assert smoke.get("runs-on") == "ubuntu-latest"
+    assert SMOKE_COMMAND in command_lines(smoke)
+
+    e2e = get_job(workflow, "e2e")
+    assert e2e.get("runs-on") == "ubuntu-latest"
+    e2e_lines = command_lines(e2e)
+    assert any(
+        line.startswith("uv run playwright install") and "chromium" in line for line in e2e_lines
+    ), f"e2e must install Playwright Chromium: {e2e_lines}"
+    assert E2E_COMMAND in e2e_lines
+
+    coverage = get_job(workflow, "coverage")
+    assert coverage.get("runs-on") == "ubuntu-latest"
+    coverage_lines = command_lines(coverage)
+    assert COVERAGE_TEST_COMMAND in coverage_lines, coverage_lines
+    critical = [
+        i for i, line in enumerate(coverage_lines) if CRITICAL_COVERAGE_COMMAND.fullmatch(line)
+    ]
+    # --milestone makes a missing or renamed critical module fail instead of being skipped.
+    assert len(critical) == 1, (
+        f"coverage must run the critical check with --milestone: {coverage_lines}"
+    )
+    assert coverage_lines.index(COVERAGE_TEST_COMMAND) < critical[0], (
+        "critical coverage reads the data the coverage run writes"
+    )
+
+    for name in ("smoke", "e2e", "coverage"):
+        job = get_job(workflow, name)
+        assert SYNC_COMMAND in command_lines(job), f"{name} must run '{SYNC_COMMAND}'"
+        assert EXCLUDES_PUSH not in str(job.get("if", "")), f"{name} must run on every push"
+
+
+def test_ci_runs_smoke_tests_on_macos_and_windows() -> None:
+    """ADR-040: the Windows run must show the app stopping with exit 0 (Ctrl+Break)."""
+    other = get_job(load_workflow(), "tests-other-os")
+
+    assert SMOKE_COMMAND in command_lines(other)
+
+
+def test_ci_lint_runs_bare_mypy() -> None:
+    """mypy reads its file list from pyproject.toml, so CI checks app and scripts."""
+    lint_lines = command_lines(get_job(load_workflow(), "lint"))
+
+    assert "uv run mypy" in lint_lines
+    assert "uv run mypy app" not in lint_lines
+
+
+def test_mypy_checks_app_and_scripts() -> None:
+    assert load_pyproject()["tool"]["mypy"]["files"] == ["app", "scripts"]
+
+
+def test_verify_script_aligned_with_spec_4_5() -> None:
+    """verify.sh runs bare mypy and the spec 4.5 coverage selection (smoke included)."""
+    text = VERIFY_SCRIPT.read_text(encoding="utf-8")
+
+    assert re.search(r'step "types" uv run mypy\s*(?:;|$)', text, re.MULTILINE), (
+        "verify.sh must run bare 'uv run mypy'"
+    )
+    assert "uv run mypy app" not in text
+    assert "COVERAGE='not e2e and not live'" in text
+    assert re.search(
+        r'"fast tests with coverage" -q -m "\$COVERAGE" --cov=app --cov-report=term-missing'
+        r" --cov-fail-under=85",
+        text,
+    ), "verify.sh full must run the spec 4.5 coverage command"
+    assert 'pytest_step "smoke" -q -m smoke' in text, "verify.sh quick must still run smoke"

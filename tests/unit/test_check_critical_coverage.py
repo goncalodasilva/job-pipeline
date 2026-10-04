@@ -20,7 +20,7 @@ SPEC = REPO_ROOT / "docs" / "TECHNICAL_SPEC.md"
 SPEC_BULLET_PREFIX = "- At least 95% branch coverage for critical modules:"
 BACKTICKED_APP_PATH = re.compile(r"`(app/[^`]+\.py)`")
 
-MIDDLEWARE = "app/api/middleware.py"
+SECURITY = "app/api/security.py"
 RUNNER = "app/tasks/runner.py"
 DETECTION = "app/onboarding/detection.py"
 BUDGETS = "app/domain/budgets.py"
@@ -29,7 +29,7 @@ GUARD = "app/modules/fetch/guard.py"
 HONESTY = "app/domain/honesty.py"
 
 EXPECTED_REGISTRY = (
-    (MIDDLEWARE, 0),
+    (SECURITY, 0),
     (RUNNER, 0),
     (DETECTION, 1),
     (BUDGETS, 2),
@@ -114,11 +114,11 @@ def assert_every_module_reported(output: str) -> None:
 def test_passes_when_all_present_modules_at_or_above_95_branch(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE, RUNNER, DETECTION))
+    root = make_repo(tmp_path / "repo", (SECURITY, RUNNER, DETECTION))
     report = write_report(
         tmp_path,
         {
-            MIDDLEWARE: summary(num_branches=40, covered_branches=38),  # exactly 95.0%
+            SECURITY: summary(num_branches=40, covered_branches=38),  # exactly 95.0%
             RUNNER: summary(num_branches=0, covered_branches=0),  # no branches -> 100%
             DETECTION: summary(num_branches=10, covered_branches=10),
         },
@@ -128,7 +128,7 @@ def test_passes_when_all_present_modules_at_or_above_95_branch(
 
     assert code == 0
     assert_every_module_reported(out)
-    for module in (MIDDLEWARE, RUNNER, DETECTION):
+    for module in (SECURITY, RUNNER, DETECTION):
         line = line_for(out, module)
         assert "OK" in line
         assert "FAIL" not in line
@@ -139,11 +139,11 @@ def test_passes_when_all_present_modules_at_or_above_95_branch(
 def test_fails_and_names_module_below_threshold(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE, RUNNER))
+    root = make_repo(tmp_path / "repo", (SECURITY, RUNNER))
     report = write_report(
         tmp_path,
         {
-            MIDDLEWARE: summary(num_branches=20, covered_branches=20),
+            SECURITY: summary(num_branches=20, covered_branches=20),
             RUNNER: summary(num_branches=50, covered_branches=47),  # 94.0%
         },
     )
@@ -155,14 +155,14 @@ def test_fails_and_names_module_below_threshold(
     runner_line = line_for(out, RUNNER)
     assert "FAIL" in runner_line
     assert "94." in runner_line
-    assert "OK" in line_for(out, MIDDLEWARE)
+    assert "OK" in line_for(out, SECURITY)
 
 
 def test_existing_critical_file_missing_from_report_fails(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE, RUNNER))
-    report = write_report(tmp_path, {MIDDLEWARE: summary(num_branches=10, covered_branches=10)})
+    root = make_repo(tmp_path / "repo", (SECURITY, RUNNER))
+    report = write_report(tmp_path, {SECURITY: summary(num_branches=10, covered_branches=10)})
 
     code, out = run(checker, capsys, root, report)
 
@@ -175,11 +175,11 @@ def test_existing_critical_file_missing_from_report_fails(
 def test_future_module_absent_reported_not_failed(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE, RUNNER))
+    root = make_repo(tmp_path / "repo", (SECURITY, RUNNER))
     report = write_report(
         tmp_path,
         {
-            MIDDLEWARE: summary(num_branches=10, covered_branches=10),
+            SECURITY: summary(num_branches=10, covered_branches=10),
             RUNNER: summary(num_branches=10, covered_branches=10),
         },
     )
@@ -207,7 +207,7 @@ def test_module_due_by_milestone_but_absent_fails(
     tmp_path: Path,
     milestone: str,
 ) -> None:
-    present = (MIDDLEWARE, RUNNER, DETECTION, USAGE)
+    present = (SECURITY, RUNNER, DETECTION, USAGE)
     root = make_repo(tmp_path / "repo", present)
     report = write_report(
         tmp_path, {m: summary(num_branches=10, covered_branches=10) for m in present}
@@ -229,12 +229,12 @@ def test_module_due_by_milestone_but_absent_fails(
 def test_threshold_uses_branch_not_line_coverage(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE, RUNNER))
+    root = make_repo(tmp_path / "repo", (SECURITY, RUNNER))
 
     full_lines_half_branches = write_report(
         tmp_path,
         {
-            MIDDLEWARE: summary(
+            SECURITY: summary(
                 num_branches=20, covered_branches=10, num_statements=80, covered_lines=80
             ),
             RUNNER: summary(num_branches=10, covered_branches=10),
@@ -243,12 +243,12 @@ def test_threshold_uses_branch_not_line_coverage(
     code, out = run(checker, capsys, root, full_lines_half_branches)
 
     assert code == 1
-    assert "FAIL" in line_for(out, MIDDLEWARE)
+    assert "FAIL" in line_for(out, SECURITY)
 
     half_lines_full_branches = write_report(
         tmp_path,
         {
-            MIDDLEWARE: summary(
+            SECURITY: summary(
                 num_branches=20, covered_branches=20, num_statements=80, covered_lines=40
             ),
             RUNNER: summary(num_branches=10, covered_branches=10),
@@ -257,7 +257,7 @@ def test_threshold_uses_branch_not_line_coverage(
     code, out = run(checker, capsys, root, half_lines_full_branches)
 
     assert code == 0
-    middleware_line = line_for(out, MIDDLEWARE)
+    middleware_line = line_for(out, SECURITY)
     assert "OK" in middleware_line
     assert "FAIL" not in middleware_line
 
@@ -265,11 +265,11 @@ def test_threshold_uses_branch_not_line_coverage(
 def test_windows_style_paths_in_report_are_matched(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE, RUNNER))
+    root = make_repo(tmp_path / "repo", (SECURITY, RUNNER))
     report = write_report(
         tmp_path,
         {
-            "app\\api\\middleware.py": summary(num_branches=10, covered_branches=10),
+            "app\\api\\security.py": summary(num_branches=10, covered_branches=10),
             str(root / "app" / "tasks" / "runner.py"): summary(
                 num_branches=10, covered_branches=10
             ),
@@ -279,7 +279,7 @@ def test_windows_style_paths_in_report_are_matched(
     code, out = run(checker, capsys, root, report)
 
     assert code == 0
-    for module in (MIDDLEWARE, RUNNER):
+    for module in (SECURITY, RUNNER):
         line = line_for(out, module)
         assert "OK" in line
         assert "not measured" not in line
@@ -319,8 +319,8 @@ def test_invalid_milestone_argument_rejected(
 def test_report_without_branch_data_fails(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE,))
-    report = write_report(tmp_path, {MIDDLEWARE: summary(num_branches=0, covered_branches=0)})
+    root = make_repo(tmp_path / "repo", (SECURITY,))
+    report = write_report(tmp_path, {SECURITY: summary(num_branches=0, covered_branches=0)})
     data = json.loads(report.read_text(encoding="utf-8"))
     data["meta"]["branch_coverage"] = False
     report.write_text(json.dumps(data), encoding="utf-8")
@@ -334,14 +334,14 @@ def test_report_without_branch_data_fails(
 def test_absolute_path_outside_root_is_not_matched(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE,))
-    elsewhere = (tmp_path / "elsewhere" / MIDDLEWARE).resolve()
+    root = make_repo(tmp_path / "repo", (SECURITY,))
+    elsewhere = (tmp_path / "elsewhere" / SECURITY).resolve()
     report = write_report(tmp_path, {str(elsewhere): summary(num_branches=10, covered_branches=10)})
 
     code, output = run(checker, capsys, root, report)
 
     assert code == 1
-    assert "not measured" in line_for(output, MIDDLEWARE)
+    assert "not measured" in line_for(output, SECURITY)
 
 
 MIDDLEWARE_SOURCE = """
@@ -356,7 +356,7 @@ def _record_coverage(root: Path, *, calls: tuple[str, ...]) -> None:
     """Measure real branch coverage of a fictional middleware module into root/.coverage."""
     import coverage
 
-    module = root / MIDDLEWARE
+    module = root / SECURITY
     module.parent.mkdir(parents=True, exist_ok=True)
     module.write_text(MIDDLEWARE_SOURCE, encoding="utf-8")
     cov = coverage.Coverage(
@@ -391,14 +391,14 @@ def test_default_report_from_coverage_data_works_from_any_directory(
     code = checker.main(["--root", str(root)])
     output = capsys.readouterr().out
 
-    assert verdict in line_for(output, MIDDLEWARE)
+    assert verdict in line_for(output, SECURITY)
     assert code == (0 if verdict == "OK" else 1)
 
 
 def test_missing_coverage_data_fails_with_a_hint(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE,))
+    root = make_repo(tmp_path / "repo", (SECURITY,))
 
     code = checker.main(["--root", str(root)])
 
@@ -409,7 +409,7 @@ def test_missing_coverage_data_fails_with_a_hint(
 def test_unreadable_report_fails_without_traceback(
     checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    root = make_repo(tmp_path / "repo", (MIDDLEWARE,))
+    root = make_repo(tmp_path / "repo", (SECURITY,))
     broken = tmp_path / "broken.json"
     broken.write_text("{not json", encoding="utf-8")
 

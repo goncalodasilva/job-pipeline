@@ -1,6 +1,7 @@
 # Continuous integration (spec 4.6, ADR-032).
-# Ubuntu runs on every push. macOS and Windows run on pull requests to main, on manual
-# dispatch and weekly, because the repository is private and those minutes cost more.
+# Ubuntu runs on every push: lint, fast tests, smoke, e2e and coverage. macOS and Windows run
+# fast and smoke tests on pull requests to main, on manual dispatch and weekly, because the
+# repository is private and those minutes cost more.
 # Actions are pinned to commit SHAs; the comment names the release.
 name: CI
 
@@ -38,7 +39,7 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff format --check .
       - run: uv run ruff check .
-      - run: uv run mypy app
+      - run: uv run mypy
       - run: uv run lint-imports
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
@@ -66,7 +67,7 @@ jobs:
       - run: uv run pytest -m "not e2e and not smoke and not live"
 
   tests-other-os:
-    name: Fast tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    name: Fast and smoke tests (${{ matrix.os }}, Python ${{ matrix.python }})
     if: github.event_name != 'push'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -85,3 +86,54 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
       - run: uv run pytest -m "not e2e and not smoke and not live"
+      # Starts the real app and stops it gracefully; on Windows this checks Ctrl+Break (ADR-040).
+      - run: uv run pytest -m smoke
+
+  smoke:
+    name: Smoke (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.12.22"
+          python-version: "3.11"
+      - run: uv sync --locked
+      - run: uv run pytest -m smoke
+
+  e2e:
+    name: End-to-end (ubuntu, Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.12.22"
+          python-version: "3.11"
+      - run: uv sync --locked
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -m e2e
+
+  coverage:
+    name: Coverage thresholds (spec 4.3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.12.22"
+          python-version: "3.11"
+      - run: uv sync --locked
+      - run: uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing --cov-fail-under=85
+      # The current milestone: a critical module due by then that is missing fails the job.
+      # Bump it when a milestone is accepted.
+      - run: uv run python scripts/check_critical_coverage.py --milestone M0

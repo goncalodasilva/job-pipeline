@@ -2,7 +2,8 @@
 # Project verification recipe.
 # Usage: verify.sh [quick|full]
 #   quick: format, lint, types, module boundaries, fast tests, smoke run
-#   full:  quick, plus end-to-end tests, coverage thresholds and all pre-commit hooks
+#   full:  quick (fast and smoke tests run once, with coverage), plus end-to-end tests,
+#          coverage thresholds and all pre-commit hooks
 # Prints "VERIFY <mode>: PASS" or "VERIFY <mode>: FAIL (...)" as its last line.
 set -u
 MODE="${1:-quick}"
@@ -54,17 +55,18 @@ pytest_step() {
 
 step "format" uv run ruff format --check .
 step "lint" uv run ruff check .
-if grep -q "\[tool.mypy\]" pyproject.toml; then step "types" uv run mypy app; fi
+if grep -q "\[tool.mypy\]" pyproject.toml; then step "types" uv run mypy; fi
 if grep -q "\[tool.importlinter\]" pyproject.toml; then step "module boundaries" uv run lint-imports; fi
 
 FAST='not e2e and not smoke and not live'
+COVERAGE='not e2e and not live'  # spec 4.5: the coverage run includes the smoke tests
 if [ "$MODE" = "full" ]; then
-  pytest_step "fast tests with coverage" -q -m "$FAST" --cov=app --cov-report=term-missing --cov-fail-under=85
+  pytest_step "fast tests with coverage" -q -m "$COVERAGE" --cov=app --cov-report=term-missing --cov-fail-under=85
   if [ -f scripts/check_critical_coverage.py ]; then step "critical coverage" uv run python scripts/check_critical_coverage.py; fi
 else
   pytest_step "fast tests" -q -m "$FAST"
+  pytest_step "smoke" -q -m smoke
 fi
-pytest_step "smoke" -q -m smoke
 
 if [ "$MODE" = "full" ]; then
   pytest_step "end-to-end" -q -m e2e

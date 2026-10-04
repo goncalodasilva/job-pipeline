@@ -22,13 +22,13 @@ If sources conflict, stop and ask the user. Record the answer in `docs/DECISIONS
 7. **Untrusted content** (job text, web results, CV text) is delimited and treated as data (spec 3.3).
 8. **Stop and ask** in the cases listed in spec 6.7: conflicts, new dependencies, scope changes, security or honesty changes, a test that seems wrong, three failed fix attempts, real credentials, pushing or deleting.
 
-## Commands (available once M0 is done)
+## Commands
 
 - Install: `uv sync`, then `uv run pre-commit install` once per clone (e2e browsers once: `uv run playwright install chromium`)
 - Run: `uv run jobpipeline` (`--demo`, `--setup`, `--data-dir PATH`, `--port N`, `--no-browser`)
 - Quick verification: `bash .claude/skills/verify/scripts/verify.sh quick`
 - Full verification: `bash .claude/skills/verify/scripts/verify.sh full`
-- Single checks: `uv run ruff format .`, `uv run ruff check .`, `uv run mypy app`, `uv run lint-imports`, `uv run pytest -m "not e2e and not smoke and not live"`, `uv run pytest -m e2e`
+- Single checks: `uv run ruff format .`, `uv run ruff check .`, `uv run mypy`, `uv run lint-imports`, `uv run pytest -m "not e2e and not smoke and not live"`, `uv run pytest -m e2e`
 
 ## Workflow
 

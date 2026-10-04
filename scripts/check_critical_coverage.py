@@ -24,7 +24,7 @@ from typing import Any
 # (repository-relative path, milestone that introduces it). Keep in sync with spec 4.3;
 # a unit test compares the two.
 CRITICAL_MODULES: tuple[tuple[str, int], ...] = (
-    ("app/api/middleware.py", 0),
+    ("app/api/security.py", 0),
     ("app/tasks/runner.py", 0),
     ("app/onboarding/detection.py", 1),
     ("app/domain/budgets.py", 2),
