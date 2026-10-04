@@ -12,6 +12,13 @@ by the file-backed test keyring (``tests/fakes/keyring_backends.py``) whose JSON
 the test's temporary folder, so the app never touches the real system keychain (ADR-044). The
 server binds to 127.0.0.1 only; nothing here uses the network beyond loopback.
 
+``setup`` chooses the folders' starting state (M1.9): ``"complete"`` (the default) runs
+``tests/setup_harness.complete_setup`` on them first, so the app opens straight into its pages;
+``"fresh"`` writes nothing beforehand. The data folder always comes from
+``JOBPIPELINE_DATA_DIR``, so a fresh app is the explicit-folder case, not AC-M1.1 case 1: it
+creates the folder and its database at start-up with no step done, and every page redirects to
+the guide's first step (AC-M1.2).
+
 Stopping is graceful first: SIGINT on POSIX, CTRL_BREAK_EVENT on Windows (the child runs in
 its own process group so the event reaches only it; it must share the test runner's console,
 so runners without a console fall back to a kill and fail loudly). The process is killed only
@@ -26,9 +33,11 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO
+from typing import IO, Literal
 
 import httpx
+
+from tests.setup_harness import complete_setup
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOOPBACK = "127.0.0.1"
@@ -49,6 +58,8 @@ STOP_TIMEOUT_SECONDS = 10.0
 POLL_INTERVAL_SECONDS = 0.05
 REQUEST_TIMEOUT_SECONDS = 2.0
 OUTPUT_TAIL_CHARS = 4000
+
+SetupState = Literal["complete", "fresh"]
 
 
 class AppDidNotStart(RuntimeError):
@@ -168,11 +179,15 @@ class RunningApp:
         )
 
 
-def start_app(tmp_path: Path) -> RunningApp:
+def start_app(tmp_path: Path, *, setup: SetupState = "complete") -> RunningApp:
     """Start the app on a free loopback port and wait until ``/health`` answers 200."""
+    if setup not in ("complete", "fresh"):
+        raise ValueError(f"unknown setup state {setup!r}")
     data_dir = tmp_path / "data"
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
+    if setup == "complete":
+        complete_setup(data_dir, config_dir)
     port = free_loopback_port()
     stdout_path = tmp_path / "app-stdout.txt"
     stderr_path = tmp_path / "app-stderr.txt"

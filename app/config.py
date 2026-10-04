@@ -63,13 +63,18 @@ class RuntimeConfig:
     data_dir_source: DataDirSource = "cli"
 
 
+def data_dir_is_explicit(config: RuntimeConfig) -> bool:
+    """Whether the folder came from ``--data-dir``, ``JOBPIPELINE_DATA_DIR`` or ``--demo``."""
+    return config.data_dir_source in _EXPLICIT_SOURCES
+
+
 def opens_workspace_at_startup(config: RuntimeConfig) -> bool:
     """Whether start-up opens the data folder, or waits for step 1 (ADR-044 item 3).
 
     A first run ("default") or a bootstrap config naming a folder without a database must not
     create anything. Only reads the file system.
     """
-    if config.data_dir_source in _EXPLICIT_SOURCES:
+    if data_dir_is_explicit(config):
         return True
     return (config.data_dir / DATABASE_FILE).exists()
 

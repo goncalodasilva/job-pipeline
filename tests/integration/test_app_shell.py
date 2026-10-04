@@ -24,6 +24,7 @@ from app.config import RuntimeConfig
 from app.main import create_app
 from tests.fakes.clock import FrozenClock
 from tests.page_token import TOKEN_HEADER_NAME, page_token
+from tests.setup_harness import complete_setup
 
 pytestmark = pytest.mark.integration
 
@@ -72,6 +73,7 @@ def _config(tmp_path: Path) -> RuntimeConfig:
 
 @pytest.fixture
 def app(tmp_path: Path) -> FastAPI:
+    complete_setup(tmp_path / "data", tmp_path / "cfg", clock=FrozenClock(START))  # AC-M1.2
     return create_app(_config(tmp_path), clock=FrozenClock(START))
 
 

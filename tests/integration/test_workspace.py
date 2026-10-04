@@ -26,11 +26,13 @@ from fastapi.testclient import TestClient
 
 import app as app_package
 import app.main as app_main
-from app.config import RuntimeConfig
+from app.config import RuntimeConfig, write_bootstrap
 from app.domain.errors import ConfigError, DataFolderNotYours, DataFolderUnavailable
 from app.domain.redaction import REDACTED, Redactor
 from app.logging_config import LOG_FILE_NAME, configure_logging
 from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
+from app.onboarding.detection import StartupDecision
+from app.services.setup_state import SetupStateService
 from tests.fakes.clock import FrozenClock
 
 pytestmark = pytest.mark.integration
@@ -506,3 +508,40 @@ def test_shutdown_without_workspace_is_clean(tmp_path: Path) -> None:
 
     assert runner.status == "stopped"
     assert list(tmp_path.iterdir()) == []
+
+
+def test_open_workspace_refresh_failure_closes_and_allows_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing setup-state read leaves no workspace, no logging and an open retry (M1.9)."""
+    moved = tmp_path / "moved-away"
+    write_bootstrap(tmp_path / "cfg", data_dir=moved, version=app_package.__version__)
+    attached: list[Path] = []
+    failed_dbs: list[Database] = []
+    original_statuses = SetupStateService.statuses
+
+    def statuses_failing_once(self: SetupStateService) -> dict[str, str]:
+        if not failed_dbs:
+            failed_dbs.append(self._db)
+            raise sqlite3.OperationalError("fictional read failure")
+        return dict(original_statuses(self))
+
+    monkeypatch.setattr(SetupStateService, "statuses", statuses_failing_once)
+    app = _app(tmp_path, "bootstrap", data_dir=moved, attach_log_folder=attached.append)
+
+    with TestClient(app, base_url=BASE_URL):
+        assert app.state.onboarding.decision == StartupDecision("locate_or_fresh")
+        with pytest.raises(sqlite3.OperationalError):
+            app.state.open_workspace(moved)
+
+        assert app.state.workspace is None
+        assert attached == [], "logging is attached only after the refresh succeeds"
+        with pytest.raises(sqlite3.ProgrammingError):
+            failed_dbs[0].connection.execute("SELECT 1")  # closed
+        assert app.state.onboarding.decision == StartupDecision("locate_or_fresh")
+
+        workspace = app.state.open_workspace(moved)
+
+        assert app.state.workspace is workspace
+        assert attached == [moved / "logs"]
+        assert app.state.onboarding.decision == StartupDecision("guide", "welcome")

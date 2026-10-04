@@ -21,17 +21,25 @@ from app import __version__
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
+from app.api.setup import register_setup_pages
+from app.api.setup_redirect import SetupRedirectMiddleware
 from app.api.templating import STATIC_DIR, STATIC_URL
 from app.config import (
+    BOOTSTRAP_FILE,
     DATABASE_FILE,
     RuntimeConfig,
+    data_dir_is_explicit,
     opens_workspace_at_startup,
     owned_by_another_user,
 )
 from app.domain.clock import Clock, SystemClock
 from app.domain.errors import DataFolderNotYours, DataFolderUnavailable
 from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
+from app.onboarding.progress import SetupProgress
+from app.onboarding.registry import StepRegistry, m1_registry
+from app.onboarding.startup import OnboardingState, StartupInputs
 from app.services.health import HealthService
+from app.services.setup_state import SetupStateService
 from app.tasks import TaskRunner
 
 BACKUP_FOLDER = "backups"
@@ -60,18 +68,22 @@ def open_workspace_folder(
     migrations_dir: Path,
     clock: Clock,
     attach_log_folder: Callable[[Path], None] | None = None,
+    before_logging: Callable[[Database], None] | None = None,
 ) -> Workspace:
     """Create the folder (0700, ADR-043), open and migrate its database, then log into it.
 
     Blocking (mkdir, migrations, backups). Raises ``DataFolderNotYours`` for a folder owned by
     another account and ``DataFolderUnavailable`` when it can't be created, opened or logged
-    into; a failed migration raises ``MigrationError``. File logging is attached last, so a
-    failed open leaves logging untouched and the user can choose another folder.
+    into; a failed migration raises ``MigrationError``. ``before_logging`` runs on the migrated
+    database; whatever it raises closes the database and propagates. File logging is attached
+    last, so a failed open leaves logging untouched and the user can choose another folder.
     """
     _prepare_folder(folder)
     db = _open_database(folder)
     try:
         apply_migrations(db, migrations_dir, folder / BACKUP_FOLDER, clock)
+        if before_logging is not None:
+            before_logging(db)
         if attach_log_folder is not None:
             _attach_logs(folder, attach_log_folder)
     except BaseException:
@@ -110,6 +122,21 @@ def _current_db(app: FastAPI) -> Database | None:
     return workspace.db if workspace is not None else None
 
 
+def _startup_inputs(config: RuntimeConfig) -> StartupInputs:
+    return StartupInputs(
+        bootstrap_exists=(config.config_dir / BOOTSTRAP_FILE).exists(),
+        data_dir_explicit=data_dir_is_explicit(config),
+        demo=config.demo,
+        force_setup=config.setup,
+    )
+
+
+def _progress(registry: StepRegistry, db: Database | None, clock: Clock) -> SetupProgress | None:
+    if db is None:
+        return None
+    return SetupProgress(registry, SetupStateService(db, clock))
+
+
 def create_app(
     config: RuntimeConfig,
     *,
@@ -131,18 +158,33 @@ def create_app(
         Blocking: it creates folders, runs migrations and may copy a backup. Call it from a
         sync route or a worker thread, never directly inside an async handler. Raises
         ``WorkspaceAlreadyOpen`` when one is open and ``WorkspaceClosed`` after shutdown.
+
+        The setup decision is refreshed from the new database before logging is attached and
+        the workspace is published; if anything fails, the database is closed, the decision
+        goes back to "no workspace" and the user can retry.
         """
         with open_lock:
             if closed.is_set():
                 raise WorkspaceClosed("the app has shut down")
             if getattr(app.state, "workspace", None) is not None:
                 raise WorkspaceAlreadyOpen("a workspace is already open")
-            workspace = open_workspace_folder(
-                folder,
-                migrations_dir=migrations_dir,
-                clock=app_clock,
-                attach_log_folder=attach_log_folder,
-            )
+            onboarding: OnboardingState = app.state.onboarding
+            registry: StepRegistry = app.state.setup_registry
+
+            def refresh_onboarding(db: Database) -> None:
+                onboarding.refresh(_progress(registry, db, app_clock))
+
+            try:
+                workspace = open_workspace_folder(
+                    folder,
+                    migrations_dir=migrations_dir,
+                    clock=app_clock,
+                    attach_log_folder=attach_log_folder,
+                    before_logging=refresh_onboarding,
+                )
+            except BaseException:
+                onboarding.refresh(None)  # no I/O: back to the no-workspace decision
+                raise
             app.state.workspace = workspace
             return workspace
 
@@ -159,6 +201,13 @@ def create_app(
         runner = TaskRunner()
         try:
             await runner.start()
+            registry = m1_registry()
+            onboarding = OnboardingState(registry, _startup_inputs(config))
+            onboarding.refresh(
+                _progress(registry, workspace.db if workspace is not None else None, app_clock)
+            )
+            app.state.setup_registry = registry
+            app.state.onboarding = onboarding
             app.state.workspace = workspace
             app.state.open_workspace = open_workspace
             app.state.runner = runner
@@ -187,6 +236,10 @@ def create_app(
     )
     launch_token = generate_launch_token()
     app.state.launch_token = launch_token
+    # Inside the security middleware: rejections come first and redirects keep its headers.
+    app.add_middleware(
+        SetupRedirectMiddleware, onboarding=lambda: getattr(app.state, "onboarding", None)
+    )
     # Added last, so it stays the outermost user middleware: nothing runs before these checks.
     app.add_middleware(
         SecurityMiddleware,
@@ -196,5 +249,6 @@ def create_app(
     )
     app.include_router(health_router)
     register_pages(app)
+    register_setup_pages(app)
     app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="static")
     return app

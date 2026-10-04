@@ -126,3 +126,21 @@ def test_ac_m0_5_launch_token_not_in_log_files(running_app: RunningApp) -> None:
         assert any(fragment_of_line in line for line in access), (
             f"no access-log line containing {fragment_of_line!r}; got {access}"
         )
+
+
+@pytest.mark.parametrize("running_app", ["fresh"], indirect=True)
+def test_fresh_app_redirects_root_to_guide(running_app: RunningApp) -> None:
+    """AC-M1.2 end to end: with nothing set up, ``/`` sends the browser to the guide."""
+    with running_app.client() as client:
+        root = client.get("/")
+        guide = client.get("/setup/welcome")
+        health = client.get("/health")
+
+    assert root.status_code == 303, (root.status_code, root.text[:200])
+    assert root.headers["location"] in ("/setup/welcome", f"{running_app.base_url}/setup/welcome")
+    for name, value in PROTECTIVE_HEADERS.items():
+        assert root.headers.get_list(name) == [value], name
+    assert guide.status_code == 200, guide.text[:200]
+    assert guide.headers["content-type"].startswith("text/html")
+    assert TOKEN_SHAPE.fullmatch(page_token(guide.text)), "the guide page carries the token"
+    assert health.status_code == 200

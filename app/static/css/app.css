@@ -283,6 +283,41 @@ main {
   color: var(--color-text-muted);
 }
 
+/* Setup guide: no sidebar; the guide's own step list shows the way. */
+body.layout-guide {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas:
+    "top"
+    "status"
+    "main";
+}
+
+.setup-guide {
+  max-width: 40rem;
+  margin-inline: auto;
+  overflow-wrap: anywhere;
+}
+
+.setup-guide h1 {
+  margin-top: 0;
+  font-size: 1.5rem;
+}
+
+.setup-steps {
+  padding-left: var(--space-6);
+  color: var(--color-text-muted);
+}
+
+.setup-step h2 {
+  font-size: 1.25rem;
+}
+
+.setup-steps [aria-current="step"] {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
 /* Phone and narrow windows: the sidebar collapses behind the top-bar toggle. */
 @media (max-width: 767.98px) {
   body {

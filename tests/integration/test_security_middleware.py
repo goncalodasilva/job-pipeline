@@ -22,6 +22,7 @@ from app.api.security import PAGE_TAG, TOKEN_HEADER
 from app.config import RuntimeConfig
 from app.main import create_app
 from tests.fakes.clock import FrozenClock
+from tests.setup_harness import complete_setup
 
 pytestmark = pytest.mark.integration
 
@@ -94,6 +95,7 @@ def _add_test_routes(app: FastAPI, hits: Counter[str]) -> None:
 
 @pytest.fixture
 def harness(tmp_path: Path) -> Iterator[Harness]:
+    complete_setup(tmp_path / "data", tmp_path / "cfg", clock=FrozenClock(START))  # AC-M1.2
     app = create_app(_config(tmp_path), clock=FrozenClock(START))
     hits: Counter[str] = Counter()
     _add_test_routes(app, hits)
@@ -556,6 +558,7 @@ def test_every_response_forbids_framing_and_sniffing(
 
 
 def _create(tmp_path: Path) -> FastAPI:
+    complete_setup(tmp_path / "data", tmp_path / "cfg", clock=FrozenClock(START))  # AC-M1.2
     return create_app(_config(tmp_path), clock=FrozenClock(START))
 
 
@@ -610,9 +613,16 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
         if isinstance(route, APIRoute) and PAGE_TAG in route.tags
     ]
     assert pages, "the app must register at least the root page"
+    # Fill path parameters with a value the page accepts (a registered setup step).
+    known_params = {"step_id": "welcome"}
     with TestClient(app, base_url=f"http://{HOST}") as client:
         for route in pages:
-            response = client.get(route.path)
+            path = route.path
+            for name in route.param_convertors:
+                assert name in known_params, f"no value for {{{name}}} in {route.path}"
+                path = path.replace(f"{{{name}}}", known_params[name])
+            assert "{" not in path, path
+            response = client.get(path)
             assert response.status_code == 200, route.path
             assert response.headers["content-type"].startswith("text/html"), route.path
 

@@ -8,7 +8,10 @@ The fixtures use Playwright's sync API, so e2e tests must be plain (not async) f
 
 ``running_app`` starts the real app in a subprocess with temporary data and config folders
 (``tests/running_app.py``). Teardown stops it gracefully and fails the test if the app had to
-be killed or did not exit with code 0.
+be killed or did not exit with code 0. The folders start with a completed setup by default;
+``@pytest.mark.parametrize("running_app", ["fresh"], indirect=True)`` starts with no setup done
+(an explicit data folder whose database is created at start-up), so pages redirect to the setup
+guide (M1.9).
 """
 
 import os
@@ -18,7 +21,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Browser, Page, sync_playwright
 
-from tests.running_app import AppDidNotStart, RunningApp, start_app
+from tests.running_app import AppDidNotStart, RunningApp, SetupState, start_app
 
 CHROMIUM_ENV = "JOBPIPELINE_E2E_CHROMIUM"
 DESKTOP = {"width": 1280, "height": 800}
@@ -35,9 +38,10 @@ def browser() -> Iterator[Browser]:
 
 
 @pytest.fixture
-def running_app(tmp_path: Path) -> Iterator[RunningApp]:
+def running_app(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[RunningApp]:
+    setup: SetupState = getattr(request, "param", "complete")
     try:
-        app = start_app(tmp_path)
+        app = start_app(tmp_path, setup=setup)
     except AppDidNotStart as error:
         pytest.fail(f"the app did not start: {error}", pytrace=False)
     try:

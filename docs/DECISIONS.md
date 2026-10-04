@@ -390,3 +390,13 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - M1 registers welcome (10), provider (20), preferences (50) and done (60); 30 and 40 are kept for web search (M2) and CV import (M3). A test checks the registry's last step and provider step match what detection expects.
 - Consequences: the onboarding-step skill and the M1.8 criteria were updated to this shape. M1.9/M1.16 build `SetupStateService` and `SetupProgress` only after a workspace is open (ADR-049).
 
+## ADR-053 — Setup redirect and the guide shell (2026-10-04)
+
+- Context: M1.9 implements AC-M1.2 (while setup is incomplete, every route except the guide, static files and `/health` sends the user to the guide) and the guide page shell.
+- Decision:
+  - `OnboardingState` (`app/onboarding/startup.py`) caches the `StartupDecision`. It is computed in the lifespan and recomputed only by `refresh(...)`: at start-up, after `open_workspace`, and later after state-changing requests. `refresh` keeps the stored bootstrap presence and provider health unless new values are passed. GET requests never recompute it and never read files, the database or the keychain.
+  - `SetupRedirectMiddleware` runs inside `SecurityMiddleware`, so host, token and origin checks come first. While the decision is `guide` or `locate_or_fresh`, requests outside exactly `/setup`, `/setup/…`, `/static/…` and `/health` get 303 to `/setup/<step>` (`locate_or_fresh` goes to the first step), or 200 with an empty body and `HX-Redirect` for htmx requests; both carry `Cache-Control: no-store` and the ADR-039 headers. The target never comes from the request.
+  - Guide pages `/setup` (303 to the current step) and `/setup/{step_id}` are page routes on the app (ADR-039). The shell hides the sidebar, has one `<h1>`, an ordered list of steps with `aria-current="step"` and a title per step; unknown steps get a plain 404 that never echoes the id.
+  - Tests: `tests/setup_harness.py` (`complete_setup`, `seed_workspace`) gives M0 tests a finished setup; `running_app(setup="complete" | "fresh")`, where "fresh" is the explicit-folder case, not a true first run.
+- Requirements for M1.16–M1.19 (reviews): step submits are POST routes, never page-tagged, and call `refresh(...)` (with `bootstrap_exists=True` after writing `config.toml`); moving between steps with htmx re-renders the step list (whole `.setup-guide` or out-of-band), sets `HX-Push-Url` and the title, and announces "Step N of M: <title>"; done and skipped states are shown in text, not colour alone, with forced-colors support; step list names and step headings agree; the provider copy fits both sign-in routes and includes the terms note and the Windows `claude.exe` note (ADR-045).
+
