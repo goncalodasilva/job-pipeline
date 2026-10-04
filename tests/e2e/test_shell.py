@@ -589,3 +589,23 @@ def test_toggle_looks_different_when_open(running_app: RunningApp, phone_page: P
     open_sidebar_by_keyboard(page)
     opened: str = toggle(page).evaluate("(e) => getComputedStyle(e).backgroundColor")
     assert closed != opened, f"the toggle background is {closed} both closed and open"
+
+
+def test_page_load_has_no_failed_requests(running_app: RunningApp, desktop_page: Page) -> None:
+    """Loading a page fetches only things the app serves (no 4xx/5xx, no network failures).
+
+    Headless Chromium never requests a favicon, so the icon itself is covered by
+    tests/integration/test_app_shell.py::test_pages_link_a_served_svg_favicon.
+    """
+    failed: list[str] = []
+    desktop_page.on(
+        "response",
+        lambda response: (
+            failed.append(f"{response.status} {response.url}") if response.status >= 400 else None
+        ),
+    )
+    for path in ("/", "/inbox"):
+        open_app(desktop_page, running_app, path)
+        desktop_page.wait_for_load_state("networkidle")
+
+    assert failed == []

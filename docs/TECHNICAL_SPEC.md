@@ -530,7 +530,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 | Fast tests | `uv run pytest -m "not e2e and not smoke and not live"` |
 | End-to-end | `uv run pytest -m e2e` |
 | Smoke | `uv run pytest -m smoke` |
-| Coverage | `uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing --cov-fail-under=85` then `uv run python scripts/check_critical_coverage.py` |
+| Coverage | `uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing --cov-fail-under=85` then `uv run python scripts/check_critical_coverage.py --from-progress` |
 | Quick verification (all of the above except e2e and coverage) | `bash .claude/skills/verify/scripts/verify.sh quick` |
 | Full verification | `bash .claude/skills/verify/scripts/verify.sh full` |
 
@@ -541,7 +541,7 @@ A GitHub Actions workflow (created in M0) runs on every push and pull request:
 1. Lint, format check, types, import contracts, gitleaks.
 2. Unit, integration and contract tests on Ubuntu, macOS and Windows, with the oldest and newest supported Python versions; smoke tests on all three (on Windows they check the Ctrl+Break stop, ADR-040). macOS and Windows run on pull requests to `main`, manual dispatch and weekly (ADR-032).
 3. Smoke and e2e tests on Ubuntu with Playwright Chromium.
-4. Coverage thresholds, with `scripts/check_critical_coverage.py --milestone M<current>` so a critical module that is due but missing fails (bumped when each milestone is accepted).
+4. Coverage thresholds, with `scripts/check_critical_coverage.py --from-progress`: a critical module due before the current milestone in `docs/PROGRESS.md` that is missing (for example after a rename) fails. The current milestone's own modules are not required in CI while it is in progress (in M0 nothing is); milestone acceptance runs `--milestone M<n>`, which requires them, as the backstop.
 
 Keychain access is never exercised in CI; tests use `MemorySecretStore`, and the keyring adapter is tested with a fake keyring backend.
 

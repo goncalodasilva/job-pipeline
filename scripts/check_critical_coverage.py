@@ -1,12 +1,16 @@
 """Enforce branch coverage on the critical modules (spec 4.3, ADR-028).
 
 Usage:
-    uv run python scripts/check_critical_coverage.py [--json PATH] [--milestone M<n>] [--root DIR]
+    uv run python scripts/check_critical_coverage.py [--json PATH]
+        [--milestone M<n> | --from-progress] [--root DIR]
 
 Reads a coverage.py JSON report (by default it writes one from `.coverage`, so run
 `pytest --cov=app` first). Each critical module that exists must be measured and reach
 THRESHOLD percent branch coverage. A module that doesn't exist yet is "not yet present",
 unless --milestone says the milestone that introduces it has arrived, which is a failure.
+--from-progress takes the milestone from the "Current milestone:" line of docs/PROGRESS.md
+and requires the modules of every earlier milestone (the current one may still be in
+progress), so CI tightens by itself when a milestone is accepted.
 Exits 0 when every check passes and 1 otherwise.
 """
 
@@ -35,6 +39,25 @@ CRITICAL_MODULES: tuple[tuple[str, int], ...] = (
 THRESHOLD = 95.0
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MILESTONE = re.compile(r"[Mm]?(\d+)")
+PROGRESS_FILE = Path("docs") / "PROGRESS.md"
+CURRENT_MILESTONE = re.compile(r"^Current milestone:[ \t]*M(\d+)[ \t]*$", re.MULTILINE)
+
+
+class ProgressError(ValueError):
+    """docs/PROGRESS.md is missing or has no ``Current milestone: M<n>`` line."""
+
+
+def current_milestone(root: Path) -> int:
+    """The milestone in progress, from the ``Current milestone:`` line of docs/PROGRESS.md."""
+    path = root / PROGRESS_FILE
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ProgressError(f"cannot read {PROGRESS_FILE.as_posix()}: {error}") from error
+    match = CURRENT_MILESTONE.search(text)
+    if match is None:
+        raise ProgressError(f"{PROGRESS_FILE.as_posix()} has no 'Current milestone: M<n>' line")
+    return int(match.group(1))
 
 
 def milestone_number(value: str) -> int:
@@ -47,7 +70,17 @@ def milestone_number(value: str) -> int:
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Enforce branch coverage on critical modules.")
     parser.add_argument("--json", type=Path, help="coverage.py JSON report")
-    parser.add_argument("--milestone", type=milestone_number, help="current milestone, e.g. M2")
+    due = parser.add_mutually_exclusive_group()
+    due.add_argument(
+        "--milestone",
+        type=milestone_number,
+        help="fail if a module due by this milestone (inclusive) is missing, e.g. M2",
+    )
+    due.add_argument(
+        "--from-progress",
+        action="store_true",
+        help="fail if a module due before the current milestone in docs/PROGRESS.md is missing",
+    )
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="repository root")
     return parser.parse_args(argv)
 
@@ -132,7 +165,17 @@ def main(argv: list[str] | None = None) -> int:
         # Without branch data every file would look 100% covered, so fail closed.
         print("The coverage report has no branch data. Enable `branch = true` and re-run.")
         return 1
-    lines, ok = check(report, args.root, args.milestone)
+    milestone = args.milestone
+    if args.from_progress:
+        try:
+            current = current_milestone(args.root)
+        except ProgressError as error:
+            print(f"Cannot tell the current milestone: {error}")
+            return 1
+        # Modules of the milestone in progress may not exist yet; earlier ones must. In M0
+        # nothing is due yet (-1); /milestone-acceptance runs the inclusive --milestone check.
+        milestone = current - 1
+    lines, ok = check(report, args.root, milestone)
     print("\n".join(lines))
     print("Critical coverage: " + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1

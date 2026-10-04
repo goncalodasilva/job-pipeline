@@ -282,7 +282,7 @@ COVERAGE_TEST_COMMAND = (
     " --cov-fail-under=85"
 )
 CRITICAL_COVERAGE_COMMAND = re.compile(
-    r"uv run python scripts/check_critical_coverage\.py --milestone M\d+"
+    r"uv run python scripts/check_critical_coverage\.py --from-progress"
 )
 VERIFY_SCRIPT = REPO_ROOT / ".claude" / "skills" / "verify" / "scripts" / "verify.sh"
 
@@ -362,3 +362,4 @@ def test_verify_script_aligned_with_spec_4_5() -> None:
         text,
     ), "verify.sh full must run the spec 4.5 coverage command"
     assert 'pytest_step "smoke" -q -m smoke' in text, "verify.sh quick must still run smoke"
+    assert "check_critical_coverage.py --from-progress" in text

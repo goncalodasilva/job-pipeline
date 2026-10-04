@@ -135,11 +135,12 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 
 - Context: spec 4.3 lists critical modules that do not exist yet (for example `honesty.py` in M6). The check must work now and must not let a critical module silently escape later (renamed, moved or never created).
 - Decision: `scripts/check_critical_coverage.py` holds one registry of critical modules, each with the milestone that introduces it:
-  - `app/api/middleware.py` (M0), `app/tasks/runner.py` (M0), `app/onboarding/detection.py` (M1), `app/domain/budgets.py` (M2), `app/services/usage.py` (M2), `app/modules/fetch/guard.py` (M4), `app/domain/honesty.py` (M6).
+  - `app/api/security.py` (M0; was listed as `app/api/middleware.py`, see the update below), `app/tasks/runner.py` (M0), `app/onboarding/detection.py` (M1), `app/domain/budgets.py` (M2), `app/services/usage.py` (M2), `app/modules/fetch/guard.py` (M4), `app/domain/honesty.py` (M6).
   - A module that exists must be measured and reach 95% branch coverage, whatever its milestone.
-  - A module that does not exist is reported as "not yet present" while its milestone is still ahead. With `--milestone M<n>` (used by `/milestone-acceptance` and CI), a missing module whose milestone is M<n> or earlier fails.
+  - A module that does not exist is reported as "not yet present" while its milestone is still ahead. With `--milestone M<n>` (used by `/milestone-acceptance`), a missing module whose milestone is M<n> or earlier fails.
   - A unit test checks that the registry matches the list in spec 4.3, so the two cannot drift.
 - Consequences: moving or adding a critical module means updating spec 4.3 and the registry together.
+- Update (M0.19, 2026-10-04): the registry named `app/api/middleware.py`, which never existed (ADR-039 put the middleware in `app/api/security.py`), so the middleware's 95% gate never ran; with the user's approval the registry and spec 4.3 now name `app/api/security.py` (100% branches). CI and `verify.sh full` run `--from-progress`, which reads `Current milestone: M<n>` from `docs/PROGRESS.md` and fails when a module due by M<n-1> is missing, so nobody bumps a milestone by hand and a rename fails once its milestone is past. Known gap: the current milestone's own modules are not required while it is in progress (in M0 nothing is); `/milestone-acceptance` runs the inclusive `--milestone M<n>` check as the backstop. A missing or unreadable `Current milestone` line fails closed.
 
 ## ADR-029 — App shell: placeholder pages and htmx version (2026-10-03)
 

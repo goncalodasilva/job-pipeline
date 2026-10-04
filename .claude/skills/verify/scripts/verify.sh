@@ -62,7 +62,7 @@ FAST='not e2e and not smoke and not live'
 COVERAGE='not e2e and not live'  # spec 4.5: the coverage run includes the smoke tests
 if [ "$MODE" = "full" ]; then
   pytest_step "fast tests with coverage" -q -m "$COVERAGE" --cov=app --cov-report=term-missing --cov-fail-under=85
-  if [ -f scripts/check_critical_coverage.py ]; then step "critical coverage" uv run python scripts/check_critical_coverage.py; fi
+  if [ -f scripts/check_critical_coverage.py ]; then step "critical coverage" uv run python scripts/check_critical_coverage.py --from-progress; fi
 else
   pytest_step "fast tests" -q -m "$FAST"
   pytest_step "smoke" -q -m smoke

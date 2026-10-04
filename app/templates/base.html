@@ -8,6 +8,9 @@
   <meta name="htmx-config" content='{"selfRequestsOnly":true,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0,"refreshOnHistoryMiss":true,"historyRestoreAsHxRequest":false}'>
   {# Lets CSS collapse the phone sidebar only when scripts run. #}
   <script>document.documentElement.classList.add("js");</script>
+  {# A declared icon stops browsers asking for /favicon.ico, which the token guard refuses
+     (older Safari without SVG icon support may still ask; the 403 is harmless). #}
+  <link rel="icon" href="{{ static('favicon.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ static('css/app.css') }}">
   <script src="{{ static('vendor/htmx.min.js') }}" defer></script>
   <script src="{{ static('js/app.js') }}" defer></script>

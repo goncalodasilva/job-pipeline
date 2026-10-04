@@ -416,3 +416,135 @@ def test_unreadable_report_fails_without_traceback(
     assert checker.main(["--json", str(broken), "--root", str(root)]) == 1
     assert checker.main(["--json", str(tmp_path / "absent.json"), "--root", str(root)]) == 1
     assert "Cannot read coverage report" in capsys.readouterr().out
+
+
+# --- --from-progress: the milestone comes from docs/PROGRESS.md (M0.19 follow-up) ----------
+
+
+def write_progress(root: Path, current: str | None) -> None:
+    docs = root / "docs"
+    docs.mkdir(parents=True, exist_ok=True)
+    header = f"Current milestone: {current}\n\n" if current is not None else ""
+    (docs / "PROGRESS.md").write_text(f"# Progress\n\n{header}## M0 — Fictional\n", "utf-8")
+
+
+def test_from_progress_requires_modules_of_earlier_milestones(
+    checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Current milestone M3: everything due by M2 must exist; M3 and later may be missing."""
+    present = (SECURITY, RUNNER, DETECTION, USAGE)
+    root = make_repo(tmp_path / "repo", present)
+    write_progress(root, "M3")
+    report = write_report(
+        tmp_path, {m: summary(num_branches=10, covered_branches=10) for m in present}
+    )
+
+    code, out = run(checker, capsys, root, report, "--from-progress")
+
+    assert code == 1
+    assert "due by M2" in line_for(out, BUDGETS)
+    for later in (GUARD, HONESTY):
+        assert "not yet present" in line_for(out, later)
+
+
+def test_from_progress_allows_current_milestone_modules_to_be_missing(
+    checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """While M2 is in progress, its critical modules may not exist yet."""
+    present = (SECURITY, RUNNER, DETECTION)
+    root = make_repo(tmp_path / "repo", present)
+    write_progress(root, "M2")
+    report = write_report(
+        tmp_path, {m: summary(num_branches=10, covered_branches=10) for m in present}
+    )
+
+    code, out = run(checker, capsys, root, report, "--from-progress")
+
+    assert code == 0, out
+    assert "not yet present" in line_for(out, BUDGETS)
+    assert "not yet present" in line_for(out, USAGE)
+
+
+def test_from_progress_catches_a_renamed_module_after_its_milestone(
+    checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """The M0.19 bug: a registry path that doesn't exist must fail once its milestone is past."""
+    present = (RUNNER,)  # the security middleware is missing (renamed or moved)
+    root = make_repo(tmp_path / "repo", present)
+    write_progress(root, "M1")
+    report = write_report(tmp_path, {RUNNER: summary(num_branches=10, covered_branches=10)})
+
+    code, out = run(checker, capsys, root, report, "--from-progress")
+
+    assert code == 1
+    assert "FAIL (missing, due by M0)" in line_for(out, SECURITY)
+
+
+def test_from_progress_in_m0_requires_nothing_missing(
+    checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """M0 has no earlier milestone; acceptance's inclusive --milestone M0 is the backstop."""
+    root = make_repo(tmp_path / "repo", ())
+    write_progress(root, "M0")
+    report = write_report(tmp_path, {})
+
+    code, out = run(checker, capsys, root, report, "--from-progress")
+
+    assert code == 0, out
+    for module in ALL_MODULES:
+        assert "not yet present" in line_for(out, module)
+
+
+def test_from_progress_without_progress_file_fails(
+    checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    root = make_repo(tmp_path / "repo", ALL_MODULES)
+    report = write_report(tmp_path, {})
+
+    code, out = run(checker, capsys, root, report, "--from-progress")
+
+    assert code == 1
+    assert "current milestone" in out.lower()
+
+
+def test_current_milestone_line_must_be_on_one_line(checker: ModuleType, tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "PROGRESS.md").write_text("Current milestone:\nM5\n", encoding="utf-8")
+
+    with pytest.raises(checker.ProgressError):
+        checker.current_milestone(tmp_path)
+
+
+@pytest.mark.parametrize("current", [None, "soon"])
+def test_from_progress_fails_closed_without_a_current_milestone(
+    checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path, current: str | None
+) -> None:
+    root = make_repo(tmp_path / "repo", ALL_MODULES)
+    write_progress(root, current)
+    report = write_report(
+        tmp_path, {m: summary(num_branches=10, covered_branches=10) for m in ALL_MODULES}
+    )
+
+    code, out = run(checker, capsys, root, report, "--from-progress")
+
+    assert code == 1
+    assert "Current milestone" in out
+
+
+def test_from_progress_and_milestone_are_exclusive(
+    checker: ModuleType, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    root = make_repo(tmp_path / "repo", ALL_MODULES)
+    write_progress(root, "M1")
+    report = write_report(tmp_path, {})
+
+    with pytest.raises(SystemExit) as excinfo:
+        run(checker, capsys, root, report, "--from-progress", "--milestone", "M1")
+
+    assert excinfo.value.code == 2
+
+
+def test_repository_progress_names_a_current_milestone(checker: ModuleType) -> None:
+    """CI relies on the real docs/PROGRESS.md having a parseable Current milestone line."""
+    assert checker.current_milestone(checker.REPO_ROOT) >= 0

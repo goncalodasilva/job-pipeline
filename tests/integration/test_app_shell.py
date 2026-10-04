@@ -561,3 +561,26 @@ def test_empty_state_explanations_differ_per_area(client: TestClient) -> None:
         explanations.append(" ".join(e.text for e in elements if e.tag == "p" and e.within(state)))
 
     assert len(set(explanations)) == len(AREAS), explanations
+
+
+# --- favicon ---------------------------------------------------------------------------------
+
+FAVICON_URL = "/static/favicon.svg"
+
+
+def test_pages_link_a_served_svg_favicon(client: TestClient) -> None:
+    """Without a declared icon, browsers request /favicon.ico, which needs the token (403)."""
+    elements = outline(_get_page(client, "/"))
+    icons = [
+        e for e in elements if e.tag == "link" and "icon" in (e.attrs.get("rel") or "").split()
+    ]
+    assert [(e.attrs.get("href"), e.attrs.get("type")) for e in icons] == [
+        (FAVICON_URL, "image/svg+xml")
+    ]
+
+    response = client.get(FAVICON_URL)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert response.text.lstrip().startswith("<svg")
+    assert "<script" not in response.text.lower()

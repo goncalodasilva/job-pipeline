@@ -134,6 +134,6 @@ jobs:
           python-version: "3.11"
       - run: uv sync --locked
       - run: uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing --cov-fail-under=85
-      # The current milestone: a critical module due by then that is missing fails the job.
-      # Bump it when a milestone is accepted.
-      - run: uv run python scripts/check_critical_coverage.py --milestone M0
+      # A critical module due before the current milestone (docs/PROGRESS.md) that is missing,
+      # for example after a rename, fails the job. Acceptance moves the milestone forward.
+      - run: uv run python scripts/check_critical_coverage.py --from-progress
