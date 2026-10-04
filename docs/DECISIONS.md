@@ -358,3 +358,15 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   5. Write `config.toml` only after `open_workspace` succeeds, and never in demo mode.
 - Accepted: an existing folder keeps its permissions (ADR-038), and parent folders created along the way get the default mode; folder contents are private (database 0600, `logs/` and `backups/` 0700). M1.16 may offer to tighten an existing folder the user owns. Demo seeding (M9) must refuse a folder that holds a non-demo workspace, since `JOBPIPELINE_DATA_DIR` beats `--demo` (ADR-025).
 
+## ADR-050 — Start-up detection rules (2026-10-04)
+
+- Context: M1.6 implements the detailed design's "When it opens" as a pure `detect(StartupFacts) -> StartupDecision` in `app/onboarding/detection.py` (critical module, spec 4.3). Review found three choices the design leaves open.
+- Decision, in order:
+  1. Not demo and no `config.toml`: first run, guide at the first step, even when the folder is explicit or a database already exists (ADR-044 item 4); `--setup` has no effect.
+  2. A bootstrap config (or demo) but no database: `locate_or_fresh` when the folder came from the bootstrap; the guide at the first step when the folder is explicit or in demo mode.
+  3. `--setup` reopens the guide at its first step only when the guide was finished at least once (the Done step is `done`); for a guide never finished it simply resumes, so there is nothing to "reopen".
+  4. Never finished: the guide resumes at the first required step not `done` (skipping doesn't finish a required step), then at the Done step.
+  5. Finished once: problems are banners, never the wizard. `StartupDecision.banners` lists every banner in order (a broken provider first, then a required step registered since), and `step` is the first.
+  6. Otherwise the app opens. Optional steps never block. Demo mode ignores the bootstrap config.
+- Consequences for later tasks: M1.16 handles step 1 when a workspace is already open (folder from `--data-dir`, the environment, demo, or an existing database without `config.toml`): it writes the bootstrap only, and never calls `open_workspace` again; and it never overwrites an existing `config.toml` with a folder that came from `--data-dir` or the environment. M1.20 shows one banner per entry in `banners`.
+
