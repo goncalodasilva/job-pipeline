@@ -11,11 +11,13 @@ errors that carry them.
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Any, Final
 
 from claude_agent_sdk import ClaudeAgentOptions
 
-AuthMode = Literal["subscription_token", "existing_login", "api_key"]
+from app.domain.settings import ClaudeAuthMode
+
+AuthMode = ClaudeAuthMode
 
 # Structured output is delivered through a tool call inside the CLI, so one model turn
 # may not be enough; the exact bound is confirmed by the live check (M1.25, ADR-045).

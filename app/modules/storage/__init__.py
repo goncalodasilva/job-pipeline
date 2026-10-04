@@ -9,6 +9,12 @@ from app.modules.storage.runner import (
     apply_migrations,
     load_migrations,
 )
+from app.modules.storage.settings_repo import (
+    StoredSetting,
+    get_setting,
+    insert_setting,
+    update_setting,
+)
 
 __all__ = [
     "MIGRATIONS_DIR",
@@ -16,6 +22,10 @@ __all__ = [
     "Migration",
     "MigrationError",
     "MigrationResult",
+    "StoredSetting",
     "apply_migrations",
+    "get_setting",
+    "insert_setting",
     "load_migrations",
+    "update_setting",
 ]
