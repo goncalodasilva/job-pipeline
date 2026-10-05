@@ -33,6 +33,7 @@ KEYRING = "keyring only in secrets providers (spec 2.3 rule 3)"
 HTTPX = "httpx only in the fetch module (spec 2.3 rule 3)"
 PROVIDER_SELECTION = "Providers are chosen only in wiring (spec 2.3 rule 7)"
 YAML = "yaml only in the prompt loader (spec 2.3 rule 3)"
+JSONSCHEMA = "jsonschema only in the AI executor (spec 2.3 rule 3)"
 
 EXPECTED_CONTRACTS = frozenset(
     {
@@ -46,6 +47,7 @@ EXPECTED_CONTRACTS = frozenset(
         HTTPX,
         PROVIDER_SELECTION,
         YAML,
+        JSONSCHEMA,
     }
 )
 
@@ -93,6 +95,8 @@ VIOLATION_CASES: dict[str, ViolationCase] = {
         "app/onboarding/_violation.py", PROVIDER_SELECTION
     ),
     "yaml_outside_prompt_loader": ViolationCase("app/services/_violation.py", YAML),
+    # M1.12: schema validation lives only in the task executor (ADR-055).
+    "jsonschema_outside_executor": ViolationCase("app/services/_violation.py", JSONSCHEMA),
 }
 
 
@@ -173,6 +177,7 @@ def test_vendor_sdks_allowed_inside_their_provider_packages(tmp_path: Path) -> N
             "app/modules/ai/providers/claude_sdk.py": "import claude_agent_sdk\n",
             "app/modules/secrets/providers/keyring_store.py": "import keyring\n",
             "app/modules/fetch/guard.py": "import httpx\n",
+            "app/modules/ai/executor.py": "import jsonschema\n",
         },
     )
 
@@ -229,3 +234,28 @@ def test_every_forbidden_entry_is_enforced(
 
     assert returncode != 0, output
     assert contract in _contracts_with_status(output, "BROKEN"), output
+
+
+def test_services_may_import_ai_interface_but_not_executor(tmp_path: Path) -> None:
+    """Services get AI tasks through ``AITaskRunner`` (M1.12, ADR-055).
+
+    The executor imports the prompt module, which imports jinja2, so a service that imports
+    the executor reaches jinja2 indirectly and breaks the services contract.
+    """
+    interface_only = {
+        "app/services/ai_user.py": (
+            "from app.modules.ai import AITaskRunner, TaskResult\n\n"
+            '__all__ = ["AITaskRunner", "TaskResult"]\n'
+        ),
+    }
+    returncode, output = _lint_copy_with(tmp_path / "interface", interface_only)
+
+    assert returncode == 0, output
+    assert _contracts_with_status(output, "KEPT") == EXPECTED_CONTRACTS, output
+
+    executor_import = {"app/services/ai_user.py": "import app.modules.ai.executor\n"}
+    returncode, output = _lint_copy_with(tmp_path / "executor", executor_import)
+
+    assert returncode != 0, output
+    assert SERVICES in _contracts_with_status(output, "BROKEN"), output
+    assert "app.services.ai_user" in output, output

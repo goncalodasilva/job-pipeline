@@ -21,7 +21,7 @@ import unicodedata
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, NoReturn, get_args
+from typing import Any, Final, NoReturn, cast, get_args
 
 import yaml
 from jinja2 import StrictUndefined, TemplateSyntaxError, nodes
@@ -92,7 +92,7 @@ class PromptTemplate:
     id: str
     task: str
     version: str  # "<v>" or "<v>+override" (spec 3.6)
-    default_tier: str
+    default_tier: Tier
     inputs: tuple[str, ...]
     untrusted_inputs: tuple[str, ...]
     system_source: str
@@ -309,7 +309,7 @@ def _load_folder(
 class _FrontMatter:
     id: str
     version: int
-    default_tier: str
+    default_tier: Tier
     inputs: tuple[str, ...]
     untrusted_inputs: tuple[str, ...]
 
@@ -355,7 +355,7 @@ def _parse_front_matter(task: str, label: str, front: str) -> _FrontMatter:
     untrusted_inputs = _name_list(task, label, "untrusted_inputs", data["untrusted_inputs"])
     if not set(untrusted_inputs) <= set(inputs):
         _fail(task, label, "every name in 'untrusted_inputs' must also be in 'inputs'.")
-    return _FrontMatter(prompt_id, version, tier, inputs, untrusted_inputs)
+    return _FrontMatter(prompt_id, version, cast(Tier, tier), inputs, untrusted_inputs)
 
 
 def _name_list(task: str, label: str, field: str, value: object) -> tuple[str, ...]:

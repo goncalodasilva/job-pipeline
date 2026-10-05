@@ -1,12 +1,15 @@
 """AI module interface (spec 2.4). Providers live in `providers/` and are chosen in wiring.
 
-Services call task functions (M1, `tasks.py`), which build an `AIRequest` and run it on the
-configured `AIProvider`. Untrusted content in `AIRequest.user` is already delimited (spec 3.3).
+Services call an injected `AITaskRunner` (the task executor, built in wiring), which renders
+the task's prompt, builds an `AIRequest` and runs it on the configured `AIProvider`. Untrusted
+content in `AIRequest.user` is already delimited (spec 3.3).
 """
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
+
+from app.domain.settings import Tier
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,29 @@ class AIResponse:
 
 class CallCancelled(Exception):
     """The call was cancelled before or while it ran; nothing to retry."""
+
+
+TaskKind = Literal["extraction", "generation", "feedback", "summary"]
+
+
+@dataclass(frozen=True)
+class TaskResult:
+    data: Mapping[str, Any]  # read-only plain JSON copy, validated against the task's schema
+    prompt_id: str
+    prompt_version: str
+    model: str  # the model the provider reported (ADR-044 item 9)
+    tier: Tier  # the tier the task resolved to (spec 3.7)
+    attempts: int  # 1, or 2 after the one retry (spec 3.6)
+    usage: tuple[TokenUsage | None, ...]  # one entry per provider call that returned
+
+
+class AITaskRunner(Protocol):
+    """Runs one AI task end to end. Services get it injected (built in wiring), so they
+    never import the prompt module or its template engine (ADR-055)."""
+
+    async def run_task(
+        self, task: str, inputs: Mapping[str, object], cancel: CancelToken
+    ) -> TaskResult: ...
 
 
 class AIProvider(Protocol):

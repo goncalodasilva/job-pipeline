@@ -1,0 +1,2 @@
+# Deliberate violation of contract "jsonschema only in the AI executor (spec 2.3 rule 3)" for the import-linter contract self-test (AC-M0.6).
+import jsonschema
