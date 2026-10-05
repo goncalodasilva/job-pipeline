@@ -32,9 +32,21 @@ CLAUDE_SDK = "claude_agent_sdk only in AI providers (spec 2.3 rule 3)"
 KEYRING = "keyring only in secrets providers (spec 2.3 rule 3)"
 HTTPX = "httpx only in the fetch module (spec 2.3 rule 3)"
 PROVIDER_SELECTION = "Providers are chosen only in wiring (spec 2.3 rule 7)"
+YAML = "yaml only in the prompt loader (spec 2.3 rule 3)"
 
 EXPECTED_CONTRACTS = frozenset(
-    {LAYERING, DOMAIN_PURE, SERVICES, API, TASKS, CLAUDE_SDK, KEYRING, HTTPX, PROVIDER_SELECTION}
+    {
+        LAYERING,
+        DOMAIN_PURE,
+        SERVICES,
+        API,
+        TASKS,
+        CLAUDE_SDK,
+        KEYRING,
+        HTTPX,
+        PROVIDER_SELECTION,
+        YAML,
+    }
 )
 
 
@@ -80,6 +92,7 @@ VIOLATION_CASES: dict[str, ViolationCase] = {
     "onboarding_imports_provider": ViolationCase(
         "app/onboarding/_violation.py", PROVIDER_SELECTION
     ),
+    "yaml_outside_prompt_loader": ViolationCase("app/services/_violation.py", YAML),
 }
 
 

@@ -168,7 +168,7 @@ class AIProvider(Protocol):
 class AIRequest:
     task: str                      # e.g. "tailor_cv"
     prompt_id: str
-    prompt_version: int
+    prompt_version: str            # e.g. "3", or "3+override" (ADR-055)
     system: str
     user: str                      # rendered prompt; untrusted content already delimited (3.3)
     output_schema: dict            # JSON Schema the response must satisfy
@@ -423,7 +423,7 @@ Job postings, fetched pages, web search results, uploaded CV text and free-text 
   ```
 
   Any occurrence of the closing tag inside the content is escaped.
-- Every system prompt that includes untrusted content states that such content is data to analyze, never instructions.
+- Every system prompt that includes untrusted content states that such content is data to analyze, never instructions. The renderer adds this notice itself, so templates and user overrides can't remove or reword it (ADR-055).
 - Plain AI tasks run with no tools; web search is enabled only for explicitly requested web tasks.
 - Model output is never executed, and never used to choose file paths or URLs to fetch automatically.
 

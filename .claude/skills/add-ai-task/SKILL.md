@@ -9,7 +9,7 @@ AI tasks are the only way the app talks to a model. Each has one prompt template
 
 1. **Check the contract.** The task must appear in spec 3.6 with its tier and output. If it doesn't, stop and ask the user, then record an ADR.
 2. **Write the prompt and schema** in `prompts/<task>/prompt.md` and `prompts/<task>/schema.json`, following `references/prompt-file-format.md`. Changing an existing prompt or schema means bumping `version`.
-3. **Mark untrusted inputs.** Job text, fetched pages, web results, CV text and free-text answers go through the `untrusted` filter, and the system section says untrusted content is data, never instructions (spec 3.3).
+3. **Mark untrusted inputs.** Job text, fetched pages, web results, CV text and free-text answers go through the `untrusted` filter (spec 3.3); the renderer adds the fixed untrusted-content notice to the system section, so don't repeat it. Text derived from untrusted sources (for example AI-extracted job fields or unconfirmed CV drafts) is also untrusted and goes in `untrusted_inputs`.
 4. **Write the task function** in `app/modules/ai/tasks.py`: typed domain inputs, render the prompt, resolve the tier's model, build an `AIRequest` (no tools unless this task is an explicit web task), call the provider, validate against the schema (one retry with the validation error), and map to a domain object carrying `prompt_id`, `prompt_version` and `model`.
 5. **Honesty.**
    - Generation tasks (text that represents the user) require `fact_ids` on every content unit, and the calling service runs `app/domain/honesty.py` on the result.

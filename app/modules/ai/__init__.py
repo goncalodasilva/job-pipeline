@@ -45,7 +45,7 @@ class CancelToken(Protocol):
 class AIRequest:
     task: str  # e.g. "tailor_cv"
     prompt_id: str
-    prompt_version: int
+    prompt_version: str  # "<v>" or "<v>+override" (spec 3.6)
     system: str
     user: str  # rendered prompt; untrusted content already delimited (spec 3.3)
     output_schema: Mapping[str, Any]  # JSON Schema the response must satisfy

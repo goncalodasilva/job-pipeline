@@ -964,6 +964,7 @@ dependencies = [
     { name = "keyring" },
     { name = "platformdirs" },
     { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "uvicorn" },
 ]
 
@@ -978,7 +979,6 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
-    { name = "pyyaml" },
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
@@ -991,6 +991,7 @@ requires-dist = [
     { name = "keyring", specifier = ">=25.7,<26" },
     { name = "platformdirs", specifier = ">=4.12" },
     { name = "pydantic", specifier = ">=2.13" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "uvicorn", specifier = ">=0.54" },
 ]
 
@@ -1005,7 +1006,6 @@ dev = [
     { name = "pytest", specifier = ">=9.1" },
     { name = "pytest-asyncio", specifier = ">=1.4" },
     { name = "pytest-cov", specifier = ">=7.1" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "ruff", specifier = ">=0.16" },
     { name = "types-pyyaml", specifier = ">=6.0.12" },
 ]

@@ -19,6 +19,7 @@ dependencies = [
     "keyring>=25.7,<26",
     "platformdirs>=4.12",
     "pydantic>=2.13",
+    "pyyaml>=6.0.3",
     "uvicorn>=0.54",
 ]
 
@@ -36,7 +37,6 @@ dev = [
     "pytest>=9.1",
     "pytest-asyncio>=1.4",
     "pytest-cov>=7.1",
-    "pyyaml>=6.0.3",
     "ruff>=0.16",
     "types-pyyaml>=6.0.12",
 ]
@@ -132,6 +132,7 @@ forbidden_modules = [
     "starlette",
     "subprocess",
     "uvicorn",
+    "yaml",
 ]
 
 [[tool.importlinter.contracts]]
@@ -190,4 +191,12 @@ type = "forbidden"
 source_modules = ["app"]
 forbidden_modules = ["httpx"]
 ignore_imports = ["app.modules.fetch -> httpx", "app.modules.fetch.** -> httpx"]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "yaml only in the prompt loader (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["yaml"]
+ignore_imports = ["app.modules.ai.prompts -> yaml"]
 unmatched_ignore_imports_alerting = "none"
