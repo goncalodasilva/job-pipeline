@@ -4,8 +4,8 @@ Every AI provider must answer with the same shape, report connection results wit
 spec 2.11 messages, list unique models, send no tools unless web search is allowed and
 make no call once cancelled, and stop and release a call cancelled while it runs. Providers
 join through a harness (``ai_harness.py``). The Claude provider runs the call and model
-tests with a fake SDK client (M1.13) and joins the connection tests
-(``connection_harness``) in M1.14. All values are fictional.
+tests with a fake SDK client (M1.13) and the connection tests (``connection_harness``)
+since M1.14. All values are fictional.
 """
 
 import json
@@ -39,8 +39,10 @@ HARNESSES: dict[str, Callable[[Path], ProviderHarness]] = {
     "fake": lambda _root: FakeHarness(),
     "claude_sdk_fake_transport": lambda root: ClaudeTransportHarness(temp_root=root),
 }
-# Claude joins in M1.14, with test_connection.
-CONNECTION_HARNESSES: dict[str, Callable[[], ConnectionHarness]] = {"fake": FakeHarness}
+CONNECTION_HARNESSES: dict[str, Callable[[Path], ConnectionHarness]] = {
+    "fake": lambda _root: FakeHarness(),
+    "claude_sdk_fake_transport": lambda root: ClaudeTransportHarness(temp_root=root),
+}
 
 EXPECTED_ERROR: dict[Failure, type[AppError]] = {
     "auth": ProviderAuthError,
@@ -56,8 +58,8 @@ def harness(request: pytest.FixtureRequest, tmp_path: Path) -> ProviderHarness:
 
 
 @pytest.fixture(params=list(CONNECTION_HARNESSES), ids=list(CONNECTION_HARNESSES))
-def connection_harness(request: pytest.FixtureRequest) -> ConnectionHarness:
-    return CONNECTION_HARNESSES[request.param]()
+def connection_harness(request: pytest.FixtureRequest, tmp_path: Path) -> ConnectionHarness:
+    return CONNECTION_HARNESSES[request.param](tmp_path)
 
 
 async def test_run_returns_parsed_object_shape(harness: ProviderHarness) -> None:

@@ -57,6 +57,9 @@ def _build(folder: Path, /, **overrides: Any) -> ClaudeAgentOptions:
         "environ": {},
     }
     arguments.update(overrides)
+    # Token and API-key modes need the CLI's private config folder (M1.14, ADR-057).
+    if arguments["mode"] != "existing_login":
+        arguments.setdefault("config_dir", folder.parent / "private-config")
     return build_options(**arguments)
 
 
@@ -373,6 +376,7 @@ def test_options_blank_process_environment_by_default(
         "output_schema": SCHEMA,
         "workdir": workdir,
         "credential": FAKE_TOKEN,
+        "config_dir": workdir.parent / "private-config",
     }
 
     env = build_options(**arguments).env
@@ -385,3 +389,84 @@ def test_options_keep_git_bash_path_for_windows(workdir: Path) -> None:
     env = _build(workdir, environ={"CLAUDE_CODE_GIT_BASH_PATH": "C:/fictional/bash.exe"}).env
 
     assert "CLAUDE_CODE_GIT_BASH_PATH" not in env
+
+
+# --- sign-in folders and other CLAUDE_* variables (M1.14 review, ADR-057) -----------------
+
+SIGN_IN_FOLDERS = ("CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR")
+# Fictional values for variables that could pick another sign-in or leak a session.
+OTHER_SIGN_IN_ENVIRONMENT = {
+    "CLAUDE_TRUSTED_DEVICE_TOKEN": "fake-" + "device-" + "d" * 8,
+    "CLAUDE_SESSION_INGRESS_TOKEN_FILE": "/fictional/session-token",
+    "CLAUDE_LOCAL_OAUTH_API_BASE": "http://127.0.0.1:9/fictional-oauth",
+    "CLAUDE_FICTIONAL_FUTURE_SETTING": "1",
+    "USE_STAGING_OAUTH": "1",
+    "USE_LOCAL_OAUTH": "1",
+}
+
+
+@pytest.mark.parametrize("inherited", ["", "/fictional/home/.claude-own"], ids=["empty", "path"])
+@pytest.mark.parametrize(
+    ("mode", "credential"), [("subscription_token", FAKE_TOKEN), ("api_key", FAKE_API_KEY)]
+)
+def test_options_token_modes_point_both_sign_in_folders_at_private_folder(
+    workdir: Path, mode: str, credential: str, inherited: str
+) -> None:
+    config = workdir.parent / "private-config"
+    environ = dict.fromkeys(SIGN_IN_FOLDERS, inherited)
+
+    env = _build(workdir, mode=mode, credential=credential, environ=environ, config_dir=config).env
+
+    for name in SIGN_IN_FOLDERS:
+        assert env[name] == str(config), name
+
+
+@pytest.mark.parametrize("inherited", ["", "/fictional/home/.claude-own"], ids=["empty", "path"])
+def test_options_existing_login_keeps_inherited_sign_in_folders(
+    workdir: Path, inherited: str
+) -> None:
+    environ = dict.fromkeys(SIGN_IN_FOLDERS, inherited)
+
+    env = _build(workdir, mode="existing_login", credential=None, environ=environ).env
+    child = {**environ, **env}
+
+    for name in SIGN_IN_FOLDERS:
+        assert name not in env, name
+        assert child[name] == inherited
+
+
+@pytest.mark.parametrize(
+    ("mode", "credential"),
+    [("subscription_token", FAKE_TOKEN), ("api_key", FAKE_API_KEY), ("existing_login", None)],
+)
+def test_options_blank_other_claude_and_oauth_variables(
+    workdir: Path, mode: str, credential: str | None
+) -> None:
+    inherited = {**OTHER_SIGN_IN_ENVIRONMENT, **SDK_MANAGED}
+
+    env = _build(workdir, mode=mode, credential=credential, environ=inherited).env
+    child = {**inherited, **env}
+
+    for name in OTHER_SIGN_IN_ENVIRONMENT:
+        assert child[name] == "", name
+    assert not SDK_MANAGED.keys() & env.keys()
+    # Blanked even when not inherited.
+    for name in ("USE_STAGING_OAUTH", "USE_LOCAL_OAUTH"):
+        assert _build(workdir, mode=mode, credential=credential).env[name] == ""
+
+
+@pytest.mark.parametrize(
+    ("mode", "credential", "config_dir"),
+    [
+        ("subscription_token", FAKE_TOKEN, None),
+        ("api_key", FAKE_API_KEY, None),
+        ("subscription_token", FAKE_TOKEN, Path("relative-config")),
+        ("existing_login", None, Path("/fictional/private-config")),
+    ],
+    ids=["token_without_folder", "api_key_without_folder", "relative_folder", "existing_login"],
+)
+def test_options_reject_wrong_config_folder(
+    workdir: Path, mode: str, credential: str | None, config_dir: Path | None
+) -> None:
+    with pytest.raises(ValueError):
+        _build(workdir, mode=mode, credential=credential, config_dir=config_dir)

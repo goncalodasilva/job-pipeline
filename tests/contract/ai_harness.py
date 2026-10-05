@@ -4,9 +4,10 @@ A harness hides how a provider is scripted, so the Claude provider (M1.13) can j
 suite with a fake transport. All values are fictional.
 
 Two protocols: ``ProviderHarness`` covers running calls and the model list (every
-provider); ``ConnectionHarness`` adds ``failing`` for the connection tests. The Claude
-harness implements only ``ProviderHarness`` until ``test_connection`` arrives in M1.14,
-when it joins the connection fixture too.
+provider); ``ConnectionHarness`` adds ``failing`` for the connection tests. Both harnesses
+implement both (the Claude harness joined the connection tests in M1.14: its ``failing``
+replays the fictional failure fixtures or raises the SDK error through the replaying
+client factory).
 
 ``tools_sent`` must report what the provider actually offered (for the Claude provider, the
 built options or command line), not echo the request's flag as the fake harness can.
@@ -15,12 +16,15 @@ built options or command line), not echo the request's flag as the fake harness 
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from claude_agent_sdk import CLINotFoundError
+
 from app.modules.ai import AIProvider, AIRequest, AIResponse, CancelToken
 from app.modules.ai.providers.claude_sdk import ClaudeSdkProvider
 from app.modules.ai.providers.fake import FakeAIProvider, ScriptedResponse
 from app.modules.secrets import CLAUDE_CODE_OAUTH_TOKEN
 from app.modules.secrets.providers.memory import MemorySecretStore
 from tests.fakes.claude_query import ReplayingQuery, replaying, success_frames
+from tests.fakes.claude_transport import load_frames
 
 CONTRACT_ANSWER = {"answer": "ok"}
 
@@ -128,6 +132,12 @@ class _AnyTaskFake(FakeAIProvider):
 CLAUDE_REPORTED_MODEL = "claude-haiku-fictional"
 _CONTRACT_TOKEN = "fake-" + "token-" + "c" * 10  # fictional, built at runtime
 _FICTIONAL_CLI = Path("/fictional/claude-cli/claude")  # never run: the query is fake
+# Fictional recorded runs in tests/fixtures/ai/claude_sdk/ for each connection failure.
+_CLAUDE_FAILURE_FIXTURES: dict[Failure, str] = {
+    "auth": "auth_failed",
+    "usage_limit": "rate_limit",
+    "network": "connection",
+}
 
 
 class ClaudeTransportHarness:
@@ -157,6 +167,11 @@ class ClaudeTransportHarness:
             and folder_gone
             and root_empty
         )
+
+    def failing(self, outcome: Failure) -> AIProvider:
+        if outcome == "not_installed":
+            return self._build(replaying([], raise_exc=CLINotFoundError("Fictional: no CLI")))
+        return self._build(replaying(load_frames(_CLAUDE_FAILURE_FIXTURES[outcome])))
 
     def _frames(self) -> list[dict[str, Any]]:
         return success_frames(dict(CONTRACT_ANSWER), model=CLAUDE_REPORTED_MODEL)

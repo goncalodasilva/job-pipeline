@@ -6,7 +6,8 @@ a stand-in that builds the SDK's real ``ClaudeSDKClient`` over a ``RecordingTran
 and the parser all stay real and no process or network is involved. It:
 
 - records every call: the options the provider built, and a snapshot taken when the client
-  is built of whether ``options.cwd`` existed and was empty, of ``options.env`` and of the
+  is built of whether ``options.cwd`` existed and was empty, of ``options.env``, of the
+  folder named by ``CLAUDE_CONFIG_DIR`` in ``options.env`` (existed, empty) and of the
   system prompt file (text and permission bits); the prompt is read from the user frame the
   SDK wrote;
 - optionally writes ``stderr_lines`` through the provider's ``options.stderr`` callback
@@ -18,6 +19,11 @@ and the parser all stay real and no process or network is involved. It:
   from ``connect`` instead, where the subprocess transport raises it;
 - records whether ``close()`` ran, in which task, and whether the working folder still
   existed then.
+
+``hanging()`` returns a factory whose transport answers the control protocol but never
+sends a message after the user frame, like a CLI that stays silent (M1.14 timeouts).
+``unresponsive()`` returns one whose transport never answers the ``initialize`` control
+request, so ``connect()`` itself waits (M1.14 review).
 
 Options are checked through the record, since a custom transport ignores CLI flags
 (ADR-045). All content is fictional.
@@ -59,6 +65,7 @@ class RecordingTransport(ReplayTransport):
         self._user_seen = False
         self.frames_read = 0
         self.closed = False
+        self.close_count = 0
         self.close_task: int | None = None
         self.workdir_existed_at_close: bool | None = None
 
@@ -100,6 +107,7 @@ class RecordingTransport(ReplayTransport):
             return
 
     async def close(self) -> None:
+        self.close_count += 1
         if not self.closed:
             self.closed = True
             self.close_task = anyio.get_current_task().id
@@ -121,6 +129,14 @@ class QueryCall:
             self.cwd_existed and self.cwd is not None and not any(self.cwd.iterdir())
         )
         self.env: Mapping[str, str] = dict(options.env)
+        config = self.env.get("CLAUDE_CONFIG_DIR")
+        self.config_dir = Path(config) if config else None
+        self.config_dir_existed = self.config_dir is not None and self.config_dir.is_dir()
+        self.config_dir_was_empty = (
+            self.config_dir_existed
+            and self.config_dir is not None
+            and not any(self.config_dir.iterdir())
+        )
         self.system_prompt_path: Path | None = None
         self.system_prompt_text: str | None = None
         self.system_prompt_mode: int | None = None
@@ -191,6 +207,59 @@ def replaying(
     return ReplayingQuery(
         frames, raise_exc=raise_exc, stderr_lines=stderr_lines, on_message=on_message
     )
+
+
+class SilentTransport(RecordingTransport):
+    """Answers the control protocol, then never sends a message after the user frame."""
+
+    async def _messages(self) -> AsyncIterator[dict[str, Any]]:
+        async for frame in self._receive:
+            if frame is None:
+                return
+            if frame is not _REPLAY:
+                yield frame
+            # The replay marker is swallowed: nothing follows until the transport closes.
+
+
+class HangingQuery(ReplayingQuery):
+    def __init__(self) -> None:
+        super().__init__([])
+
+    def __call__(self, options: ClaudeAgentOptions) -> ClaudeSDKClient:
+        cwd = None if options.cwd is None else Path(options.cwd)
+        transport = SilentTransport([], workdir=cwd)
+        self.calls.append(QueryCall(options, transport))
+        return ClaudeSDKClient(options=options, transport=transport)
+
+
+def hanging() -> HangingQuery:
+    """A fake client factory whose CLI never answers the prompt (see the module docstring)."""
+    return HangingQuery()
+
+
+class UnresponsiveTransport(SilentTransport):
+    """Records control requests but never answers them, so ``initialize`` waits forever."""
+
+    async def write(self, data: str) -> None:
+        for line in data.splitlines():
+            if line.strip():
+                self.written.append(json.loads(line))
+
+
+class UnresponsiveQuery(ReplayingQuery):
+    def __init__(self) -> None:
+        super().__init__([])
+
+    def __call__(self, options: ClaudeAgentOptions) -> ClaudeSDKClient:
+        cwd = None if options.cwd is None else Path(options.cwd)
+        transport = UnresponsiveTransport([], workdir=cwd)
+        self.calls.append(QueryCall(options, transport))
+        return ClaudeSDKClient(options=options, transport=transport)
+
+
+def unresponsive() -> UnresponsiveQuery:
+    """A fake client factory whose CLI never answers initialize (see the module docstring)."""
+    return UnresponsiveQuery()
 
 
 def success_frames(
