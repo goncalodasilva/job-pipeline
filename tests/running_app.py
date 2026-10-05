@@ -19,7 +19,11 @@ server binds to 127.0.0.1 only; nothing here uses the network beyond loopback.
 ``"fresh"`` writes nothing beforehand. The data folder always comes from
 ``JOBPIPELINE_DATA_DIR``, so a fresh app is the explicit-folder case, not AC-M1.1 case 1: it
 creates the folder and its database at start-up with no step done, and every page redirects to
-the guide's first step (AC-M1.2).
+the guide's first step (AC-M1.2). ``"first_run"`` is AC-M1.1 case 1: nothing is written
+beforehand and ``JOBPIPELINE_DATA_DIR`` is not set, so the data folder is the platform default
+under the test's temporary home; the app starts without creating it and step 1 of the guide does
+(M1.16). Its path is computed with the app's own environment and must lie inside the test's
+temporary folder, otherwise the app is not started.
 
 Stopping is graceful first: SIGINT on POSIX, CTRL_BREAK_EVENT on Windows (the child runs in
 its own process group so the event reaches only it; it must share the test runner's console,
@@ -39,6 +43,7 @@ from typing import IO, Literal
 
 import httpx
 
+from app.config import APP_NAME
 from tests.setup_harness import complete_setup
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -61,7 +66,8 @@ POLL_INTERVAL_SECONDS = 0.05
 REQUEST_TIMEOUT_SECONDS = 2.0
 OUTPUT_TAIL_CHARS = 4000
 
-SetupState = Literal["complete", "fresh"]
+SetupState = Literal["complete", "fresh", "first_run"]
+SETUP_STATES: tuple[SetupState, ...] = ("complete", "fresh", "first_run")
 
 
 class AppDidNotStart(RuntimeError):
@@ -82,10 +88,14 @@ def free_loopback_port() -> int:
     return port
 
 
-def isolated_env(data_dir: Path, config_dir: Path, *, allow_fakes: bool = True) -> dict[str, str]:
+def isolated_env(
+    data_dir: Path, config_dir: Path, *, allow_fakes: bool = True, explicit_data_dir: bool = True
+) -> dict[str, str]:
     """The caller's environment without app or credential variables, pointed at temp folders.
 
-    ``allow_fakes=False`` leaves ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` unset."""
+    ``allow_fakes=False`` leaves ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` unset;
+    ``explicit_data_dir=False`` leaves ``JOBPIPELINE_DATA_DIR`` unset (a true first run), while
+    the home folders still point next to ``data_dir``."""
     env = {
         key: value
         for key, value in os.environ.items()
@@ -98,7 +108,8 @@ def isolated_env(data_dir: Path, config_dir: Path, *, allow_fakes: bool = True) 
     home.mkdir(parents=True, exist_ok=True)
     for name in HOME_VARIABLES:
         env[name] = str(home)
-    env["JOBPIPELINE_DATA_DIR"] = str(data_dir)
+    if explicit_data_dir:
+        env["JOBPIPELINE_DATA_DIR"] = str(data_dir)
     env["JOBPIPELINE_CONFIG_DIR"] = str(config_dir)
     # The harness saves the fake provider; allowing fakes keeps a completed setup healthy, and
     # the setup guide's e2e tests choose the fake (ADR-044 item 2, ADR-054).
@@ -193,13 +204,17 @@ def start_app(
     """Start the app on a free loopback port and wait until ``/health`` answers 200.
 
     ``allow_fakes=False`` starts it without ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``."""
-    if setup not in ("complete", "fresh"):
+    if setup not in SETUP_STATES:
         raise ValueError(f"unknown setup state {setup!r}")
     data_dir = tmp_path / "data"
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     if setup == "complete":
         complete_setup(data_dir, config_dir)
+    explicit = setup != "first_run"
+    env = isolated_env(data_dir, config_dir, allow_fakes=allow_fakes, explicit_data_dir=explicit)
+    if not explicit:
+        data_dir = platform_default_data_dir(env, tmp_path)
     port = free_loopback_port()
     stdout_path = tmp_path / "app-stdout.txt"
     stderr_path = tmp_path / "app-stderr.txt"
@@ -208,7 +223,6 @@ def start_app(
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
-    env = isolated_env(data_dir, config_dir, allow_fakes=allow_fakes)
     stdout = stdout_path.open("wb")
     stderr = stderr_path.open("wb")
     start_time = time.monotonic()
@@ -244,6 +258,24 @@ def start_app(
         running.stop()
         raise
     return running
+
+
+def platform_default_data_dir(env: dict[str, str], tmp_path: Path) -> Path:
+    """The default data folder the app will choose with ``env`` (``platformdirs``, run in a
+    child process so this process's environment is untouched). Refuses any folder outside
+    ``tmp_path``, so a first run never points at the real user folders."""
+    script = "import sys, platformdirs; sys.stdout.write(platformdirs.user_data_dir(sys.argv[1]))"
+    result = subprocess.run(  # noqa: S603 - fixed argv: this interpreter and a fixed script
+        [sys.executable, "-c", script, APP_NAME],
+        env=env,
+        capture_output=True,
+        check=True,
+        timeout=READY_TIMEOUT_SECONDS,
+    )
+    folder = Path(result.stdout.decode("utf-8"))
+    if not folder.is_absolute() or not folder.resolve().is_relative_to(tmp_path.resolve()):
+        raise AppDidNotStart("the default data folder is outside the test's temporary folder")
+    return folder
 
 
 def _wait_until_healthy(running: RunningApp) -> float:

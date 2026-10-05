@@ -13,6 +13,8 @@
   --color-focus: #0a58a8;
   --color-warning-bg: #fff4d6;
   --color-warning-border: #9a6700;
+  --color-error: #b3261e;
+  --color-on-accent: #ffffff;
 
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --space-1: 0.25rem;
@@ -40,6 +42,8 @@
     --color-focus: #8bbcff;
     --color-warning-bg: #3a2f12;
     --color-warning-border: #e3b341;
+    --color-error: #ff9a8f;
+    --color-on-accent: #15171c;
   }
 }
 
@@ -55,6 +59,8 @@
   --color-focus: #8bbcff;
   --color-warning-bg: #3a2f12;
   --color-warning-border: #e3b341;
+  --color-error: #ff9a8f;
+  --color-on-accent: #15171c;
 }
 
 :root[data-theme="light"] {
@@ -318,6 +324,115 @@ body.layout-guide {
   font-weight: 700;
 }
 
+.setup-steps .step-status {
+  font-weight: 400;
+}
+
+/* Forms */
+.step-form {
+  margin-block: var(--space-6);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.field label {
+  font-weight: 600;
+}
+
+.field input {
+  min-height: var(--target-min);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+}
+
+.field input[readonly] {
+  background: var(--color-bg);
+  border-style: dashed;
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 1px var(--color-error);
+}
+
+.field-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.field-error {
+  margin: 0;
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+.field-error::before {
+  content: "Error: ";
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.button {
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.button-primary {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  font-weight: 600;
+}
+
+.notice {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+}
+
+.notice p {
+  margin: var(--space-2) 0;
+}
+
+.try-demo h3 {
+  font-size: 1.1rem;
+}
+
+.try-demo pre {
+  padding: var(--space-3);
+  overflow-x: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
 /* Phone and narrow windows: the sidebar collapses behind the top-bar toggle. */
 @media (max-width: 767.98px) {
   body {
@@ -366,6 +481,10 @@ body.layout-guide {
   .sidebar a[aria-current="page"] {
     border-left-style: solid;
     border-left-color: CanvasText;
+  }
+
+  .button-primary {
+    border: 2px solid ButtonText;
   }
 }
 

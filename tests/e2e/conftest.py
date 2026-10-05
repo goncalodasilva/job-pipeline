@@ -11,7 +11,9 @@ The fixtures use Playwright's sync API, so e2e tests must be plain (not async) f
 be killed or did not exit with code 0. The folders start with a completed setup by default;
 ``@pytest.mark.parametrize("running_app", ["fresh"], indirect=True)`` starts with no setup done
 (an explicit data folder whose database is created at start-up), so pages redirect to the setup
-guide (M1.9).
+guide (M1.9). ``["first_run"]`` is a true first run (AC-M1.1 case 1): no data folder from the
+environment, so the app uses the platform default under the temporary home and creates nothing
+until step 1 is submitted (M1.16).
 """
 
 import os

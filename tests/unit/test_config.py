@@ -16,6 +16,7 @@ from app.config import (
     CliOptions,
     RuntimeConfig,
     load_bootstrap,
+    refused_data_folders,
     resolve_config,
     resolve_config_dir,
 )
@@ -666,3 +667,47 @@ def test_opens_workspace_at_startup_rules(
 
     assert opens_workspace_at_startup(_runtime(data_dir, source)) is expected
     assert sorted(tmp_path.rglob("*")) == before, "the check must never create anything"
+
+
+def _platform_folders(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
+    monkeypatch.setattr("app.config.user_data_dir", lambda name: str(root / "data" / name))
+
+
+def _shared_layout(config_dir: Path, *, demo: bool) -> RuntimeConfig:
+    return RuntimeConfig(
+        data_dir=config_dir,
+        config_dir=config_dir,
+        port=8000,
+        log_level="INFO",
+        demo=demo,
+        setup=False,
+        no_browser=False,
+    )
+
+
+def test_refused_folders_are_config_and_demo_folder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _platform_folders(monkeypatch, tmp_path)
+    config = _shared_layout(tmp_path / "cfg", demo=False)
+    assert refused_data_folders(config) == (
+        tmp_path / "cfg",
+        tmp_path / "data" / "jobpipeline-demo",
+    )
+
+
+def test_refused_folders_in_demo_mode_include_the_real_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _platform_folders(monkeypatch, tmp_path)
+    config = _shared_layout(tmp_path / "cfg", demo=True)
+    assert tmp_path / "data" / "jobpipeline" in refused_data_folders(config)
+
+
+def test_config_folder_is_allowed_when_it_is_the_default_data_folder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # macOS and Windows: platformdirs gives the same folder for config and data (ADR-060).
+    _platform_folders(monkeypatch, tmp_path)
+    config = _shared_layout(tmp_path / "data" / "jobpipeline", demo=False)
+    assert refused_data_folders(config) == (tmp_path / "data" / "jobpipeline-demo",)

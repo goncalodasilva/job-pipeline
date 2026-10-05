@@ -457,10 +457,14 @@ def test_redirect_response_has_protective_headers(tmp_path: Path) -> None:
 
 def test_guide_pages_are_page_tagged_and_registered_on_app(tmp_path: Path) -> None:
     with running(tmp_path, "default") as run:
+        # Only the GET pages: step submits share the path but are POST routes behind the
+        # token and origin checks, never page-tagged (M1.16; ADR-053).
         setup_routes = {
             route.path: route
             for route in run.app.router.routes
-            if isinstance(route, APIRoute) and route.path.startswith("/setup")
+            if isinstance(route, APIRoute)
+            and route.path.startswith("/setup")
+            and "GET" in route.methods
         }
         assert {"/setup", "/setup/{step_id}"} <= set(setup_routes), sorted(setup_routes)
         for path in ("/setup", "/setup/{step_id}"):

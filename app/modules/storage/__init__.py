@@ -16,6 +16,7 @@ from app.modules.storage.settings_repo import (
     update_setting,
 )
 from app.modules.storage.setup_state_repo import StoredStep, list_steps, upsert_step
+from app.modules.storage.workspace_check import is_workspace_database
 
 __all__ = [
     "MIGRATIONS_DIR",
@@ -28,6 +29,7 @@ __all__ = [
     "apply_migrations",
     "get_setting",
     "insert_setting",
+    "is_workspace_database",
     "list_steps",
     "load_migrations",
     "update_setting",

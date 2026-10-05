@@ -12,7 +12,7 @@ cached in ``app.state.provider_health``, never on GET (spec 2.9.12).
 import os
 import sqlite3
 import threading
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
 
 from app import __version__
+from app.api.errors import register_error_handlers
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
@@ -34,6 +35,8 @@ from app.config import (
     data_dir_is_explicit,
     opens_workspace_at_startup,
     owned_by_another_user,
+    refused_data_folders,
+    write_bootstrap,
 )
 from app.domain.clock import Clock, SystemClock
 from app.domain.errors import DataFolderNotYours, DataFolderUnavailable
@@ -42,8 +45,16 @@ from app.domain.settings import AI_PROVIDER
 from app.modules.ai import ProviderHealth
 from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
 from app.onboarding.progress import SetupProgress
-from app.onboarding.registry import StepRegistry, m1_registry
+from app.onboarding.registry import (
+    WELCOME,
+    StepHandler,
+    StepRegistry,
+    m1_registry,
+    require_handlers,
+)
 from app.onboarding.startup import OnboardingState, StartupInputs
+from app.onboarding.steps import PendingStep
+from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.health import HealthService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
@@ -179,6 +190,47 @@ def _check_provider(
     return health
 
 
+def _step_handlers(
+    app: FastAPI,
+    config: RuntimeConfig,
+    *,
+    registry: StepRegistry,
+    onboarding: OnboardingState,
+    clock: Clock,
+) -> Mapping[str, StepHandler]:
+    """One handler per registered step (ADR-052); steps still to come are placeholders."""
+
+    def workspace_folder() -> Path | None:
+        workspace: Workspace | None = getattr(app.state, "workspace", None)
+        return workspace.data_dir if workspace is not None else None
+
+    def open_workspace(folder: Path) -> None:
+        app.state.open_workspace(folder)
+
+    def save_bootstrap(folder: Path) -> None:
+        write_bootstrap(config.config_dir, data_dir=folder, version=__version__)
+
+    welcome = WelcomeStep(
+        WelcomeSettings(
+            suggested_folder=config.data_dir,
+            folder_fixed=data_dir_is_explicit(config),
+            demo=config.demo,
+            refused_folders=refused_data_folders(config),
+            config_folder=config.config_dir,
+            bootstrap_name=BOOTSTRAP_FILE,
+        ),
+        onboarding=onboarding,
+        workspace_folder=workspace_folder,
+        open_workspace=open_workspace,
+        bootstrap_exists=lambda: (config.config_dir / BOOTSTRAP_FILE).exists(),
+        write_bootstrap=save_bootstrap,
+        progress=lambda: _progress(registry, _current_db(app), clock),
+    )
+    handlers: dict[str, StepHandler] = {step.id: PendingStep() for step in registry.steps}
+    handlers[WELCOME.id] = welcome
+    return require_handlers(registry, handlers)
+
+
 def create_app(
     config: RuntimeConfig,
     *,
@@ -305,6 +357,9 @@ def create_app(
             app.state.provider_health = health  # None until a workspace opens
             app.state.setup_registry = registry
             app.state.onboarding = onboarding
+            app.state.setup_handlers = _step_handlers(
+                app, config, registry=registry, onboarding=onboarding, clock=app_clock
+            )
             app.state.workspace = workspace
             app.state.open_workspace = open_workspace
             app.state.refresh_provider_health = refresh_provider_health
@@ -346,6 +401,7 @@ def create_app(
         launch_token=launch_token,
         is_page=page_route_matcher(lambda: app.router.routes),
     )
+    register_error_handlers(app)
     app.include_router(health_router)
     register_pages(app)
     register_setup_pages(app)

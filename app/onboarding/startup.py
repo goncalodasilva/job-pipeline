@@ -7,9 +7,10 @@ request does no database, keychain or file reads to decide where it goes.
 """
 
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
-from app.onboarding.detection import StartupDecision, StartupFacts, detect
+from app.onboarding.detection import StartupDecision, StartupFacts, StepStatus, detect
 from app.onboarding.progress import SetupProgress
 from app.onboarding.registry import StepRegistry
 
@@ -28,11 +29,17 @@ class OnboardingState:
         self._inputs = inputs
         self._provider_healthy = True
         self._lock = threading.Lock()
+        self._statuses: dict[str, StepStatus] = {}
         self._decision = self._detect(None)
 
     @property
     def decision(self) -> StartupDecision:
         return self._decision
+
+    @property
+    def statuses(self) -> Mapping[str, StepStatus]:
+        """Step statuses as of the last refresh (for the guide's step list; no I/O)."""
+        return self._statuses
 
     def guide_step(self) -> str | None:
         """The step requests are sent to while setup is incomplete, else None.
@@ -68,6 +75,7 @@ class OnboardingState:
 
     def _detect(self, progress: SetupProgress | None) -> StartupDecision:
         inputs = self._inputs
+        self._statuses = dict(progress.statuses()) if progress is not None else {}
         return detect(
             StartupFacts(
                 bootstrap_exists=inputs.bootstrap_exists,
@@ -75,7 +83,7 @@ class OnboardingState:
                 demo=inputs.demo,
                 database_exists=progress is not None,
                 steps=self._registry.infos(),
-                statuses=progress.statuses() if progress is not None else {},
+                statuses=self._statuses,
                 provider_healthy=self._provider_healthy,
                 force_setup=inputs.force_setup,
                 done_step=self._registry.last.id,

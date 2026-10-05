@@ -68,6 +68,17 @@ def data_dir_is_explicit(config: RuntimeConfig) -> bool:
     return config.data_dir_source in _EXPLICIT_SOURCES
 
 
+def refused_data_folders(config: RuntimeConfig) -> tuple[Path, ...]:
+    """Folders step 1 never accepts as the data folder (ADR-049 item 3, ADR-060): the demo
+    folder outside demo mode or the real default folder in demo mode, and the config folder
+    unless it is the default data folder (on macOS and Windows platformdirs gives both the
+    same path, so ``config.toml`` sits beside ``app.db``)."""
+    other = Path(user_data_dir(DEMO_APP_NAME if not config.demo else APP_NAME))
+    if config.config_dir == Path(user_data_dir(APP_NAME)):
+        return (other,)
+    return (config.config_dir, other)
+
+
 def opens_workspace_at_startup(config: RuntimeConfig) -> bool:
     """Whether start-up opens the data folder, or waits for step 1 (ADR-044 item 3).
 

@@ -471,3 +471,20 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - Tests: an autouse fixture removes credential variables and allows fakes, so in-process tests don't depend on the developer's shell; tests of the gate pass explicit environments.
 - Accepted: two app instances on the same data folder (different ports) would clear each other's call folders at start-up; a data-folder lock is a candidate follow-up (decided at M1 acceptance).
 
+## ADR-060 — Step 1: data folder choice (2026-10-05)
+
+- Context: M1.16 implements the first setup step, choosing where the app stores its data locally.
+- Decision:
+  - User decision (2026-10-05): on macOS and Windows `platformdirs` gives the same folder for `user_config_dir` and `user_data_dir`, so ADR-049 item 3's "refuse the config folder" would refuse the default data folder. `refused_data_folders(config)` (app/config.py) refuses the config folder only when it differs from the platform default data folder; the other mode's default folder (demo folder outside demo, real default in demo) is always refused, including folders inside refused folders, compared by identity when both exist and case-insensitively on macOS/Windows. When the config folder is the data folder, `config.toml` doesn't count as content for the folder check. Amends ADR-049 item 3.
+  - The step handler `WelcomeStep` (app/onboarding/steps/welcome.py), built in app/main.py with injected collaborators and stored in `app.state.setup_handlers`. `PendingStep` placeholders cover provider, preferences and done until M1.17–M1.19.
+  - Folder checks: `inspect_data_folder` (app/services/data_folder.py) returns missing/empty/workspace/not_empty/file and ignores .DS_Store, Thumbs.db and desktop.ini. `is_workspace_database` (app.modules.storage) reads immutable first and plain read-only only when both -wal and -shm exist, so it never creates or changes files. open accepts missing/empty/workspace; locate accepts only a workspace; Start fresh only missing/empty.
+  - config.toml rules: written after a successful open by step 1 (even over an existing one, the locate case, and again on a retry after a failed save); for a workspace already open it is written only when missing; never in demo mode.
+  - Routes: `POST /setup/{step_id}` (token and origin, not page-tagged) parses the URL-encoded body with urllib.parse, capped at 64 KB. python-multipart is only a transitive dependency, so no new runtime dependency. The handler runs in a worker thread. On success: 303, or for htmx 200 with the next step's guide fragment (`_guide_swap.html`, with a `<title>`), `HX-Push-Url` and `HX-Trigger` announce "Step N of M: title". On refusal: 422 with field errors, the title prefixed "Error: ", and only the handler's `echo_fields` shown back. GET with HX-Request returns the guide fragment.
+  - ADR-041 amendment: htmx `responseHandling` swaps 422; other 4xx/5xx stay errors. FastAPI's RequestValidationError becomes a plain-text 400 (app/api/errors.py), so an unescaped JSON 422 is never swapped into the page.
+  - `OnboardingState.statuses` caches step statuses at refresh, for the step list's "· Done" / "· Skipped" text (GET still does no I/O). The placeholder step headings now match the registry titles.
+  - htmx is required for the guide: the launch token travels in hx-headers, so a plain form POST gets 403.
+- Follow-ups:
+  - The "Try the demo" text shows `jobpipeline --demo` (ADR-044 item 4); someone who installed with `uv sync` would need `uv run jobpipeline --demo`. The user is to decide.
+  - The Windows first-run e2e harness would need WIN_PD_OVERRIDE_* variables, because platformdirs on Windows ignores APPDATA; e2e runs only on Ubuntu today.
+  - M1.17–M1.19 replace the PendingStep placeholders and keep their headings equal to the registry titles.
+
