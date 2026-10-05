@@ -303,3 +303,27 @@ def test_claude_auth_mode_matches_every_claude_kind() -> None:
     )
     assert claude_auth_mode("fake") is None
     assert claude_auth_mode(None) is None
+
+
+def test_sign_in_saved_for_defaults_none() -> None:
+    """M1.15 (ADR-046): records which kind's credential was saved, never the value."""
+    assert AIProviderSettings().sign_in_saved_for is None
+
+    for kind in ("claude_subscription_token", "claude_api_key"):
+        saved = AIProviderSettings(kind=kind, sign_in_saved_for=kind)
+        assert saved.sign_in_saved_for == kind
+        assert AIProviderSettings.model_validate_json(saved.model_dump_json()) == saved
+    older = AIProviderSettings.model_validate_json('{"kind": "claude_api_key"}')
+    assert older.sign_in_saved_for is None, "settings saved before the field existed still load"
+
+    for not_a_kind in (
+        "Fictional-Saved-Value-0001",
+        {"value": "fictional"},
+        True,
+        "claude_existing_login",  # no credential is saved for the computer's own sign-in
+        "fake",
+    ):
+        with pytest.raises(ValidationError):
+            AIProviderSettings.model_validate(
+                {"kind": "claude_api_key", "sign_in_saved_for": not_a_kind}
+            )

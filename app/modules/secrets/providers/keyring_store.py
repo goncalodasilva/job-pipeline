@@ -8,13 +8,14 @@ key as the keyring user name.
 from typing import Final
 
 import keyring
-from keyring.backend import KeyringBackend
+from keyring.backend import KeyringBackend as KeyringBackend  # re-exported for wiring
 from keyring.backends import chainer, fail, null
 from keyring.errors import PasswordDeleteError
 
 from app.domain.errors import SecretStoreUnavailable
 
 SERVICE_NAME: Final = "jobpipeline"
+DEMO_SERVICE_NAME: Final = "jobpipeline-demo"  # demo runs never touch real credentials
 _PROBE_KEY: Final = "__jobpipeline_probe__"
 
 

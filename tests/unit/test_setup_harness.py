@@ -9,11 +9,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import DATABASE_FILE, load_bootstrap
+from app.domain.settings import AI_PROVIDER, AIProviderSettings
 from app.modules.storage import Database
 from app.onboarding.registry import m1_registry
+from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
 from tests.fakes.clock import FrozenClock
-from tests.setup_harness import complete_setup, seed_workspace
+from tests.setup_harness import HARNESS_PROVIDER, complete_setup, seed_workspace
 
 START = datetime(2026, 2, 7, 10, 30, 0, tzinfo=UTC)
 
@@ -50,3 +52,22 @@ def test_seed_workspace_marks_only_given_steps(tmp_path: Path) -> None:
     finally:
         db.close()
     assert not (tmp_path / "cfg").exists(), "seeding writes no bootstrap config"
+
+
+def test_complete_setup_saves_the_harness_provider(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    other = tmp_path / "other"
+    chosen = AIProviderSettings(kind="claude_existing_login")
+
+    complete_setup(data_dir, tmp_path / "cfg", clock=FrozenClock(START))
+    complete_setup(other, tmp_path / "cfg-other", clock=FrozenClock(START), provider=chosen)
+
+    for folder, expected in ((data_dir, HARNESS_PROVIDER), (other, chosen)):
+        db = Database.open(folder / DATABASE_FILE)
+        try:
+            stored = SettingsService(db, FrozenClock(START)).load(AI_PROVIDER)
+        finally:
+            db.close()
+        assert stored.version == 1
+        assert stored.value == expected
+    assert HARNESS_PROVIDER.kind == "fake"

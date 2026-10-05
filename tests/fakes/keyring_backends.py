@@ -163,3 +163,30 @@ class DenyingDeleteKeyring(MemoryKeyring):
 
     def delete_password(self, service: str, username: str) -> None:
         raise PasswordDeleteError("fictional: delete was denied")
+
+
+class CountingKeyring(MemoryKeyring):
+    """A ``MemoryKeyring`` that counts every backend call, so tests can prove that start-up,
+    provider health and GET requests read nothing from the keychain (ADR-046, ADR-047)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reads = 0
+        self.writes = 0
+        self.deletes = 0
+
+    @property
+    def calls(self) -> int:
+        return self.reads + self.writes + self.deletes
+
+    def get_password(self, service: str, username: str) -> str | None:
+        self.reads += 1
+        return super().get_password(service, username)
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self.writes += 1
+        super().set_password(service, username, password)
+
+    def delete_password(self, service: str, username: str) -> None:
+        self.deletes += 1
+        super().delete_password(service, username)

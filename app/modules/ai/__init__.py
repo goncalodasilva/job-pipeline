@@ -7,9 +7,10 @@ content in `AIRequest.user` is already delimited (spec 3.3).
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from app.domain.settings import Tier
+from app.domain.settings import AIProviderSettings, ProviderKind, Tier
 
 
 @dataclass(frozen=True)
@@ -106,3 +107,49 @@ class AIProvider(Protocol):
     def known_models(self) -> list[ModelChoice]: ...
 
     async def run(self, request: AIRequest, cancel: CancelToken) -> AIResponse: ...
+
+
+@dataclass(frozen=True)
+class ProviderChoice:
+    """An AI provider the setup guide and Settings offer."""
+
+    kind: ProviderKind
+    label: str
+
+
+ProviderStatus = Literal["ok", "not_configured", "not_allowed", "missing_sign_in", "cli_missing"]
+
+
+@dataclass(frozen=True)
+class ProviderHealth:
+    """Whether the configured provider can be used, judged from configuration alone."""
+
+    status: ProviderStatus
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+
+class AIProviderFactory(Protocol):
+    """Builds AI providers from settings (implemented in wiring, spec 2.3 rule 7).
+
+    ``ai_provider`` and ``fake_for_key`` raise ``ValueError`` for a provider that isn't on
+    offer; callers check the chosen kind against ``provider_choices()`` first.
+    """
+
+    def provider_choices(self) -> tuple[ProviderChoice, ...]: ...
+
+    def ai_provider(self, settings: AIProviderSettings, *, data_dir: Path) -> AIProvider: ...
+
+    def fake_for_key(self, key: str | None) -> AIProvider: ...
+
+    def provider_health(self, settings: AIProviderSettings) -> ProviderHealth: ...
+
+    def task_runner(
+        self,
+        provider: AIProvider,
+        settings: Callable[[], AIProviderSettings],
+        *,
+        data_dir: Path,
+    ) -> AITaskRunner: ...

@@ -8,6 +8,11 @@ Every test also runs with an in-memory keyring backend, set directly and pinned 
 ``PYTHON_KEYRING_BACKEND``, so no test can reach the real system keychain (M1.2, ADR-044).
 Outside test bodies (collection, hooks, session fixtures) a guard backend that fails on any
 use is pinned instead, so keyring never falls back to discovery or the user's keyringrc.cfg.
+
+Every test also starts without the developer's Claude or Anthropic credential variables and
+with ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1`` (the setup harness saves the fake provider), so
+results don't depend on the shell the tests run in (M1.15). Tests about the flag being off
+pass an explicit environment or remove it with ``monkeypatch``.
 """
 
 import os
@@ -31,6 +36,8 @@ os.environ["PYTHON_KEYRING_BACKEND"] = GUARD_BACKEND_NAME
 keyring.set_keyring(GuardKeyring())
 
 LIVE_ENV = "JOBPIPELINE_LIVE_TESTS"
+CREDENTIAL_VARIABLES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+ALLOW_FAKES_VARIABLE = "JOBPIPELINE_ALLOW_FAKE_PROVIDERS"
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -51,3 +58,11 @@ def memory_keyring(monkeypatch: pytest.MonkeyPatch) -> Iterator[MemoryKeyring]:
     monkeypatch.setenv("PYTHON_KEYRING_BACKEND", MEMORY_BACKEND_NAME)
     keyring.set_keyring(backend)
     yield backend
+
+
+@pytest.fixture(autouse=True)
+def provider_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No credential variables from the developer's shell; fake providers allowed."""
+    for name in CREDENTIAL_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(ALLOW_FAKES_VARIABLE, "1")

@@ -9,7 +9,9 @@ environment is dropped, the home and platform folders point into the test's temp
 and so do the data and config folders (ADR-024), so the real user folders and any real
 credentials are never read or written. Any inherited ``PYTHON_KEYRING_BACKEND`` is replaced
 by the file-backed test keyring (``tests/fakes/keyring_backends.py``) whose JSON file sits in
-the test's temporary folder, so the app never touches the real system keychain (ADR-044). The
+the test's temporary folder, so the app never touches the real system keychain (ADR-044).
+``JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1`` is set, so the fake provider the harness saves is
+healthy and selectable (ADR-054). The
 server binds to 127.0.0.1 only; nothing here uses the network beyond loopback.
 
 ``setup`` chooses the folders' starting state (M1.9): ``"complete"`` (the default) runs
@@ -80,8 +82,10 @@ def free_loopback_port() -> int:
     return port
 
 
-def isolated_env(data_dir: Path, config_dir: Path) -> dict[str, str]:
-    """The caller's environment without app or credential variables, pointed at temp folders."""
+def isolated_env(data_dir: Path, config_dir: Path, *, allow_fakes: bool = True) -> dict[str, str]:
+    """The caller's environment without app or credential variables, pointed at temp folders.
+
+    ``allow_fakes=False`` leaves ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` unset."""
     env = {
         key: value
         for key, value in os.environ.items()
@@ -96,6 +100,10 @@ def isolated_env(data_dir: Path, config_dir: Path) -> dict[str, str]:
         env[name] = str(home)
     env["JOBPIPELINE_DATA_DIR"] = str(data_dir)
     env["JOBPIPELINE_CONFIG_DIR"] = str(config_dir)
+    # The harness saves the fake provider; allowing fakes keeps a completed setup healthy, and
+    # the setup guide's e2e tests choose the fake (ADR-044 item 2, ADR-054).
+    if allow_fakes:
+        env["JOBPIPELINE_ALLOW_FAKE_PROVIDERS"] = "1"
     existing = env.get("PYTHONPATH")
     env["PYTHONPATH"] = (
         str(PROJECT_ROOT) if not existing else os.pathsep.join([str(PROJECT_ROOT), existing])
@@ -179,8 +187,12 @@ class RunningApp:
         )
 
 
-def start_app(tmp_path: Path, *, setup: SetupState = "complete") -> RunningApp:
-    """Start the app on a free loopback port and wait until ``/health`` answers 200."""
+def start_app(
+    tmp_path: Path, *, setup: SetupState = "complete", allow_fakes: bool = True
+) -> RunningApp:
+    """Start the app on a free loopback port and wait until ``/health`` answers 200.
+
+    ``allow_fakes=False`` starts it without ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``."""
     if setup not in ("complete", "fresh"):
         raise ValueError(f"unknown setup state {setup!r}")
     data_dir = tmp_path / "data"
@@ -196,7 +208,7 @@ def start_app(tmp_path: Path, *, setup: SetupState = "complete") -> RunningApp:
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
-    env = isolated_env(data_dir, config_dir)
+    env = isolated_env(data_dir, config_dir, allow_fakes=allow_fakes)
     stdout = stdout_path.open("wb")
     stderr = stderr_path.open("wb")
     start_time = time.monotonic()

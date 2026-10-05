@@ -57,6 +57,13 @@ def restore_logging_and_hooks() -> Iterator[None]:
     logging.captureWarnings(False)
 
 
+@pytest.fixture(autouse=True)
+def restore_sdk_version_check_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``main`` sets ``CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK`` for the process (M1.15, ADR-058);
+    monkeypatch puts the variable back as it was after each test."""
+    monkeypatch.delenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", raising=False)
+
+
 @pytest.fixture
 def data_dir(tmp_path: Path) -> Path:
     return tmp_path / "data"
@@ -1046,3 +1053,81 @@ def test_cli_passes_its_open_at_startup_decision_to_the_app(
     run_main(["--no-browser", "--data-dir", str(tmp_path / "chosen")], first_run_env, FakeLaunch())
 
     assert [kwargs.get("open_at_startup") for _config, kwargs in calls] == [False, True]
+
+
+# --- M1.15: wiring built by the CLI (ADR-047, ADR-058) --------------------------------------
+
+SKIP_VERSION_CHECK = "CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"
+FICTIONAL_ENV_TOKEN = "FictionalCliEnvToken-0005-notreal"  # noqa: S105 - fictional
+
+
+def test_cli_sets_sdk_version_check_skip(
+    env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SDK's own version check would run the CLI with the full environment; the app
+    checks the version itself, so the CLI turns the SDK's check off before the app exists."""
+    assert SKIP_VERSION_CHECK not in os.environ  # the autouse fixture removed it
+    seen_at_create: list[str | None] = []
+    from app.main import create_app as real_create_app
+
+    def wrapper(config: Any, *args: Any, **kwargs: Any) -> Any:
+        seen_at_create.append(os.environ.get(SKIP_VERSION_CHECK))
+        return real_create_app(config, *args, **kwargs)
+
+    monkeypatch.setattr("app.cli.create_app", wrapper)
+
+    run_main(["--no-browser"], env, FakeLaunch())
+
+    assert seen_at_create == ["1"], "set before the app is created"
+    assert os.environ[SKIP_VERSION_CHECK] == "1"
+
+
+def test_cli_passes_its_redactor_wiring_to_the_app(
+    env: dict[str, str], data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.domain.redaction import REDACTED
+    from app.logging_config import LOG_FILE_NAME
+    from app.wiring import Wiring
+
+    # Fictional and not credential-shaped, so only registration at build time can redact it.
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", FICTIONAL_ENV_TOKEN)
+    env_with_token = {**env, "CLAUDE_CODE_OAUTH_TOKEN": FICTIONAL_ENV_TOKEN}
+    calls = capture_create_app_calls(monkeypatch)
+    seen: list[Any] = []
+
+    def log_values(config: Any) -> None:
+        state = config.app.state
+        seen.append(state)
+        logging.getLogger("jobpipeline.test.cli").warning(
+            "fictional leak of %s and %s", state.launch_token, FICTIONAL_ENV_TOKEN
+        )
+
+    run_main(["--no-browser"], env_with_token, FakeLaunch(on_serve=log_values))
+
+    assert len(calls) == 1
+    wiring = calls[0][1].get("wiring")
+    assert isinstance(wiring, Wiring), "the CLI builds the wiring and passes it in"
+    assert len(seen) == 1 and seen[0].wiring is wiring
+    # One redactor: the CLI registered the launch token with the wiring's redactor.
+    assert wiring.redactor.redact(seen[0].launch_token) == REDACTED
+    text = (data_dir / "logs" / LOG_FILE_NAME).read_text(encoding="utf-8")
+    assert "fictional leak of" in text
+    assert seen[0].launch_token not in text
+    assert FICTIONAL_ENV_TOKEN not in text, "environment secrets reach the log redactor"
+
+
+def test_cli_demo_builds_demo_wiring(
+    tmp_path: Path, platform_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", FICTIONAL_ENV_TOKEN)
+    calls = capture_create_app_calls(monkeypatch)
+    env = {
+        "JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg"),
+        "CLAUDE_CODE_OAUTH_TOKEN": FICTIONAL_ENV_TOKEN,
+    }
+
+    run_main(["--no-browser", "--demo"], env, FakeLaunch())
+
+    wiring = calls[0][1]["wiring"]
+    assert wiring.secrets.get("claude_code_oauth_token") is None, "demo ignores the environment"
+    assert wiring.redactor.redact(FICTIONAL_ENV_TOKEN) == FICTIONAL_ENV_TOKEN

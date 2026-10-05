@@ -44,11 +44,15 @@ from app.domain.errors import ConfigError
 from app.domain.redaction import Redactor
 from app.logging_config import LoggingSetup, configure_logging, install_exception_hooks
 from app.main import LOG_FOLDER, create_app
+from app.wiring import Wiring, build_wiring
 
 HOST = "127.0.0.1"
 HEALTH_POLL_SECONDS = 0.25
 HEALTH_POLL_ATTEMPTS = 40  # about 10 seconds
 INTERRUPTED_EXIT = 130  # Ctrl+C before the server took over signal handling
+# The SDK's own CLI version check runs with the full environment; the app checks the version
+# itself, so the SDK's check is turned off for the process (ADR-058).
+SDK_SKIP_VERSION_CHECK = "CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"
 
 _log = logging.getLogger("jobpipeline")
 
@@ -113,12 +117,13 @@ def main(
     launcher: Launcher | None = None,
 ) -> None:
     cli = parse_cli_options(argv)
+    environ = os.environ if env is None else env
     try:
-        config = resolve_config(cli, os.environ if env is None else env)
+        config = resolve_config(cli, environ)
     except ConfigError as error:
         _fail(2, f"{error.user_message} ({error})")
     try:
-        _run(config, launcher if launcher is not None else default_launcher())
+        _run(config, environ, launcher if launcher is not None else default_launcher())
     except KeyboardInterrupt:
         raise SystemExit(INTERRUPTED_EXIT) from None
 
@@ -132,7 +137,8 @@ class _StartPlan:
     failed: str  # the one line printed when start-up fails
 
 
-def _run(config: RuntimeConfig, launcher: Launcher) -> None:
+def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) -> None:
+    os.environ[SDK_SKIP_VERSION_CHECK] = "1"
     redactor = Redactor()
     if opens_workspace_at_startup(config):
         logging_setup = _log_to_data_folder(config, redactor)
@@ -149,7 +155,10 @@ def _run(config: RuntimeConfig, launcher: Launcher) -> None:
     restore_hooks = install_exception_hooks()
     stop_polling = threading.Event()
     try:
-        _start(config, launcher, redactor, stop_polling, plan)
+        # After logging is set up, so its fake-provider warning is kept; it registers the
+        # environment secrets with the same redactor before anything can log them.
+        wiring = build_wiring(environ=environ, demo=config.demo, redactor=redactor)
+        _start(config, launcher, wiring, stop_polling, plan)
     except Exception as error:
         _log_start_failure(error, to_file=plan.open_at_startup)
         _fail(1, plan.failed)
@@ -198,14 +207,17 @@ def _log_to_data_folder(config: RuntimeConfig, redactor: Redactor) -> LoggingSet
 def _start(
     config: RuntimeConfig,
     launcher: Launcher,
-    redactor: Redactor,
+    wiring: Wiring,
     stop_polling: threading.Event,
     plan: _StartPlan,
 ) -> None:
     app = create_app(
-        config, attach_log_folder=plan.attach_log_folder, open_at_startup=plan.open_at_startup
+        config,
+        attach_log_folder=plan.attach_log_folder,
+        open_at_startup=plan.open_at_startup,
+        wiring=wiring,
     )
-    redactor.register(app.state.launch_token)
+    wiring.redactor.register(app.state.launch_token)  # the redactor logging uses
     if not launcher.port_free(config.port):
         _fail(
             1,

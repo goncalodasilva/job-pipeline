@@ -4,9 +4,12 @@ The lifespan starts the task runner and builds the services. It opens the worksp
 folder and its database, migrated) only when ``opens_workspace_at_startup`` says so; on a first
 run the app starts without one and step 1 of the guide calls ``app.state.open_workspace``.
 Shutdown stops the runner before closing the database. Logging is set up by the CLI before the
-app is created.
+app is created. Providers come from the injected ``Wiring`` (``app/wiring.py``); whenever a
+workspace opens, leftover AI call folders are cleared and provider health is computed once and
+cached in ``app.state.provider_health``, never on GET (spec 2.9.12).
 """
 
+import os
 import sqlite3
 import threading
 from collections.abc import AsyncIterator, Callable
@@ -34,13 +37,18 @@ from app.config import (
 )
 from app.domain.clock import Clock, SystemClock
 from app.domain.errors import DataFolderNotYours, DataFolderUnavailable
+from app.domain.redaction import Redactor
+from app.domain.settings import AI_PROVIDER
+from app.modules.ai import ProviderHealth
 from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
 from app.onboarding.progress import SetupProgress
 from app.onboarding.registry import StepRegistry, m1_registry
 from app.onboarding.startup import OnboardingState, StartupInputs
 from app.services.health import HealthService
+from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
 from app.tasks import TaskRunner
+from app.wiring import Wiring, build_wiring, clear_ai_temp
 
 BACKUP_FOLDER = "backups"
 LOG_FOLDER = "logs"
@@ -137,6 +145,40 @@ def _progress(registry: StepRegistry, db: Database | None, clock: Clock) -> Setu
     return SetupProgress(registry, SetupStateService(db, clock))
 
 
+def _prepare_workspace(
+    folder: Path,
+    db: Database,
+    *,
+    wiring: Wiring,
+    onboarding: OnboardingState,
+    registry: StepRegistry,
+    clock: Clock,
+) -> ProviderHealth:
+    """Run when a workspace opens, before logging moves into it: clear leftover AI call
+    folders, then check the provider (ADR-049, ADR-057)."""
+    try:
+        clear_ai_temp(folder)
+    except OSError as error:
+        raise DataFolderUnavailable(detail=f"can't prepare ({type(error).__name__})") from None
+    return _check_provider(db, wiring=wiring, onboarding=onboarding, registry=registry, clock=clock)
+
+
+def _check_provider(
+    db: Database,
+    *,
+    wiring: Wiring,
+    onboarding: OnboardingState,
+    registry: StepRegistry,
+    clock: Clock,
+) -> ProviderHealth:
+    """Compute provider health from the stored settings (configuration only; ADR-046) and
+    refresh the setup decision with it (ADR-053)."""
+    settings = SettingsService(db, clock).load(AI_PROVIDER).value
+    health = wiring.provider_health(settings)
+    onboarding.refresh(_progress(registry, db, clock), provider_healthy=health.ok)
+    return health
+
+
 def create_app(
     config: RuntimeConfig,
     *,
@@ -144,10 +186,18 @@ def create_app(
     migrations_dir: Path = MIGRATIONS_DIR,
     attach_log_folder: Callable[[Path], None] | None = None,
     open_at_startup: bool | None = None,
+    wiring: Wiring | None = None,
 ) -> FastAPI:
     """Build the app. ``open_at_startup`` (default: ``opens_workspace_at_startup(config)``)
-    says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used."""
+    says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used.
+    ``wiring`` (default: built from the process environment with a new redactor) builds the
+    providers; the CLI passes the one whose redactor its logging uses."""
     app_clock = clock if clock is not None else SystemClock()
+    app_wiring = (
+        wiring
+        if wiring is not None
+        else build_wiring(environ=os.environ, demo=config.demo, redactor=Redactor())
+    )
     open_now = opens_workspace_at_startup(config) if open_at_startup is None else open_at_startup
     open_lock = threading.Lock()
     closed = threading.Event()
@@ -159,9 +209,9 @@ def create_app(
         sync route or a worker thread, never directly inside an async handler. Raises
         ``WorkspaceAlreadyOpen`` when one is open and ``WorkspaceClosed`` after shutdown.
 
-        The setup decision is refreshed from the new database before logging is attached and
-        the workspace is published; if anything fails, the database is closed, the decision
-        goes back to "no workspace" and the user can retry.
+        The setup decision and provider health are refreshed from the new database before
+        logging is attached and the workspace is published; if anything fails, the database
+        is closed, the decision goes back to "no workspace" and the user can retry.
         """
         with open_lock:
             if closed.is_set():
@@ -171,8 +221,19 @@ def create_app(
             onboarding: OnboardingState = app.state.onboarding
             registry: StepRegistry = app.state.setup_registry
 
+            health: list[ProviderHealth] = []
+
             def refresh_onboarding(db: Database) -> None:
-                onboarding.refresh(_progress(registry, db, app_clock))
+                health.append(
+                    _prepare_workspace(
+                        folder,
+                        db,
+                        wiring=app_wiring,
+                        onboarding=onboarding,
+                        registry=registry,
+                        clock=app_clock,
+                    )
+                )
 
             try:
                 workspace = open_workspace_folder(
@@ -185,31 +246,68 @@ def create_app(
             except BaseException:
                 onboarding.refresh(None)  # no I/O: back to the no-workspace decision
                 raise
+            app.state.provider_health = health[-1]
             app.state.workspace = workspace
             return workspace
 
+    def refresh_provider_health() -> ProviderHealth:
+        """Recheck the provider after a state-changing request (a saved provider or sign-in):
+        updates ``app.state.provider_health`` and the setup decision. Never call it on GET.
+
+        Blocking (a database read): call it from a sync route or a worker thread. Raises
+        ``RuntimeError`` when no workspace is open and ``WorkspaceClosed`` after shutdown.
+        """
+        with open_lock:
+            if closed.is_set():
+                raise WorkspaceClosed("the app has shut down")
+            workspace: Workspace | None = getattr(app.state, "workspace", None)
+            if workspace is None:
+                raise RuntimeError("no workspace is open")
+            health = _check_provider(
+                workspace.db,
+                wiring=app_wiring,
+                onboarding=app.state.onboarding,
+                registry=app.state.setup_registry,
+                clock=app_clock,
+            )
+            app.state.provider_health = health
+            return health
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        registry = m1_registry()
+        onboarding = OnboardingState(registry, _startup_inputs(config))
         workspace = None
+        health: ProviderHealth | None = None
         if open_now:
+
+            def prepare(db: Database) -> None:
+                nonlocal health
+                health = _prepare_workspace(
+                    config.data_dir,
+                    db,
+                    wiring=app_wiring,
+                    onboarding=onboarding,
+                    registry=registry,
+                    clock=app_clock,
+                )
+
             workspace = open_workspace_folder(
                 config.data_dir,
                 migrations_dir=migrations_dir,
                 clock=app_clock,
                 attach_log_folder=attach_log_folder,
+                before_logging=prepare,
             )
         runner = TaskRunner()
         try:
             await runner.start()
-            registry = m1_registry()
-            onboarding = OnboardingState(registry, _startup_inputs(config))
-            onboarding.refresh(
-                _progress(registry, workspace.db if workspace is not None else None, app_clock)
-            )
+            app.state.provider_health = health  # None until a workspace opens
             app.state.setup_registry = registry
             app.state.onboarding = onboarding
             app.state.workspace = workspace
             app.state.open_workspace = open_workspace
+            app.state.refresh_provider_health = refresh_provider_health
             app.state.runner = runner
             app.state.health = HealthService(
                 lambda: _current_db(app), lambda: runner.status, __version__
@@ -234,6 +332,7 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    app.state.wiring = app_wiring
     launch_token = generate_launch_token()
     app.state.launch_token = launch_token
     # Inside the security middleware: rejections come first and redirects keep its headers.

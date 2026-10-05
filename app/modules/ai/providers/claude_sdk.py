@@ -247,7 +247,8 @@ def _is_blanked(name: str, mode: AuthMode) -> bool:
 
 # --- the provider (M1.13) ----------------------------------------------------------------
 
-_TEMP_PREFIX: Final = "jobpipeline-ai-"
+# Each call's private folder under ``temp_root``; wiring clears leftovers at start-up.
+CALL_FOLDER_PREFIX: Final = "jobpipeline-ai-"
 _WORKDIR_NAME: Final = "work"  # the CLI's empty working folder, inside the call folder
 # Token and API-key modes: the CLI's own config folder, private and empty per call, so no
 # sign-in, settings or history from the user's ~/.claude is read or written (ADR-057).
@@ -571,7 +572,7 @@ class ClaudeSdkProvider:
                 cli = await asyncio.to_thread(self._cli_path)
         except TimeoutError:
             raise NetworkUnavailable(detail="timeout") from None
-        folder = Path(tempfile.mkdtemp(prefix=_TEMP_PREFIX, dir=self._temp_root)).resolve()
+        folder = Path(tempfile.mkdtemp(prefix=CALL_FOLDER_PREFIX, dir=self._temp_root)).resolve()
         try:
             return await self._run_in(folder, request, credential, cli, cancel, deadline)
         finally:

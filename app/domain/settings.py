@@ -25,6 +25,8 @@ ClaudeAuthMode = Literal["subscription_token", "existing_login", "api_key"]
 ProviderKind = Literal[
     "claude_subscription_token", "claude_existing_login", "claude_api_key", "fake"
 ]
+# The kinds whose sign-in is a credential saved in the keychain.
+SavedSignInKind = Literal["claude_subscription_token", "claude_api_key"]
 WorkMode = Literal["remote", "hybrid", "on_site"]
 
 _MAX_ITEMS = 20
@@ -62,6 +64,9 @@ class AIProviderSettings(_Setting):
     task_tiers: Annotated[Mapping[TaskName, Tier], Field(max_length=_MAX_TASK_OVERRIDES)] = Field(
         default_factory=lambda: MappingProxyType({})
     )  # per-task overrides
+    # The kind whose credential was saved in the keychain (never the value): provider health
+    # reads this instead of the keychain (ADR-046), and a switch of mode needs a new sign-in.
+    sign_in_saved_for: SavedSignInKind | None = None
 
     @field_validator("task_tiers", mode="after")
     @classmethod

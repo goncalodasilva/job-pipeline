@@ -129,6 +129,12 @@ def running(
         yield Running(app=app, client=client, hits=hits)
 
 
+def allow_harness_fake_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The harness saves the fake provider; the default wiring reads the process environment,
+    so allowing fakes keeps a completed setup's provider healthy (M1.15; ADR-054)."""
+    monkeypatch.setenv("JOBPIPELINE_ALLOW_FAKE_PROVIDERS", "1")
+
+
 def _redirect_target(location: str) -> str:
     """The path a Location points to; an absolute URL must stay on this origin."""
     if location.startswith(BASE_URL):
@@ -477,7 +483,10 @@ def test_guide_pages_are_page_tagged_and_registered_on_app(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize("source", ["bootstrap", "environment", "cli"])
-def test_completed_setup_harness_skips_guide(tmp_path: Path, source: str) -> None:
+def test_completed_setup_harness_skips_guide(
+    tmp_path: Path, source: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    allow_harness_fake_provider(monkeypatch)
     complete_setup(tmp_path / "data", tmp_path / "cfg", clock=FrozenClock(START))
 
     with running(tmp_path, source) as run:
@@ -640,7 +649,10 @@ def test_unknown_setup_step_is_404(tmp_path: Path, step_id: str) -> None:
         assert "<img" not in response.text, "an unknown id is never echoed unescaped"
 
 
-def test_setup_root_redirects_to_current_step(tmp_path: Path) -> None:
+def test_setup_root_redirects_to_current_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    allow_harness_fake_provider(monkeypatch)
     fresh = tmp_path / "fresh"
     with running(fresh, "default") as run:
         assert_see_other(run.client.get("/setup"), WELCOME)
