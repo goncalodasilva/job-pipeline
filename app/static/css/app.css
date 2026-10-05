@@ -472,6 +472,24 @@ body.layout-guide {
   display: block;
 }
 
+/* The connection test's result (M1.18): the words say which; the border only helps. */
+.connection-result {
+  margin: var(--space-4) 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+
+.connection-ok {
+  border-left-color: var(--color-accent);
+}
+
+.connection-failed {
+  border-left-color: var(--color-error);
+}
+
 .saved-keys {
   margin: var(--space-4) 0 0;
   padding: 0;

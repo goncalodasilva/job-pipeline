@@ -1058,7 +1058,9 @@ def test_htmx_save_answers_200_with_announce_and_no_push_url(
     assert "hx-push-url" not in response.headers, "the guide stays on the provider step"
     trigger = json.loads(response.headers["hx-trigger"])
     assert set(trigger) == {"announce"}
-    assert trigger["announce"] == "Saved. Your token is in your system keychain."
+    assert trigger["announce"] == (
+        "Saved. Your token is in your system keychain. Next, test the connection."
+    )
     assert "Step 3" not in trigger["announce"]
     for marker in ("<html", "<body", 'id="announcer"'):
         assert marker not in response.text, marker
@@ -1144,20 +1146,21 @@ def test_provider_get_never_saves(tmp_path: Path, memory_keyring: MemoryKeyring)
         pytest.param(
             API_KEY_KIND,
             FICTIONAL_API_KEY,
-            "Saved. Your API key is in your system keychain.",
+            "Saved. Your API key is in your system keychain. Next, test the connection.",
             id="api_key",
         ),
         pytest.param(
             EXISTING_KIND,
             "",
-            "Saved. The app will use the Claude Code sign-in on this computer.",
+            "Saved. The app will use the Claude Code sign-in on this computer. "
+            "Next, test the connection.",
             id="existing",
         ),
         pytest.param(
             EXISTING_KIND,
             "pasted-FICTIONAL-not-needed",
             "Saved. The app will use the Claude Code sign-in on this computer. "
-            "The pasted text wasn't needed, so it wasn't kept.",
+            "The pasted text wasn't needed, so it wasn't kept. Next, test the connection.",
             id="existing_pasted",
         ),
     ],
@@ -1181,6 +1184,6 @@ def test_provider_form_disables_every_button_and_shows_a_keychain_indicator(
     # A plain selector: htmx's "find" would disable only the first button.
     assert form.attrs.get("hx-disabled-elt") == f"#{form.attrs.get('id')} button"
     buttons = [e for e in elements if e.tag == "button" and e.within(form)]
-    assert len(buttons) == 2, "Save and one Remove button"
+    assert len(buttons) == 3, "Save, Test connection and one Remove button"
     indicator = required(elements, str(form.attrs.get("hx-indicator")).lstrip("#"))
     assert "If your computer asks to allow access, choose Allow." in indicator.text

@@ -96,6 +96,9 @@ _KNOWN_MODELS: Final = (
 # The first CLI that honours ``verbatim_prompts`` (ADR-045); older ones ignore it.
 MIN_CLI_VERSION: Final = "2.1.248"
 CONNECTION_TIMEOUT_SECONDS: Final = 60.0
+# Bounds closing the client, longer than the SDK's own ~20 s terminate/kill escalation, and
+# short enough that a 60 s connection test plus its close fits the setup guide's 90 s wait.
+DISCONNECT_TIMEOUT_SECONDS: Final = 25.0
 PROBE_TIMEOUT_SECONDS: Final = 10.0
 
 # Which saved secret each sign-in mode reads, at call time.
@@ -704,9 +707,32 @@ def _remove_folder(folder: Path) -> None:
 
 async def _disconnect(client: ClaudeSDKClient) -> None:
     """Close the SDK client in this task: stops the CLI subprocess before the working
-    folder is removed. A failure while closing has nothing more to report."""
-    with contextlib.suppress(Exception):
-        await client.disconnect()
+    folder is removed. A failure while closing has nothing more to report.
+
+    The close is bounded by ``DISCONNECT_TIMEOUT_SECONDS`` and survives an outer cancellation
+    (a caller's ``asyncio.wait_for`` firing mid-close, M1.18): the SDK's own shield only
+    defers anyio cancellation, so a raw asyncio one would skip its terminate/kill escalation
+    and leave the CLI running. The cancellation is caught, the close is finished (bounded),
+    and the cancellation is raised again. It stays in this task (not ``asyncio.shield`` in a
+    new one), so the CLI has stopped before the caller removes the working folder. Limit: a
+    second cancellation during that finish is not caught; the SDK registers the child for
+    its exit reaper, and the client exposes no public kill to fall back on.
+    """
+    cancelled: asyncio.CancelledError | None = None
+    for _ in range(2):  # the close, and once more if a cancellation interrupted it
+        try:
+            async with asyncio.timeout(DISCONNECT_TIMEOUT_SECONDS):
+                await client.disconnect()
+        except asyncio.CancelledError as error:
+            if cancelled is not None:
+                raise
+            cancelled = error
+            continue
+        except Exception as error:  # a failed or timed-out close: nothing more to report
+            _LOG.debug("Closing the AI client failed (%s)", type(error).__name__)
+        break
+    if cancelled is not None:
+        raise cancelled
 
 
 class _RunState:

@@ -146,6 +146,11 @@ class AIProviderFactory(Protocol):
 
     def provider_health(self, settings: AIProviderSettings) -> ProviderHealth: ...
 
+    def connection_model(self, settings: AIProviderSettings) -> str:
+        """The model a connection test asks for: the settings' Fast tier model, else the
+        configured provider's Fast default."""
+        ...
+
     def environment_keys(self) -> frozenset[str]:
         """The secret keys the environment provides (key names only, never values)."""
         ...

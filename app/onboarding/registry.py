@@ -42,6 +42,22 @@ class StepResult:
 Form = Mapping[str, Sequence[str]]
 
 
+@dataclass(frozen=True)
+class ConnectionCheck:
+    """A step's connection test (M1.18): ``errors`` when the save before it was refused (no
+    test ran); else ``ok`` and the plain ``message`` shown and announced."""
+
+    ok: bool
+    message: str = ""
+    errors: Mapping[str, str] = field(default_factory=dict)
+
+
+class ConnectionTester(Protocol):
+    """A step that can test its connection inside a POST (the provider step)."""
+
+    async def test(self, form: Form) -> ConnectionCheck: ...
+
+
 class StepHandler(Protocol):
     def context(self) -> Mapping[str, object]: ...
 

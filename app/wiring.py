@@ -25,6 +25,7 @@ from typing import Final
 from app.domain.errors import ProviderNotInstalled
 from app.domain.redaction import Redactor
 from app.domain.settings import AIProviderSettings, ProviderKind, Tier, claude_auth_mode
+from app.domain.tiers import resolve_model
 from app.modules.ai import (
     AIProvider,
     AITaskRunner,
@@ -169,6 +170,12 @@ class Wiring:
         if key is not None and not saved and self._environment.get(key) is None:
             return ProviderHealth("missing_sign_in")
         return ProviderHealth("ok")
+
+    def connection_model(self, settings: AIProviderSettings) -> str:
+        """The settings' Fast tier model, else the configured provider's Fast default (the
+        Claude default when nothing is chosen yet)."""
+        provider = FakeAIProvider.name if settings.kind == "fake" else ClaudeSdkProvider.name
+        return resolve_model("fast", settings, _DEFAULTS_BY_PROVIDER[provider])
 
     def environment_keys(self) -> frozenset[str]:
         """The secret keys the environment provides, fixed at start when wiring was built

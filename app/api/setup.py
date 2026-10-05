@@ -13,6 +13,12 @@ answers 303 to the next step, or for htmx 200 with the next step's guide fragmen
 step saved but not finished (``StepResult.stay``, such as the provider step before "Connected")
 answers 303 back to itself, or for htmx 200 with its own fragment and an "announce" trigger
 carrying the handler's message, without ``HX-Push-Url``.
+
+``POST /setup/provider/test`` (M1.18; not page-tagged, POST only) saves the provider form and
+awaits the connection test inside the request. A refused save answers 422 like a submit; a
+result, connected or not, answers 200 with the provider step and the result focused: htmx gets
+the fragment and an "announce" trigger with the result text, a plain request the full page
+(a redirect would lose the result).
 """
 
 import json
@@ -28,7 +34,16 @@ from app.api.security import PAGE_TAG
 from app.api.setup_redirect import SETUP_PATH, setup_step_path
 from app.api.templating import render
 from app.domain.errors import UnknownSetupStep
-from app.onboarding.registry import Form, StepDefinition, StepHandler, StepRegistry, StepResult
+from app.onboarding.registry import (
+    PROVIDER,
+    ConnectionCheck,
+    ConnectionTester,
+    Form,
+    StepDefinition,
+    StepHandler,
+    StepRegistry,
+    StepResult,
+)
 from app.onboarding.startup import OnboardingState
 
 SETUP_PAGE = "pages/setup.html"
@@ -55,6 +70,13 @@ def register_setup_pages(app: FastAPI) -> None:
         tags=[PAGE_TAG],
         response_class=HTMLResponse,
         name="setup_step",
+    )
+    app.add_api_route(
+        f"{setup_step_path(PROVIDER.id)}/test",
+        test_provider_connection,
+        methods=["POST"],
+        response_class=HTMLResponse,
+        name="setup_provider_test",
     )
     app.add_api_route(
         f"{SETUP_PATH}/{{step_id}}",
@@ -116,6 +138,25 @@ async def submit_step(request: Request, step_id: str) -> Response:
     return response
 
 
+async def test_provider_connection(request: Request) -> Response:
+    registry: StepRegistry = request.app.state.setup_registry
+    step = registry.get(PROVIDER.id)
+    form = await _read_form(request)
+    if form is None:
+        return HTMLResponse("", status_code=413)
+    tester: ConnectionTester = request.app.state.connection_tester
+    # Awaited here (ADR-044 item 6); the tester runs its blocking parts in worker threads.
+    check = await tester.test(form)
+    if check.errors:
+        response = _render_step(request, step, errors=check.errors, submitted=form)
+        response.status_code = 422
+        return response
+    response = _render_step(request, step, connection=check)
+    if _is_htmx(request):
+        response.headers["HX-Trigger"] = json.dumps({"announce": check.message})
+    return response
+
+
 # --- helpers ---------------------------------------------------------------------------------
 
 
@@ -126,6 +167,7 @@ def _render_step(
     errors: Mapping[str, str] | None = None,
     submitted: Form | None = None,
     stayed: bool = False,
+    connection: ConnectionCheck | None = None,
 ) -> HTMLResponse:
     registry: StepRegistry = request.app.state.setup_registry
     onboarding: OnboardingState = request.app.state.onboarding
@@ -151,6 +193,8 @@ def _render_step(
             "form": form,
             "errors": dict(errors or {}),
             "stayed": stayed,  # saved and staying on the step: focus moves to its status
+            "connection": connection,  # a connection test just ran: focus moves to its result
+            "next_step": following if (following := _next_step(registry, step)) != step else None,
         },
     )
 

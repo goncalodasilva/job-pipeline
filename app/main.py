@@ -232,7 +232,22 @@ def _step_handlers(
     )
     handlers: dict[str, StepHandler] = {step.id: PendingStep() for step in registry.steps}
     handlers[WELCOME.id] = welcome
-    handlers[PROVIDER.id] = ProviderStep(_provider_setup(app, wiring=wiring, clock=clock))
+
+    def mark_provider_done() -> None:
+        progress = _progress(registry, _current_db(app), clock)
+        if progress is None:  # pragma: no cover - a connection test needs a workspace
+            raise RuntimeError("no workspace is open")
+        progress.mark_done(PROVIDER.id)
+        app.state.refresh_provider_health()  # also refreshes the setup decision
+
+    provider = ProviderStep(
+        _provider_setup(app, wiring=wiring, clock=clock),
+        data_dir=workspace_folder,
+        mark_done=mark_provider_done,
+        is_done=lambda: onboarding.statuses.get(PROVIDER.id) == "done",
+    )
+    handlers[PROVIDER.id] = provider
+    app.state.connection_tester = provider  # POST /setup/provider/test (M1.18)
     return require_handlers(registry, handlers)
 
 

@@ -4,7 +4,7 @@
   <ol class="setup-steps" aria-label="Setup steps">
     {% for item in steps %}
     {% if item.id == step.id %}
-    <li aria-current="step">{{ item.title }}</li>
+    <li aria-current="step">{{ item.title }}{% if statuses.get(item.id) == "done" %}<span class="step-status"> · Done</span>{% endif %}</li>
     {% else %}
     {% set status = statuses.get(item.id) %}
     <li>{{ item.title }}{% if status == "done" %}<span class="step-status"> · Done</span>{% elif status == "skipped" %}<span class="step-status"> · Skipped</span>{% endif %}</li>

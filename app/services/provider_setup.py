@@ -9,19 +9,32 @@ Then it refreshes provider health. Every keychain call (probe, write, delete, lo
 one timed worker thread; a timeout or an error counts as "keychain unavailable". ``view``
 reads the settings row and cached facts only, never the keychain (spec 2.9.12).
 
+``test_connection`` (M1.18; ADR-044 item 6, ADR-058) saves like ``save``, then awaits the saved
+provider's connection test with the Fast tier model and a timeout; the fake comes from the
+pasted text, which only picks its outcome (ADR-054). Blocking work runs in worker threads.
+
 The credential never reaches a result, a log line (error type names only), the database or a
 repr. A credential pasted with the fake or the existing sign-in selected is ignored (ADR-054).
 """
 
+import asyncio
 import contextlib
 import logging
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
-from typing import Final, TypeVar
+from typing import Final, Literal, TypeVar
 
-from app.domain.errors import VersionConflict
+from app.domain.errors import (
+    AppError,
+    NetworkUnavailable,
+    ProviderAuthError,
+    ProviderNotInstalled,
+    UsageLimitReached,
+    VersionConflict,
+)
 from app.domain.settings import AI_PROVIDER, AIProviderSettings, ProviderKind
 from app.modules.ai import AIProviderFactory, ProviderChoice
 from app.modules.secrets import (
@@ -50,6 +63,8 @@ CREDENTIAL_NAME: Final[Mapping[str, str]] = MappingProxyType(
 )
 TOKEN_VARIABLE: Final = ENVIRONMENT_VARIABLES[CLAUDE_CODE_OAUTH_TOKEN]
 API_KEY_VARIABLE: Final = ENVIRONMENT_VARIABLES[ANTHROPIC_API_KEY]
+# Longer than the provider's own 60 s, so the provider answers first in normal cases.
+CONNECTION_TEST_TIMEOUT: Final = 90
 MIN_LENGTH: Final = 20
 MAX_LENGTH: Final = 1000
 _API_KEY_PREFIX: Final = "sk-ant-api"
@@ -89,6 +104,7 @@ MSG_SAVED_EXISTING = "Saved. The app will use the Claude Code sign-in on this co
 MSG_SAVED_FAKE = "Saved. The app will use the fake provider, for testing only."
 MSG_NOT_KEPT = "The pasted text wasn't needed, so it wasn't kept."
 MSG_REMOVED = "The saved {name} was removed."
+MSG_TEST_FAILED = "The connection test didn't finish. Nothing was lost; try again."
 
 
 @dataclass(frozen=True)
@@ -96,6 +112,35 @@ class ProviderSetupResult:
     ok: bool
     errors: Mapping[str, str] = field(default_factory=dict)  # field name -> plain message
     message: str | None = None  # announced after a save
+
+
+# What a failed connection test was, so the step can word it for the chosen route.
+TestFailure = Literal["auth", "not_installed", "usage_limit", "network", "timeout", "other"]
+# ``ConnectionResult`` carries only the message (ADR-058), so its kind is recognised by the
+# domain error's user message.
+_FAILURE_BY_MESSAGE: Final[Mapping[str, TestFailure]] = MappingProxyType(
+    {
+        ProviderAuthError().user_message: "auth",
+        ProviderNotInstalled().user_message: "not_installed",
+        UsageLimitReached().user_message: "usage_limit",
+        NetworkUnavailable().user_message: "network",
+    }
+)
+
+
+@dataclass(frozen=True)
+class ProviderTestResult:
+    """A connection test: ``errors`` when the save was refused (no test ran), else ``ok``
+    and the plain ``message`` (spec 2.11), with the model the provider reported, what kind
+    of ``failure`` it was, and the settings ``version`` that was tested (to check nothing
+    changed while the test ran)."""
+
+    ok: bool
+    message: str = ""
+    errors: Mapping[str, str] = field(default_factory=dict)
+    model: str | None = None
+    failure: TestFailure | None = None
+    version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +178,7 @@ class ProviderSetupService:
         refresh_health: Callable[[], object],
         *,
         probe_timeout: float = 5.0,
+        connection_timeout: float = CONNECTION_TEST_TIMEOUT,
     ) -> None:
         self._settings = settings
         self._secrets = secrets
@@ -140,6 +186,7 @@ class ProviderSetupService:
         self._environment_keys = environment_keys
         self._refresh_health = refresh_health
         self._timeout = probe_timeout
+        self._connection_timeout = connection_timeout
         # Cached after POSTs and shown on GET (no keychain read on GET).
         self._keychain_unavailable = False
         self._seen: dict[str, _Seen] = {}
@@ -194,6 +241,46 @@ class ProviderSetupService:
         if key in self._environment_keys:
             return self._commit(loaded, chosen, message=self._env_message(key))
         return _refused("credential", _paste_message(chosen))
+
+    async def test_connection(
+        self, kind: str, credential: str, *, data_dir: Path
+    ) -> ProviderTestResult:
+        """Save like ``save`` (a refused save runs no test), then test the saved provider.
+        Never raises: a timeout reads as "no connection", anything unexpected as a generic
+        message logged by error type only."""
+        saved = await asyncio.to_thread(self.save, kind, credential)
+        if not saved.ok:
+            return ProviderTestResult(ok=False, errors=saved.errors)
+        loaded = await asyncio.to_thread(self._settings.load, AI_PROVIDER)
+        current, version = loaded.value, loaded.version
+        try:
+            provider = (
+                self._factory.fake_for_key(credential or None)
+                if current.kind == "fake"
+                else self._factory.ai_provider(current, data_dir=data_dir)
+            )
+            model = self._factory.connection_model(current)
+            outcome = await asyncio.wait_for(
+                provider.test_connection(model), self._connection_timeout
+            )
+        except TimeoutError:
+            _log.warning("Connection test timed out.")
+            return _failed(NetworkUnavailable().user_message, "timeout", version)
+        except AppError as error:  # test_connection maps these itself (ADR-058)
+            _log.warning("Connection test raised %s.", type(error).__name__)
+            return _failed(error.user_message, None, version)
+        except Exception as error:  # its text may quote a credential: type only
+            _log.warning("Connection test failed (%s).", type(error).__name__)
+            return _failed(MSG_TEST_FAILED, "other", version)
+        if not outcome.ok:
+            return _failed(outcome.message, None, version)
+        return ProviderTestResult(
+            ok=True, message=outcome.message, model=outcome.model, version=version
+        )
+
+    def settings_version(self) -> int:
+        """The AI provider setting's version (blocking: a database read)."""
+        return self._settings.load(AI_PROVIDER).version
 
     def delete_credential(self, kind: str) -> ProviderSetupResult:
         loaded = self._settings.load(AI_PROVIDER)
@@ -356,6 +443,11 @@ class ProviderSetupService:
             self._refresh_health()
         except Exception as error:
             _log.warning("Provider health couldn't be refreshed (%s).", type(error).__name__)
+
+
+def _failed(message: str, failure: TestFailure | None, version: int) -> ProviderTestResult:
+    kind = failure if failure is not None else _FAILURE_BY_MESSAGE.get(message, "other")
+    return ProviderTestResult(ok=False, message=message, failure=kind, version=version)
 
 
 def _refused(name: str, message: str) -> ProviderSetupResult:

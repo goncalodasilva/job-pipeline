@@ -10,6 +10,7 @@ New names are read from the module (``claude_sdk.resolve_cli_path``) so each tes
 its own until the behaviour exists. Every credential is fictional and built at runtime.
 """
 
+import asyncio
 import inspect
 import os
 import threading
@@ -21,7 +22,7 @@ from typing import Any
 import anyio
 import claude_agent_sdk
 import pytest
-from claude_agent_sdk import CLINotFoundError
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, CLINotFoundError
 
 from app.domain.errors import (
     AppError,
@@ -43,9 +44,12 @@ from app.modules.ai.providers.claude_sdk import (
 )
 from app.modules.secrets import ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN
 from app.modules.secrets.providers.memory import MemorySecretStore
+from app.services.provider_setup import CONNECTION_TEST_TIMEOUT
 from tests.fakes.ai import NotCancelled, make_request
 from tests.fakes.claude_query import (
+    QueryCall,
     ReplayingQuery,
+    SilentTransport,
     hanging,
     replaying,
     success_frames,
@@ -834,3 +838,68 @@ async def test_test_connection_timeout_covers_cli_lookup(temp_root: Path, cli: P
     )
     assert query.calls == []
     assert list(temp_root.iterdir()) == []
+
+
+# --- M1.18 review: the close survives an outer cancellation -------------------------------------
+
+
+class _SlowCloseTransport(SilentTransport):
+    """Never answers the prompt; its close waits for ``release``, so a test can cancel the
+    caller while the close is under way."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.close_entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.close_finished = False
+
+    async def close(self) -> None:
+        self.close_entered.set()
+        await self.release.wait()
+        await super().close()
+        self.close_finished = True
+
+
+class _SlowCloseQuery(ReplayingQuery):
+    def __init__(self) -> None:
+        super().__init__([])
+
+    def __call__(self, options: ClaudeAgentOptions) -> ClaudeSDKClient:
+        cwd = None if options.cwd is None else Path(options.cwd)
+        transport = _SlowCloseTransport([], workdir=cwd)
+        self.calls.append(QueryCall(options, transport))
+        return ClaudeSDKClient(options=options, transport=transport)
+
+
+async def test_outer_cancellation_during_close_still_stops_the_cli(
+    temp_root: Path, cli: Path
+) -> None:
+    """The provider's own timeout fires and the close starts; then the caller's outer wait
+    (the setup guide's 90 s) cancels it mid-close. The close is finished in the calling task
+    before the cancellation goes on, so the CLI is stopped and the folder removed."""
+    query = _SlowCloseQuery()
+    provider = _provider(query, temp_root, cli, connection_timeout=0.05)
+
+    with anyio.fail_after(10):
+        task = asyncio.create_task(provider.test_connection(CLAUDE_FAST_DEFAULT))
+        while not query.calls:
+            await asyncio.sleep(0)
+        transport = query.last.transport
+        assert isinstance(transport, _SlowCloseTransport)
+        await transport.close_entered.wait()
+
+        task.cancel()  # the outer cancellation lands while the close waits
+        await asyncio.sleep(0)
+        transport.release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert transport.close_finished is True, "the close was finished, not cut off"
+    assert transport.close_task == query.last.caller_task, "in the calling task"
+    assert query.last.cwd is not None and not query.last.cwd.exists()
+    assert list(temp_root.iterdir()) == []
+
+
+def test_disconnect_bound_fits_inside_the_setup_guides_wait() -> None:
+    bound = claude_sdk.CONNECTION_TIMEOUT_SECONDS + claude_sdk.DISCONNECT_TIMEOUT_SECONDS
+    assert bound < CONNECTION_TEST_TIMEOUT
