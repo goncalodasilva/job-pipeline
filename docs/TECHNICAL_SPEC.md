@@ -75,7 +75,7 @@ Automatic applying; scraping sites whose terms forbid it; a hosted or multi-user
 | No lost work | Every user edit autosaves; every task ends in a terminal state | Integration and failure-injection tests (M2) |
 | Privacy | No secret ever appears in logs, responses, exports or the database | Automated scans in tests (M0, M1) |
 | Accessibility | WCAG 2.2 AA on core flows | axe-core checks in e2e tests, plus a manual keyboard and screen-reader pass (M9) |
-| Portability | macOS, Windows, Linux; Python 3.11 and newer | CI matrix (4.6) |
+| Portability | macOS, Linux; Python 3.11 and newer (Windows suspended, ADR-061) | CI matrix (4.6) |
 
 ---
 
@@ -543,7 +543,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 A GitHub Actions workflow (created in M0) runs on every push and pull request:
 
 1. Lint, format check, types, import contracts, gitleaks.
-2. Unit, integration and contract tests on Ubuntu, macOS and Windows, with the oldest and newest supported Python versions; smoke tests on all three (on Windows they check the Ctrl+Break stop, ADR-040). macOS and Windows run on pull requests to `main`, manual dispatch and weekly (ADR-032).
+2. Unit, integration and contract tests on Ubuntu and macOS, with the oldest and newest supported Python versions; smoke tests on both. macOS runs on pull requests to `main`, manual dispatch and weekly (ADR-032). Windows is suspended (ADR-061): no CI job, no new Windows work; existing Windows code stays as it is.
 3. Smoke and e2e tests on Ubuntu with Playwright Chromium.
 4. Coverage thresholds, with `scripts/check_critical_coverage.py --from-progress`: a critical module due before the current milestone in `docs/PROGRESS.md` that is missing (for example after a rename) fails. The current milestone's own modules are not required in CI while it is in progress (in M0 nothing is); milestone acceptance runs `--milestone M<n>`, which requires them, as the backstop.
 

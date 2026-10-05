@@ -78,7 +78,7 @@ Developer commands (spec 4.5):
 | Quick verification | `bash .claude/skills/verify/scripts/verify.sh quick` |
 | Full verification (adds e2e, coverage gates, all hooks) | `bash .claude/skills/verify/scripts/verify.sh full` |
 
-Live tests that call real services are opt-in: `JOBPIPELINE_LIVE_TESTS=1 uv run pytest -m live`. CI (GitHub Actions) runs lint, fast, smoke, end-to-end and coverage jobs on Ubuntu for every push, and fast and smoke tests on macOS and Windows for pull requests to `main` (ADR-032).
+Live tests that call real services are opt-in: `JOBPIPELINE_LIVE_TESTS=1 uv run pytest -m live`. CI (GitHub Actions) runs lint, fast, smoke, end-to-end and coverage jobs on Ubuntu for every push, and fast and smoke tests on macOS for pull requests to `main` (ADR-032). Windows is not supported: its development is suspended (ADR-061).
 
 ## License
 

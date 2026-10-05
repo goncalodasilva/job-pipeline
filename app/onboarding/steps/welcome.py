@@ -26,7 +26,7 @@ from app.services.data_folder import FolderState, inspect_data_folder
 
 _log = logging.getLogger(__name__)
 
-DEMO_COMMAND = "jobpipeline --demo"
+DEMO_COMMAND = "uv run jobpipeline --demo"
 ACTIONS = ("open", "locate", "fresh")
 ACCEPTED: Mapping[str, frozenset[FolderState]] = {
     "open": frozenset({"missing", "empty", "workspace"}),

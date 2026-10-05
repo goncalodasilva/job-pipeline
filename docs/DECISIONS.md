@@ -484,7 +484,12 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - `OnboardingState.statuses` caches step statuses at refresh, for the step list's "· Done" / "· Skipped" text (GET still does no I/O). The placeholder step headings now match the registry titles.
   - htmx is required for the guide: the launch token travels in hx-headers, so a plain form POST gets 403.
 - Follow-ups:
-  - The "Try the demo" text shows `jobpipeline --demo` (ADR-044 item 4); someone who installed with `uv sync` would need `uv run jobpipeline --demo`. The user is to decide.
-  - The Windows first-run e2e harness would need WIN_PD_OVERRIDE_* variables, because platformdirs on Windows ignores APPDATA; e2e runs only on Ubuntu today.
+  - Resolved (user, 2026-10-05): "Try the demo" shows `uv run jobpipeline --demo`, the command that works after `uv sync` (amends ADR-044 item 4).
+  - Dropped (ADR-061): the Windows first-run e2e harness (WIN_PD_OVERRIDE_* variables).
   - M1.17–M1.19 replace the PendingStep placeholders and keep their headings equal to the registry titles.
 
+## ADR-061 — Windows development suspended (2026-10-05)
+
+- Context: Windows support kept costing effort (Ctrl+Break stop, ADR-040; `claude.exe` lookup, ADR-058; platformdirs known folders). The user decided to stop all Windows work.
+- Decision: Windows is no longer a supported platform. No new Windows code, tests, fixes or reviews; the CI matrix runs Ubuntu and macOS only. Existing Windows code and Windows-specific tests stay as they are (not deleted), but nothing is added to keep them working. Spec 1 (portability) and 4.6 and the README are updated.
+- Consequences: reviewers and tasks ignore Windows-only findings; copy that mentions Windows (for example the `claude.exe` note planned for the provider step, ADR-053) is no longer required. Resuming Windows support needs a new ADR.
