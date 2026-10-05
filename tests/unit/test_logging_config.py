@@ -29,6 +29,7 @@ from app.logging_config import (
     JsonFormatter,
     LoggingSetup,
     RedactionFilter,
+    SdkRecordFilter,
     configure_logging,
 )
 
@@ -844,3 +845,92 @@ def test_late_record_after_close_does_not_reopen_the_log_file(tmp_path: Path) ->
     buffer.handle(logging.makeLogRecord({"msg": "late record", "levelno": logging.INFO}))
 
     assert sum(f.stat().st_size for f in log_dir.iterdir()) == size_after_close
+
+
+# --- Claude Agent SDK records (M1.13 review; spec 3.3) ----------------------------------------
+
+SDK_LINE_TEXT = "Fictional prompt text from a CLI stdout line"
+
+
+@pytest.mark.parametrize(
+    "name", ["claude_agent_sdk", "claude_agent_sdk._internal.query", "claude_agent_sdk.x.y"]
+)
+def test_sdk_record_filter_keeps_only_level_logger_and_exception_type(name: str) -> None:
+    try:
+        raise ValueError(SDK_LINE_TEXT)
+    except ValueError:
+        record = logging.LogRecord(
+            name, logging.ERROR, __file__, 1, "Fatal error: %s", (SDK_LINE_TEXT,), sys.exc_info()
+        )
+    record.stack_info = SDK_LINE_TEXT
+    record.line = SDK_LINE_TEXT  # an extra
+
+    assert SdkRecordFilter().filter(record) is True
+
+    assert record.getMessage() == f"ERROR from {name} (ValueError)"
+    assert record.args is None
+    assert record.exc_info is None
+    assert record.exc_text is None
+    assert record.stack_info is None
+    assert not hasattr(record, "line")
+    assert SDK_LINE_TEXT not in JsonFormatter().format(record)
+
+
+def test_sdk_record_filter_without_exception_names_level_and_logger() -> None:
+    record = logging.LogRecord(
+        "claude_agent_sdk._internal.transport.subprocess_cli",
+        logging.DEBUG,
+        __file__,
+        1,
+        "Skipping non-JSON line from CLI stdout: %s",
+        (SDK_LINE_TEXT,),
+        None,
+    )
+
+    SdkRecordFilter().filter(record)
+
+    assert record.getMessage() == ("DEBUG from claude_agent_sdk._internal.transport.subprocess_cli")
+
+
+@pytest.mark.parametrize("name", ["jobpipeline.test", "claude_agent_sdk_other", "claude"])
+def test_sdk_record_filter_leaves_other_loggers_alone(name: str) -> None:
+    record = logging.LogRecord(name, logging.INFO, __file__, 1, "kept %s", ("text",), None)
+
+    SdkRecordFilter().filter(record)
+
+    assert record.getMessage() == "kept text"
+
+
+def test_sdk_records_reach_handlers_reduced(
+    make_logging: Callable[..., LoggingSetup],
+    log_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    before = list(logging.getLogger().handlers)
+    make_logging("DEBUG")
+    added = [h for h in logging.getLogger().handlers if h not in before]
+    assert len(added) == 2
+    assert all(any(isinstance(f, SdkRecordFilter) for f in h.filters) for h in added)
+
+    logging.getLogger("claude_agent_sdk._internal.query").error(
+        "Fatal error in message reader: %s", SDK_LINE_TEXT
+    )
+
+    records = read_log_records(log_dir)
+    err = capsys.readouterr().err
+    assert records[-1]["message"] == "ERROR from claude_agent_sdk._internal.query"
+    assert SDK_LINE_TEXT not in read_log_text(log_dir)
+    assert SDK_LINE_TEXT not in err
+
+
+def test_buffered_sdk_records_are_reduced(
+    tmp_path: Path, redactor: Redactor, restore_logging: None
+) -> None:
+    setup = configure_logging(None, "DEBUG", redactor)
+    try:
+        logging.getLogger("claude_agent_sdk").warning("line: %s", SDK_LINE_TEXT)
+        log_dir = tmp_path / "later" / "logs"
+        setup.attach_log_folder(log_dir)
+        assert SDK_LINE_TEXT not in read_log_text(log_dir)
+    finally:
+        setup.close()

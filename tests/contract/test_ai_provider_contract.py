@@ -2,12 +2,15 @@
 
 Every AI provider must answer with the same shape, report connection results with the
 spec 2.11 messages, list unique models, send no tools unless web search is allowed and
-make no call once cancelled. Providers join through a harness (``ai_harness.py``); the
-Claude provider joins in M1.13 with a fake transport. All values are fictional.
+make no call once cancelled, and stop and release a call cancelled while it runs. Providers
+join through a harness (``ai_harness.py``). The Claude provider runs the call and model
+tests with a fake SDK client (M1.13) and joins the connection tests
+(``connection_harness``) in M1.14. All values are fictional.
 """
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -19,12 +22,25 @@ from app.domain.errors import (
     UsageLimitReached,
 )
 from app.modules.ai import AICapabilities, AIResponse, CallCancelled
-from tests.contract.ai_harness import CONTRACT_ANSWER, Failure, FakeHarness, ProviderHarness
+from tests.contract.ai_harness import (
+    CONTRACT_ANSWER,
+    ClaudeTransportHarness,
+    ConnectionHarness,
+    Failure,
+    FakeHarness,
+    ProviderHarness,
+)
 from tests.fakes.ai import Cancelled, NotCancelled, make_request
 
 pytestmark = pytest.mark.contract
 
-HARNESSES: dict[str, Callable[[], ProviderHarness]] = {"fake": FakeHarness}
+# Each harness gets a fresh temporary folder (the Claude provider's temp root).
+HARNESSES: dict[str, Callable[[Path], ProviderHarness]] = {
+    "fake": lambda _root: FakeHarness(),
+    "claude_sdk_fake_transport": lambda root: ClaudeTransportHarness(temp_root=root),
+}
+# Claude joins in M1.14, with test_connection.
+CONNECTION_HARNESSES: dict[str, Callable[[], ConnectionHarness]] = {"fake": FakeHarness}
 
 EXPECTED_ERROR: dict[Failure, type[AppError]] = {
     "auth": ProviderAuthError,
@@ -35,8 +51,13 @@ EXPECTED_ERROR: dict[Failure, type[AppError]] = {
 
 
 @pytest.fixture(params=list(HARNESSES), ids=list(HARNESSES))
-def harness(request: pytest.FixtureRequest) -> ProviderHarness:
-    return HARNESSES[request.param]()
+def harness(request: pytest.FixtureRequest, tmp_path: Path) -> ProviderHarness:
+    return HARNESSES[request.param](tmp_path)
+
+
+@pytest.fixture(params=list(CONNECTION_HARNESSES), ids=list(CONNECTION_HARNESSES))
+def connection_harness(request: pytest.FixtureRequest) -> ConnectionHarness:
+    return CONNECTION_HARNESSES[request.param]()
 
 
 async def test_run_returns_parsed_object_shape(harness: ProviderHarness) -> None:
@@ -51,7 +72,10 @@ async def test_run_returns_parsed_object_shape(harness: ProviderHarness) -> None
     assert response.model == harness.reported_model(request.model)
 
 
-async def test_test_connection_ok_returns_connected(harness: ProviderHarness) -> None:
+async def test_test_connection_ok_returns_connected(
+    connection_harness: ConnectionHarness,
+) -> None:
+    harness = connection_harness
     provider = harness.provider()
     model = provider.known_models()[0].id
 
@@ -63,8 +87,10 @@ async def test_test_connection_ok_returns_connected(harness: ProviderHarness) ->
 
 
 @pytest.mark.parametrize("outcome", list(EXPECTED_ERROR), ids=list(EXPECTED_ERROR))
-async def test_test_connection_maps_failures(harness: ProviderHarness, outcome: Failure) -> None:
-    provider = harness.failing(outcome)
+async def test_test_connection_maps_failures(
+    connection_harness: ConnectionHarness, outcome: Failure
+) -> None:
+    provider = connection_harness.failing(outcome)
     model = provider.known_models()[0].id
 
     result = await provider.test_connection(model)
@@ -100,6 +126,18 @@ async def test_cancelled_token_before_call_makes_no_call(harness: ProviderHarnes
         await provider.run(make_request(), Cancelled())
 
     assert harness.calls_made() == 0
+
+
+async def test_cancel_during_call_raises_call_cancelled_and_releases_the_call(
+    harness: ProviderHarness,
+) -> None:
+    provider, token = harness.cancelled_mid_call()
+
+    with pytest.raises(CallCancelled):
+        await provider.run(make_request(), token)
+
+    assert harness.calls_made() == 1
+    assert harness.released_before_return()
 
 
 async def test_capabilities_declared_honestly(harness: ProviderHarness) -> None:

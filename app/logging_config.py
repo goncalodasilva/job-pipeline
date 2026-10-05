@@ -4,6 +4,9 @@ Records are written as JSON lines to rotating files in the data folder's ``logs/
 plain text to stderr. Before the data folder exists (a first run, ADR-044 item 3) the file is
 replaced by a bounded in-memory buffer that is written out once the folder is attached.
 
+Records from the Claude Agent SDK's loggers can quote CLI output (prompt or answer text), so
+``SdkRecordFilter`` reduces them to level, logger name and exception type first.
+
 The redaction filter sits on the handlers, not on loggers, so records from every logger,
 including uvicorn's, pass through it before they are written.
 
@@ -32,6 +35,7 @@ LOG_FILE_NAME = "jobpipeline.log"
 MAX_LOG_BYTES = 1_048_576
 LOG_BACKUP_COUNT = 4  # the live file plus 4 backups: 5 files in total
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+SDK_LOGGER = "claude_agent_sdk"
 _LOG = logging.getLogger("jobpipeline.logging")
 
 # Attributes every LogRecord has; anything else on a record came from ``extra``.
@@ -78,6 +82,36 @@ class RedactionFilter(logging.Filter):
             if not isinstance(value, _PLAIN_TYPES):
                 setattr(record, key, redact(str(value)))
         return True
+
+
+class SdkRecordFilter(logging.Filter):
+    """Reduce records from the Claude Agent SDK to level, logger name and exception type.
+
+    The SDK logs CLI stdout lines and error texts that can hold prompt or answer text
+    (spec 3.3), which redaction can't recognise. Other records pass unchanged.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        name = record.name if isinstance(record.name, str) else ""
+        if name != SDK_LOGGER and not name.startswith(SDK_LOGGER + "."):
+            return True
+        error_type = None
+        if record.exc_info and record.exc_info[0] is not None:
+            error_type = record.exc_info[0].__name__
+        summary = f"{record.levelname} from {record.name}"
+        record.msg = summary if error_type is None else f"{summary} ({error_type})"
+        record.args = None
+        record.exc_info = None
+        record.exc_text = None
+        record.stack_info = None
+        for key in _extras(record):
+            delattr(record, key)
+        return True
+
+
+def _add_filters(handler: logging.Handler, redactor: Redactor) -> None:
+    handler.addFilter(SdkRecordFilter())
+    handler.addFilter(RedactionFilter(redactor))
 
 
 class JsonFormatter(logging.Formatter):
@@ -251,7 +285,7 @@ def _file_handler(log_dir: Path, redactor: Redactor) -> logging.Handler:
         encoding="utf-8",
     )
     handler.setFormatter(JsonFormatter())
-    handler.addFilter(RedactionFilter(redactor))
+    _add_filters(handler, redactor)
     return handler
 
 
@@ -267,10 +301,10 @@ def configure_logging(
     file_handler = _file_handler(log_dir, redactor) if log_dir is not None else None
     buffer = _BufferHandler(buffer_limit) if log_dir is None else None
     if buffer is not None:
-        buffer.addFilter(RedactionFilter(redactor))
+        _add_filters(buffer, redactor)
     console = logging.StreamHandler(sys.stderr)
     console.setFormatter(ConsoleFormatter())
-    console.addFilter(RedactionFilter(redactor))
+    _add_filters(console, redactor)
 
     root = logging.getLogger()
     for handler in (file_handler or buffer, console):

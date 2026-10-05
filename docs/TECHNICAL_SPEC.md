@@ -318,6 +318,7 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | `ProviderNotInstalled` | AI provider | "Claude Code wasn't found. Install it, or choose Claude via API key." |
 | `ProviderAuthError` | AI provider | "The token or key was rejected. Create a new one and paste it again." |
 | `UsageLimitReached` | AI provider | "Your Claude plan's usage limit was reached. Try later or switch provider." |
+| `ProviderRequestRejected` | AI provider | "Claude refused the request. Check the model in Settings > Providers." (unknown model, prompt too long, schema refused; ADR-057) |
 | `BudgetBlocked` | Usage service | "Monthly limit reached for <service>. Resets on <date>." |
 | `NetworkUnavailable` | Fetch, providers | "No connection. Nothing was lost; try again." |
 | `InvalidModelOutput` | AI module | "The AI response didn't have the expected shape. Try again." (after one automatic retry) |

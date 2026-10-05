@@ -53,6 +53,12 @@ class UsageLimitReached(AppError):
     message = "Your Claude plan's usage limit was reached. Try later or switch provider."
 
 
+class ProviderRequestRejected(AppError):
+    """The provider refused the request itself (unknown model, request too large)."""
+
+    message = "Claude refused the request. Check the model in Settings > Providers."
+
+
 class BudgetBlocked(AppError):
     def __init__(self, service: str, resets_on: date, *, detail: str | None = None) -> None:
         self.service = service
