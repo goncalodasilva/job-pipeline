@@ -1,2 +1,118 @@
-<h2 id="step-heading" data-autofocus>AI provider</h2>
+{# Step 2a (M1.17). The credential field never carries a value: nothing pasted is shown back. #}
+{% set kind_error = errors.get("kind") %}
+{% set credential_error = errors.get("credential") %}
+{% set form_error = errors.get("form") %}
+{% set focus_status = stayed and not errors %}
+{% set nouns = {"claude_subscription_token": "token", "claude_api_key": "API key"} %}
+{% set noun = nouns.get(form.get("kind")) %}
+<h2 id="step-heading"{% if not (errors or focus_status) %} data-autofocus{% endif %}>AI provider</h2>
 <p>The app uses Claude to read job ads and draft your documents, so it needs to connect to your Claude account.</p>
+
+{% if not form.workspace_open %}
+{% if form_error %}
+<p id="form-error" class="field-error" role="alert">{{ form_error }}</p>
+{% endif %}
+<div class="notice">
+  <p>Finish step 1 first, so the app knows where to keep your data. <a href="/setup/welcome">Go to step 1</a>.</p>
+</div>
+{% else %}
+
+<p id="terms-note" class="terms-note">Anthropic's Agent SDK documentation asks developers who build products or services on the SDK to use API key authentication, not a Claude plan sign-in, unless Anthropic has approved it. Read it and decide which option fits you: <a href="{{ form.terms_url }}" rel="noopener noreferrer">Agent SDK overview</a>.</p>
+
+<form id="provider-form" class="step-form" method="post" action="/setup/provider"
+      hx-post="/setup/provider" hx-target="#setup-guide" hx-swap="outerHTML"
+      hx-indicator="#provider-saving" hx-disabled-elt="#provider-form button" novalidate>
+  {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
+  {% if form_error %}
+  <p id="form-error" class="field-error" role="alert">{{ form_error }}</p>
+  {% endif %}
+  {% set checked_kind = form.kind if form.choices | selectattr("kind", "equalto", form.kind) | list else none %}
+  <fieldset class="choices"{% if kind_error %} aria-describedby="kind-error"{% endif %}>
+    <legend>How do you want to connect to Claude?</legend>
+    {% if kind_error %}
+    <p id="kind-error" class="field-error">{{ kind_error }}</p>
+    {% endif %}
+    {% for choice in form.choices %}
+    {% set focus_here = kind_error and ((checked_kind and choice.kind == checked_kind) or (not checked_kind and loop.first)) %}
+    <div class="choice">
+      <input type="radio" id="kind-{{ choice.kind }}" name="kind" value="{{ choice.kind }}"
+             aria-describedby="{% if kind_error %}kind-error {% endif %}kind-{{ choice.kind }}-help"
+             {% if form.kind == choice.kind %}checked{% endif %}
+             {% if focus_here %}data-autofocus{% endif %}>
+      <label for="kind-{{ choice.kind }}">{{ choice.label }}</label>
+      <p id="kind-{{ choice.kind }}-help" class="field-hint">
+        {% if choice.kind == "claude_subscription_token" %}
+        For a paid Claude plan that includes Claude Code, such as Pro or Max. With Claude Code installed, run <code>claude setup-token</code> in a terminal, sign in, then paste the token it shows into the field below.
+        {% elif choice.kind == "claude_existing_login" %}
+        Uses the Claude Code sign-in already on this computer. There's nothing to paste.
+        {% elif choice.kind == "claude_api_key" %}
+        Create a key in Claude Console, then paste it below. Requests use your Console account's API credit, separately from any Claude plan.
+        {% else %}
+        For testing only: no real AI is used.
+        {% endif %}
+      </p>
+    </div>
+    {% endfor %}
+  </fieldset>
+
+  <div class="field">
+    <label for="credential">Token or API key</label>
+    {% set described = [] %}
+    {% if credential_error %}{% set _ = described.append("credential-error") %}{% endif %}
+    {% set _ = described.append("credential-hint") %}
+    {# Password managers must neither fill nor offer to save this field. #}
+    <input type="password" id="credential" name="credential"
+           autocomplete="new-password" spellcheck="false" autocapitalize="off"
+           data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"
+           aria-describedby="{{ described | join(' ') }}"
+           {% if credential_error %}aria-invalid="true" data-autofocus{% endif %}>
+    {% if credential_error %}
+    <p id="credential-error" class="field-error">{{ credential_error }}</p>
+    {% endif %}
+    <p id="credential-hint" class="field-hint">Only for a token or an API key. It's kept in your system keychain, not in your data folder, and is never shown again.</p>
+  </div>
+
+  <p id="credential-status" class="credential-status"{% if focus_status %} data-autofocus{% endif %}>
+    {% if form.saved and form.keychain_failed and form.environment_variable %}
+    Keychain couldn't be read; using the {{ form.environment_variable }} environment variable.
+    {% elif form.saved %}
+    {% if form.kind == "claude_api_key" %}An API key{% else %}A token{% endif %} is saved in your system keychain.{% if form.keychain_failed %} The keychain couldn't be read just now.{% endif %}
+    {% elif form.environment_variable %}
+    Using the {{ form.environment_variable }} environment variable.
+    {% elif noun %}
+    No {{ noun }} saved yet.
+    {% elif form.kind == "claude_existing_login" %}
+    Using the Claude Code sign-in on this computer.
+    {% elif form.kind == "fake" %}
+    The fake provider needs no key.
+    {% else %}
+    Nothing chosen yet.
+    {% endif %}
+  </p>
+
+  <div class="form-actions">
+    <button type="submit" name="action" value="save" class="button button-primary">Save</button>
+  </div>
+  <p id="provider-saving" class="saving-note" role="status">Saving to your system keychain… If your computer asks to allow access, choose Allow.</p>
+
+  {% if form.saved_kinds %}
+  <ul class="saved-keys" aria-label="Saved keys">
+    {% for saved_kind in form.saved_kinds %}
+    <li>
+      <span>{% if saved_kind == "claude_api_key" %}An API key{% else %}A token{% endif %} is saved in your system keychain.</span>
+      <button type="submit" name="remove" value="{{ saved_kind }}" class="button">Remove saved {{ nouns.get(saved_kind) }}</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</form>
+
+<div id="env-fallback" class="{% if form.keychain_unavailable %}notice{% else %}env-note{% endif %}">
+  {% if form.keychain_unavailable %}
+  <p><strong>Your system keychain isn't available right now.</strong> You can set the <code>{{ form.token_variable }}</code> environment variable (for a subscription token) or <code>{{ form.api_key_variable }}</code> (for an API key) before you start the app instead. Then choose the matching option above and save it, leaving the field empty.</p>
+  {% else %}
+  <p>No keychain on this computer? Set the <code>{{ form.token_variable }}</code> environment variable (for a subscription token) or <code>{{ form.api_key_variable }}</code> (for an API key) before you start the app. Then choose the matching option above and save it, leaving the field empty.</p>
+  {% endif %}
+  <p>The app reads these variables but never changes them.</p>
+</div>
+{% endif %}

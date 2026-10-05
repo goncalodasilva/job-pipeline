@@ -48,6 +48,7 @@ from app.modules.ai.providers.fake import (
     FakeAIProvider,
     outcome_for_key,
 )
+from app.modules.secrets import KNOWN_SECRET_KEYS
 from app.modules.secrets.providers.chained import ChainedSecretStore
 from app.modules.secrets.providers.env import EnvSecretStore
 from app.modules.secrets.providers.keyring_store import (
@@ -99,6 +100,10 @@ class Wiring:
         self._environment = environment
         self.allow_fakes = allow_fakes
         self.demo = demo
+        # Names only, computed once: the setup guide shows which variable is in use (M1.17).
+        self._environment_keys = frozenset(
+            key for key in KNOWN_SECRET_KEYS if environment.get(key) is not None
+        )
 
     def provider_choices(self) -> tuple[ProviderChoice, ...]:
         """The Claude sign-in routes (without the computer's own sign-in in demo mode), then
@@ -160,10 +165,15 @@ class Wiring:
         if not _cli_present():
             return ProviderHealth("cli_missing")
         key = SECRET_KEY_BY_MODE[mode]
-        saved = settings.sign_in_saved_for == kind
+        saved = kind in settings.saved_sign_ins
         if key is not None and not saved and self._environment.get(key) is None:
             return ProviderHealth("missing_sign_in")
         return ProviderHealth("ok")
+
+    def environment_keys(self) -> frozenset[str]:
+        """The secret keys the environment provides, fixed at start when wiring was built
+        (names only; always empty in demo mode)."""
+        return self._environment_keys
 
     def task_runner(
         self,

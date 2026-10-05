@@ -146,6 +146,10 @@ class AIProviderFactory(Protocol):
 
     def provider_health(self, settings: AIProviderSettings) -> ProviderHealth: ...
 
+    def environment_keys(self) -> frozenset[str]:
+        """The secret keys the environment provides (key names only, never values)."""
+        ...
+
     def task_runner(
         self,
         provider: AIProvider,

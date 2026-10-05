@@ -13,7 +13,8 @@ be killed or did not exit with code 0. The folders start with a completed setup 
 (an explicit data folder whose database is created at start-up), so pages redirect to the setup
 guide (M1.9). ``["first_run"]`` is a true first run (AC-M1.1 case 1): no data folder from the
 environment, so the app uses the platform default under the temporary home and creates nothing
-until step 1 is submitted (M1.16).
+until step 1 is submitted (M1.16). ``["provider_step"]`` opens at the AI provider step with step
+1 done (M1.17). An ``AppStart`` param combines a state with ``allow_fakes=False`` (ADR-059).
 """
 
 import os
@@ -23,7 +24,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Browser, Page, sync_playwright
 
-from tests.running_app import AppDidNotStart, RunningApp, SetupState, start_app
+from tests.running_app import AppDidNotStart, AppStart, RunningApp, start_app
 
 CHROMIUM_ENV = "JOBPIPELINE_E2E_CHROMIUM"
 DESKTOP = {"width": 1280, "height": 800}
@@ -41,9 +42,10 @@ def browser() -> Iterator[Browser]:
 
 @pytest.fixture
 def running_app(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[RunningApp]:
-    setup: SetupState = getattr(request, "param", "complete")
+    param = getattr(request, "param", "complete")
+    start = param if isinstance(param, AppStart) else AppStart(setup=param)
     try:
-        app = start_app(tmp_path, setup=setup)
+        app = start_app(tmp_path, setup=start.setup, allow_fakes=start.allow_fakes)
     except AppDidNotStart as error:
         pytest.fail(f"the app did not start: {error}", pytrace=False)
     try:

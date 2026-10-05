@@ -23,7 +23,10 @@ the guide's first step (AC-M1.2). ``"first_run"`` is AC-M1.1 case 1: nothing is 
 beforehand and ``JOBPIPELINE_DATA_DIR`` is not set, so the data folder is the platform default
 under the test's temporary home; the app starts without creating it and step 1 of the guide does
 (M1.16). Its path is computed with the app's own environment and must lie inside the test's
-temporary folder, otherwise the app is not started.
+temporary folder, otherwise the app is not started. ``"provider_step"`` writes ``config.toml``
+and a database with only step 1 done and no provider saved, so the guide opens at the AI provider
+step (M1.17). ``AppStart`` combines a state with ``allow_fakes=False`` for runs where
+``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` is unset (ADR-059).
 
 Stopping is graceful first: SIGINT on POSIX, CTRL_BREAK_EVENT on Windows (the child runs in
 its own process group so the event reaches only it; it must share the test runner's console,
@@ -43,8 +46,9 @@ from typing import IO, Literal
 
 import httpx
 
-from app.config import APP_NAME
-from tests.setup_harness import complete_setup
+from app import __version__
+from app.config import APP_NAME, write_bootstrap
+from tests.setup_harness import complete_setup, seed_workspace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOOPBACK = "127.0.0.1"
@@ -66,8 +70,16 @@ POLL_INTERVAL_SECONDS = 0.05
 REQUEST_TIMEOUT_SECONDS = 2.0
 OUTPUT_TAIL_CHARS = 4000
 
-SetupState = Literal["complete", "fresh", "first_run"]
-SETUP_STATES: tuple[SetupState, ...] = ("complete", "fresh", "first_run")
+SetupState = Literal["complete", "fresh", "first_run", "provider_step"]
+SETUP_STATES: tuple[SetupState, ...] = ("complete", "fresh", "first_run", "provider_step")
+
+
+@dataclass(frozen=True)
+class AppStart:
+    """How ``running_app`` starts the app when a state name alone isn't enough."""
+
+    setup: SetupState = "complete"
+    allow_fakes: bool = True
 
 
 class AppDidNotStart(RuntimeError):
@@ -211,6 +223,9 @@ def start_app(
     config_dir.mkdir(parents=True, exist_ok=True)
     if setup == "complete":
         complete_setup(data_dir, config_dir)
+    elif setup == "provider_step":
+        write_bootstrap(config_dir, data_dir=data_dir, version=__version__)
+        seed_workspace(data_dir, done=("welcome",))
     explicit = setup != "first_run"
     env = isolated_env(data_dir, config_dir, allow_fakes=allow_fakes, explicit_data_dir=explicit)
     if not explicit:

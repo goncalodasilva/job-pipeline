@@ -33,6 +33,9 @@ class StepDefinition:
 class StepResult:
     ok: bool
     errors: Mapping[str, str] = field(default_factory=dict)  # field name -> plain message
+    # Saved, but the step isn't finished: the guide stays on it and announces ``message``.
+    stay: bool = False
+    message: str | None = None
 
 
 # Submitted form fields; a field may repeat (lists such as target roles).

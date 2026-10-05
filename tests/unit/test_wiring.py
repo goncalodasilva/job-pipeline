@@ -393,13 +393,13 @@ HEALTH_CASES: list[tuple[str, dict[str, str], AIProviderSettings, str]] = [
     (
         "token_saved",
         {},
-        AIProviderSettings(kind="claude_subscription_token", sign_in_saved_for=SAVED_TOKEN_KIND),
+        AIProviderSettings(kind="claude_subscription_token", saved_sign_ins=(SAVED_TOKEN_KIND,)),
         "ok",
     ),
     (
         "api_key_saved",
         {},
-        AIProviderSettings(kind="claude_api_key", sign_in_saved_for=SAVED_API_KEY_KIND),
+        AIProviderSettings(kind="claude_api_key", saved_sign_ins=(SAVED_API_KEY_KIND,)),
         "ok",
     ),
     (
@@ -464,8 +464,8 @@ def test_provider_health_statuses(
     "settings",
     [
         AIProviderSettings(kind="claude_existing_login"),
-        AIProviderSettings(kind="claude_subscription_token", sign_in_saved_for=SAVED_TOKEN_KIND),
-        AIProviderSettings(kind="claude_api_key", sign_in_saved_for=SAVED_API_KEY_KIND),
+        AIProviderSettings(kind="claude_subscription_token", saved_sign_ins=(SAVED_TOKEN_KIND,)),
+        AIProviderSettings(kind="claude_api_key", saved_sign_ins=(SAVED_API_KEY_KIND,)),
     ],
     ids=["existing_login", "token_saved", "api_key_saved"],
 )
@@ -686,11 +686,11 @@ def test_saved_sign_in_for_another_mode_is_missing(
     backend = CountingKeyring()
     wiring = wiring_for({}, backend=backend)
 
-    health = wiring.provider_health(AIProviderSettings(kind=kind, sign_in_saved_for=saved_for))
+    health = wiring.provider_health(AIProviderSettings(kind=kind, saved_sign_ins=(saved_for,)))
 
     assert health == ProviderHealth("missing_sign_in")
     assert wiring.provider_health(
-        AIProviderSettings(kind=kind, sign_in_saved_for=kind)
+        AIProviderSettings(kind=kind, saved_sign_ins=(kind,))
     ) == ProviderHealth("ok")
     assert backend.calls == 0
 
@@ -720,7 +720,7 @@ def test_demo_never_offers_the_computers_own_sign_in(
         demo.ai_provider(existing, data_dir=tmp_path)
     assert demo.provider_health(existing) == ProviderHealth("not_allowed")
     # The other routes still work in demo mode, with the demo keychain.
-    saved = AIProviderSettings(kind="claude_api_key", sign_in_saved_for=SAVED_API_KEY_KIND)
+    saved = AIProviderSettings(kind="claude_api_key", saved_sign_ins=(SAVED_API_KEY_KIND,))
     assert demo.provider_health(saved) == ProviderHealth("ok")
     assert isinstance(demo.ai_provider(saved, data_dir=tmp_path), ClaudeSdkProvider)
     assert backend.calls == 0

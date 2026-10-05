@@ -46,6 +46,7 @@ from app.modules.ai import ProviderHealth
 from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
 from app.onboarding.progress import SetupProgress
 from app.onboarding.registry import (
+    PROVIDER,
     WELCOME,
     StepHandler,
     StepRegistry,
@@ -54,8 +55,10 @@ from app.onboarding.registry import (
 )
 from app.onboarding.startup import OnboardingState, StartupInputs
 from app.onboarding.steps import PendingStep
+from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.health import HealthService
+from app.services.provider_setup import ProviderSetupService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
 from app.tasks import TaskRunner
@@ -197,6 +200,7 @@ def _step_handlers(
     registry: StepRegistry,
     onboarding: OnboardingState,
     clock: Clock,
+    wiring: Wiring,
 ) -> Mapping[str, StepHandler]:
     """One handler per registered step (ADR-052); steps still to come are placeholders."""
 
@@ -228,7 +232,39 @@ def _step_handlers(
     )
     handlers: dict[str, StepHandler] = {step.id: PendingStep() for step in registry.steps}
     handlers[WELCOME.id] = welcome
+    handlers[PROVIDER.id] = ProviderStep(_provider_setup(app, wiring=wiring, clock=clock))
     return require_handlers(registry, handlers)
+
+
+def _provider_setup(
+    app: FastAPI, *, wiring: Wiring, clock: Clock
+) -> Callable[[], ProviderSetupService | None]:
+    """The provider setup service once a workspace is open; built once, so its cached
+    keychain status lasts for the run (a workspace opens at most once per app)."""
+    built: list[ProviderSetupService] = []
+    lock = threading.Lock()  # submits run in worker threads
+
+    def refresh_health() -> object:
+        return app.state.refresh_provider_health()
+
+    def service() -> ProviderSetupService | None:
+        db = _current_db(app)
+        if db is None:
+            return None
+        with lock:
+            if not built:
+                built.append(
+                    ProviderSetupService(
+                        SettingsService(db, clock),
+                        wiring.secrets,
+                        wiring,
+                        wiring.environment_keys(),
+                        refresh_health,
+                    )
+                )
+            return built[0]
+
+    return service
 
 
 def create_app(
@@ -358,7 +394,12 @@ def create_app(
             app.state.setup_registry = registry
             app.state.onboarding = onboarding
             app.state.setup_handlers = _step_handlers(
-                app, config, registry=registry, onboarding=onboarding, clock=app_clock
+                app,
+                config,
+                registry=registry,
+                onboarding=onboarding,
+                clock=app_clock,
+                wiring=app_wiring,
             )
             app.state.workspace = workspace
             app.state.open_workspace = open_workspace

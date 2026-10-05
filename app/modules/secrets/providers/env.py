@@ -4,18 +4,9 @@ The app never writes these variables; the setup guide explains how to set them.
 """
 
 from collections.abc import Mapping
-from types import MappingProxyType
-from typing import Final
 
 from app.domain.errors import SecretStoreUnavailable
-from app.modules.secrets import ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN
-
-ENVIRONMENT_VARIABLES: Final[Mapping[str, str]] = MappingProxyType(
-    {
-        ANTHROPIC_API_KEY: "ANTHROPIC_API_KEY",
-        CLAUDE_CODE_OAUTH_TOKEN: "CLAUDE_CODE_OAUTH_TOKEN",
-    }
-)
+from app.modules.secrets import ENVIRONMENT_VARIABLES
 
 
 class EnvSecretStore:

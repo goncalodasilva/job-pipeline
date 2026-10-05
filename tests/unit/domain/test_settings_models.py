@@ -305,16 +305,21 @@ def test_claude_auth_mode_matches_every_claude_kind() -> None:
     assert claude_auth_mode(None) is None
 
 
-def test_sign_in_saved_for_defaults_none() -> None:
-    """M1.15 (ADR-046): records which kind's credential was saved, never the value."""
-    assert AIProviderSettings().sign_in_saved_for is None
+def test_saved_sign_ins_default_empty() -> None:
+    """M1.15 (ADR-046), widened in M1.17 (user decision, 2026-10-05): records which kinds have
+    a saved credential, never the values; switching kind keeps the others."""
+    assert AIProviderSettings().saved_sign_ins == ()
 
     for kind in ("claude_subscription_token", "claude_api_key"):
-        saved = AIProviderSettings(kind=kind, sign_in_saved_for=kind)
-        assert saved.sign_in_saved_for == kind
+        saved = AIProviderSettings(kind=kind, saved_sign_ins=(kind,))
+        assert saved.saved_sign_ins == (kind,)
         assert AIProviderSettings.model_validate_json(saved.model_dump_json()) == saved
+    both = AIProviderSettings(
+        saved_sign_ins=("claude_subscription_token", "claude_api_key", "claude_api_key")
+    )
+    assert both.saved_sign_ins == ("claude_api_key", "claude_subscription_token"), "unique, sorted"
     older = AIProviderSettings.model_validate_json('{"kind": "claude_api_key"}')
-    assert older.sign_in_saved_for is None, "settings saved before the field existed still load"
+    assert older.saved_sign_ins == (), "settings saved before the field existed still load"
 
     for not_a_kind in (
         "Fictional-Saved-Value-0001",
@@ -325,5 +330,20 @@ def test_sign_in_saved_for_defaults_none() -> None:
     ):
         with pytest.raises(ValidationError):
             AIProviderSettings.model_validate(
+                {"kind": "claude_api_key", "saved_sign_ins": (not_a_kind,)}
+            )
+        with pytest.raises(ValidationError):  # the M1.15 field, mapped into the list
+            AIProviderSettings.model_validate(
                 {"kind": "claude_api_key", "sign_in_saved_for": not_a_kind}
             )
+
+
+def test_legacy_sign_in_saved_for_still_loads() -> None:
+    """Rows saved by M1.15/M1.16 hold ``sign_in_saved_for`` (one kind or null)."""
+    one = AIProviderSettings.model_validate_json(
+        '{"kind": "claude_api_key", "sign_in_saved_for": "claude_api_key"}'
+    )
+    assert one.saved_sign_ins == ("claude_api_key",)
+    assert "sign_in_saved_for" not in one.model_dump_json(), "written back in the new shape"
+    none = AIProviderSettings.model_validate_json('{"sign_in_saved_for": null}')
+    assert none.saved_sign_ins == ()

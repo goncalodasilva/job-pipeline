@@ -12,8 +12,13 @@ import traceback
 import pytest
 
 from app.domain.errors import SecretStoreUnavailable
-from app.modules.secrets import ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, KNOWN_SECRET_KEYS
-from app.modules.secrets.providers.env import ENVIRONMENT_VARIABLES, EnvSecretStore
+from app.modules.secrets import (
+    ANTHROPIC_API_KEY,
+    CLAUDE_CODE_OAUTH_TOKEN,
+    ENVIRONMENT_VARIABLES,
+    KNOWN_SECRET_KEYS,
+)
+from app.modules.secrets.providers.env import EnvSecretStore
 
 FAKE_SECRET = "fake-" + "secret-" + "x" * 8
 OTHER_SECRET = "fake-" + "secret-" + "y" * 8

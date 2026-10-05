@@ -9,7 +9,10 @@ the cached start-up decision and the step handler's in-memory context, nothing e
 Step submits are ``POST /setup/{step_id}``: not page-tagged, so the launch token and origin
 checks apply. The body is a URL-encoded form (parsed with the standard library). A saved step
 answers 303 to the next step, or for htmx 200 with the next step's guide fragment,
-``HX-Push-Url`` and an "announce" trigger; a refused submit answers 422 with the errors.
+``HX-Push-Url`` and an "announce" trigger; a refused submit answers 422 with the errors. A
+step saved but not finished (``StepResult.stay``, such as the provider step before "Connected")
+answers 303 back to itself, or for htmx 200 with its own fragment and an "announce" trigger
+carrying the handler's message, without ``HX-Push-Url``.
 """
 
 import json
@@ -95,6 +98,12 @@ async def submit_step(request: Request, step_id: str) -> Response:
         response = _render_step(request, step, errors=result.errors, submitted=form)
         response.status_code = 422
         return response
+    if result.stay:  # saved, but the step isn't finished: stay on it (M1.17)
+        if not _is_htmx(request):
+            return RedirectResponse(setup_step_path(step.id), status_code=303)
+        response = _render_step(request, step, stayed=True)
+        response.headers["HX-Trigger"] = json.dumps({"announce": result.message or "Saved."})
+        return response
     following = _next_step(registry, step)
     url = setup_step_path(following.id)
     if not _is_htmx(request):
@@ -116,6 +125,7 @@ def _render_step(
     *,
     errors: Mapping[str, str] | None = None,
     submitted: Form | None = None,
+    stayed: bool = False,
 ) -> HTMLResponse:
     registry: StepRegistry = request.app.state.setup_registry
     onboarding: OnboardingState = request.app.state.onboarding
@@ -140,6 +150,7 @@ def _render_step(
             "statuses": onboarding.statuses,
             "form": form,
             "errors": dict(errors or {}),
+            "stayed": stayed,  # saved and staying on the step: focus moves to its status
         },
     )
 

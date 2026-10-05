@@ -51,7 +51,7 @@ ALLOW_FAKES = {"JOBPIPELINE_ALLOW_FAKE_PROVIDERS": "1"}
 LEFTOVER = "jobpipeline-ai-x"
 TOKEN_UNSAVED = AIProviderSettings(kind="claude_subscription_token")
 TOKEN_SAVED = AIProviderSettings(
-    kind="claude_subscription_token", sign_in_saved_for=SAVED_TOKEN_KIND
+    kind="claude_subscription_token", saved_sign_ins=(SAVED_TOKEN_KIND,)
 )
 GET_PATHS = ("/", "/inbox", "/settings", "/health", "/setup", "/setup/welcome", "/setup/provider")
 

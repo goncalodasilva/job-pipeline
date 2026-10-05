@@ -17,6 +17,7 @@ from pydantic import (
     StringConstraints,
     field_serializer,
     field_validator,
+    model_validator,
 )
 
 Tier = Literal["fast", "thorough"]
@@ -64,9 +65,27 @@ class AIProviderSettings(_Setting):
     task_tiers: Annotated[Mapping[TaskName, Tier], Field(max_length=_MAX_TASK_OVERRIDES)] = Field(
         default_factory=lambda: MappingProxyType({})
     )  # per-task overrides
-    # The kind whose credential was saved in the keychain (never the value): provider health
-    # reads this instead of the keychain (ADR-046), and a switch of mode needs a new sign-in.
-    sign_in_saved_for: SavedSignInKind | None = None
+    # The kinds whose credential is saved in the keychain (never the values): provider health
+    # reads this instead of the keychain (ADR-046). Switching kind keeps the others' saved
+    # keys; each is removed on its own (user decision, M1.17). Unique and sorted.
+    saved_sign_ins: tuple[SavedSignInKind, ...] = ()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_saved_sign_in(cls, data: object) -> object:
+        """Rows saved before M1.17 hold ``sign_in_saved_for`` (one kind or null)."""
+        if isinstance(data, Mapping) and "sign_in_saved_for" in data:
+            values = dict(data)
+            legacy = values.pop("sign_in_saved_for")
+            if legacy is not None and "saved_sign_ins" not in values:
+                values["saved_sign_ins"] = (legacy,)
+            return values
+        return data
+
+    @field_validator("saved_sign_ins", mode="after")
+    @classmethod
+    def _unique_sorted(cls, value: tuple[SavedSignInKind, ...]) -> tuple[SavedSignInKind, ...]:
+        return tuple(sorted(set(value)))
 
     @field_validator("task_tiers", mode="after")
     @classmethod
