@@ -76,3 +76,33 @@ def test_optional_step_wording(status: StepStatus | None, expected: str) -> None
         "sample_optional": expected,
         "preferences": "Not done yet",
     }
+
+
+# --- M1.20 follow-up: banner steps read "Needs attention", like the guide's step list --------
+
+
+def test_banner_steps_read_needs_attention_in_summary() -> None:
+    """A step in ``StartupDecision.banners`` (passed as ``attention``, cached, no I/O) reads
+    "Needs attention" instead of its stored status (ADR-066); the others keep theirs."""
+    registry = StepRegistry((WELCOME, PROVIDER, SAMPLE_OPTIONAL, PREFERENCES, DONE))
+    step = DoneStep(
+        registry,
+        statuses=lambda: ALL_REQUIRED_DONE,
+        mark_done=lambda: None,
+        attention=lambda: ("provider", "sample_optional"),
+    )
+    rows = {row["id"]: row["status_text"] for row in step.context()["rows"]}  # type: ignore[attr-defined]
+    assert rows == {
+        "welcome": "Done",
+        "provider": "Needs attention",
+        "sample_optional": "Needs attention",
+        "preferences": "Done",
+    }
+    assert step.context()["needs_attention"] is True
+
+
+def test_attention_defaults_to_none() -> None:
+    step = DoneStep(m1_registry(), statuses=lambda: ALL_REQUIRED_DONE, mark_done=lambda: None)
+    rows = [row["status_text"] for row in step.context()["rows"]]  # type: ignore[attr-defined]
+    assert "Needs attention" not in rows
+    assert step.context()["needs_attention"] is False

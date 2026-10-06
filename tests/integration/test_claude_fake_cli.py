@@ -217,7 +217,7 @@ async def test_fake_cli_auth_failure_maps_to_message(
     with anyio.fail_after(CALL_BOUND_SECONDS):
         result = await provider.test_connection(CLAUDE_FAST_DEFAULT)
     assert result == ConnectionResult(
-        ok=False, message=ProviderAuthError().user_message, model=None
+        ok=False, message=ProviderAuthError().user_message, model=None, failure="auth"
     )
     assert list(temp_root.iterdir()) == []
 

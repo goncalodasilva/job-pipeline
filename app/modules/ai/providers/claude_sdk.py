@@ -71,6 +71,7 @@ from app.modules.ai import (
     ConnectionResult,
     ModelChoice,
     TokenUsage,
+    connection_failure,
 )
 from app.modules.secrets import ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, SecretStore
 
@@ -552,7 +553,12 @@ class ClaudeSdkProvider:
         try:
             response = await self._call(request, _NOT_CANCELLED, self._connection_timeout)
         except _CONNECTION_FAILURES as error:
-            return ConnectionResult(ok=False, message=error.user_message, model=None)
+            return ConnectionResult(
+                ok=False,
+                message=error.user_message,
+                model=None,
+                failure=connection_failure(error),
+            )
         return ConnectionResult(ok=True, message="Connected", model=response.model)
 
     def known_models(self) -> list[ModelChoice]:

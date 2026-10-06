@@ -6,8 +6,8 @@ the middleware marks their responses ``Cache-Control: no-store``. With ``HX-Requ
 they return only the main-content fragment, which needs the token.
 
 Until each area is built, its page is a placeholder with an empty state (ADR-029). Settings
-has a page of its own (``app/api/settings.py``, M1.21), with an empty state for its parts still
-to come.
+has a page of its own (``app/api/settings.py``, M1.21), with a small empty state for its parts
+still to come.
 """
 
 from collections.abc import Callable
@@ -75,7 +75,7 @@ AREAS: tuple[Area, ...] = (
         "Settings",
         "Settings for your job search, usage budgets, lists, prompts and data will appear here.",
         pinned=True,
-        coming="Your AI provider can be changed below; the rest arrives in a later version.",
+        coming="They arrive in a later version.",
         placeholder=False,
     ),
 )

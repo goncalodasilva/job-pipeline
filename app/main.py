@@ -274,7 +274,10 @@ def _step_handlers(
 
     handlers[PREFERENCES.id] = PreferencesStep(settings, mark_done=mark_done(PREFERENCES.id))
     handlers[DONE.id] = DoneStep(
-        registry, statuses=lambda: onboarding.statuses, mark_done=mark_done(DONE.id)
+        registry,
+        statuses=lambda: onboarding.statuses,
+        mark_done=mark_done(DONE.id),
+        attention=lambda: onboarding.decision.banners,  # "Needs attention" (ADR-066)
     )
     return require_handlers(registry, handlers)
 

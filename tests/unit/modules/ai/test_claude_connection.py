@@ -239,7 +239,9 @@ async def test_test_connection_maps_each_failure_to_message(
     # Never raises the mapped error: it becomes the result's message.
     result = await _provider(query, temp_root, cli).test_connection(CLAUDE_FAST_DEFAULT)
 
-    assert result == ConnectionResult(ok=False, message=expected().user_message, model=None)
+    assert result == ConnectionResult(
+        ok=False, message=expected().user_message, model=None, failure=case
+    )
     assert "Fictional" not in result.message
     assert len(query.calls) == 1
     assert list(temp_root.iterdir()) == []
@@ -259,7 +261,7 @@ async def test_test_connection_malformed_answer_is_not_connected(
     result = await _provider(query, temp_root, cli).test_connection(CLAUDE_FAST_DEFAULT)
 
     assert result == ConnectionResult(
-        ok=False, message=InvalidModelOutput().user_message, model=None
+        ok=False, message=InvalidModelOutput().user_message, model=None, failure="invalid_output"
     )
 
 
@@ -283,7 +285,7 @@ async def test_test_connection_missing_cli_reports_not_installed_without_call(
     result = await provider.test_connection(CLAUDE_FAST_DEFAULT)
 
     assert result == ConnectionResult(
-        ok=False, message=ProviderNotInstalled().user_message, model=None
+        ok=False, message=ProviderNotInstalled().user_message, model=None, failure="not_installed"
     )
     assert query.calls == []
     assert list(temp_root.iterdir()) == []
@@ -298,7 +300,7 @@ async def test_test_connection_timeout_reports_no_connection(temp_root: Path, cl
         result = await provider.test_connection(CLAUDE_FAST_DEFAULT)
 
     assert result == ConnectionResult(
-        ok=False, message=NetworkUnavailable().user_message, model=None
+        ok=False, message=NetworkUnavailable().user_message, model=None, failure="network"
     )
     assert len(query.calls) == 1
     transport = query.last.transport
@@ -319,7 +321,7 @@ async def test_test_connection_timeout_while_initialize_is_pending(
         result = await provider.test_connection(CLAUDE_FAST_DEFAULT)
 
     assert result == ConnectionResult(
-        ok=False, message=NetworkUnavailable().user_message, model=None
+        ok=False, message=NetworkUnavailable().user_message, model=None, failure="network"
     )
     assert len(query.calls) == 1
     transport = query.last.transport
@@ -350,7 +352,7 @@ async def test_token_mode_without_saved_token_reports_auth_error_without_call(
             CLAUDE_FAST_DEFAULT
         )
         assert result == ConnectionResult(
-            ok=False, message=ProviderAuthError().user_message, model=None
+            ok=False, message=ProviderAuthError().user_message, model=None, failure="auth"
         )
 
     assert query.calls == []
@@ -834,7 +836,7 @@ async def test_test_connection_timeout_covers_cli_lookup(temp_root: Path, cli: P
         result = await provider.test_connection(CLAUDE_FAST_DEFAULT)
 
     assert result == ConnectionResult(
-        ok=False, message=NetworkUnavailable().user_message, model=None
+        ok=False, message=NetworkUnavailable().user_message, model=None, failure="network"
     )
     assert query.calls == []
     assert list(temp_root.iterdir()) == []

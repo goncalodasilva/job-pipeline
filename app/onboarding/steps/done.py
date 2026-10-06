@@ -5,10 +5,13 @@ details. Finishing marks the step done through the injected ``mark_done`` (which
 the setup decision) and leaves the guide for a page chosen from a fixed table, never from the
 request text. It is refused while a required step is not done; optional steps, pending or
 skipped, never block it. Finishing again (after ``--setup``) is allowed.
+
+A step a banner points at (``attention``, from the cached ``StartupDecision.banners``) reads
+"Needs attention" in the list, like the guide's step list (ADR-066).
 """
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 
 from app.onboarding.detection import StepStatus
 from app.onboarding.registry import Form, StepDefinition, StepRegistry, StepResult
@@ -21,6 +24,7 @@ DEFAULT_TARGET = "/"
 STATUS_TEXT: Mapping[str, str] = {"done": "Done", "skipped": "Skipped"}
 NOT_DONE_TEXT = "Not done yet"  # a required step
 OPTIONAL_TEXT = "Optional, not set up"  # an optional step neither done nor skipped
+ATTENTION_TEXT = "Needs attention"  # a step a banner points at (ADR-066)
 MSG_SAVE_FAILED = "The app couldn't record that setup is finished. Try again."
 
 
@@ -33,19 +37,29 @@ class DoneStep:
         *,
         statuses: Callable[[], Mapping[str, StepStatus]],
         mark_done: Callable[[], None],
+        attention: Callable[[], Collection[str]] = lambda: (),
     ) -> None:
         self._registry = registry
         self._statuses = statuses  # no I/O: the cached statuses
         self._mark_done = mark_done  # blocking: marks the step done, refreshes the decision
+        self._attention = attention  # no I/O: the steps the cached banners point at
 
     def context(self) -> Mapping[str, object]:
         statuses = self._statuses()
+        attention = frozenset(self._attention())
         rows = [
-            {"id": step.id, "title": step.title, "status_text": _status_text(step, statuses)}
+            {
+                "id": step.id,
+                "title": step.title,
+                "status_text": (
+                    ATTENTION_TEXT if step.id in attention else _status_text(step, statuses)
+                ),
+            }
             for step in self._others()
         ]
         unfinished = [{"id": step.id, "title": step.title} for step in self._unfinished(statuses)]
-        return {"rows": rows, "unfinished": unfinished}
+        needs_attention = any(row["status_text"] == ATTENTION_TEXT for row in rows)
+        return {"rows": rows, "unfinished": unfinished, "needs_attention": needs_attention}
 
     def submit(self, form: Form) -> StepResult:
         unfinished = self._unfinished(self._statuses())

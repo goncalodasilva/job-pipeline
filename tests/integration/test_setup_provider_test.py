@@ -655,7 +655,7 @@ def test_environment_save_announcement_says_next_test_the_connection(
 def test_removing_a_key_does_not_ask_for_a_test(tmp_path: Path) -> None:
     with running(tmp_path) as run:
         submit(run, TOKEN_KIND, FICTIONAL_TOKEN)
-        removed = submit(run, TOKEN_KIND, remove=TOKEN_KIND, htmx=True)
+        removed = submit(run, TOKEN_KIND, remove=TOKEN_KIND, confirm=TOKEN_KIND, htmx=True)
     assert announced(removed) == "The saved token was removed."
 
 
@@ -692,7 +692,12 @@ def test_connected_is_forgotten_when_the_settings_change(
         if change == "save":
             assert submit(run, EXISTING_KIND, "", htmx=True).status_code == 200
         elif change == "remove":
-            assert submit(run, TOKEN_KIND, remove=TOKEN_KIND, htmx=True).status_code == 200
+            assert (
+                submit(
+                    run, TOKEN_KIND, remove=TOKEN_KIND, confirm=TOKEN_KIND, htmx=True
+                ).status_code
+                == 200
+            )
         else:
             memory_keyring.items.clear()  # removed outside the app
             assert_credential_error(submit(run, TOKEN_KIND, ""))

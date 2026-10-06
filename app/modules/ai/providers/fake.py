@@ -29,6 +29,7 @@ from app.modules.ai import (
     ConnectionResult,
     ModelChoice,
     TokenUsage,
+    connection_failure,
 )
 
 FakeOutcome = Literal["connected", "auth", "not_installed", "usage_limit", "network"]
@@ -126,7 +127,10 @@ class FakeAIProvider:
     async def test_connection(self, model: str) -> ConnectionResult:
         if self._connection == "connected":
             return ConnectionResult(ok=True, message="Connected", model=model)
-        return ConnectionResult(ok=False, message=_error(self._connection).user_message)
+        error = _error(self._connection)
+        return ConnectionResult(
+            ok=False, message=error.user_message, failure=connection_failure(error)
+        )
 
     def known_models(self) -> list[ModelChoice]:
         return list(KNOWN_MODELS)

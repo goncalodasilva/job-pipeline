@@ -4,7 +4,9 @@ The app starts at the AI provider step (``running_app`` with ``"provider_step"``
 no provider saved). By keyboard only, the user chooses the subscription token, pastes a
 fictional token and saves: the guide stays on the provider step, announces the save, shows
 that a token is saved in the system keychain without any of its characters, and the token is
-in the test keyring file (the app's keychain), not in the page. At 390x844 and 360x740, in light
+in the test keyring file (the app's keychain), not in the page. Removing it asks first, inline
+and by keyboard: Esc or "Keep it" keeps it and returns focus to the Remove control; "Remove
+token" deletes it (M1.21 follow-up). At 390x844 and 360x740, in light
 and dark, the step and its field-error state have no serious or critical axe findings and no
 horizontal scroll. With ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` unset the fake choice is not
 offered (ADR-059). The app runs on loopback with temporary folders; every value is fictional.
@@ -27,6 +29,8 @@ PROVIDER_STEP: SetupState = "provider_step"
 SUBSCRIPTION_RADIO = "#kind-claude_subscription_token"
 API_KEY_RADIO = "#kind-claude_api_key"
 SAVE = 'button[name="action"][value="save"]'
+REMOVE_TOKEN = "#remove-claude_subscription_token"  # noqa: S105 - a selector, not a secret
+KEEP_IT = 'button[name="keep"]'
 MAX_TABS = 40
 SMALL_PHONE = {"width": 360, "height": 740}  # the narrowest supported layout (360 px)
 
@@ -109,7 +113,56 @@ def test_provider_desktop_keyboard_choose_paste_save(
         expect(page.locator("#credential-status")).to_contain_text("system keychain")
         assert FICTIONAL_TOKEN not in page.content()
 
-    assert FICTIONAL_TOKEN in keyring_values(running_app)
+        # Removing the saved token asks first, in the page, by keyboard (no browser dialog).
+        page.on("dialog", lambda dialog: pytest.fail(f"unexpected {dialog.type} dialog"))
+        tab_to(page, REMOVE_TOKEN)
+        page.keyboard.press("Enter")
+        question = page.locator("#remove-question-claude_subscription_token")
+        expect(question).to_have_text("Remove the saved token? You'd have to paste it again.")
+        expect(question).to_be_focused()
+        assert FICTIONAL_TOKEN in keyring_values(running_app), "asking deletes nothing"
+        assert_no_serious_violations(page)
+        page.set_viewport_size(PHONE)
+        fits, scroll_width, inner_width = has_no_horizontal_scroll(page)
+        assert fits, f"confirm at 390 px: scrollWidth {scroll_width} > {inner_width}"
+        assert_no_serious_violations(page)
+        page.set_viewport_size(DESKTOP)
+
+        # Esc answers like "Keep it": the question goes and focus returns to Remove.
+        page.keyboard.press("Escape")
+        expect(page.locator(KEEP_IT)).to_have_count(0)
+        expect(page.locator(REMOVE_TOKEN)).to_be_focused()
+        expect(page.locator("#announcer")).to_have_text("The saved token was kept.")
+        assert FICTIONAL_TOKEN in keyring_values(running_app)
+
+        # "Keep it": the question goes, focus returns to the Remove control, nothing deleted.
+        page.keyboard.press("Enter")
+        expect(question).to_be_focused()
+        tab_to(page, KEEP_IT)
+        page.keyboard.press("Enter")
+        expect(page.locator(KEEP_IT)).to_have_count(0)
+        expect(page.locator(REMOVE_TOKEN)).to_be_focused()
+        expect(page.locator("#announcer")).to_have_text("The saved token was kept.")
+        assert FICTIONAL_TOKEN in keyring_values(running_app)
+        # The Remove control stays in the Tab order after taking the focus.
+        page.keyboard.press("Shift+Tab")
+        tab_to(page, REMOVE_TOKEN)
+
+        # Asked again and confirmed: the token is removed from the keychain.
+        page.keyboard.press("Enter")
+        expect(question).to_be_focused()
+        page.keyboard.press("Tab")
+        confirm = page.locator(".remove-confirm").get_by_role(
+            "button", name="Remove token", exact=True
+        )
+        expect(confirm).to_be_focused()
+        page.keyboard.press("Enter")
+        expect(page.locator("#announcer")).to_have_text("The saved token was removed.")
+        expect(page.locator(REMOVE_TOKEN)).to_have_count(0)
+        expect(page.locator("#credential-status")).to_have_text("No token saved yet.")
+        assert_no_serious_violations(page)
+
+    assert FICTIONAL_TOKEN not in keyring_values(running_app), "removed once confirmed"
     for log_file in running_app.log_files():
         assert FICTIONAL_TOKEN.encode() not in log_file.read_bytes(), log_file
     assert FICTIONAL_TOKEN not in running_app.stdout_text()

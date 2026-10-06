@@ -18,8 +18,13 @@
 {% set step_done = not in_settings and statuses.get(step.id) == "done" %}
 {% set nouns = {"claude_subscription_token": "token", "claude_api_key": "API key"} %}
 {% set noun = nouns.get(form.get("kind")) %}
+{# Removing a saved key asks first: the question (confirm_remove) or, after "Keep it", the
+   Remove button again (kept) takes the focus. #}
+{% set confirm_kind = step_view.get("confirm_remove") if step_view is defined else none %}
+{% set kept_kind = step_view.get("kept") if step_view is defined else none %}
+{% set focus_remove = confirm_kind or kept_kind %}
 {% if not in_settings %}
-<h2 id="step-heading"{% if not (errors or focus_status or focus_result) %} data-autofocus{% endif %}>AI provider</h2>
+<h2 id="step-heading"{% if not (errors or focus_status or focus_result or focus_remove) %} data-autofocus{% endif %}>AI provider</h2>
 {% endif %}
 <p>The app uses Claude to read job ads and draft your documents, so it needs to connect to your Claude account.</p>
 
@@ -130,7 +135,20 @@
     {% for saved_kind in form.saved_kinds %}
     <li>
       <span>{% if saved_kind == "claude_api_key" %}An API key{% else %}A token{% endif %} is saved in your system keychain.</span>
-      <button type="submit" name="remove" value="{{ saved_kind }}" class="button">Remove saved {{ nouns.get(saved_kind) }}</button>
+      {% if saved_kind == confirm_kind %}
+      {# Asked in the page, not with a browser dialog; only "Remove" carries confirm. #}
+      <div class="remove-confirm" role="group" aria-labelledby="remove-question-{{ saved_kind }}">
+        <p id="remove-question-{{ saved_kind }}" class="remove-question" tabindex="-1" data-autofocus>Remove the saved {{ nouns.get(saved_kind) }}? You'd have to paste it again.</p>
+        <button type="submit" name="remove" value="{{ saved_kind }}" class="button"
+                hx-post="{{ post_url }}" hx-vals='{{ {"confirm": saved_kind} | tojson }}'
+                hx-indicator="#provider-removing">Remove {{ nouns.get(saved_kind) }}</button>
+        {# Esc in the question does the same (app.js). #}
+        <button type="submit" name="keep" value="{{ saved_kind }}" class="button" data-cancel>Keep it</button>
+        <p id="provider-removing" class="saving-note" role="status">Removing it from your system keychain…</p>
+      </div>
+      {% else %}
+      <button type="submit" id="remove-{{ saved_kind }}" name="remove" value="{{ saved_kind }}" class="button"{% if saved_kind == kept_kind %} data-autofocus{% endif %}>Remove saved {{ nouns.get(saved_kind) }}</button>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>

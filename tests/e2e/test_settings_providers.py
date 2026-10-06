@@ -6,7 +6,10 @@ axe findings at desktop size and at 390x844 (no horizontal scroll there). By key
 user reaches the provider choice, the key field and "Test connection": a fictional key asking
 for a usage-limit failure shows the mapped message, focused and announced; one asking for
 success shows "Connected". The page stays on ``/settings`` (not the guide), and neither key is
-shown, logged or printed. Every value is fictional.
+shown, logged or printed. Removing a saved token asks first, by keyboard: "Keep it" puts focus
+back on Remove, "Remove token" removes it; the question has no serious axe findings. The
+"Re-run the setup guide" link opens the guide's first step with "Back to the app". Every value
+is fictional.
 """
 
 import pytest
@@ -14,7 +17,14 @@ from playwright.sync_api import Browser, Page, expect
 
 from tests.e2e.axe import assert_no_serious_violations
 from tests.e2e.conftest import DESKTOP, PHONE
-from tests.e2e.test_setup_provider import MAX_TABS, SMALL_PHONE, has_focus, tab_to
+from tests.e2e.test_setup_provider import (
+    FICTIONAL_TOKEN,
+    MAX_TABS,
+    SMALL_PHONE,
+    has_focus,
+    keyring_values,
+    tab_to,
+)
 from tests.e2e.test_setup_provider_test import USAGE_LIMIT, fake_key, tab_to_locator
 from tests.e2e.test_shell import has_no_horizontal_scroll, new_page, open_app
 from tests.running_app import RunningApp
@@ -137,3 +147,65 @@ def test_settings_providers_phone_axe(
         expect(result).to_be_focused()
         assert failing not in page.content()
         assert_phone_layout(page)
+
+
+TOKEN_RADIO = f"{SECTION} #kind-claude_subscription_token"
+REMOVE_TOKEN = f"{SECTION} #remove-claude_subscription_token"
+
+
+def test_settings_remove_saved_token_by_keyboard(running_app: RunningApp, browser: Browser) -> None:
+    with new_page(browser, DESKTOP) as page:
+        open_app(page, running_app, "/settings")
+        providers = page.locator(SECTION)
+
+        # Save a fictional token, by keyboard.
+        tab_to(page, f'{SECTION} input[name="kind"]')
+        for _ in range(MAX_TABS):
+            if has_focus(page, TOKEN_RADIO):
+                break
+            page.keyboard.press("ArrowDown")
+        page.keyboard.press("Space")
+        tab_to(page, f"{SECTION} #credential")
+        page.keyboard.type(FICTIONAL_TOKEN)
+        page.keyboard.press("Enter")  # Save is the form's first button
+        expect(page.locator("#announcer")).to_contain_text("Saved")
+        expect(page.locator(REMOVE_TOKEN)).to_have_text("Remove saved token")
+
+        # Remove asks; "Keep it" puts focus back on Remove.
+        tab_to(page, REMOVE_TOKEN)
+        page.keyboard.press("Enter")
+        question = providers.locator("#remove-question-claude_subscription_token")
+        expect(question).to_be_focused()
+        assert_no_serious_violations(page)
+        tab_to(page, f'{SECTION} button[name="keep"]')
+        page.keyboard.press("Enter")
+        expect(page.locator(REMOVE_TOKEN)).to_be_focused()
+        expect(page.locator("#announcer")).to_have_text("The saved token was kept.")
+        assert FICTIONAL_TOKEN in keyring_values(running_app)
+
+        # Remove, then "Remove token": removed and announced.
+        page.keyboard.press("Enter")
+        expect(question).to_be_focused()
+        page.keyboard.press("Tab")
+        confirm = providers.get_by_role("button", name="Remove token", exact=True)
+        expect(confirm).to_be_focused()
+        page.keyboard.press("Enter")
+        expect(page.locator("#announcer")).to_have_text("The saved token was removed.")
+        expect(page.locator(REMOVE_TOKEN)).to_have_count(0)
+        expect(page).to_have_url(f"{running_app.base_url}/settings")
+        assert FICTIONAL_TOKEN not in page.content()
+
+    assert FICTIONAL_TOKEN not in keyring_values(running_app)
+
+
+def test_settings_rerun_guide_link_opens_guide_with_back_to_app(
+    running_app: RunningApp, browser: Browser
+) -> None:
+    with new_page(browser, DESKTOP) as page:
+        open_app(page, running_app, "/settings")
+        link = page.get_by_role("link", name="Re-run the setup guide")
+        tab_to_locator(page, link)
+        page.keyboard.press("Enter")
+        expect(page).to_have_url(f"{running_app.base_url}/setup/welcome")
+        expect(page.get_by_role("button", name="Back to the app")).to_be_visible()
+        assert_no_serious_violations(page)

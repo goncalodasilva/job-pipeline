@@ -5,10 +5,14 @@
 provider step's handler (``ProviderStep``, over ``ProviderSetupService``; ADR-062) and its
 fragment, posting to the Settings routes instead of the guide's. GET and HEAD have no side
 effects (spec 2.9 rule 12): the credential status comes from the settings row and cached facts,
-never the keychain. The rest of Settings arrives later and has an empty state.
+never the keychain. A link re-runs the setup guide from its first step (detailed design; ADR-066:
+the finished guide offers "Back to the app" and resets nothing). The rest of Settings arrives
+later and has a small empty state after Providers.
 
 ``POST /settings/providers`` (launch token and origin) saves like the provider step: ``kind``,
-``credential``, ``action=save`` (default) or ``remove=<kind>``. A valid save answers 303 to
+``credential``, ``action=save`` (default) or ``remove=<kind>`` (deletes only with
+``confirm=<kind>``; without it, or with ``keep=<kind>``, it answers 200 with the section asking
+or no longer asking, and changes nothing). A valid save answers 303 to
 ``/settings``, or for htmx 200 with the Providers section and an "announce" trigger (never
 ``HX-Push-Url``); a refused one answers 422 with the field error, showing back only the kind.
 
@@ -28,8 +32,9 @@ from starlette.concurrency import run_in_threadpool
 from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
+from app.api.setup_redirect import setup_step_path
 from app.api.templating import render
-from app.onboarding.registry import ConnectionCheck, Form, StepResult
+from app.onboarding.registry import ConnectionCheck, Form, StepRegistry, StepResult
 from app.onboarding.steps.provider import ProviderStep
 
 SETTINGS_PATH = "/settings"
@@ -79,6 +84,11 @@ async def save_providers(request: Request) -> Response:
     result: StepResult = await run_in_threadpool(_handler(request).submit, form)
     if not result.ok:
         return _refused(request, result.errors, form)
+    if result.view is not None:  # nothing changed: a removal to confirm, or kept (200)
+        response = _render(request, step_view=result.view)
+        if is_htmx(request) and result.message:
+            response.headers["HX-Trigger"] = json.dumps({"announce": result.message})
+        return response
     if not is_htmx(request):
         return RedirectResponse(SETTINGS_PATH, status_code=303)
     response = _render(request, stayed=True)
@@ -122,10 +132,12 @@ def _render(
     submitted: Form | None = None,
     stayed: bool = False,
     connection: ConnectionCheck | None = None,
+    step_view: Mapping[str, str] | None = None,
 ) -> HTMLResponse:
     """The full Settings page, or for htmx the Providers section (after a POST) or the main
     content (a page GET)."""
     handler = _handler(request)
+    registry: StepRegistry = request.app.state.setup_registry
     form: dict[str, Any] = dict(handler.context())
     if submitted:
         echo_submitted(form, handler, submitted)
@@ -140,10 +152,12 @@ def _render(
             "errors": dict(errors or {}),
             "stayed": stayed,  # saved: focus moves to the credential status
             "connection": connection,  # a test just ran: focus moves to its result
+            "step_view": dict(step_view or {}),  # a removal to confirm, or kept: focus there
             # The provider step's fragment, pointed at the Settings routes.
             "provider_context": "settings",
             "provider_post_url": PROVIDERS_PATH,
             "provider_test_url": PROVIDERS_TEST_PATH,
             "provider_target": PROVIDERS_TARGET,
+            "guide_url": setup_step_path(registry.first.id),  # re-run the setup guide
         },
     )

@@ -476,6 +476,29 @@ async def test_result_reports_failure_kind_and_tested_version(
     assert timed_out.message == NetworkUnavailable().user_message
 
 
+async def test_failure_kind_comes_from_the_result_not_its_text(
+    settings: SettingsService, data_dir: Path
+) -> None:
+    """ADR-063 follow-up: the service reads ``ConnectionResult.failure``; the message text is
+    only shown, never matched."""
+    worded = ConnectionResult(ok=False, message="Fictional provider wording.", failure="auth")
+    result = await service(settings, ScriptedFactory(RecordingProvider(worded))).test_connection(
+        EXISTING_KIND, "", data_dir=data_dir
+    )
+    assert (result.ok, result.message, result.failure) == (
+        False,
+        "Fictional provider wording.",
+        "auth",
+    )
+
+    # A provider that says nothing about the kind is "other", whatever its text says.
+    silent = ConnectionResult(ok=False, message=UsageLimitReached().user_message)
+    result = await service(settings, ScriptedFactory(RecordingProvider(silent))).test_connection(
+        EXISTING_KIND, "", data_dir=data_dir
+    )
+    assert (result.message, result.failure) == (UsageLimitReached().user_message, "other")
+
+
 # --- a refused save runs no test ---------------------------------------------------------------
 
 

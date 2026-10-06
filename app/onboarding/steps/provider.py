@@ -13,6 +13,11 @@ are still the version that was tested; it is kept in memory for this run only, s
 shows it without running a test. Any change to the settings forgets it. Failures are worded
 for the chosen sign-in route here; the service reports what kind of failure it was.
 
+Removing a saved key asks first (M1.21 follow-up): ``remove=<kind>`` alone changes nothing and
+answers ``StepResult.view`` ``{"confirm_remove": kind}`` (the inline question); only a submit
+that also carries ``confirm=<kind>`` deletes. ``keep=<kind>`` ("Keep it") changes nothing and
+answers ``{"kept": kind}``, so focus goes back to that kind's Remove button.
+
 Settings > Providers (M1.21) uses this same handler, so saves, tests, the one-at-a-time lock
 and the remembered "Connected" are shared with the step. A test from Settings passes
 ``mark_done=False``: it never touches the guide's state, and its "Connected" is remembered
@@ -28,6 +33,8 @@ from typing import Final
 from app.onboarding.registry import ConnectionCheck, Form, StepResult
 from app.services.provider_setup import (
     API_KEY_VARIABLE,
+    CREDENTIAL_NAME,
+    MSG_NOTHING_TO_REMOVE,
     TOKEN_VARIABLE,
     ProviderSetupResult,
     ProviderSetupService,
@@ -43,6 +50,7 @@ MSG_TEST_AGAIN = "You can test the connection again to check it."
 MSG_NOT_RECORDED = "Connected, but the app couldn't record it. Try again."
 MSG_BUSY = "A connection test is already running. Wait for it to finish."
 MSG_CHANGED = "The provider changed while testing. Test again."
+MSG_KEPT = "The saved {name} was kept."
 NOT_CONNECTED = "Not connected: "
 
 TOKEN_KIND: Final = "claude_subscription_token"  # noqa: S105 - a provider kind, not a secret
@@ -115,14 +123,24 @@ class ProviderStep:
 
     def submit(self, form: Form) -> StepResult:
         """``action=save`` (the default) saves the choice; a ``remove=<kind>`` button (with
-        no action, or ``action=delete``) removes that kind's saved key. Blocking."""
-        remove = _first(form, "remove")
+        no action, or ``action=delete``) asks to confirm, and removes that kind's saved key
+        only with ``confirm=<kind>``; ``keep=<kind>`` answers the question. Blocking."""
+        remove, keep = _first(form, "remove"), _first(form, "keep")
         action = _first(form, "action") or ("delete" if remove is not None else "save")
         if action not in ACTIONS or (action == "save" and remove is not None):
+            return StepResult(ok=False, errors={"form": MSG_UNKNOWN_ACTION})
+        if keep is not None and (remove is not None or "action" in form):
             return StepResult(ok=False, errors={"form": MSG_UNKNOWN_ACTION})
         service = self._service()
         if service is None:
             return StepResult(ok=False, errors={"form": MSG_STEP_1_FIRST})
+        if keep is not None:
+            return _asked(service, keep, "kept")
+        confirm = _first(form, "confirm")
+        if action == "delete" and confirm is None:
+            return _asked(service, remove or "", "confirm_remove")
+        if action == "delete" and confirm != remove:
+            return StepResult(ok=False, errors={"form": MSG_UNKNOWN_ACTION})
         before = service.settings_version()
         if action == "delete":
             result = service.delete_credential(remove or "")
@@ -189,6 +207,15 @@ def _failure_text(kind: str, result: ProviderTestResult) -> str:
     if result.failure == "usage_limit" and kind == API_KEY_KIND:
         return MSG_API_USAGE_LIMIT
     return result.message
+
+
+def _asked(service: ProviderSetupService, kind: str, state: str) -> StepResult:
+    """Nothing changes: show the removal question (``confirm_remove``) or close it
+    (``kept``) for a kind that has a saved key; else there's nothing to remove."""
+    if kind not in service.view().saved_kinds:
+        return StepResult(ok=False, errors={"form": MSG_NOTHING_TO_REMOVE})
+    message = MSG_KEPT.format(name=CREDENTIAL_NAME[kind]) if state == "kept" else None
+    return StepResult(ok=True, view={state: kind}, message=message)
 
 
 def _step_result(result: ProviderSetupResult, *, then: str | None = None) -> StepResult:

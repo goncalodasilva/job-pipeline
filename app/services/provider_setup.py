@@ -30,16 +30,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Final, Literal, TypeVar
 
-from app.domain.errors import (
-    AppError,
-    NetworkUnavailable,
-    ProviderAuthError,
-    ProviderNotInstalled,
-    UsageLimitReached,
-    VersionConflict,
-)
+from app.domain.errors import AppError, NetworkUnavailable, VersionConflict
 from app.domain.settings import AI_PROVIDER, AIProviderSettings, ProviderKind, TierMap
-from app.modules.ai import AIProviderFactory, ProviderChoice
+from app.modules.ai import (
+    AIProviderFactory,
+    ConnectionFailure,
+    ProviderChoice,
+    connection_failure,
+)
 from app.modules.secrets import (
     ANTHROPIC_API_KEY,
     CLAUDE_CODE_OAUTH_TOKEN,
@@ -117,18 +115,10 @@ class ProviderSetupResult:
     message: str | None = None  # announced after a save
 
 
-# What a failed connection test was, so the step can word it for the chosen route.
-TestFailure = Literal["auth", "not_installed", "usage_limit", "network", "timeout", "other"]
-# ``ConnectionResult`` carries only the message (ADR-058), so its kind is recognised by the
-# domain error's user message.
-_FAILURE_BY_MESSAGE: Final[Mapping[str, TestFailure]] = MappingProxyType(
-    {
-        ProviderAuthError().user_message: "auth",
-        ProviderNotInstalled().user_message: "not_installed",
-        UsageLimitReached().user_message: "usage_limit",
-        NetworkUnavailable().user_message: "network",
-    }
-)
+# What a failed connection test was, so the step can word it for the chosen route: the
+# provider's ``ConnectionResult.failure`` (ADR-063 follow-up), or the service's own timeout,
+# or "other" when nothing says.
+TestFailure = Literal[ConnectionFailure, "timeout", "other"]
 
 
 @dataclass(frozen=True)
@@ -271,12 +261,12 @@ class ProviderSetupService:
             return _failed(NetworkUnavailable().user_message, "timeout", version)
         except AppError as error:  # test_connection maps these itself (ADR-058)
             _log.warning("Connection test raised %s.", type(error).__name__)
-            return _failed(error.user_message, None, version)
+            return _failed(error.user_message, connection_failure(error), version)
         except Exception as error:  # its text may quote a credential: type only
             _log.warning("Connection test failed (%s).", type(error).__name__)
             return _failed(MSG_TEST_FAILED, "other", version)
         if not outcome.ok:
-            return _failed(outcome.message, None, version)
+            return _failed(outcome.message, outcome.failure, version)
         return ProviderTestResult(
             ok=True, message=outcome.message, model=outcome.model, version=version
         )
@@ -469,7 +459,7 @@ class ProviderSetupService:
 
 
 def _failed(message: str, failure: TestFailure | None, version: int) -> ProviderTestResult:
-    kind = failure if failure is not None else _FAILURE_BY_MESSAGE.get(message, "other")
+    kind: TestFailure = failure if failure is not None else "other"
     return ProviderTestResult(ok=False, message=message, failure=kind, version=version)
 
 

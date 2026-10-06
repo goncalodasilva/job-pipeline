@@ -574,3 +574,18 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - After a save that changes the kind, the announcement is "Next, test the connection." (also in a reopened guide, ADR-063).
   - The Settings empty state for later parts sits above Providers for now (the placeholder test expects the h1 inside .empty-state; moving it when M1.22 adds tiers needs test changes).
 - Consequences: M1.22 builds its selects on `known_models()`.
+
+## ADR-068 — Settings follow-ups: confirm before removing a key, failure kinds, layout (2026-10-06)
+
+- Context: M1.20 and M1.21 left four items for the user. The follow-up built them all.
+- Decision:
+  1. Done step summary: the Done step now shows "Needs attention" in the step list when a provider is broken (one banner in `StartupDecision.banners`), instead of always saying "Done". The intro then says something needs attention instead of "You're ready to start" when the Done step shows "Needs attention".
+  2. Settings layout: the Settings page now has an h1 "Settings", then the Providers section, then a "Setup guide" section with a "Re-run the setup guide" link to the first guide step. A small "Coming later" card sits below. The placeholder test in `tests/integration/test_app_shell.py` has been updated to expect the h1 outside the `.empty-state` card; test changes are approved (user decision, 2026-10-06).
+  3. Re-run the setup guide: the link opens `/setup` at the first step. A finished guide offers a "Back to the app" button (POST `/setup/leave`), and nothing is reset (ADR-066).
+  4. Removing a saved key: removing a token or API key in both the guide and Settings takes two steps. `remove=<kind>` in the form shows an inline confirm question with two buttons ("Remove token/API key" and "Keep it") and Esc acts as "Keep it". Moving focus to the question is required for keyboard friendliness. The confirm is inline, not a modal. Deleting needs `confirm` equal to the kind as a separate form field. Seven existing tests received a `confirm` field on their removal requests; their assertions are unchanged.
+  5. Provider error mapping and ConnectionResult: a new `ConnectionResult.failure` field (Literal with values auth, not_installed, usage_limit, network, rejected, invalid_output; None on success) carries the failure kind without message text. Providers fill it in, and `ProviderSetupService` maps failures by this field instead of by message text, adding timeout and other error kinds. The contract suite requires it. Tests in `test_claude_connection.py` and `test_claude_fake_cli.py` gained the expected `failure=` values; full-equality tests in `test_claude_connection.py` use the new field.
+  6. Radio buttons vs dropdowns: the guide and Settings use radio buttons (reused from step 2) rather than the design's dropdowns, because a short list of always-visible choices is better for keyboard navigation and screen readers (user decision, 2026-10-06, ADR-067 superseded). The design deviation is deliberate.
+- Consequences:
+  - ADR-067's line "The Settings empty state for later parts sits above Providers for now…" is superseded by point 2 (moving the h1 is resolved).
+  - ADR-063's follow-up on `ConnectionResult.failure` is resolved by point 5.
+  - The Done step and Settings provider section are user-visible; Settings layout is stable for M1.22.

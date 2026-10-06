@@ -5,6 +5,8 @@
 <h2 id="step-heading"{% if not form_error %} data-autofocus{% endif %}>Done</h2>
 {% if unfinished %}
 <p>Almost there. Finish the required steps marked "Not done yet", then come back here to start using the app.</p>
+{% elif form.get("needs_attention") %}
+<p>Something needs attention: open the step marked "Needs attention" to fix it.</p>
 {% else %}
 <p>You're ready to start. Here's what you set up; you can open any step again from this list to change it.</p>
 {% endif %}

@@ -166,6 +166,7 @@ def submit(
     *,
     action: str | None = None,
     remove: str | None = None,
+    confirm: str | None = None,
     htmx: bool = False,
 ) -> Response:
     form: dict[str, str] = {}
@@ -177,6 +178,8 @@ def submit(
         form["action"] = action
     if remove is not None:
         form["remove"] = remove
+    if confirm is not None:  # the "Remove" answer to the question (M1.21 follow-up)
+        form["confirm"] = confirm
     headers = run.action(**({"HX-Request": "true"} if htmx else {}))
     return run.client.post(PROVIDER, data=form, headers=headers)
 
@@ -823,7 +826,7 @@ def test_delete_removes_keychain_item_and_clears_saved_sign_in(
         assert_saved_and_stayed(submit(run, TOKEN_KIND, FICTIONAL_TOKEN))
         assert run.app.state.provider_health == ProviderHealth("ok")
 
-        removed = submit(run, TOKEN_KIND, remove=TOKEN_KIND)
+        removed = submit(run, TOKEN_KIND, remove=TOKEN_KIND, confirm=TOKEN_KIND)
         assert_saved_and_stayed(removed)
 
         assert keychain(memory_keyring) == {}
@@ -846,7 +849,9 @@ def test_remove_one_saved_key_keeps_the_other(
         assert_saved_and_stayed(submit(run, API_KEY_KIND, FICTIONAL_API_KEY))
 
         # The token is removed while the API key is the chosen kind (action=delete + remove).
-        removed = submit(run, API_KEY_KIND, action="delete", remove=TOKEN_KIND, htmx=True)
+        removed = submit(
+            run, API_KEY_KIND, action="delete", remove=TOKEN_KIND, confirm=TOKEN_KIND, htmx=True
+        )
         assert removed.status_code == 200, removed.text[:300]
         assert "token was removed" in json.loads(removed.headers["hx-trigger"])["announce"]
 
@@ -903,7 +908,9 @@ def test_delete_says_when_environment_still_provides_the_credential(
         assert_saved_and_stayed(submit(run, API_KEY_KIND, FICTIONAL_API_KEY))
         assert "system keychain" in status_text(page(run)).lower()
 
-        assert_saved_and_stayed(submit(run, API_KEY_KIND, remove=API_KEY_KIND))
+        assert_saved_and_stayed(
+            submit(run, API_KEY_KIND, remove=API_KEY_KIND, confirm=API_KEY_KIND)
+        )
         assert keychain(memory_keyring) == {}
         assert stored(run).saved_sign_ins == ()
         assert run.app.state.provider_health == ProviderHealth("ok")
@@ -915,7 +922,7 @@ def test_delete_says_when_environment_still_provides_the_credential(
 def test_delete_without_keychain_explains_fallback(tmp_path: Path) -> None:
     saved = AIProviderSettings(kind="claude_api_key", saved_sign_ins=("claude_api_key",))
     with running(tmp_path, wiring=make_wiring(backend=FailingKeyring()), provider=saved) as run:
-        response = submit(run, API_KEY_KIND, remove=API_KEY_KIND)
+        response = submit(run, API_KEY_KIND, remove=API_KEY_KIND, confirm=API_KEY_KIND)
         assert response.status_code == 422, response.text[:300]
         assert "keychain" in required(outline(response.text), "form-error").text.lower()
         assert stored(run).saved_sign_ins == (API_KEY_KIND,), "nothing changed"

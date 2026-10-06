@@ -43,7 +43,9 @@ def save_kind(run: Running, kind: str, credential: str = "") -> None:
 
 
 def remove_key(run: Running, kind: str) -> None:
-    response = run.client.post("/settings/providers", data={"remove": kind}, headers=run.action())
+    response = run.client.post(
+        "/settings/providers", data={"remove": kind, "confirm": kind}, headers=run.action()
+    )
     assert_see_other(response, "/settings")
 
 

@@ -1,8 +1,9 @@
 """Shared AIProvider contract (M1.10; AC-M1.3; spec 2.4, 2.11, 4.1; ADR-044, ADR-051).
 
 Every AI provider must answer with the same shape, report connection results with the
-spec 2.11 messages, list unique models, send no tools unless web search is allowed and
-make no call once cancelled, and stop and release a call cancelled while it runs. Providers
+spec 2.11 messages and the failure kind (``ConnectionResult.failure``, ADR-063 follow-up),
+list unique models, send no tools unless web search is allowed and make no call once
+cancelled, and stop and release a call cancelled while it runs. Providers
 join through a harness (``ai_harness.py``). The Claude provider runs the call and model
 tests with a fake SDK client (M1.13) and the connection tests (``connection_harness``)
 since M1.14. All values are fictional.
@@ -86,6 +87,7 @@ async def test_test_connection_ok_returns_connected(
     assert result.ok is True
     assert result.message == "Connected"
     assert result.model == harness.reported_model(model)
+    assert result.failure is None
 
 
 @pytest.mark.parametrize("outcome", list(EXPECTED_ERROR), ids=list(EXPECTED_ERROR))
@@ -100,6 +102,7 @@ async def test_test_connection_maps_failures(
     assert result.ok is False
     assert result.message == EXPECTED_ERROR[outcome]().user_message
     assert result.model is None
+    assert result.failure == outcome, "every provider says what kind of failure it was"
 
 
 def test_known_models_nonempty_unique(harness: ProviderHarness) -> None:

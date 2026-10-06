@@ -384,6 +384,17 @@ body.layout-guide {
   font-size: 1.25rem;
 }
 
+/* Settings' "Coming later" card: small, spaced like the sections above it. */
+.empty-state.settings-later {
+  margin-top: var(--space-6);
+  padding: var(--space-4);
+}
+
+.settings-later h2 {
+  margin-top: 0;
+  font-size: 1.25rem;
+}
+
 .setup-steps [aria-current="step"] {
   color: var(--color-text);
   font-weight: 700;
@@ -608,6 +619,25 @@ body.layout-guide {
   align-items: center;
   gap: var(--space-2) var(--space-3);
   margin-bottom: var(--space-2);
+}
+
+/* "Remove the saved token?" asked in place: the question, then Remove and Keep it. */
+.remove-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.remove-question {
+  flex-basis: 100%;
+  margin: 0;
+  font-weight: 600;
+}
+
+.remove-confirm .saving-note {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 .env-note,

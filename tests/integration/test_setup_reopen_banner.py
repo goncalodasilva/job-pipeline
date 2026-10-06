@@ -481,3 +481,47 @@ def test_provider_banner_names_the_cached_cause(tmp_path: Path, bundled_cli: Pat
         (banner,) = banners(get_ok(run, "/").text)
         assert "Your saved token or API key is missing." in banner.text
         assert banner.text.startswith("Needs attention:")
+
+
+def test_done_summary_says_needs_attention_for_banner_steps(
+    tmp_path: Path, bundled_cli: Path
+) -> None:
+    """The Done step's summary agrees with the step list: a broken provider is not "Done"."""
+    finished_guide(tmp_path, provider=broken_provider())
+
+    with started(tmp_path) as run:
+        assert run.decision.banners == ("provider",)
+        elements = outline(get_ok(run, DONE_STEP).text)
+        (summary,) = [e for e in elements if e.tag == "ul" and "setup-summary" in class_tokens(e)]
+        rows = [e.text for e in elements if e.tag == "li" and e.parent is summary]
+        assert rows == [
+            "Welcome and data folder: Done",
+            "AI provider: Needs attention",
+            "Job preferences: Done",
+        ], rows
+
+
+ATTENTION_INTRO = 'Something needs attention: open the step marked "Needs attention" to fix it.'
+
+
+def test_done_intro_says_something_needs_attention_and_finish_still_works(
+    tmp_path: Path, bundled_cli: Path
+) -> None:
+    finished_guide(tmp_path, provider=broken_provider())
+
+    with started(tmp_path) as run:
+        page = get_ok(run, DONE_STEP).text
+        texts = [e.text for e in outline(page) if e.tag == "p"]
+        assert ATTENTION_INTRO in texts, texts
+        assert not any("You're ready to start" in text for text in texts), texts
+
+        finished = run.client.post(DONE_STEP, data={"then": "today"}, headers=run.action())
+        assert_see_other(finished, "/")
+        assert live_statuses(run) == ALL_M1_DONE
+
+    healthy = tmp_path / "healthy"
+    finished_guide(healthy)
+    with started(healthy) as run:
+        texts = [e.text for e in outline(get_ok(run, DONE_STEP).text) if e.tag == "p"]
+        assert any(text.startswith("You're ready to start") for text in texts), texts
+        assert ATTENTION_INTRO not in texts

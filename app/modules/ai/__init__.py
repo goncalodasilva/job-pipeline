@@ -8,8 +8,18 @@ content in `AIRequest.user` is already delimited (spec 3.3).
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from types import MappingProxyType
+from typing import Any, Final, Literal, Protocol
 
+from app.domain.errors import (
+    AppError,
+    InvalidModelOutput,
+    NetworkUnavailable,
+    ProviderAuthError,
+    ProviderNotInstalled,
+    ProviderRequestRejected,
+    UsageLimitReached,
+)
 from app.domain.settings import AIProviderSettings, ProviderKind, Tier
 
 
@@ -33,11 +43,38 @@ class ModelChoice:
     label: str
 
 
+# What a failed connection test was (spec 2.11), so callers word it without matching text:
+# ProviderAuthError, ProviderNotInstalled, UsageLimitReached, NetworkUnavailable (also a
+# timeout), ProviderRequestRejected, InvalidModelOutput.
+ConnectionFailure = Literal[
+    "auth", "not_installed", "usage_limit", "network", "rejected", "invalid_output"
+]
+_FAILURE_BY_ERROR: Final[Mapping[type[AppError], ConnectionFailure]] = MappingProxyType(
+    {
+        ProviderAuthError: "auth",
+        ProviderNotInstalled: "not_installed",
+        UsageLimitReached: "usage_limit",
+        NetworkUnavailable: "network",
+        ProviderRequestRejected: "rejected",
+        InvalidModelOutput: "invalid_output",
+    }
+)
+
+
+def connection_failure(error: AppError) -> ConnectionFailure | None:
+    """The failure kind of a mapped domain error, or None for any other error."""
+    for kind, failure in _FAILURE_BY_ERROR.items():
+        if isinstance(error, kind):
+            return failure
+    return None
+
+
 @dataclass(frozen=True)
 class ConnectionResult:
     ok: bool
     message: str  # plain text shown to the user
     model: str | None = None
+    failure: ConnectionFailure | None = None  # set by every provider on failure; None if ok
 
 
 class CancelToken(Protocol):

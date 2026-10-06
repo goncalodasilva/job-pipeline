@@ -539,7 +539,8 @@ def test_placeholder_pages_have_empty_state(client: TestClient, path: str, area:
     state, elements = _empty_state(page)
 
     assert len([e for e in elements if e.tag == "h1"]) == 1, "one <h1> per page"
-    headings = [e for e in elements if e.tag == "h1" and e.within(state)]
+    # Settings leads with its own <h1> and Providers; its empty state covers the later parts.
+    headings = [e for e in elements if e.tag == "h1" and (area == "Settings" or e.within(state))]
     assert headings, "the empty state has no <h1>"
     assert area.lower() in headings[0].text.lower(), headings[0].text
 
