@@ -64,7 +64,7 @@ class Secret:
     """A fictional key-shaped secret: a public format prefix and a random body."""
 
     label: str
-    value: str
+    value: str = field(repr=False)  # never shown, even for a live credential
     public_prefix: str
 
     def needles(self) -> list[str]:
@@ -257,14 +257,25 @@ class RawLogRecords:
 
         monkeypatch.setattr(logging.Logger, "handle", handle)
 
+    def __repr__(self) -> str:
+        # Counts only: the captured texts may hold a secret (a live credential, in M1.25).
+        return f"RawLogRecords(<{len(self.sources)} records, {len(self.entries)} texts hidden>)"
 
-@dataclass
+
+@dataclass(repr=False)
 class Evidence:
-    """Everything one test produced, to be scanned for each secret."""
+    """Everything one test produced, to be scanned for each secret. Its repr shows counts
+    only, so a failing test's locals or assertion never print what it holds."""
 
     responses: list[tuple[str, Response]] = field(default_factory=list)
     texts: list[tuple[str, str]] = field(default_factory=list)  # (where, text)
     blobs: list[tuple[str, bytes]] = field(default_factory=list)  # (where, raw bytes)
+
+    def __repr__(self) -> str:
+        counts = (
+            f"{len(self.responses)} responses, {len(self.texts)} texts, {len(self.blobs)} blobs"
+        )
+        return f"Evidence(<{counts} hidden>)"
 
     def add_response(self, label: str, response: Response) -> Response:
         self.responses.append((label, response))

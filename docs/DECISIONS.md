@@ -117,6 +117,7 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 ## ADR-025 — Demo mode folder and config defaults (2026-10-03)
 
 - Decision: demo mode uses `platformdirs.user_data_dir("jobpipeline-demo")`, a sibling of the real data folder, and ignores the bootstrap config's `data_dir`. An explicit `--data-dir` wins over `--demo`; `JOBPIPELINE_DATA_DIR` beats both. Bootstrap config `data_dir` must be an absolute path (with `~` expanded). The bootstrap file `config.toml` is always parsed, so a malformed file is reported even with `--demo` or `--data-dir`. Log levels are `DEBUG`, `INFO`, `WARNING`, `ERROR` (case-insensitive on input, uppercase in runtime config). Defaults are port 8000 and log level INFO. M0 only resolves the path; demo data seeding is M9.
+- Update (2026-10-06, M1.25, user decision): The precedence is: `--data-dir` > `JOBPIPELINE_DATA_DIR` > `--demo` > bootstrap config > default. The original statement "JOBPIPELINE_DATA_DIR beats both" is superseded by this precedence.
 
 ## ADR-026 — Module interfaces in M0, implementations in their milestones (2026-10-03)
 
@@ -640,3 +641,22 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - Do not merge, rebase, force-push or open a PR without asking the user; never push on `/next-task`.
   - The pushing automation overrides the "never push" rule for this specific workflow in this ephemeral environment only.
 - Consequences: milestone branches are backed up to `origin` continuously during `/run-milestone`, and the session survives. Merging and PR creation remain deliberate, user-initiated decisions.
+
+## ADR-072 — Data-folder lock deferred (2026-10-06)
+
+- Context: ADR-059 notes that two app instances on the same data folder would clear each other's AI call folders at start-up and both write to `app.db`. This is an accepted risk for M1 but should be prevented later to avoid confusion or data loss if two instances run concurrently.
+- Decision (user, 2026-10-06): defer the data-folder lock mechanism to a later milestone. The lock will prevent two instances from opening the same data folder concurrently.
+- Planned approach (M2 or later): an OS file lock (`fcntl.flock` on POSIX) taken on `<data>/.lock` when the workspace opens and released by the OS on process exit.
+- Consequences: M1 runs with the risk accepted (concurrent instances interfere); a later milestone adds the lock for mutual exclusion. This closes the ADR-059 follow-up on the data-folder lock.
+
+## ADR-073 — CI scope for M1 (2026-10-06)
+
+- Context: the milestone acceptance criteria mentions a "three-OS CI run" to complete M1, but ADR-061 dropped Windows support and only Ubuntu and macOS run in CI (which amends ADR-032's earlier "all three OSes" rule).
+- Decision (user, 2026-10-06): M1.25's exit check "three-OS CI run" reads as a green CI run on the supported platforms: Ubuntu and macOS. No Windows job is required for M1 acceptance.
+- Consequences: M1 acceptance requires at least one green CI run on both Ubuntu and macOS (per ADR-032: Ubuntu runs on every push to any branch; macOS runs on pull requests to main, manual dispatch and the weekly schedule).
+
+## ADR-074 — A gitleaks history finding fixed by rewriting the branch (2026-10-06)
+
+- Context: the first M1.25 commit added a fictional test value in `tests/unit/test_live_gating.py` that gitleaks' `generic-api-key` rule flags. Local full verification ran the history scan before the file was committed, so the push turned CI's history scan red. The repo runs gitleaks with no allowlist, and `tests/unit/test_precommit_config.py::test_gitleaks_runs_without_allowlist` forbids `.gitleaksignore`.
+- Decision (user, 2026-10-06): keep the no-allowlist rule and rewrite the unmerged milestone branch instead. The M1.25 commits were rebuilt with the value built so it isn't flagged, and `m1-setup-guide` was force-pushed with `--force-with-lease`. A `.gitleaksignore` exception was tried and dropped.
+- Consequences: no flagged string in history and no gitleaks exception. Lesson: after committing new test files, run the history scan (`uv run pre-commit run --hook-stage manual gitleaks-history`) before pushing, and gate a push on the verify script's own exit status.
