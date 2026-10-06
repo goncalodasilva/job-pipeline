@@ -32,14 +32,14 @@ the fragment and an "announce" trigger with the result text, a plain request the
 """
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
-from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.security import PAGE_TAG
 from app.api.setup_redirect import SETUP_PATH, setup_step_path
 from app.api.templating import render
@@ -61,7 +61,6 @@ SETUP_PAGE = "pages/setup.html"
 GUIDE_FRAGMENT = "fragments/setup/_guide_swap.html"
 NOT_FOUND_PAGE = "pages/setup_not_found.html"
 NOT_FOUND_FRAGMENT = "fragments/setup/_not_found.html"
-MAX_FORM_BYTES = 64 * 1024  # step forms are a few short fields
 LEAVE_PATH = f"{SETUP_PATH}/leave"  # "Back to the app" (M1.20)
 APP_HOME = "/"
 
@@ -130,7 +129,7 @@ async def submit_step(request: Request, step_id: str) -> Response:
         step = registry.get(step_id)
     except UnknownSetupStep:
         return _not_found(request)
-    form = await _read_form(request)
+    form = await read_form(request)
     if form is None:
         return HTMLResponse("", status_code=413)
     handler: StepHandler = request.app.state.setup_handlers[step.id]
@@ -142,18 +141,18 @@ async def submit_step(request: Request, step_id: str) -> Response:
         return response
     if result.redirect is not None:  # finished: leave the guide (M1.19)
         target = _local_path(result.redirect)
-        if not _is_htmx(request):
+        if not is_htmx(request):
             return RedirectResponse(target, status_code=303)
         return Response(status_code=200, headers={"HX-Redirect": target})
     if result.stay:  # saved, but the step isn't finished: stay on it (M1.17)
-        if not _is_htmx(request):
+        if not is_htmx(request):
             return RedirectResponse(setup_step_path(step.id), status_code=303)
         response = _render_step(request, step, stayed=True)
         response.headers["HX-Trigger"] = json.dumps({"announce": result.message or "Saved."})
         return response
     following = _next_step(registry, step)
     url = setup_step_path(following.id)
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(url, status_code=303)
     position = registry.steps.index(following) + 1
     announcement = f"Step {position} of {len(registry.steps)}: {following.title}"
@@ -169,7 +168,7 @@ def leave_setup(request: Request) -> Response:
     onboarding.leave_reopened()
     step = onboarding.guide_step()  # still set when the guide was never finished
     target = setup_step_path(step) if step is not None else APP_HOME
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(target, status_code=303)
     return Response(status_code=200, headers={"HX-Redirect": target})
 
@@ -177,7 +176,7 @@ def leave_setup(request: Request) -> Response:
 async def test_provider_connection(request: Request) -> Response:
     registry: StepRegistry = request.app.state.setup_registry
     step = registry.get(PROVIDER.id)
-    form = await _read_form(request)
+    form = await read_form(request)
     if form is None:
         return HTMLResponse("", status_code=413)
     tester: ConnectionTester = request.app.state.connection_tester
@@ -188,7 +187,7 @@ async def test_provider_connection(request: Request) -> Response:
         response.status_code = 422
         return response
     response = _render_step(request, step, connection=check)
-    if _is_htmx(request):
+    if is_htmx(request):
         response.headers["HX-Trigger"] = json.dumps({"announce": check.message})
     return response
 
@@ -210,7 +209,7 @@ def _render_step(
     handler: StepHandler = request.app.state.setup_handlers[step.id]
     form: dict[str, Any] = dict(handler.context())
     if submitted and not form.get("folder_fixed"):
-        _echo(form, handler, submitted)
+        echo_submitted(form, handler, submitted)
     return render(
         request,
         page=SETUP_PAGE,
@@ -235,20 +234,6 @@ def _setup_finished(decision: StartupDecision) -> bool:
     return decision.reopened or decision.kind in ("app", "app_with_banner")
 
 
-def _echo(form: dict[str, Any], handler: StepHandler, submitted: Form) -> None:
-    """Show the submitted values back, but only the fields the handler names (autoescaped;
-    NUL can't appear in HTML): ``echo_fields`` hold one value, ``echo_multi_fields`` every
-    value (checkboxes; none ticked means an empty list). None by default."""
-    echo_fields: tuple[str, ...] = getattr(handler, "echo_fields", ())
-    for name in echo_fields:
-        values = submitted.get(name)
-        if values:
-            form[name] = values[0].replace("\x00", "")
-    multi_fields: tuple[str, ...] = getattr(handler, "echo_multi_fields", ())
-    for name in multi_fields:
-        form[name] = [value.replace("\x00", "") for value in submitted.get(name, ())]
-
-
 def _local_path(target: str) -> str:
     """A path on this app; anything else (a URL, ``//host``, ``/\\host``, control characters,
     which browsers strip) goes to Today."""
@@ -259,28 +244,10 @@ def _local_path(target: str) -> str:
     return "/"
 
 
-async def _read_form(request: Request) -> Form | None:
-    """The URL-encoded body as lists of values, or None when it is too large."""
-    body = b""
-    async for chunk in request.stream():
-        body += chunk
-        if len(body) > MAX_FORM_BYTES:
-            return None
-    parsed: dict[str, list[str]] = parse_qs(
-        body.decode("utf-8", errors="replace"), keep_blank_values=True
-    )
-    fields: dict[str, Sequence[str]] = dict(parsed)
-    return fields
-
-
 def _next_step(registry: StepRegistry, step: StepDefinition) -> StepDefinition:
     steps = registry.steps
     index = steps.index(step)
     return steps[min(index + 1, len(steps) - 1)]
-
-
-def _is_htmx(request: Request) -> bool:
-    return request.headers.get("HX-Request") == "true"
 
 
 def _not_found(request: Request) -> HTMLResponse:

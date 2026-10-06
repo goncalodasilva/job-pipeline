@@ -561,3 +561,16 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - Step id `"leave"` is reserved (in `RESERVED_STEP_IDS`) because it collides with the fixed `/setup` POST route.
   - Layout: banners and `#app-status` share a `.page-status` wrapper in the grid's status area.
 - Consequences: e2e coverage for the banner and Back to the app moves into M1.24.
+
+## ADR-067 — Settings > Providers (2026-10-06)
+
+- Context: M1.21 builds a Settings screen with a Providers section reusing the setup guide's provider selection and connection test (AC-M1.3, AC-M1.4; ADR-053, ADR-062).
+- Decision:
+  - The Settings Providers section reuses `ProviderSetupService` and the step 2 fragment, parametrized by `provider_context` (guide or settings) and routed through GET `/settings` (page route) and POST `/settings/providers` and `/settings/providers/test` (token and origin checked; 405 on GET). Form helpers moved to `app/api/forms.py`.
+  - The guide and Settings share one `ProviderStep` handler. One test runs at a time across both, so starting one while the other runs gives "already running". The remembered "Connected" is shared, and any save clears it.
+  - Settings tests pass `mark_done=False` and never mark a guide step done. "Connected" is remembered only when the step is already done (a one-run message in Settings, unlike the guide where it marks done).
+  - Tier map (follows up ADR-051): when the kind changes (Claude ↔ fake; "nothing chosen" counts as Claude), the tier map is re-checked in the same save. Entries the new provider knows are kept; the rest go back to the defaults. Between Claude sign-in routes the map is left alone, and M1.22 validates it. `task_tiers` is kept.
+  - `AIProviderFactory` gains `known_models(kind)`, implemented in wiring from the providers' KNOWN_MODELS constants without building a provider. A test keeps it equal to each provider's `known_models()`.
+  - After a save that changes the kind, the announcement is "Next, test the connection." (also in a reopened guide, ADR-063).
+  - The Settings empty state for later parts sits above Providers for now (the placeholder test expects the h1 inside .empty-state; moving it when M1.22 adds tiers needs test changes).
+- Consequences: M1.22 builds its selects on `known_models()`.

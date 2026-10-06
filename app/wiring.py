@@ -29,6 +29,7 @@ from app.domain.tiers import resolve_model
 from app.modules.ai import (
     AIProvider,
     AITaskRunner,
+    ModelChoice,
     ProviderChoice,
     ProviderHealth,
 )
@@ -43,12 +44,14 @@ from app.modules.ai.providers.claude_sdk import (
     bundled_cli_path,
     windows_cli_candidates,
 )
+from app.modules.ai.providers.claude_sdk import KNOWN_MODELS as CLAUDE_MODELS
 from app.modules.ai.providers.fake import (
     FAKE_FAST_MODEL,
     FAKE_THOROUGH_MODEL,
     FakeAIProvider,
     outcome_for_key,
 )
+from app.modules.ai.providers.fake import KNOWN_MODELS as FAKE_MODELS
 from app.modules.secrets import KNOWN_SECRET_KEYS
 from app.modules.secrets.providers.chained import ChainedSecretStore
 from app.modules.secrets.providers.env import EnvSecretStore
@@ -80,6 +83,12 @@ _FAKE_LABEL: Final = "Fake (testing only)"
 _DEFAULTS_BY_PROVIDER: Final[Mapping[str, Mapping[Tier, str]]] = {
     ClaudeSdkProvider.name: {"fast": CLAUDE_FAST_DEFAULT, "thorough": CLAUDE_THOROUGH_DEFAULT},
     FakeAIProvider.name: {"fast": FAKE_FAST_MODEL, "thorough": FAKE_THOROUGH_MODEL},
+}
+
+
+_MODELS_BY_PROVIDER: Final[Mapping[str, tuple[ModelChoice, ...]]] = {
+    ClaudeSdkProvider.name: CLAUDE_MODELS,
+    FakeAIProvider.name: FAKE_MODELS,
 }
 
 
@@ -174,8 +183,12 @@ class Wiring:
     def connection_model(self, settings: AIProviderSettings) -> str:
         """The settings' Fast tier model, else the configured provider's Fast default (the
         Claude default when nothing is chosen yet)."""
-        provider = FakeAIProvider.name if settings.kind == "fake" else ClaudeSdkProvider.name
+        provider = _provider_name(settings.kind)
         return resolve_model("fast", settings, _DEFAULTS_BY_PROVIDER[provider])
+
+    def known_models(self, kind: ProviderKind | None) -> tuple[ModelChoice, ...]:
+        """The models offered by the provider ``kind`` stands for; builds nothing."""
+        return _MODELS_BY_PROVIDER[_provider_name(kind)]
 
     def environment_keys(self) -> frozenset[str]:
         """The secret keys the environment provides, fixed at start when wiring was built
@@ -268,6 +281,11 @@ def _real_folder(path: Path) -> Path:
     if not stat.S_ISDIR(path.lstat().st_mode):
         raise NotADirectoryError("the AI temporary folder is a link or not a folder")
     return path
+
+
+def _provider_name(kind: ProviderKind | None) -> str:
+    """The provider a kind stands for (Claude when nothing is chosen yet)."""
+    return FakeAIProvider.name if kind == "fake" else ClaudeSdkProvider.name
 
 
 def _cli_present() -> bool:

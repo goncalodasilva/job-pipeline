@@ -373,6 +373,17 @@ body.layout-guide {
   font-size: 1.25rem;
 }
 
+/* Settings (M1.21): one section per part, below the page heading. */
+.settings-section {
+  max-width: 40rem;
+  margin-top: var(--space-6);
+  overflow-wrap: anywhere;
+}
+
+.settings-section h2 {
+  font-size: 1.25rem;
+}
+
 .setup-steps [aria-current="step"] {
   color: var(--color-text);
   font-weight: 700;

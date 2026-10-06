@@ -1,21 +1,31 @@
-{# Step 2a (M1.17). The credential field never carries a value: nothing pasted is shown back. #}
+{# Step 2a (M1.17). The credential field never carries a value: nothing pasted is shown back.
+   Settings > Providers (M1.21) includes it too, with provider_context "settings" and its own
+   post URLs and swap target; there it shows no step heading, Continue or step status. #}
+{% set in_settings = provider_context is defined and provider_context == "settings" %}
+{% set post_url = provider_post_url if in_settings else "/setup/provider" %}
+{% set test_url = provider_test_url if in_settings else "/setup/provider/test" %}
+{% set swap_target = provider_target if in_settings else "#setup-guide" %}
 {% set kind_error = errors.get("kind") %}
 {% set credential_error = errors.get("credential") %}
 {% set form_error = errors.get("form") %}
+{# A form-level error with no field error: focus goes to the error itself. #}
+{% set focus_form_error = form_error and not (kind_error or credential_error) %}
 {% set focus_status = stayed and not errors %}
 {# A connection test that just ran (M1.18), else "Connected" from a test earlier in this run. #}
 {% set result_text = connection.message if connection else form.get("connected") %}
 {% set result_ok = connection.ok if connection else form.get("connected") is not none %}
 {% set focus_result = connection is not none and result_text %}
-{% set step_done = statuses.get(step.id) == "done" %}
+{% set step_done = not in_settings and statuses.get(step.id) == "done" %}
 {% set nouns = {"claude_subscription_token": "token", "claude_api_key": "API key"} %}
 {% set noun = nouns.get(form.get("kind")) %}
+{% if not in_settings %}
 <h2 id="step-heading"{% if not (errors or focus_status or focus_result) %} data-autofocus{% endif %}>AI provider</h2>
+{% endif %}
 <p>The app uses Claude to read job ads and draft your documents, so it needs to connect to your Claude account.</p>
 
 {% if not form.workspace_open %}
 {% if form_error %}
-<p id="form-error" class="field-error" role="alert">{{ form_error }}</p>
+<p id="form-error" class="field-error" role="alert"{% if focus_form_error %} data-autofocus{% endif %}>{{ form_error }}</p>
 {% endif %}
 <div class="notice">
   <p>Finish step 1 first, so the app knows where to keep your data. <a href="/setup/welcome">Go to step 1</a>.</p>
@@ -24,12 +34,12 @@
 
 <p id="terms-note" class="terms-note">Anthropic's Agent SDK documentation asks developers who build products or services on the SDK to use API key authentication, not a Claude plan sign-in, unless Anthropic has approved it. Read it and decide which option fits you: <a href="{{ form.terms_url }}" rel="noopener noreferrer">Agent SDK overview</a>.</p>
 
-<form id="provider-form" class="step-form" method="post" action="/setup/provider"
-      hx-post="/setup/provider" hx-target="#setup-guide" hx-swap="outerHTML"
+<form id="provider-form" class="step-form" method="post" action="{{ post_url }}"
+      hx-post="{{ post_url }}" hx-target="{{ swap_target }}" hx-swap="outerHTML"
       hx-indicator="#provider-saving" hx-disabled-elt="#provider-form button" novalidate>
   {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
   {% if form_error %}
-  <p id="form-error" class="field-error" role="alert">{{ form_error }}</p>
+  <p id="form-error" class="field-error" role="alert"{% if focus_form_error %} data-autofocus{% endif %}>{{ form_error }}</p>
   {% endif %}
   {% set checked_kind = form.kind if form.choices | selectattr("kind", "equalto", form.kind) | list else none %}
   <fieldset class="choices"{% if kind_error %} aria-describedby="kind-error"{% endif %}>
@@ -99,8 +109,8 @@
     {# Save stays first, so Enter in the field saves; testing is the main action. #}
     <button type="submit" name="action" value="save" class="button">Save</button>
     {# Saves the form first, then sends one tiny request (M1.18), so both notes show. #}
-    <button type="submit" class="button button-primary" formaction="/setup/provider/test"
-            hx-post="/setup/provider/test" hx-indicator="#provider-saving, #provider-testing">Test connection</button>
+    <button type="submit" class="button button-primary" formaction="{{ test_url }}"
+            hx-post="{{ test_url }}" hx-indicator="#provider-saving, #provider-testing">Test connection</button>
   </div>
   <p id="provider-saving" class="saving-note" role="status">Saving to your system keychain… If your computer asks to allow access, choose Allow.</p>
   <p id="provider-testing" class="saving-note" role="status">Testing the connection… This sends one very small request, which uses a tiny amount of your plan or credit. This can take up to a minute.</p>
@@ -111,7 +121,7 @@
   {% elif step_done %}
   <p id="connection-done" class="connection-result connection-ok">This step is done. You can test again at any time.</p>
   {% endif %}
-  {% if (step_done or (result_ok and result_text)) and next_step %}
+  {% if not in_settings and (step_done or (result_ok and result_text)) and next_step %}
   <p class="form-actions"><a href="/setup/{{ next_step.id }}" class="button button-primary">Continue</a></p>
   {% endif %}
 

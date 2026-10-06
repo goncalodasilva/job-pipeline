@@ -12,6 +12,11 @@ injected ``mark_done`` (which also refreshes the setup decision), but only when 
 are still the version that was tested; it is kept in memory for this run only, so a later GET
 shows it without running a test. Any change to the settings forgets it. Failures are worded
 for the chosen sign-in route here; the service reports what kind of failure it was.
+
+Settings > Providers (M1.21) uses this same handler, so saves, tests, the one-at-a-time lock
+and the remembered "Connected" are shared with the step. A test from Settings passes
+``mark_done=False``: it never touches the guide's state, and its "Connected" is remembered
+only once the step is done (so the step never offers Continue before it is).
 """
 
 import asyncio
@@ -123,22 +128,25 @@ class ProviderStep:
             result = service.delete_credential(remove or "")
             then = None
         else:
-            result = service.save(_first(form, "kind") or "", _first(form, "credential") or "")
-            then = MSG_TEST_AGAIN if self._is_done() else MSG_NEXT
+            kind = _first(form, "kind") or ""
+            changed = service.view().kind != kind  # a new route needs a test, done or not
+            result = service.save(kind, _first(form, "credential") or "")
+            then = MSG_TEST_AGAIN if self._is_done() and not changed else MSG_NEXT
         if service.settings_version() != before:
             self._connected = None  # what was tested has changed (even on a refused save)
         if not result.ok:
             return _step_result(result)
         return _step_result(result, then=then)
 
-    async def test(self, form: Form) -> ConnectionCheck:
-        """Save, then test the connection; "Connected" marks the step done."""
+    async def test(self, form: Form, *, mark_done: bool = True) -> ConnectionCheck:
+        """Save, then test the connection; "Connected" marks the step done unless
+        ``mark_done`` is False (Settings)."""
         if self._testing.locked():
             return ConnectionCheck(ok=False, message=MSG_BUSY)
         async with self._testing:
-            return await self._test(form)
+            return await self._test(form, mark_done=mark_done)
 
-    async def _test(self, form: Form) -> ConnectionCheck:
+    async def _test(self, form: Form, *, mark_done: bool) -> ConnectionCheck:
         service, data_dir = self._service(), self._data_dir()
         if service is None or data_dir is None:
             return ConnectionCheck(ok=False, errors={"form": MSG_STEP_1_FIRST})
@@ -156,13 +164,15 @@ class ProviderStep:
             return ConnectionCheck(ok=False, message=MSG_CHANGED)
         if not result.ok:
             return ConnectionCheck(ok=False, message=NOT_CONNECTED + _failure_text(kind, result))
-        try:
-            await asyncio.to_thread(self._mark_done)
-        except Exception as error:  # sqlite messages can hold paths: type only
-            _log.warning("Provider step couldn't be marked done (%s).", type(error).__name__)
-            return ConnectionCheck(ok=False, message=MSG_NOT_RECORDED)
+        if mark_done:
+            try:
+                await asyncio.to_thread(self._mark_done)
+            except Exception as error:  # sqlite messages can hold paths: type only
+                _log.warning("Provider step couldn't be marked done (%s).", type(error).__name__)
+                return ConnectionCheck(ok=False, message=MSG_NOT_RECORDED)
         message = f"Connected ({result.model})" if result.model else "Connected"
-        self._connected = message
+        if mark_done or self._is_done():
+            self._connected = message
         return ConnectionCheck(ok=True, message=message)
 
 

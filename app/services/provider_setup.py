@@ -5,6 +5,9 @@ credential's shape, probes the keychain in a worker thread with a timeout (a hun
 counts as "unavailable"), writes the credential under the kind's secret key and records only
 which kinds have a saved key (``saved_sign_ins``) in the AI provider setting. Switching kind
 keeps the other kinds' saved keys; ``delete_credential`` removes one (user decision, M1.17).
+Switching to a kind of another provider (Claude or the fake) also re-checks the tier map in the
+same save: a tier keeps its model only when the new provider offers it, else it goes back to
+the provider's default (M1.21).
 Then it refreshes provider health. Every keychain call (probe, write, delete, lookup) runs in
 one timed worker thread; a timeout or an error counts as "keychain unavailable". ``view``
 reads the settings row and cached facts only, never the keychain (spec 2.9.12).
@@ -35,7 +38,7 @@ from app.domain.errors import (
     UsageLimitReached,
     VersionConflict,
 )
-from app.domain.settings import AI_PROVIDER, AIProviderSettings, ProviderKind
+from app.domain.settings import AI_PROVIDER, AIProviderSettings, ProviderKind, TierMap
 from app.modules.ai import AIProviderFactory, ProviderChoice
 from app.modules.secrets import (
     ANTHROPIC_API_KEY,
@@ -340,8 +343,14 @@ class ProviderSetupService:
             saved: set[str] = {k for k in value.saved_sign_ins if k != drop}
             if add is not None:
                 saved.add(add)  # validated as a saved sign-in kind below
+            tiers = self._recheck_tiers(value, kind)
             return AIProviderSettings.model_validate(
-                {**value.model_dump(), "kind": kind, "saved_sign_ins": tuple(saved)}
+                {
+                    **value.model_dump(),
+                    "kind": kind,
+                    "saved_sign_ins": tuple(saved),
+                    "tiers": tiers.model_dump(),
+                }
             )
 
         if not self._update(loaded, change):
@@ -375,6 +384,20 @@ class ProviderSetupService:
                 return False
         _log.warning("AI provider setting couldn't be saved (VersionConflict).")
         return False
+
+    def _recheck_tiers(self, value: AIProviderSettings, kind: ProviderKind | None) -> TierMap:
+        """Tiers map to the active provider's models (spec 3.7; ADR-051 follow-up). When the
+        provider changes (Claude and the fake offer different models; Claude's sign-in routes
+        and "nothing chosen yet" share Claude's), a tier keeps its model only if the new
+        provider offers it, else it goes back to the provider's default."""
+        offered = self._factory.known_models(kind)
+        if offered == self._factory.known_models(value.kind):
+            return value.tiers
+        ids = {model.id for model in offered}
+        return TierMap(
+            fast=value.tiers.fast if value.tiers.fast in ids else None,
+            thorough=value.tiers.thorough if value.tiers.thorough in ids else None,
+        )
 
     def _undo_write(self, key: str) -> None:
         """Best effort: remove a keychain item whose kind couldn't be recorded."""

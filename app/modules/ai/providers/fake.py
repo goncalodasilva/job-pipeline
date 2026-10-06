@@ -34,6 +34,10 @@ from app.modules.ai import (
 FakeOutcome = Literal["connected", "auth", "not_installed", "usage_limit", "network"]
 FAKE_FAST_MODEL: Final = "fake-fast"
 FAKE_THOROUGH_MODEL: Final = "fake-thorough"
+KNOWN_MODELS: Final = (
+    ModelChoice(FAKE_FAST_MODEL, "Fake fast"),
+    ModelChoice(FAKE_THOROUGH_MODEL, "Fake thorough"),
+)
 
 _FAILURES: Final[Mapping[str, type[AppError]]] = {
     "auth": ProviderAuthError,
@@ -125,10 +129,7 @@ class FakeAIProvider:
         return ConnectionResult(ok=False, message=_error(self._connection).user_message)
 
     def known_models(self) -> list[ModelChoice]:
-        return [
-            ModelChoice(FAKE_FAST_MODEL, "Fake fast"),
-            ModelChoice(FAKE_THOROUGH_MODEL, "Fake thorough"),
-        ]
+        return list(KNOWN_MODELS)
 
     def _next(self, task: str) -> ScriptedResponse:
         queue = self._scripts.get(task)

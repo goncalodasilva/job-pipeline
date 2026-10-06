@@ -151,6 +151,11 @@ class AIProviderFactory(Protocol):
         configured provider's Fast default."""
         ...
 
+    def known_models(self, kind: ProviderKind | None) -> tuple[ModelChoice, ...]:
+        """The models the provider a kind stands for offers (no provider is built); the
+        Claude models when nothing is chosen yet, like ``connection_model``."""
+        ...
+
     def environment_keys(self) -> frozenset[str]:
         """The secret keys the environment provides (key names only, never values)."""
         ...

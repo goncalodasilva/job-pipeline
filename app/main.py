@@ -25,6 +25,7 @@ from app.api.errors import register_error_handlers
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
+from app.api.settings import register_settings_pages
 from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
 from app.api.templating import STATIC_DIR, STATIC_URL
@@ -252,6 +253,7 @@ def _step_handlers(
     )
     handlers[PROVIDER.id] = provider
     app.state.connection_tester = provider  # POST /setup/provider/test (M1.18)
+    app.state.provider_settings = provider  # Settings > Providers shares it (M1.21)
 
     def mark_done(step_id: str) -> Callable[[], None]:
         """Mark ``step_id`` done and refresh the setup decision (provider health as stored).
@@ -489,6 +491,7 @@ def create_app(
     register_error_handlers(app)
     app.include_router(health_router)
     register_pages(app)
+    register_settings_pages(app)
     register_setup_pages(app)
     app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="static")
     return app

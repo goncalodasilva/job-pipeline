@@ -87,7 +87,7 @@ WEB_SEARCH_TOOL: Final = "WebSearch"
 CLAUDE_FAST_DEFAULT: Final = "haiku"
 CLAUDE_THOROUGH_DEFAULT: Final = "sonnet"
 CLAUDE_MOST_CAPABLE: Final = "opus"
-_KNOWN_MODELS: Final = (
+KNOWN_MODELS: Final = (  # what Settings offers per tier (spec 3.7)
     ModelChoice(CLAUDE_FAST_DEFAULT, "Claude Haiku, fast"),
     ModelChoice(CLAUDE_THOROUGH_DEFAULT, "Claude Sonnet, thorough"),
     ModelChoice(CLAUDE_MOST_CAPABLE, "Claude Opus, most capable"),
@@ -556,7 +556,7 @@ class ClaudeSdkProvider:
         return ConnectionResult(ok=True, message="Connected", model=response.model)
 
     def known_models(self) -> list[ModelChoice]:
-        return list(_KNOWN_MODELS)
+        return list(KNOWN_MODELS)
 
     async def run(self, request: AIRequest, cancel: CancelToken) -> AIResponse:
         return await self._call(request, cancel, None)

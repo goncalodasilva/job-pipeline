@@ -27,7 +27,9 @@ from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
 from app.onboarding.steps.provider import (
     MSG_BUSY,
     MSG_CHANGED,
+    MSG_NEXT,
     MSG_NOT_RECORDED,
+    MSG_TEST_AGAIN,
     MSG_TIMEOUT,
     NOT_CONNECTED,
     ProviderStep,
@@ -221,3 +223,49 @@ async def test_fake_failures_keep_the_domain_words(db: Database, tmp_path: Path)
     step, _, _, _ = build(db, tmp_path)
     check = await step.test(form(FAKE_KIND, fake_key("fake-not-installed")))
     assert check.message == NOT_CONNECTED + ProviderNotInstalled().user_message
+
+
+# --- Settings > Providers (M1.21) -------------------------------------------------------------
+
+
+async def test_settings_test_never_marks_done_or_caches_before_the_step_is_done(
+    db: Database, tmp_path: Path
+) -> None:
+    """``mark_done=False`` (Settings): a test that connects never calls ``mark_done``, and on
+    a step that isn't done its "Connected" isn't remembered (the step would offer Continue)."""
+    step, _, _, marks = build(db, tmp_path)  # is_done defaults to lambda: False
+    check = await step.test(form(FAKE_KIND, fake_key("fake-connected")), mark_done=False)
+    assert check.ok is True
+    assert check.message.startswith("Connected")
+    assert marks.count == 0
+    assert step.context()["connected"] is None
+
+
+async def test_settings_test_on_a_done_step_is_remembered_without_marking(
+    db: Database, tmp_path: Path
+) -> None:
+    _, service, _, marks = build(db, tmp_path)
+    step = ProviderStep(
+        lambda: service, data_dir=lambda: tmp_path / "data", mark_done=marks, is_done=lambda: True
+    )
+    check = await step.test(form(FAKE_KIND, fake_key("fake-connected")), mark_done=False)
+    assert check.ok is True
+    assert marks.count == 0
+    assert step.context()["connected"] == check.message
+
+
+def test_save_on_a_done_step_suggests_a_test_when_the_kind_changed(
+    db: Database, tmp_path: Path
+) -> None:
+    """A done step: the same kind suggests testing again; a new kind needs its first test."""
+    _, service, _, marks = build(db, tmp_path)
+    step = ProviderStep(
+        lambda: service, data_dir=lambda: tmp_path / "data", mark_done=marks, is_done=lambda: True
+    )
+    changed = step.submit(form(FAKE_KIND))
+    assert changed.ok is True
+    assert changed.message is not None and changed.message.endswith(MSG_NEXT), changed.message
+    same = step.submit(form(FAKE_KIND))
+    assert same.message is not None and same.message.endswith(MSG_TEST_AGAIN), same.message
+    switched = step.submit(form(EXISTING_KIND))
+    assert switched.message is not None and switched.message.endswith(MSG_NEXT)

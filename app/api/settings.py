@@ -1,0 +1,149 @@
+"""Settings page and Settings > Providers (M1.21; AC-M1.3, AC-M1.4; detailed design "Settings").
+
+``GET /settings`` is a page route (``PAGE_TAG``, like ``register_pages``): with
+``HX-Request: true`` it returns the main content only. Its Providers section reuses the
+provider step's handler (``ProviderStep``, over ``ProviderSetupService``; ADR-062) and its
+fragment, posting to the Settings routes instead of the guide's. GET and HEAD have no side
+effects (spec 2.9 rule 12): the credential status comes from the settings row and cached facts,
+never the keychain. The rest of Settings arrives later and has an empty state.
+
+``POST /settings/providers`` (launch token and origin) saves like the provider step: ``kind``,
+``credential``, ``action=save`` (default) or ``remove=<kind>``. A valid save answers 303 to
+``/settings``, or for htmx 200 with the Providers section and an "announce" trigger (never
+``HX-Push-Url``); a refused one answers 422 with the field error, showing back only the kind.
+
+``POST /settings/providers/test`` (launch token and origin; POST only) saves, then tests, with
+the provider step's messages; it never marks a guide step done. A result answers 200: htmx
+gets the section with the result focused and announced, a plain request the full page.
+"""
+
+import json
+from collections.abc import Mapping
+from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from starlette.concurrency import run_in_threadpool
+
+from app.api.forms import echo_submitted, is_htmx, read_form
+from app.api.pages import AREAS, area
+from app.api.security import PAGE_TAG
+from app.api.templating import render
+from app.onboarding.registry import ConnectionCheck, Form, StepResult
+from app.onboarding.steps.provider import ProviderStep
+
+SETTINGS_PATH = "/settings"
+PROVIDERS_PATH = f"{SETTINGS_PATH}/providers"
+PROVIDERS_TEST_PATH = f"{PROVIDERS_PATH}/test"
+SETTINGS_PAGE = "pages/settings.html"
+SETTINGS_FRAGMENT = "fragments/settings/_settings.html"
+PROVIDERS_FRAGMENT = "fragments/settings/_providers.html"
+PROVIDERS_TARGET = "#providers"
+
+
+def register_settings_pages(app: FastAPI) -> None:
+    """Add the Settings routes directly to the app (not through an included router)."""
+    app.add_api_route(
+        SETTINGS_PATH,
+        settings_page,
+        methods=["GET", "HEAD"],
+        tags=[PAGE_TAG],
+        response_class=HTMLResponse,
+        name="page_settings",
+    )
+    app.add_api_route(
+        PROVIDERS_TEST_PATH,
+        test_providers,
+        methods=["POST"],
+        response_class=HTMLResponse,
+        name="settings_providers_test",
+    )
+    app.add_api_route(
+        PROVIDERS_PATH,
+        save_providers,
+        methods=["POST"],
+        response_class=HTMLResponse,
+        name="settings_providers",
+    )
+
+
+def settings_page(request: Request) -> HTMLResponse:
+    return _render(request, section_only=False)
+
+
+async def save_providers(request: Request) -> Response:
+    form = await read_form(request)
+    if form is None:
+        return HTMLResponse("", status_code=413)
+    # Blocking (database, keychain): never on the event loop.
+    result: StepResult = await run_in_threadpool(_handler(request).submit, form)
+    if not result.ok:
+        return _refused(request, result.errors, form)
+    if not is_htmx(request):
+        return RedirectResponse(SETTINGS_PATH, status_code=303)
+    response = _render(request, stayed=True)
+    response.headers["HX-Trigger"] = json.dumps({"announce": result.message or "Saved."})
+    return response
+
+
+async def test_providers(request: Request) -> Response:
+    form = await read_form(request)
+    if form is None:
+        return HTMLResponse("", status_code=413)
+    # Awaited here (ADR-063); the handler runs its blocking parts in worker threads.
+    check: ConnectionCheck = await _handler(request).test(form, mark_done=False)
+    if check.errors:
+        return _refused(request, check.errors, form)
+    response = _render(request, connection=check)
+    if is_htmx(request):
+        response.headers["HX-Trigger"] = json.dumps({"announce": check.message})
+    return response
+
+
+# --- helpers ---------------------------------------------------------------------------------
+
+
+def _handler(request: Request) -> ProviderStep:
+    handler: ProviderStep = request.app.state.provider_settings
+    return handler
+
+
+def _refused(request: Request, errors: Mapping[str, str], submitted: Form) -> HTMLResponse:
+    response = _render(request, errors=errors, submitted=submitted)
+    response.status_code = 422
+    return response
+
+
+def _render(
+    request: Request,
+    *,
+    section_only: bool = True,
+    errors: Mapping[str, str] | None = None,
+    submitted: Form | None = None,
+    stayed: bool = False,
+    connection: ConnectionCheck | None = None,
+) -> HTMLResponse:
+    """The full Settings page, or for htmx the Providers section (after a POST) or the main
+    content (a page GET)."""
+    handler = _handler(request)
+    form: dict[str, Any] = dict(handler.context())
+    if submitted:
+        echo_submitted(form, handler, submitted)
+    return render(
+        request,
+        page=SETTINGS_PAGE,
+        fragment=PROVIDERS_FRAGMENT if section_only else SETTINGS_FRAGMENT,
+        ctx={
+            "area": area("settings"),
+            "areas": AREAS,
+            "form": form,
+            "errors": dict(errors or {}),
+            "stayed": stayed,  # saved: focus moves to the credential status
+            "connection": connection,  # a test just ran: focus moves to its result
+            # The provider step's fragment, pointed at the Settings routes.
+            "provider_context": "settings",
+            "provider_post_url": PROVIDERS_PATH,
+            "provider_test_url": PROVIDERS_TEST_PATH,
+            "provider_target": PROVIDERS_TARGET,
+        },
+    )
