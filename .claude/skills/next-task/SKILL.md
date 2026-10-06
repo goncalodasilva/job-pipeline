@@ -18,7 +18,7 @@ If the user passed a task id (`$ARGUMENTS`), work on that task instead: show it 
 
 Work on exactly one task, then stop. Keep the user informed with one short line per step.
 
-1. **Understand.** Read the task's lines in `docs/PROGRESS.md`, the acceptance criteria it references in `docs/TECHNICAL_SPEC.md` section 5, the spec sections it touches, and the matching parts of `docs/references/detailed-design.md`. Check `docs/DECISIONS.md` for related decisions. If the task has no acceptance criteria or something conflicts, stop and ask.
+1. **Understand.** Read the task's lines in `docs/PROGRESS.md`, the acceptance criteria it references in `docs/TECHNICAL_SPEC.md` section 5, the spec sections it touches, and the matching parts of `docs/references/detailed-design.md`. Check `docs/DECISIONS.md` for related decisions. If the task has no acceptance criteria or something conflicts, stop and ask. If it has a `Blocked:` line (ADR-065), show the question and its stash (`git stash list`) and ask the user for the answer before starting.
 2. **Branch.** Make sure you're on the milestone branch (`m<n>-<slug>`); create it from main if needed.
 3. **Tests first.** Delegate to `test-author` with the task id, its acceptance criteria and the relevant spec excerpts. Confirm the new tests fail, and fail for the expected reason.
 4. **Implement.** Make the tests pass with the smallest coherent change that respects the module boundaries (spec 2.3). For a well-scoped task you may delegate to `implementer`. Use the procedure skills when they apply (`add-ai-task`, `add-provider`, `htmx-ui`, `db-migration`, `background-task`, `onboarding-step`).

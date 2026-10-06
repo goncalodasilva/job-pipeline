@@ -2,7 +2,7 @@
 
 Current milestone: M1
 
-How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/next-task` works through them, and `docs-keeper` ticks each task with evidence. Scripts parse this format, so keep it: a `Current milestone:` line, `## M<n> — Title` headings, and tasks written as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines.
+How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/run-milestone` (or `/next-task`, one at a time) works through them, and `docs-keeper` ticks each task with evidence. Scripts parse this format, so keep it: a `Current milestone:` line, `## M<n> — Title` headings, and tasks written as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, plus optional `Checkpoint:` and `Blocked:` lines (ADR-065).
 
 ## M0 — Foundation and tooling
 

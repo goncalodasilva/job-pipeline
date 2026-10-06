@@ -32,7 +32,7 @@ If sources conflict, stop and ask the user. Record the answer in `docs/DECISIONS
 
 ## Workflow
 
-`/plan-milestone M<n>` → `/next-task` (repeat, one task per run) → `/milestone-acceptance M<n>`.
+`/plan-milestone M<n>` → `/run-milestone` (all open tasks, stopping at checkpoints and parking blocked tasks; ADR-065) or `/next-task` (one task) → `/milestone-acceptance M<n>`.
 
 Subagents: `planner`, `test-author`, `implementer`, `verifier`, `debugger`, `code-reviewer`, `security-reviewer`, `ux-reviewer`, `prompt-engineer`, `docs-keeper`. Which reviewer to consult for which change is in spec 6.3.
 

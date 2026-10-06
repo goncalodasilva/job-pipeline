@@ -55,7 +55,7 @@ def main() -> int:
     print(
         "Reminders: honesty rule (cite fact ids), no secrets or personal data, no network in tests, "
         "respect module boundaries, tests first, stop and ask per spec 6.7. "
-        "Workflow: /plan-milestone, /next-task, /verify, /milestone-acceptance."
+        "Workflow: /plan-milestone, /run-milestone or /next-task, /verify, /milestone-acceptance."
     )
     return 0
 

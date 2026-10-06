@@ -941,6 +941,7 @@ Permission rules pre-approve routine commands (tests, lint, types, git status an
    8. Record: `docs-keeper` ticks the task with evidence and records any decision as an ADR.
    9. Commit with a conventional message naming the task id; `/verify` and the gitleaks pre-commit hook run first.
    10. Report what was done and stop. One task per invocation keeps context small and reviews meaningful.
+   - **Or run all of them.** `/run-milestone` runs steps 1–9 for every open task, one commit each, without stopping between tasks (ADR-065). A problem local to one task parks it (work stashed, a `Blocked:` question in `docs/PROGRESS.md`) and the run moves on to tasks that don't build on it; the global cases in 6.7 stop the run. Tasks marked with a checkpoint stop it before or after them. The run ends with one report: tasks done, parked questions and items left for you, then prepares acceptance.
 3. **Close the milestone.** `/milestone-acceptance M<n>`: full verification, an acceptance report in `docs/acceptance/M<n>.md`, and a manual checklist for you. The milestone is closed only after you confirm the manual checks.
 
 ### 6.7 When agents must stop and ask you
@@ -956,7 +957,7 @@ Permission rules pre-approve routine commands (tests, lint, types, git status an
 
 ### 6.8 Shared memory and handoffs
 
-- `docs/PROGRESS.md` is the single status board. Its format is parsed by scripts: a `Current milestone: M<n>` line; one `## M<n> — Title` heading per milestone; tasks as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines; a session log at the end.
+- `docs/PROGRESS.md` is the single status board. Its format is parsed by scripts: a `Current milestone: M<n>` line; one `## M<n> — Title` heading per milestone; tasks as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, and optional `Checkpoint:` and `Blocked:` lines (ADR-065); a session log at the end.
 - `docs/DECISIONS.md` holds ADRs: context, decision, consequences, date.
 - `docs/acceptance/M<n>.md` holds acceptance reports.
 - `code-reviewer` keeps project-scoped memory in `.claude/agent-memory/code-reviewer/`, committed so recurring lessons persist.
