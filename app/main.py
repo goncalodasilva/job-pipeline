@@ -46,6 +46,8 @@ from app.modules.ai import ProviderHealth
 from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
 from app.onboarding.progress import SetupProgress
 from app.onboarding.registry import (
+    DONE,
+    PREFERENCES,
     PROVIDER,
     WELCOME,
     StepHandler,
@@ -55,6 +57,8 @@ from app.onboarding.registry import (
 )
 from app.onboarding.startup import OnboardingState, StartupInputs
 from app.onboarding.steps import PendingStep
+from app.onboarding.steps.done import DoneStep
+from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.health import HealthService
@@ -248,6 +252,27 @@ def _step_handlers(
     )
     handlers[PROVIDER.id] = provider
     app.state.connection_tester = provider  # POST /setup/provider/test (M1.18)
+
+    def mark_done(step_id: str) -> Callable[[], None]:
+        """Mark ``step_id`` done and refresh the setup decision (provider health as stored)."""
+
+        def mark() -> None:
+            progress = _progress(registry, _current_db(app), clock)
+            if progress is None:  # pragma: no cover - these steps check for a workspace first
+                raise RuntimeError("no workspace is open")
+            progress.mark_done(step_id)
+            onboarding.refresh(progress)
+
+        return mark
+
+    def settings() -> SettingsService | None:
+        db = _current_db(app)
+        return SettingsService(db, clock) if db is not None else None
+
+    handlers[PREFERENCES.id] = PreferencesStep(settings, mark_done=mark_done(PREFERENCES.id))
+    handlers[DONE.id] = DoneStep(
+        registry, statuses=lambda: onboarding.statuses, mark_done=mark_done(DONE.id)
+    )
     return require_handlers(registry, handlers)
 
 
@@ -290,11 +315,14 @@ def create_app(
     attach_log_folder: Callable[[Path], None] | None = None,
     open_at_startup: bool | None = None,
     wiring: Wiring | None = None,
+    setup_registry: StepRegistry | None = None,
 ) -> FastAPI:
     """Build the app. ``open_at_startup`` (default: ``opens_workspace_at_startup(config)``)
     says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used.
     ``wiring`` (default: built from the process environment with a new redactor) builds the
-    providers; the CLI passes the one whose redactor its logging uses."""
+    providers; the CLI passes the one whose redactor its logging uses. ``setup_registry``
+    (default: ``m1_registry()``) lists the guide's steps; steps without a handler of their
+    own get a placeholder."""
     app_clock = clock if clock is not None else SystemClock()
     app_wiring = (
         wiring
@@ -378,7 +406,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        registry = m1_registry()
+        registry = setup_registry if setup_registry is not None else m1_registry()
         onboarding = OnboardingState(registry, _startup_inputs(config))
         workspace = None
         health: ProviderHealth | None = None

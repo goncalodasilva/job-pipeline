@@ -36,6 +36,8 @@ class StepResult:
     # Saved, but the step isn't finished: the guide stays on it and announces ``message``.
     stay: bool = False
     message: str | None = None
+    # Finished and leaving the guide: a local path from the handler's fixed table (M1.19).
+    redirect: str | None = None
 
 
 # Submitted form fields; a field may repeat (lists such as target roles).

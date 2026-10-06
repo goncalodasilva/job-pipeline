@@ -25,7 +25,9 @@ under the test's temporary home; the app starts without creating it and step 1 o
 (M1.16). Its path is computed with the app's own environment and must lie inside the test's
 temporary folder, otherwise the app is not started. ``"provider_step"`` writes ``config.toml``
 and a database with only step 1 done and no provider saved, so the guide opens at the AI provider
-step (M1.17). ``AppStart`` combines a state with ``allow_fakes=False`` for runs where
+step (M1.17). ``"preferences_step"`` writes ``config.toml`` and a database with steps 1 and 2
+done and the fake provider saved, so the guide opens at the job preferences step (M1.19).
+``AppStart`` combines a state with ``allow_fakes=False`` for runs where
 ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` is unset (ADR-059).
 
 Stopping is graceful first: SIGINT on POSIX, CTRL_BREAK_EVENT on Windows (the child runs in
@@ -48,7 +50,7 @@ import httpx
 
 from app import __version__
 from app.config import APP_NAME, write_bootstrap
-from tests.setup_harness import complete_setup, seed_workspace
+from tests.setup_harness import HARNESS_PROVIDER, complete_setup, seed_workspace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOOPBACK = "127.0.0.1"
@@ -70,8 +72,14 @@ POLL_INTERVAL_SECONDS = 0.05
 REQUEST_TIMEOUT_SECONDS = 2.0
 OUTPUT_TAIL_CHARS = 4000
 
-SetupState = Literal["complete", "fresh", "first_run", "provider_step"]
-SETUP_STATES: tuple[SetupState, ...] = ("complete", "fresh", "first_run", "provider_step")
+SetupState = Literal["complete", "fresh", "first_run", "provider_step", "preferences_step"]
+SETUP_STATES: tuple[SetupState, ...] = (
+    "complete",
+    "fresh",
+    "first_run",
+    "provider_step",
+    "preferences_step",
+)
 
 
 @dataclass(frozen=True)
@@ -226,6 +234,9 @@ def start_app(
     elif setup == "provider_step":
         write_bootstrap(config_dir, data_dir=data_dir, version=__version__)
         seed_workspace(data_dir, done=("welcome",))
+    elif setup == "preferences_step":
+        write_bootstrap(config_dir, data_dir=data_dir, version=__version__)
+        seed_workspace(data_dir, done=("welcome", "provider"), provider=HARNESS_PROVIDER)
     explicit = setup != "first_run"
     env = isolated_env(data_dir, config_dir, allow_fakes=allow_fakes, explicit_data_dir=explicit)
     if not explicit:

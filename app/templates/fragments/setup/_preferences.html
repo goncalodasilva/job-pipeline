@@ -1,2 +1,119 @@
-<h2 id="step-heading" data-autofocus>Job preferences</h2>
-<p>Your target roles and locations help the app find the jobs that suit you best.</p>
+{# Step 5 (M1.19). Values come from the stored preferences, or from a refused submit (autoescaped). #}
+{% set form_error = errors.get("form") %}
+{# Fields in form order: the first refused one gets focus. #}
+{% set field_order = ["target_roles", "locations", "work_modes", "salary_amount", "salary_currency", "must_haves", "deal_breakers", "cv_country"] %}
+{% set first_invalid = field_order | select("in", errors) | first | default(none) %}
+{% set chosen_modes = form.get("work_modes", []) %}
+
+{% macro described(name) -%}
+{% if errors.get(name) %}{{ name }}-error {% endif %}{{ name }}-hint
+{%- endmacro %}
+
+{% macro invalid(name) -%}
+{% if errors.get(name) %} aria-invalid="true"{% endif %}{% if first_invalid == name %} data-autofocus{% endif %}
+{%- endmacro %}
+
+{% macro error(name) -%}
+{% if errors.get(name) %}
+<p id="{{ name }}-error" class="field-error">{{ errors.get(name) }}</p>
+{% endif %}
+{%- endmacro %}
+
+{% macro list_field(name, label, hint, required=false) -%}
+<div class="field">
+  <label for="{{ name }}">{{ label }}{% if required %} (required){% endif %}</label>
+  <textarea id="{{ name }}" name="{{ name }}" rows="3" spellcheck="true"{% if required %} aria-required="true"{% endif %}
+            aria-describedby="{{ described(name) }}"{{ invalid(name) }}>{{ form.get(name, "") }}</textarea>
+  {{ error(name) }}
+  <p id="{{ name }}-hint" class="field-hint">{{ hint }}</p>
+</div>
+{%- endmacro %}
+
+<h2 id="step-heading"{% if not errors %} data-autofocus{% endif %}>Job preferences</h2>
+<p>Tell the app what you're looking for. Your preferences help it rank the jobs you find and flag the ones that hit a deal-breaker. You can come back and change them at any time.</p>
+
+{% if not form.get("workspace_open") %}
+{% if form_error %}
+<p id="form-error" class="field-error" role="alert" data-autofocus>{{ form_error }}</p>
+{% endif %}
+<div class="notice">
+  <p>Finish step 1 first, so the app knows where to keep your data. <a href="/setup/welcome">Go to step 1</a>.</p>
+</div>
+{% else %}
+
+<form class="step-form" method="post" action="/setup/preferences"
+      hx-post="/setup/preferences" hx-target="#setup-guide" hx-swap="outerHTML"
+      hx-disabled-elt="find button" novalidate>
+  {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
+  {% if form_error %}
+  <p id="form-error" class="field-error" role="alert"{% if not first_invalid %} data-autofocus{% endif %}>{{ form_error }}</p>
+  {% endif %}
+
+  {{ list_field("target_roles", "Roles you're looking for", "One per line, for example Product designer. Add at least one.", required=true) }}
+  {{ list_field("locations", "Where you'd like to work", "Cities, regions or countries, one per line. Leave it empty if anywhere is fine.") }}
+
+  <fieldset class="choices">
+    <legend>Work mode</legend>
+    {{ error("work_modes") }}
+    {% for value, label in form.get("work_mode_choices", []) %}
+    <div class="choice">
+      <input type="checkbox" id="work_modes-{{ value }}" name="work_modes" value="{{ value }}"
+             aria-describedby="{{ described('work_modes') }}"
+             {% if value in chosen_modes %}checked{% endif %}
+             {% if errors.get("work_modes") %}aria-invalid="true"{% endif %}
+             {% if first_invalid == "work_modes" and loop.first %}data-autofocus{% endif %}>
+      <label for="work_modes-{{ value }}">{{ label }}</label>
+    </div>
+    {% endfor %}
+    <p id="work_modes-hint" class="field-hint">Tick every way of working you'd accept, or none if it doesn't matter.</p>
+  </fieldset>
+
+  <fieldset class="salary">
+    <legend>Minimum salary</legend>
+    <div class="salary-fields">
+      <div class="field">
+        <label for="salary_amount">Amount per year</label>
+        <input type="text" id="salary_amount" name="salary_amount" value="{{ form.get('salary_amount', '') }}"
+               inputmode="numeric" autocomplete="off" spellcheck="false"
+               aria-describedby="{{ described('salary_amount') }}"{{ invalid("salary_amount") }}>
+        {{ error("salary_amount") }}
+        <p id="salary_amount-hint" class="field-hint">The lowest yearly pay you'd accept, as a whole number. Optional.</p>
+      </div>
+      <div class="field">
+        <label for="salary_currency">Currency</label>
+        {% set chosen_currency = form.get("salary_currency", "") %}
+        <select id="salary_currency" name="salary_currency"
+                aria-describedby="{{ described('salary_currency') }}"{{ invalid("salary_currency") }}>
+          <option value="">Choose a currency</option>
+          {% for code, name in form.get("currencies", []) %}
+          <option value="{{ code }}"{% if code == chosen_currency %} selected{% endif %}>{{ name }} ({{ code }})</option>
+          {% endfor %}
+        </select>
+        {{ error("salary_currency") }}
+        <p id="salary_currency-hint" class="field-hint">Needed only when you enter an amount.</p>
+      </div>
+    </div>
+  </fieldset>
+
+  {{ list_field("must_haves", "Must-haves", "Things a job has to offer, one per line, such as a four-day week.") }}
+  {{ list_field("deal_breakers", "Deal-breakers", "Things that rule a job out, one per line. Jobs that hit one are flagged, not hidden.") }}
+
+  <div class="field">
+    <label for="cv_country">Country your CV is for (required)</label>
+    {% set chosen_country = form.get("cv_country", "") %}
+    <select id="cv_country" name="cv_country" aria-required="true"
+            aria-describedby="{{ described('cv_country') }}"{{ invalid("cv_country") }}>
+      <option value="">Choose a country</option>
+      {% for code, name in form.get("countries", []) %}
+      <option value="{{ code }}"{% if code == chosen_country %} selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+    {{ error("cv_country") }}
+    <p id="cv_country-hint" class="field-hint">CV conventions differ between countries, such as length and which personal details to include. The app follows the ones for this country.</p>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="button button-primary">Save and continue</button>
+  </div>
+</form>
+{% endif %}

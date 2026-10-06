@@ -344,7 +344,9 @@ body.layout-guide {
   font-weight: 600;
 }
 
-.field input {
+.field input,
+.field textarea,
+.field select {
   min-height: var(--target-min);
   width: 100%;
   padding: var(--space-2) var(--space-3);
@@ -360,7 +362,13 @@ body.layout-guide {
   border-style: dashed;
 }
 
-.field input[aria-invalid="true"] {
+.field textarea {
+  resize: vertical;
+}
+
+.field input[aria-invalid="true"],
+.field textarea[aria-invalid="true"],
+.field select[aria-invalid="true"] {
   border-color: var(--color-error);
   box-shadow: 0 0 0 1px var(--color-error);
 }
@@ -443,7 +451,8 @@ body.layout-guide {
   margin-bottom: var(--space-3);
 }
 
-.choice input[type="radio"] {
+.choice input[type="radio"],
+.choice input[type="checkbox"] {
   width: 1.5rem;
   height: 1.5rem;
   margin: 0;
@@ -456,6 +465,38 @@ body.layout-guide {
 
 .choice .field-hint {
   grid-column: 2;
+}
+
+/* Preferences step (M1.19): amount and currency side by side when there is room. */
+.salary {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+.salary legend {
+  margin-bottom: var(--space-3);
+  padding: 0;
+  font-weight: 600;
+}
+
+.salary-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  column-gap: var(--space-4);
+}
+
+.choices .field-hint {
+  margin-bottom: var(--space-2);
+}
+
+/* Done step (M1.19): each step with its state in words. */
+.setup-summary {
+  padding-left: var(--space-6);
+}
+
+.setup-summary li {
+  margin-bottom: var(--space-2);
 }
 
 .credential-status {
@@ -573,6 +614,24 @@ body.layout-guide {
 
   .button-primary {
     border: 2px solid ButtonText;
+  }
+
+  /* The setup guide's step list: the words "Done" and "Skipped" carry the state; the current
+     step gets a visible marker instead of its colour and weight alone. */
+  .setup-steps,
+  .setup-steps .step-status {
+    color: CanvasText;
+  }
+
+  .setup-steps [aria-current="step"] {
+    color: CanvasText;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.2em;
+  }
+
+  .setup-steps [aria-current="step"]::marker {
+    color: Highlight;
   }
 }
 
