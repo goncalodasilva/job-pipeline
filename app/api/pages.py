@@ -27,6 +27,7 @@ class Area:
     name: str
     explanation: str
     pinned: bool = False
+    coming: str = "This part of the app is coming in a later version."
 
 
 # Sidebar order from the detailed design; Settings is pinned at the bottom.
@@ -42,6 +43,8 @@ AREAS: tuple[Area, ...] = (
         "/inbox",
         "Job inbox",
         "New jobs to review will appear here, one at a time, so you can decide what to apply for.",
+        # The Done step's "Add a job" lands here until intake arrives in M4 (ADR-064).
+        coming="Adding jobs, by link or by pasting the ad, arrives in a later version.",
     ),
     Area(
         "board",

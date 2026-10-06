@@ -586,3 +586,11 @@ def test_pages_link_a_served_svg_favicon(client: TestClient) -> None:
     assert response.headers["content-type"].startswith("image/svg+xml")
     assert response.text.lstrip().startswith("<svg")
     assert "<script" not in response.text.lower()
+
+
+def test_inbox_placeholder_says_adding_jobs_comes_later(client: TestClient) -> None:
+    """Done's "Add a job" opens the inbox (ADR-064); until intake (M4) it says so plainly."""
+    response = client.get("/inbox")
+    assert response.status_code == 200
+    text = " ".join(response.text.split())
+    assert "Adding jobs, by link or by pasting the ad, arrives in a later version." in text

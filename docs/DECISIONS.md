@@ -548,3 +548,4 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - A different heading or disabled buttons on Done while required steps are unfinished (different from the banner on case 4 incomplete setups).
   - A "Skip for now" control when the first optional step arrives (M2 web search).
 - Consequences: spec 3.5 and 3.7 unchanged; `app/domain/locales.py` is new; settings models and the Done step service are wired by `app/main.py`.
+- Follow-up (user, 2026-10-06): after trying the demo, the Job inbox placeholder now says adding jobs, by link or by pasting the ad, arrives in a later version, so "Add a job" doesn't land on an unexplained page before M4. Each area's placeholder carries its own "coming" line.
