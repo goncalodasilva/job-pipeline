@@ -13,6 +13,11 @@ Every test also starts without the developer's Claude or Anthropic credential va
 with ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1`` (the setup harness saves the fake provider), so
 results don't depend on the shell the tests run in (M1.15). Tests about the flag being off
 pass an explicit environment or remove it with ``monkeypatch``.
+
+For the whole session the Claude Agent SDK's log records are reduced as they are created
+(``install_sdk_record_reduction``, as the CLI's logging does), so ``caplog``, pytest's own log
+capture and live tests never hold the SDK's error texts, even where ``configure_logging`` never
+runs (M1.23).
 """
 
 import os
@@ -22,6 +27,7 @@ import keyring
 import keyring.core
 import pytest
 
+from app.logging_config import install_sdk_record_reduction
 from tests.fakes.keyring_backends import (
     GUARD_BACKEND_NAME,
     MEMORY_BACKEND_NAME,
@@ -47,6 +53,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if item.get_closest_marker("live") is not None:
             item.add_marker(skip_live)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def sdk_record_reduction() -> Iterator[None]:
+    """Reduce the SDK's log records at creation for the whole session."""
+    restore = install_sdk_record_reduction()
+    yield
+    restore()
 
 
 @pytest.fixture(autouse=True)

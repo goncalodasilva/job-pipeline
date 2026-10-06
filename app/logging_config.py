@@ -4,8 +4,12 @@ Records are written as JSON lines to rotating files in the data folder's ``logs/
 plain text to stderr. Before the data folder exists (a first run, ADR-044 item 3) the file is
 replaced by a bounded in-memory buffer that is written out once the folder is attached.
 
-Records from the Claude Agent SDK's loggers can quote CLI output (prompt or answer text), so
-``SdkRecordFilter`` reduces them to level, logger name and exception type first.
+Records from the Claude Agent SDK's loggers can quote CLI output (prompt or answer text) and
+exception text (which can hold a key echoed on the CLI's stderr), so they are reduced to level,
+logger name and exception type as they are created (``install_sdk_record_reduction``, installed
+by ``configure_logging``), before any handler sees them, including ones the app didn't add
+(``logging.lastResort``, test capture). ``SdkRecordFilter`` on the app's handlers does the same
+again as a second line of defence.
 
 The redaction filter sits on the handlers, not on loggers, so records from every logger,
 including uvicorn's, pass through it before they are written.
@@ -36,6 +40,9 @@ MAX_LOG_BYTES = 1_048_576
 LOG_BACKUP_COUNT = 4  # the live file plus 4 backups: 5 files in total
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 SDK_LOGGER = "claude_agent_sdk"
+# Set on an SDK record once reduced, so a later pass (another handler's filter) keeps the
+# exception type it can no longer see. Internal: never treated as an extra or written out.
+SDK_REDUCED_ATTR = "jobpipeline_sdk_reduced"
 _LOG = logging.getLogger("jobpipeline.logging")
 
 # Attributes every LogRecord has; anything else on a record came from ``extra``.
@@ -43,6 +50,7 @@ _STANDARD_ATTRS = frozenset(vars(logging.LogRecord("", logging.INFO, "", 0, "", 
     "message",
     "asctime",
     "taskName",
+    SDK_REDUCED_ATTR,
 }
 
 _PLAIN_TYPES = (int, float, bool, type(None))
@@ -92,21 +100,76 @@ class SdkRecordFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        name = record.name if isinstance(record.name, str) else ""
-        if name != SDK_LOGGER and not name.startswith(SDK_LOGGER + "."):
-            return True
-        error_type = None
-        if record.exc_info and record.exc_info[0] is not None:
-            error_type = record.exc_info[0].__name__
-        summary = f"{record.levelname} from {record.name}"
-        record.msg = summary if error_type is None else f"{summary} ({error_type})"
-        record.args = None
-        record.exc_info = None
-        record.exc_text = None
-        record.stack_info = None
-        for key in _extras(record):
-            delattr(record, key)
+        if _is_sdk_record(record):
+            _reduce_sdk_record(record)
         return True
+
+
+def _is_sdk_record(record: logging.LogRecord) -> bool:
+    name = record.name if isinstance(record.name, str) else ""
+    return name == SDK_LOGGER or name.startswith(SDK_LOGGER + ".")
+
+
+def _reduce_sdk_record(record: logging.LogRecord) -> None:
+    """Keep only level, logger name and exception type: no message text, args, extras,
+    exception text or stack.
+
+    The message is always rebuilt. The exception type is stored on the record (``""`` for
+    none), so a second pass, which no longer has ``exc_info``, still names it; a stored value
+    that isn't a plain identifier is ignored, so a record that arrives already marked can't
+    carry text through."""
+    if record.exc_info and record.exc_info[0] is not None:
+        error_type = record.exc_info[0].__name__
+    else:
+        stored = getattr(record, SDK_REDUCED_ATTR, "")
+        error_type = stored if isinstance(stored, str) and stored.isidentifier() else ""
+    setattr(record, SDK_REDUCED_ATTR, error_type)
+    summary = f"{record.levelname} from {record.name}"
+    record.msg = f"{summary} ({error_type})" if error_type else summary
+    record.args = None
+    record.exc_info = None
+    record.exc_text = None
+    record.stack_info = None
+    for key in _extras(record):
+        delattr(record, key)
+
+
+class _SdkReducingFactory:
+    """A log record factory that reduces the SDK's records as they are created and passes
+    every other record through ``inner`` unchanged."""
+
+    def __init__(self, inner: Callable[..., logging.LogRecord]) -> None:
+        self.inner = inner
+
+    def __call__(self, *args: object, **kwargs: object) -> logging.LogRecord:
+        record = self.inner(*args, **kwargs)
+        if _is_sdk_record(record):
+            _reduce_sdk_record(record)
+        return record
+
+
+def install_sdk_record_reduction() -> Callable[[], None]:
+    """Reduce every record from the Claude Agent SDK's loggers (``claude_agent_sdk`` and its
+    children) at creation, so no handler, filter or capture ever sees its text.
+
+    A filter on the ``claude_agent_sdk`` logger would miss its child loggers' records, so this
+    wraps the log record factory instead. ``extra`` fields are set by ``Logger.makeRecord``
+    after the factory runs, so they are left to ``SdkRecordFilter`` on the app's handlers (the
+    SDK passes none). Installing again while installed changes nothing. Returns a function that
+    puts the previous factory back if this one is still in place (a factory installed on top
+    later is left alone, and keeps this one inside it); calling it twice is safe.
+    """
+    current = logging.getLogRecordFactory()
+    if isinstance(current, _SdkReducingFactory):
+        return lambda: None
+    factory = _SdkReducingFactory(current)
+    logging.setLogRecordFactory(factory)
+
+    def restore() -> None:
+        if logging.getLogRecordFactory() is factory:
+            logging.setLogRecordFactory(current)
+
+    return restore
 
 
 def _add_filters(handler: logging.Handler, redactor: Redactor) -> None:
@@ -222,11 +285,13 @@ class LoggingSetup:
         *,
         file_handler: logging.Handler | None = None,
         buffer: _BufferHandler | None = None,
+        restore_record_factory: Callable[[], None] | None = None,
     ) -> None:
         self._redactor = redactor
         self._console = console
         self._file_handler = file_handler
         self._buffer = buffer
+        self._restore_record_factory = restore_record_factory
         self._lock = threading.Lock()
 
     def attach_log_folder(self, log_dir: Path) -> None:
@@ -263,7 +328,13 @@ class LoggingSetup:
                     root.removeHandler(handler)
                     handler.close()
             self._file_handler = self._buffer = None
+            restore_record_factory, self._restore_record_factory = (
+                self._restore_record_factory,
+                None,
+            )
         logging.captureWarnings(False)
+        if restore_record_factory is not None:
+            restore_record_factory()
 
 
 @contextmanager
@@ -312,13 +383,20 @@ def configure_logging(
             root.addHandler(handler)
     root.setLevel(level)
     logging.captureWarnings(True)
+    restore_record_factory = install_sdk_record_reduction()
 
     # uvicorn installs its own handlers; route its records through ours instead.
     for name in UVICORN_LOGGERS:
         logger = logging.getLogger(name)
         logger.handlers.clear()
         logger.propagate = True
-    return LoggingSetup(redactor, console, file_handler=file_handler, buffer=buffer)
+    return LoggingSetup(
+        redactor,
+        console,
+        file_handler=file_handler,
+        buffer=buffer,
+        restore_record_factory=restore_record_factory,
+    )
 
 
 def install_exception_hooks(logger_name: str = "jobpipeline") -> Callable[[], None]:

@@ -475,6 +475,32 @@ def test_cli_configures_logging_and_hooks_before_serving_and_restores_after(
     assert logging.getLogger().handlers == root_before
 
 
+def test_cli_sdk_records_stay_reduced_after_logging_closes(
+    env: dict[str, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The CLI keeps the SDK record reduction for the process: an SDK record made after the
+    logging setup closed (a late reader task at shutdown) reaches ``logging.lastResort``
+    reduced. The test starts from the plain factory (the session installs the reduction)."""
+    secret = "-".join(["sk", "ant", "oat01", "FictionalCliShutdownValue0123456789abcdef"])
+    saved = logging.getLogRecordFactory()
+    logging.setLogRecordFactory(logging.LogRecord)
+    logger = logging.getLogger("claude_agent_sdk.m123_after_shutdown")
+    logger.propagate = False  # no handler anywhere: logging.lastResort writes it
+    try:
+        run_main(["--no-browser"], env, FakeLaunch())
+        capsys.readouterr()
+
+        logger.error(f"Fatal error in message reader: {secret}")
+
+        assert logging.getLogRecordFactory() is not logging.LogRecord
+    finally:
+        logger.propagate = True
+        logging.setLogRecordFactory(saved)
+    err = capsys.readouterr().err
+    assert secret not in err
+    assert "ERROR from claude_agent_sdk.m123_after_shutdown" in err
+
+
 def test_cli_launch_token_never_reaches_the_log_file(
     env: dict[str, str], data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

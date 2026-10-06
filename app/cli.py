@@ -42,7 +42,12 @@ from app.config import (
 )
 from app.domain.errors import ConfigError
 from app.domain.redaction import Redactor
-from app.logging_config import LoggingSetup, configure_logging, install_exception_hooks
+from app.logging_config import (
+    LoggingSetup,
+    configure_logging,
+    install_exception_hooks,
+    install_sdk_record_reduction,
+)
 from app.main import LOG_FOLDER, create_app
 from app.wiring import Wiring, build_wiring
 
@@ -139,6 +144,10 @@ class _StartPlan:
 
 def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) -> None:
     os.environ[SDK_SKIP_VERSION_CHECK] = "1"
+    # For the whole process, never restored: an SDK record made after the logging setup
+    # closes (a late reader task at shutdown) still reaches ``logging.lastResort`` reduced.
+    # The install inside ``configure_logging`` is then a no-op.
+    install_sdk_record_reduction()
     redactor = Redactor()
     if opens_workspace_at_startup(config):
         logging_setup = _log_to_data_folder(config, redactor)

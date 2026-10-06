@@ -13,6 +13,7 @@ import os
 import sys
 import threading
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,11 +27,13 @@ from app.logging_config import (
     LOG_BACKUP_COUNT,
     LOG_FILE_NAME,
     MAX_LOG_BYTES,
+    SDK_REDUCED_ATTR,
     JsonFormatter,
     LoggingSetup,
     RedactionFilter,
     SdkRecordFilter,
     configure_logging,
+    install_sdk_record_reduction,
 )
 
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
@@ -934,3 +937,244 @@ def test_buffered_sdk_records_are_reduced(
         assert SDK_LINE_TEXT not in read_log_text(log_dir)
     finally:
         setup.close()
+
+
+# --- SDK records reduced at creation (M1.23; AC-M1.4) ------------------------------------------
+
+SDK_CHILD = "claude_agent_sdk._internal.query"
+
+
+@pytest.fixture
+def plain_record_factory() -> Iterator[Callable[..., logging.LogRecord]]:
+    """The standard record factory for this test (the session installs the SDK reduction);
+    whatever factory was in place comes back afterwards."""
+    saved = logging.getLogRecordFactory()
+    logging.setLogRecordFactory(logging.LogRecord)
+    yield logging.LogRecord
+    logging.setLogRecordFactory(saved)
+
+
+class Collect(logging.Handler):
+    """A plain handler the app didn't install: no filters, keeps each record as it arrives."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+        self.texts: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+        self.texts.append(logging.Formatter("%(message)s %(name)s").format(record))
+
+
+@contextmanager
+def collecting(name: str) -> Iterator[Collect]:
+    logger = logging.getLogger(name)
+    handler = Collect()
+    level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    try:
+        yield handler
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(level)
+
+
+def log_sdk_failure(logger: logging.Logger, secret: str) -> None:
+    """What the SDK's message reader does: exception text formatted into the message, plus
+    args, the exception itself and a stack, all quoting ``secret``."""
+    try:
+        raise ValueError(f"CLI stderr: invalid token {secret}")
+    except ValueError as error:
+        logger.error(f"Fatal error in message reader: {error}", exc_info=True, stack_info=True)
+        logger.warning("stderr line: %s", secret)
+
+
+def test_sdk_child_record_reduced_at_creation_for_any_handler(
+    plain_record_factory: Callable[..., logging.LogRecord],
+) -> None:
+    secret = anthropic_shaped("oat01")
+    restore = install_sdk_record_reduction()
+    try:
+        with collecting(SDK_CHILD) as handler:
+            log_sdk_failure(logging.getLogger(SDK_CHILD), secret)
+    finally:
+        restore()
+
+    assert [r.getMessage() for r in handler.records] == [
+        f"ERROR from {SDK_CHILD} (ValueError)",
+        f"WARNING from {SDK_CHILD}",
+    ]
+    for record in handler.records:
+        assert record.args is None
+        assert record.exc_info is None
+        assert record.exc_text is None
+        assert record.stack_info is None
+    assert handler.texts and not any(secret in text for text in handler.texts)
+
+
+def test_sdk_record_reduced_before_last_resort_handler(
+    plain_record_factory: Callable[..., logging.LogRecord],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """With no handler anywhere (e.g. after ``LoggingSetup.close``), ``logging.lastResort``
+    writes the record to stderr: without the reduction the key is there, with it it isn't."""
+    secret = anthropic_shaped("api03")
+    logger = logging.getLogger("claude_agent_sdk.m123_no_handlers")
+    logger.propagate = False
+    try:
+        assert not logger.handlers
+        log_sdk_failure(logger, secret)
+        assert secret in capsys.readouterr().err, "control: lastResort writes the raw record"
+
+        restore = install_sdk_record_reduction()
+        try:
+            log_sdk_failure(logger, secret)
+        finally:
+            restore()
+    finally:
+        logger.propagate = True
+
+    err = capsys.readouterr().err
+    assert secret not in err
+    assert "ERROR from claude_agent_sdk.m123_no_handlers (ValueError)" in err
+
+
+def test_session_reduces_sdk_records_seen_by_caplog(caplog: pytest.LogCaptureFixture) -> None:
+    """The session-wide fixture in ``tests/conftest.py`` covers pytest's own log capture."""
+    secret = anthropic_shaped("oat01")
+    with caplog.at_level(logging.DEBUG):
+        log_sdk_failure(logging.getLogger(SDK_CHILD), secret)
+
+    sdk = [r for r in caplog.records if r.name == SDK_CHILD]
+    assert [r.getMessage() for r in sdk] == [
+        f"ERROR from {SDK_CHILD} (ValueError)",
+        f"WARNING from {SDK_CHILD}",
+    ]
+    assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("name", ["jobpipeline.test", "claude_agent_sdk_other", "claude"])
+def test_sdk_record_reduction_leaves_other_records_unchanged(
+    name: str, plain_record_factory: Callable[..., logging.LogRecord]
+) -> None:
+    restore = install_sdk_record_reduction()
+    try:
+        with collecting(name) as handler:
+            try:
+                raise ValueError("kept detail")
+            except ValueError:
+                logging.getLogger(name).error("kept %s", "text", exc_info=True)
+    finally:
+        restore()
+
+    (record,) = handler.records
+    assert record.getMessage() == "kept text"
+    assert record.args == ("text",)
+    assert record.exc_info is not None and str(record.exc_info[1]) == "kept detail"
+
+
+def test_sdk_record_reduced_at_creation_keeps_its_summary_through_handler_filters(
+    plain_record_factory: Callable[..., logging.LogRecord],
+) -> None:
+    """Each app handler's ``SdkRecordFilter`` sees the record again (and so may pytest's
+    caplog handler); the exception type named at creation stays."""
+    secret = anthropic_shaped("oat01")
+    restore = install_sdk_record_reduction()
+    try:
+        try:
+            raise ValueError(secret)
+        except ValueError:
+            record = logging.getLogger(SDK_CHILD).makeRecord(
+                SDK_CHILD, logging.ERROR, __file__, 1, "error: %s", (secret,), sys.exc_info()
+            )
+    finally:
+        restore()
+
+    for _ in range(2):
+        assert SdkRecordFilter().filter(record) is True
+        assert record.getMessage() == f"ERROR from {SDK_CHILD} (ValueError)"
+    formatted = JsonFormatter().format(record)
+    assert secret not in formatted
+    assert "sdk_reduced" not in formatted, "the internal marker is not written"
+
+
+def test_sdk_record_filter_rebuilds_a_record_that_arrives_marked() -> None:
+    """A record that wasn't made by the factory but carries the marker can't keep its text,
+    and a marker value that isn't an exception type name can't be shown either."""
+    secret = anthropic_shaped("api03")
+    for marker in (True, secret, "ValueError"):
+        record = logging.makeLogRecord(
+            {"name": SDK_CHILD, "msg": f"leak {secret}", "args": None, SDK_REDUCED_ATTR: marker}
+        )
+        record.levelname = "ERROR"
+
+        SdkRecordFilter().filter(record)
+
+        suffix = " (ValueError)" if marker == "ValueError" else ""
+        assert record.getMessage() == f"ERROR from {SDK_CHILD}{suffix}"
+        assert secret not in JsonFormatter().format(record)
+
+
+def test_sdk_record_reduction_restore_puts_previous_factory_back(
+    plain_record_factory: Callable[..., logging.LogRecord],
+) -> None:
+    restore = install_sdk_record_reduction()
+    assert logging.getLogRecordFactory() is not plain_record_factory
+
+    restore()
+    assert logging.getLogRecordFactory() is plain_record_factory
+    restore()  # a second call changes nothing
+    assert logging.getLogRecordFactory() is plain_record_factory
+
+
+def test_sdk_record_reduction_restore_keeps_a_factory_installed_later(
+    plain_record_factory: Callable[..., logging.LogRecord],
+) -> None:
+    restore = install_sdk_record_reduction()
+    ours = logging.getLogRecordFactory()
+
+    def later(*args: object, **kwargs: object) -> logging.LogRecord:
+        return ours(*args, **kwargs)
+
+    logging.setLogRecordFactory(later)
+    restore()
+
+    assert logging.getLogRecordFactory() is later
+    record = later(SDK_CHILD, logging.ERROR, __file__, 1, "text %s", ("detail",), None)
+    assert record.getMessage() == f"ERROR from {SDK_CHILD}", "still reduced inside the chain"
+
+
+def test_sdk_record_reduction_double_install_is_safe(
+    plain_record_factory: Callable[..., logging.LogRecord],
+) -> None:
+    first = install_sdk_record_reduction()
+    installed = logging.getLogRecordFactory()
+    second = install_sdk_record_reduction()
+    assert logging.getLogRecordFactory() is installed, "not wrapped twice"
+
+    second()
+    assert logging.getLogRecordFactory() is installed, "the inner install's restore is a no-op"
+    record = installed(SDK_CHILD, logging.INFO, __file__, 1, "text %s", ("detail",), None)
+    assert record.getMessage() == f"INFO from {SDK_CHILD}"
+
+    first()
+    assert logging.getLogRecordFactory() is plain_record_factory
+
+
+def test_configure_logging_installs_sdk_reduction_and_close_restores_it(
+    plain_record_factory: Callable[..., logging.LogRecord],
+    redactor: Redactor,
+    restore_logging: None,
+) -> None:
+    setup = configure_logging(None, "DEBUG", redactor)
+    try:
+        factory = logging.getLogRecordFactory()
+        record = factory(SDK_CHILD, logging.ERROR, __file__, 1, "text %s", ("detail",), None)
+        assert record.getMessage() == f"ERROR from {SDK_CHILD}"
+    finally:
+        setup.close()
+    assert logging.getLogRecordFactory() is plain_record_factory
+    setup.close()  # closing twice keeps it restored
+    assert logging.getLogRecordFactory() is plain_record_factory

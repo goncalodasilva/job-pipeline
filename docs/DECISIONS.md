@@ -618,3 +618,24 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - Tier selects are tightly coupled to provider kind; kind changes trigger a full re-render of the Providers block.
   - The "Connected" test state is task-scoped (uses Fast), not provider-scoped; tier changes require re-testing to validate the new tier's model.
   - Moving tasks between tiers is a future feature, gated on the task table existing.
+
+## ADR-070 — SDK log records reduced at creation (2026-10-06)
+
+- Context: M1.23 security review found a real gap: `claude_agent_sdk` loggers format exception text (possibly holding credential keys) into `record.msg`, and only handlers the app installs cleaned it (pytest caplog, logging.lastResort, any later handler saw the key). The app's handler filters kept exception keys safe in normal operation, but the gap was a risk if handlers were added later or dependencies changed.
+- Decision (user, 2026-10-06): reduce SDK records at creation time.
+  - `app/logging_config.py` exports `install_sdk_record_reduction()`, which wraps the log record factory to reduce every `claude_agent_sdk.*` record to level, logger name and exception type name when created. The marker `SDK_REDUCED_ATTR` holds the exception type string; the message is always rebuilt from the type at read time so a pre-marked record cannot keep the original text.
+  - `configure_logging()` calls `install_sdk_record_reduction()` once in the lifespan startup, and `LoggingSetup.close()` restores the original factory.
+  - The CLI in `app/cli.py` installs it at module load time (before logging setup, before any SDK use) for the process lifetime, with no shutdown window.
+  - `tests/conftest.py` installs it at session start, covering caplog, live tests (M1.25) and all pytest uses.
+  - Handler filters remain as defence in depth.
+  - Limitation: values passed with `extra=` on SDK loggers are added after the record factory runs, so only the app's handler filters strip them; the pinned SDK passes none, and re-check on SDK upgrades.
+- Consequences: SDK exception text cannot escape through logging, and handlers can rely on records being reduced at creation.
+
+## ADR-071 — Pushing the milestone branch (2026-10-06)
+
+- Context: the cloud container where development runs is temporary and sessions end without persistent storage. The `/run-milestone` workflow (ADR-065) runs multiple tasks in one session; without pushing, all work is lost when the session ends. The standard CLAUDE.md rule is "never push without asking", but the environment's nature makes pushing the automatic alternative necessary.
+- Decision (user, 2026-10-06): push the milestone branch to `origin` after each task's commit within `/run-milestone`.
+  - Each `/run-milestone` task commit is pushed immediately after the commit is made, using `git push origin m<n>-<name>` (the branch naming from CLAUDE.md).
+  - Do not merge, rebase, force-push or open a PR without asking the user; never push on `/next-task`.
+  - The pushing automation overrides the "never push" rule for this specific workflow in this ephemeral environment only.
+- Consequences: milestone branches are backed up to `origin` continuously during `/run-milestone`, and the session survives. Merging and PR creation remain deliberate, user-initiated decisions.
