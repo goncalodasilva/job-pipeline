@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{% if errors %}Error: {% endif %}{{ step.title }} · Set up{% endblock %}
 {% block body_attrs %} class="layout-guide"{% endblock %}
+{# The guide is where banners lead, so it doesn't repeat them. #}
+{% block banners %}{% endblock %}
 {# No sidebar while setting up: the guide's own step list shows the way. #}
 {% block navigation %}{% include "fragments/shell/_topbar_guide.html" %}{% endblock %}
 {% block content %}

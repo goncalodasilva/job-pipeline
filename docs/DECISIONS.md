@@ -549,3 +549,15 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - A "Skip for now" control when the first optional step arrives (M2 web search).
 - Consequences: spec 3.5 and 3.7 unchanged; `app/domain/locales.py` is new; settings models and the Done step service are wired by `app/main.py`.
 - Follow-up (user, 2026-10-06): after trying the demo, the Job inbox placeholder now says adding jobs, by link or by pasting the ad, arrives in a later version, so "Add a job" doesn't land on an unexplained page before M4. Each area's placeholder carries its own "coming" line.
+
+## ADR-066 — Leaving the guide and setup banners (2026-10-06)
+
+- Context: M1.20 implements `--setup` reopening and the provider-broken banner (AC-M1.1 case 4, ADR-050 item 5; ADR-053 requirements for M1.20–M1.22).
+- Decision:
+  - `POST /setup/leave` ("Back to the app"): token- and origin-checked, not a page route; offered whenever setup is finished (reopened by `--setup` or reached from a banner), except the moved-data-folder case; ends a `--setup` reopening for the rest of the run; changes no stored data; on a never-finished guide it changes nothing and points back to the current step. Route path collides with a step id, so step id `"leave"` is reserved in `RESERVED_STEP_IDS` in `app/onboarding/registry.py`.
+  - Finishing Done ends `--setup` for the rest of the run, whether reopened or never finished (fixes the bounce to step 1).
+  - Banners show on app pages only, not on guide pages (the guide is where they lead); there the step list marks banner steps "Needs attention" instead of "Done". AC-M1.1's spec wording and the design say a banner links straight to the provider step; "every page" in the task text is read as every app page.
+  - Banner content comes from the cached `StartupDecision` plus the cached provider health code (memory only, no keychain reads on GET, ADR-050 rule 5); fixed sentences naming the cause (Claude Code not installed, saved token or key missing, provider not allowed, no provider chosen; generic fallback), never secrets, paths or values; starts with "Needs attention:"; links "Fix the AI provider" and "Finish {title}".
+  - Step id `"leave"` is reserved (in `RESERVED_STEP_IDS`) because it collides with the fixed `/setup` POST route.
+  - Layout: banners and `#app-status` share a `.page-status` wrapper in the grid's status area.
+- Consequences: e2e coverage for the banner and Back to the app moves into M1.24.

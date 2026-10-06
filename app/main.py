@@ -254,14 +254,15 @@ def _step_handlers(
     app.state.connection_tester = provider  # POST /setup/provider/test (M1.18)
 
     def mark_done(step_id: str) -> Callable[[], None]:
-        """Mark ``step_id`` done and refresh the setup decision (provider health as stored)."""
+        """Mark ``step_id`` done and refresh the setup decision (provider health as stored).
+        Finishing the Done step also ends a ``--setup`` reopening (M1.20)."""
 
         def mark() -> None:
             progress = _progress(registry, _current_db(app), clock)
             if progress is None:  # pragma: no cover - these steps check for a workspace first
                 raise RuntimeError("no workspace is open")
             progress.mark_done(step_id)
-            onboarding.refresh(progress)
+            onboarding.refresh(progress, end_reopening=step_id == registry.last.id)
 
         return mark
 

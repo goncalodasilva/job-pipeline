@@ -18,6 +18,9 @@ from app.domain.errors import UnknownSetupStep
 from app.onboarding.detection import StepInfo
 
 _STEP_ID = re.compile(r"^[a-z][a-z0-9_]*$")
+# Fixed ``POST /setup/<name>`` routes (app/api/setup.py): a step with one of these ids would
+# have its submit swallowed by the fixed route, so the registry refuses them.
+RESERVED_STEP_IDS = frozenset({"leave"})
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,8 @@ class StepRegistry:
             raise ValueError("No setup steps.")
         if bad := [step_id for step_id in ids if not _STEP_ID.fullmatch(step_id)]:
             raise ValueError(f"Invalid step ids: {bad}")
+        if reserved := [step_id for step_id in ids if step_id in RESERVED_STEP_IDS]:
+            raise ValueError(f"Reserved step ids: {reserved}")
         if len(set(ids)) != len(ids):
             raise ValueError("Step ids must be unique.")
         if len(set(orders)) != len(orders):

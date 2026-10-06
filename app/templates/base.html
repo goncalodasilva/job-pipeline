@@ -22,12 +22,16 @@
   {% include "fragments/shell/_topbar.html" %}
   {% include "fragments/shell/_sidebar.html" %}
   {% endblock %}
+  <div class="page-status">
+  {# Problems found at start-up once setup is done: one banner each (AC-M1.1 case 4). #}
+  {% block banners %}{% include "fragments/shell/_banners.html" %}{% endblock %}
   <div id="app-status" class="app-status" hidden
        data-msg-restarted="The app was restarted, so that last action didn't go through. Reload the page and try again."
        data-msg-offline="The app isn't responding, so that last action didn't go through. Check that it's still running, then try again."
        data-msg-failed="Something went wrong and that action didn't go through. Nothing was lost. Please try again.">
     <p id="app-status-message"></p>
     <button type="button" id="app-status-reload" hidden>Reload the page</button>
+  </div>
   </div>
   <main id="main" tabindex="-1">
     {% block content %}{% endblock %}

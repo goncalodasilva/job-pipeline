@@ -71,6 +71,7 @@ STOP_TIMEOUT_SECONDS = 10.0
 POLL_INTERVAL_SECONDS = 0.05
 REQUEST_TIMEOUT_SECONDS = 2.0
 OUTPUT_TAIL_CHARS = 4000
+ALLOWED_CLI_ARGS = frozenset({"--setup"})  # fixed flags only; never paths or user data
 
 SetupState = Literal["complete", "fresh", "first_run", "provider_step", "preferences_step"]
 SETUP_STATES: tuple[SetupState, ...] = (
@@ -88,6 +89,7 @@ class AppStart:
 
     setup: SetupState = "complete"
     allow_fakes: bool = True
+    cli_args: tuple[str, ...] = ()  # extra fixed flags such as "--setup" (M1.20)
 
 
 class AppDidNotStart(RuntimeError):
@@ -219,11 +221,18 @@ class RunningApp:
 
 
 def start_app(
-    tmp_path: Path, *, setup: SetupState = "complete", allow_fakes: bool = True
+    tmp_path: Path,
+    *,
+    setup: SetupState = "complete",
+    allow_fakes: bool = True,
+    cli_args: tuple[str, ...] = (),
 ) -> RunningApp:
     """Start the app on a free loopback port and wait until ``/health`` answers 200.
 
-    ``allow_fakes=False`` starts it without ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``."""
+    ``allow_fakes=False`` starts it without ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``; ``cli_args``
+    adds flags from ``ALLOWED_CLI_ARGS`` (such as ``--setup``) to the command line."""
+    if unknown := [arg for arg in cli_args if arg not in ALLOWED_CLI_ARGS]:
+        raise ValueError(f"unsupported app flags {unknown!r}")
     if setup not in SETUP_STATES:
         raise ValueError(f"unknown setup state {setup!r}")
     data_dir = tmp_path / "data"
@@ -244,7 +253,7 @@ def start_app(
     port = free_loopback_port()
     stdout_path = tmp_path / "app-stdout.txt"
     stderr_path = tmp_path / "app-stderr.txt"
-    command = [sys.executable, "-m", "app", "--no-browser", "--port", str(port)]
+    command = [sys.executable, "-m", "app", "--no-browser", "--port", str(port), *cli_args]
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP

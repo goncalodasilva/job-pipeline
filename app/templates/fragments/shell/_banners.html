@@ -1,0 +1,20 @@
+{# One banner per entry in the start-up decision, a broken provider first (ADR-050 rule 5).
+   Shown on page load, so no live region: it isn't news, just something that needs attention.
+   The cause comes from the cached provider health code only: no secrets, paths or values. #}
+{% set causes = {
+  "cli_missing": "Claude Code isn't installed on this computer.",
+  "missing_sign_in": "Your saved token or API key is missing.",
+  "not_allowed": "That provider isn't allowed in this workspace.",
+  "not_configured": "No AI provider is chosen yet.",
+} %}
+{% if banners %}
+<section class="banners" aria-label="Needs attention">
+  {% for banner in banners %}
+  {% if banner.kind == "provider" %}
+  <p class="banner"><strong>Needs attention:</strong> {% if banner.cause in causes %}{{ causes[banner.cause] }} {% endif %}The app can't use your AI provider, so anything that needs AI won't work until it's fixed. Your data is safe. <a href="/setup/{{ banner.step }}">Fix the AI provider</a></p>
+  {% else %}
+  <p class="banner"><strong>Needs attention:</strong> There's a new setup step to finish: {{ banner.title }}. <a href="/setup/{{ banner.step }}">Finish {{ banner.title }}</a></p>
+  {% endif %}
+  {% endfor %}
+</section>
+{% endif %}

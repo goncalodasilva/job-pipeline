@@ -24,6 +24,7 @@ from app.onboarding.registry import (
     DONE,
     PREFERENCES,
     PROVIDER,
+    RESERVED_STEP_IDS,
     WELCOME,
     StepDefinition,
     StepRegistry,
@@ -104,6 +105,18 @@ def test_registry_rejects_duplicate_orders() -> None:
 def test_registry_rejects_bad_ids(bad_id: str) -> None:
     with pytest.raises(ValueError):
         StepRegistry([step("alpha", 10), dataclasses.replace(step("alpha", 20), id=bad_id)])
+
+
+@pytest.mark.parametrize("reserved", sorted(RESERVED_STEP_IDS))
+def test_registry_rejects_reserved_ids(reserved: str) -> None:
+    """``POST /setup/leave`` is a fixed route: a step named ``leave`` could never be saved."""
+    assert "leave" in RESERVED_STEP_IDS
+    with pytest.raises(ValueError, match="Reserved"):
+        StepRegistry([step("alpha", 10), step(reserved, 20)])
+
+
+def test_m1_registry_uses_no_reserved_ids() -> None:
+    assert not {step.id for step in m1_registry().steps} & RESERVED_STEP_IDS
 
 
 def test_definitions_are_frozen() -> None:

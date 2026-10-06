@@ -18,6 +18,12 @@ carrying the handler's message, without ``HX-Push-Url``. A finished guide
 for htmx 200 with ``HX-Redirect``. A refused submit shows back only the fields the handler names
 (``echo_fields``, one value each; ``echo_multi_fields``, every value).
 
+``POST /setup/leave`` (M1.20; not page-tagged, POST only, registered before the step submit)
+is "Back to the app", offered whenever setup is finished: on a guide reopened by ``--setup``
+it ends the reopening for the rest of the run; reached from a banner it has nothing to end.
+Stored data never changes; it answers 303 to ``/``, or for htmx 200 with ``HX-Redirect: /``.
+On a guide never finished it changes nothing and points back to the guide.
+
 ``POST /setup/provider/test`` (M1.18; not page-tagged, POST only) saves the provider form and
 awaits the connection test inside the request. A refused save answers 422 like a submit; a
 result, connected or not, answers 200 with the provider step and the result focused: htmx gets
@@ -38,6 +44,7 @@ from app.api.security import PAGE_TAG
 from app.api.setup_redirect import SETUP_PATH, setup_step_path
 from app.api.templating import render
 from app.domain.errors import UnknownSetupStep
+from app.onboarding.detection import StartupDecision
 from app.onboarding.registry import (
     PROVIDER,
     ConnectionCheck,
@@ -55,6 +62,8 @@ GUIDE_FRAGMENT = "fragments/setup/_guide_swap.html"
 NOT_FOUND_PAGE = "pages/setup_not_found.html"
 NOT_FOUND_FRAGMENT = "fragments/setup/_not_found.html"
 MAX_FORM_BYTES = 64 * 1024  # step forms are a few short fields
+LEAVE_PATH = f"{SETUP_PATH}/leave"  # "Back to the app" (M1.20)
+APP_HOME = "/"
 
 
 def register_setup_pages(app: FastAPI) -> None:
@@ -81,6 +90,13 @@ def register_setup_pages(app: FastAPI) -> None:
         methods=["POST"],
         response_class=HTMLResponse,
         name="setup_provider_test",
+    )
+    app.add_api_route(
+        LEAVE_PATH,
+        leave_setup,
+        methods=["POST"],
+        response_class=Response,
+        name="setup_leave",
     )
     app.add_api_route(
         f"{SETUP_PATH}/{{step_id}}",
@@ -147,6 +163,17 @@ async def submit_step(request: Request, step_id: str) -> Response:
     return response
 
 
+def leave_setup(request: Request) -> Response:
+    """Back to the app once setup is finished (no I/O: cached state)."""
+    onboarding: OnboardingState = request.app.state.onboarding
+    onboarding.leave_reopened()
+    step = onboarding.guide_step()  # still set when the guide was never finished
+    target = setup_step_path(step) if step is not None else APP_HOME
+    if not _is_htmx(request):
+        return RedirectResponse(target, status_code=303)
+    return Response(status_code=200, headers={"HX-Redirect": target})
+
+
 async def test_provider_connection(request: Request) -> Response:
     registry: StepRegistry = request.app.state.setup_registry
     step = registry.get(PROVIDER.id)
@@ -192,6 +219,9 @@ def _render_step(
             "step": step,
             "steps": registry.steps,
             "statuses": onboarding.statuses,
+            # Setup finished (reopened with --setup, or opened from a banner): offer the way back.
+            "setup_finished": _setup_finished(onboarding.decision),
+            "attention": frozenset(onboarding.decision.banners),  # list says "Needs attention"
             "form": form,
             "errors": dict(errors or {}),
             "stayed": stayed,  # saved and staying on the step: focus moves to its status
@@ -199,6 +229,10 @@ def _render_step(
             "next_step": following if (following := _next_step(registry, step)) != step else None,
         },
     )
+
+
+def _setup_finished(decision: StartupDecision) -> bool:
+    return decision.reopened or decision.kind in ("app", "app_with_banner")
 
 
 def _echo(form: dict[str, Any], handler: StepHandler, submitted: Form) -> None:

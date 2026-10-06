@@ -183,3 +183,72 @@ def test_refresh_keeps_provider_health_when_not_given() -> None:
     assert state.refresh(progress(ALL_DONE)) == StartupDecision(
         "app_with_banner", "provider", banners=("provider",)
     )
+
+
+# --- M1.20: ending a --setup reopening ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("force_setup", "statuses", "healthy", "expected"),
+    [
+        (True, {}, True, StartupDecision("guide", "welcome")),
+        (True, {"welcome": "done"}, True, StartupDecision("guide", "provider")),
+        (
+            False,
+            ALL_DONE,
+            False,
+            StartupDecision("app_with_banner", "provider", banners=("provider",)),
+        ),
+    ],
+    ids=["setup_flag_nothing_done", "setup_flag_unfinished", "opened_from_banner"],
+)
+def test_leave_reopened_is_false_and_changes_nothing_when_not_reopened(
+    force_setup: bool, statuses: dict[str, StepStatus], healthy: bool, expected: StartupDecision
+) -> None:
+    state = OnboardingState(m1_registry(), inputs(force_setup=force_setup))
+    state.refresh(progress(statuses), provider_healthy=healthy)
+    assert state.decision == expected
+
+    assert state.leave_reopened() is False
+    assert state.decision == expected
+    # Nothing was ended: --setup, when given, still reopens once the guide is finished.
+    assert state.refresh(progress(ALL_DONE), provider_healthy=True).reopened is force_setup
+
+
+@pytest.mark.parametrize(
+    ("healthy", "expected"),
+    [
+        (True, StartupDecision("app")),
+        (False, StartupDecision("app_with_banner", "provider", banners=("provider",))),
+    ],
+    ids=["healthy", "provider_broken"],
+)
+def test_leave_reopened_ends_the_reopening(healthy: bool, expected: StartupDecision) -> None:
+    state = OnboardingState(m1_registry(), inputs(force_setup=True))
+    reopened = state.refresh(progress(ALL_DONE), provider_healthy=healthy)
+    assert reopened == StartupDecision("guide", "welcome", reopened=True)
+
+    assert state.leave_reopened() is True
+    assert state.decision == expected
+    assert state.refresh(progress(ALL_DONE)) == expected, "stays ended across refreshes"
+    assert state.leave_reopened() is False
+
+
+def test_refresh_end_reopening_keeps_force_setup_off() -> None:
+    state = OnboardingState(m1_registry(), inputs(force_setup=True))
+    assert state.refresh(progress(ALL_DONE)).reopened
+
+    assert state.refresh(progress(ALL_DONE), end_reopening=True) == StartupDecision("app")
+    for _ in range(2):
+        assert state.refresh(progress(ALL_DONE)) == StartupDecision("app")
+    assert state.refresh(progress(ALL_DONE), provider_healthy=False).kind == "app_with_banner"
+
+
+def test_refresh_end_reopening_before_the_guide_was_ever_finished() -> None:
+    """--setup on a never-finished guide: finishing Done must not reopen it (M1.20)."""
+    state = OnboardingState(m1_registry(), inputs(force_setup=True))
+    required = {"welcome": "done", "provider": "done", "preferences": "done"}
+    assert state.refresh(progress(required)) == StartupDecision("guide", "done")
+
+    assert state.refresh(progress(ALL_DONE), end_reopening=True) == StartupDecision("app")
+    assert state.refresh(progress(ALL_DONE)) == StartupDecision("app")

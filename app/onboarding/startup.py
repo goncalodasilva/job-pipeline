@@ -4,6 +4,10 @@
 database, and is recomputed only by ``refresh``: at start-up, after a workspace opens and after
 state-changing requests, never on GET. The redirect middleware reads the cached value, so a
 request does no database, keychain or file reads to decide where it goes.
+
+A guide reopened by ``--setup`` stays reopened until the user chooses "Back to the app"
+(``leave_reopened``) or finishes the Done step again (``refresh(..., end_reopening=True)``);
+either ends it for the rest of the run (M1.20; ADR-050 rule 3).
 """
 
 import threading
@@ -30,7 +34,7 @@ class OnboardingState:
         self._provider_healthy = True
         self._lock = threading.Lock()
         self._statuses: dict[str, StepStatus] = {}
-        self._decision = self._detect(None)
+        self._decision = self._detect(database_exists=False)
 
     @property
     def decision(self) -> StartupDecision:
@@ -59,29 +63,44 @@ class OnboardingState:
         *,
         provider_healthy: bool | None = None,
         bootstrap_exists: bool | None = None,
+        end_reopening: bool = False,
     ) -> StartupDecision:
         """Recompute and cache the decision. ``progress`` is None while no workspace is open.
 
         ``provider_healthy`` (healthy until told otherwise) and ``bootstrap_exists`` update the
-        stored values; None keeps them.
+        stored values; None keeps them. ``end_reopening`` (the Done step was finished) stops
+        ``--setup`` from reopening the guide for the rest of the run.
         """
         with self._lock:
             if bootstrap_exists is not None:
                 self._inputs = replace(self._inputs, bootstrap_exists=bootstrap_exists)
             if provider_healthy is not None:
                 self._provider_healthy = provider_healthy
-            self._decision = self._detect(progress)
+            if end_reopening:
+                self._inputs = replace(self._inputs, force_setup=False)
+            self._statuses = dict(progress.statuses()) if progress is not None else {}
+            self._decision = self._detect(progress is not None)
             return self._decision
 
-    def _detect(self, progress: SetupProgress | None) -> StartupDecision:
+    def leave_reopened(self) -> bool:
+        """Back to the app: end a ``--setup`` reopening for the rest of the run, from the
+        cached statuses (no I/O). A guide that isn't reopened (never finished) is left as it
+        is, so this can't skip unfinished setup; returns whether anything changed."""
+        with self._lock:
+            if not self._decision.reopened:
+                return False
+            self._inputs = replace(self._inputs, force_setup=False)
+            self._decision = self._detect(database_exists=True)
+            return True
+
+    def _detect(self, database_exists: bool) -> StartupDecision:
         inputs = self._inputs
-        self._statuses = dict(progress.statuses()) if progress is not None else {}
         return detect(
             StartupFacts(
                 bootstrap_exists=inputs.bootstrap_exists,
                 data_dir_explicit=inputs.data_dir_explicit,
                 demo=inputs.demo,
-                database_exists=progress is not None,
+                database_exists=database_exists,
                 steps=self._registry.infos(),
                 statuses=self._statuses,
                 provider_healthy=self._provider_healthy,
