@@ -127,7 +127,13 @@
   <p id="connection-done" class="connection-result connection-ok">This step is done. You can test again at any time.</p>
   {% endif %}
   {% if not in_settings and (step_done or (result_ok and result_text)) and next_step %}
-  <p class="form-actions"><a href="/setup/{{ next_step.id }}" class="button button-primary">Continue</a></p>
+  {# An htmx step change like the submits (ADR-053): the guide swapped, the URL pushed, focus on
+     the next heading and "Step N of M" announced; the href is the fallback. Its own indicator,
+     so the form's saving note doesn't show. #}
+  {% set next_url = "/setup/" ~ next_step.id %}
+  <p class="form-actions"><a href="{{ next_url }}" class="button button-primary"
+     hx-get="{{ next_url }}" hx-target="#setup-guide" hx-swap="outerHTML" hx-push-url="true"
+     hx-indicator="this">Continue</a></p>
   {% endif %}
 
   {% if form.saved_kinds %}

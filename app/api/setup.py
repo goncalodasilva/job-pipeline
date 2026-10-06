@@ -5,7 +5,8 @@ Page routes are registered on the app itself with ``tags=[PAGE_TAG]`` (ADR-039),
 return the guide fragment (step list and current step), so moving between steps re-renders the
 list (ADR-053). GET and HEAD have no side effects (spec 2.9 rule 12): they read the registry,
 the cached start-up decision and the step handler's context, which may read stored settings
-(such as saved job preferences) but never writes.
+(such as saved job preferences) but never writes. An htmx GET (such as the provider step's
+"Continue" link) also carries an "announce" trigger, "Step N of M: <title>".
 
 Step submits are ``POST /setup/{step_id}``: not page-tagged, so the launch token and origin
 checks apply. The body is a URL-encoded form (parsed with the standard library). A saved step
@@ -122,7 +123,10 @@ def setup_step(request: Request, step_id: str) -> HTMLResponse:
         step = registry.get(step_id)
     except UnknownSetupStep:
         return _not_found(request)
-    return _render_step(request, step)
+    response = _render_step(request, step)
+    if is_htmx(request):  # a step change made with htmx, such as "Continue" (ADR-053)
+        response.headers["HX-Trigger"] = _announce_step(registry, step)
+    return response
 
 
 async def submit_step(request: Request, step_id: str) -> Response:
@@ -158,11 +162,9 @@ async def submit_step(request: Request, step_id: str) -> Response:
     url = setup_step_path(following.id)
     if not is_htmx(request):
         return RedirectResponse(url, status_code=303)
-    position = registry.steps.index(following) + 1
-    announcement = f"Step {position} of {len(registry.steps)}: {following.title}"
     response = _render_step(request, following)
     response.headers["HX-Push-Url"] = url
-    response.headers["HX-Trigger"] = json.dumps({"announce": announcement})
+    response.headers["HX-Trigger"] = _announce_step(registry, following)
     return response
 
 
@@ -243,6 +245,12 @@ def _render_step(
             "next_step": following if (following := _next_step(registry, step)) != step else None,
         },
     )
+
+
+def _announce_step(registry: StepRegistry, step: StepDefinition) -> str:
+    """The ``HX-Trigger`` value announcing "Step N of M: <title>" after a step change."""
+    position = registry.steps.index(step) + 1
+    return json.dumps({"announce": f"Step {position} of {len(registry.steps)}: {step.title}"})
 
 
 def _setup_finished(decision: StartupDecision) -> bool:

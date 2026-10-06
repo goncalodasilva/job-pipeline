@@ -37,6 +37,7 @@ if it does not exit within ``STOP_TIMEOUT_SECONDS``; the caller treats that as a
 """
 
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -72,6 +73,7 @@ POLL_INTERVAL_SECONDS = 0.05
 REQUEST_TIMEOUT_SECONDS = 2.0
 OUTPUT_TAIL_CHARS = 4000
 ALLOWED_CLI_ARGS = frozenset({"--setup"})  # fixed flags only; never paths or user data
+OUTPUT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")  # a plain file-name stem, never a path
 
 SetupState = Literal["complete", "fresh", "first_run", "provider_step", "preferences_step"]
 SETUP_STATES: tuple[SetupState, ...] = (
@@ -226,11 +228,16 @@ def start_app(
     setup: SetupState = "complete",
     allow_fakes: bool = True,
     cli_args: tuple[str, ...] = (),
+    output_name: str = "app",
 ) -> RunningApp:
     """Start the app on a free loopback port and wait until ``/health`` answers 200.
 
     ``allow_fakes=False`` starts it without ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``; ``cli_args``
-    adds flags from ``ALLOWED_CLI_ARGS`` (such as ``--setup``) to the command line."""
+    adds flags from ``ALLOWED_CLI_ARGS`` (such as ``--setup``) to the command line.
+    ``output_name`` names the output files (``<name>-stdout.txt``, ``<name>-stderr.txt`` in
+    ``tmp_path``), so a restart on the same folders keeps the earlier run's output."""
+    if not OUTPUT_NAME.fullmatch(output_name):
+        raise ValueError(f"unsupported output name {output_name!r}")
     if unknown := [arg for arg in cli_args if arg not in ALLOWED_CLI_ARGS]:
         raise ValueError(f"unsupported app flags {unknown!r}")
     if setup not in SETUP_STATES:
@@ -251,8 +258,8 @@ def start_app(
     if not explicit:
         data_dir = platform_default_data_dir(env, tmp_path)
     port = free_loopback_port()
-    stdout_path = tmp_path / "app-stdout.txt"
-    stderr_path = tmp_path / "app-stderr.txt"
+    stdout_path = tmp_path / f"{output_name}-stdout.txt"
+    stderr_path = tmp_path / f"{output_name}-stderr.txt"
     command = [sys.executable, "-m", "app", "--no-browser", "--port", str(port), *cli_args]
     creationflags = 0
     if sys.platform == "win32":

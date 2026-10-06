@@ -537,6 +537,39 @@ def test_continue_link_only_after_connected(tmp_path: Path) -> None:
             assert [a.attrs.get("href") for a in continue_links(elements)] == [PREFERENCES]
 
 
+def test_continue_is_an_htmx_step_change_announced(tmp_path: Path) -> None:
+    """ "Continue" moves to the next step like a submit does (ADR-053): an htmx GET of the
+    guide, the URL pushed, with the href as the fallback. The htmx GET answers the fragment
+    with the title, focus on the next heading and "Step 3 of 4: Job preferences" announced;
+    a plain GET announces nothing. Neither changes anything."""
+    with running(tmp_path) as run:
+        connected = post_test(run, FAKE_KIND, FAKE_CONNECTED)
+        link = only(continue_links(outline(connected.text)), "Continue")
+        assert link.attrs.get("href") == PREFERENCES
+        assert link.attrs.get("hx-get") == PREFERENCES
+        assert link.attrs.get("hx-target") == "#setup-guide"
+        assert link.attrs.get("hx-swap") == "outerHTML"
+        assert link.attrs.get("hx-push-url") == "true"
+        before = live_statuses(run)
+
+        swapped = run.client.get(PREFERENCES, headers=run.htmx())
+        assert swapped.status_code == 200, (swapped.status_code, swapped.text[:300])
+        assert announced(swapped) == "Step 3 of 4: Job preferences"
+        assert "<html" not in swapped.text
+        assert "<title>Job preferences · Set up · Job Search Pipeline</title>" in swapped.text
+        elements = outline(swapped.text)
+        heading = required(elements, "step-heading")
+        assert heading.text == "Job preferences"
+        focused = [e.attrs.get("id") for e in elements if "data-autofocus" in e.attrs]
+        assert focused == ["step-heading"], focused
+
+        plain = run.client.get(PREFERENCES)
+        assert plain.status_code == 200
+        assert "<html" in plain.text
+        assert "hx-trigger" not in plain.headers
+        assert live_statuses(run) == before, "GET has no side effects"
+
+
 def test_connected_shown_on_get_only_when_tested_in_this_run(tmp_path: Path) -> None:
     factory = recording()
     with running(tmp_path, wiring=factory) as run:  # type: ignore[arg-type]
