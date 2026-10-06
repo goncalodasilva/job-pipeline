@@ -19,6 +19,7 @@ folder lives under ``tmp_path``; every value is fictional and built at run time.
 
 import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,7 @@ from app.domain.errors import (
     ProviderNotInstalled,
     UsageLimitReached,
 )
-from app.domain.settings import AIProviderSettings, claude_auth_mode
+from app.domain.settings import AIProviderSettings, ProviderKind, Tier, claude_auth_mode
 from app.modules.ai import AIProvider, ProviderHealth
 from app.modules.ai.providers.claude_sdk import CLAUDE_FAST_DEFAULT, ClaudeSdkProvider
 from app.modules.ai.providers.fake import FAKE_FAST_MODEL, FakeAIProvider
@@ -162,6 +163,9 @@ class RecordingFactory:
     def fake_for_key(self, key: str | None) -> FakeAIProvider:
         self.fakes += 1
         return self._wiring.fake_for_key(key)
+
+    def default_models(self, kind: ProviderKind | None) -> Mapping[Tier, str]:
+        return self._wiring.default_models(kind)
 
 
 def recording(environ: dict[str, str] | None = None, **kwargs: Any) -> RecordingFactory:

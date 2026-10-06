@@ -22,6 +22,10 @@ Settings > Providers (M1.21) uses this same handler, so saves, tests, the one-at
 and the remembered "Connected" are shared with the step. A test from Settings passes
 ``mark_done=False``: it never touches the guide's state, and its "Connected" is remembered
 only once the step is done (so the step never offers Continue before it is).
+
+``save_tiers`` (Settings only, M1.22) maps the Fast and Thorough tiers to models; like any
+other change to the settings, a saved map forgets the remembered "Connected" (and then asks
+for a new test).
 """
 
 import asyncio
@@ -51,6 +55,7 @@ MSG_NOT_RECORDED = "Connected, but the app couldn't record it. Try again."
 MSG_BUSY = "A connection test is already running. Wait for it to finish."
 MSG_CHANGED = "The provider changed while testing. Test again."
 MSG_KEPT = "The saved {name} was kept."
+MSG_TEST_TIERS = "Test the connection again to check them."
 NOT_CONNECTED = "Not connected: "
 
 TOKEN_KIND: Final = "claude_subscription_token"  # noqa: S105 - a provider kind, not a secret
@@ -119,7 +124,22 @@ class ProviderStep:
             "keychain_failed": view.keychain_failed,
             "keychain_unavailable": view.keychain_unavailable,
             "connected": self._connected,
+            "models": view.models,
+            "tier_models": view.tier_models,
         }
+
+    def save_tiers(self, form: Form) -> StepResult:
+        """Save the tier map from ``fast`` and ``thorough`` (Settings). Blocking."""
+        service = self._service()
+        if service is None:
+            return StepResult(ok=False, errors={"form": MSG_STEP_1_FIRST})
+        before = service.settings_version()
+        result = service.save_tiers(_first(form, "fast") or "", _first(form, "thorough") or "")
+        forgot = False
+        if service.settings_version() != before:
+            forgot = self._connected is not None
+            self._connected = None
+        return _step_result(result, then=MSG_TEST_TIERS if forgot and result.ok else None)
 
     def submit(self, form: Form) -> StepResult:
         """``action=save`` (the default) saves the choice; a ``remove=<kind>`` button (with

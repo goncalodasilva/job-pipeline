@@ -1,0 +1,44 @@
+{# Settings > Providers: the model per tier (M1.22; spec 3.7). The options are the active
+   provider's known models; the selected one is the stored model, else the provider's default.
+   A refused submit is never shown back: the selects keep what is saved. Results are announced
+   through the page's live region (HX-Trigger), so nothing here is a live region. #}
+{% set tier_labels = {"fast": "Fast tier model", "thorough": "Thorough tier model"} %}
+{% set tiers_error = errors.get("tiers") %}
+{% set first_invalid = "fast" if errors.get("fast") else ("thorough" if errors.get("thorough") else none) %}
+<div id="tiers" class="tiers">
+  <h3 id="tiers-heading"{% if tiers_saved %} tabindex="-1" data-autofocus{% endif %}>Model per tier</h3>
+  <p id="tiers-hint" class="field-hint">Fast is for routine tasks like summaries; Thorough is for tailoring and feedback. A lighter Fast model can stretch your plan limits or API spend.</p>
+  <form id="tiers-form" class="step-form" method="post" action="{{ tiers_url }}"
+        hx-post="{{ tiers_url }}" hx-target="{{ provider_target }}" hx-swap="outerHTML"
+        hx-indicator="#tiers-saving" hx-disabled-elt="#tiers-form button" novalidate>
+    {% if tiers_error %}
+    <p id="tiers-error" class="field-error" tabindex="-1" data-autofocus>{{ tiers_error }}</p>
+    {% endif %}
+    {% for tier in ("fast", "thorough") %}
+    {% set tier_error = errors.get(tier) %}
+    {% set chosen = form.tier_models.get(tier) %}
+    <div class="field">
+      <label for="tier-{{ tier }}">{{ tier_labels[tier] }}</label>
+      <select id="tier-{{ tier }}" name="{{ tier }}"
+              aria-describedby="{% if tier_error %}tier-{{ tier }}-error {% endif %}tiers-hint"
+              {% if tier_error %}aria-invalid="true"{% endif %}
+              {% if tier == first_invalid %}data-autofocus{% endif %}>
+        {% for model in form.models %}
+        <option value="{{ model.id }}"{% if model.id == chosen %} selected{% endif %}>{{ model.label }}</option>
+        {% endfor %}
+      </select>
+      {% if tier_error %}
+      <p id="tier-{{ tier }}-error" class="field-error">{{ tier_error }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <div class="form-actions">
+      <button type="submit" class="button">Save tier models</button>
+    </div>
+    <p id="tiers-saving" class="saving-note" role="status">Saving…</p>
+    {% if tiers_saved %}
+    <p id="tiers-status" class="credential-status">Tier models saved.</p>
+    {% endif %}
+  </form>
+  <p class="field-hint">Choosing which tasks use which tier comes later, once the app has AI tasks. Until then, each task uses its default tier.</p>
+</div>

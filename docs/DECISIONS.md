@@ -602,3 +602,19 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - ADR-067's line "The Settings empty state for later parts sits above Providers for now…" is superseded by point 2 (moving the h1 is resolved).
   - ADR-063's follow-up on `ConnectionResult.failure` is resolved by point 5.
   - The Done step and Settings provider section are user-visible; Settings layout is stable for M1.22.
+
+## ADR-069 — Settings > Providers: model per tier (2026-10-06)
+
+- Context: M1.22 added tier-to-model mapping in Settings > Providers, completing the AI configuration flow. Tier changes (Fast / Thorough) needed to be selectable and saved.
+- Decision:
+  1. `AIProviderFactory.default_models(kind)` returns a dict of known model ids per tier for each provider kind; the method sits in the wiring module (not on the provider).
+  2. The tier selects offer known_models for the current provider kind; each select shows the stored value if it matches a known model, else the provider's default; saved model ids are explicit and match exactly.
+  3. The tier block lives inside the Providers section (#providers) so a provider kind change re-renders the entire section, clearing and re-filling the tier selects with the new kind's known_models.
+  4. Saving tiers clears the remembered "Connected" state (the connection test uses the Fast model, so a tier change needs re-testing). A refused save (validation error, version conflict, kind mismatch) keeps the remembered state.
+  5. Tier saves use version-conflict retry within version; last-write-wins across tabs. A kind change since the page loaded is refused with "The provider changed since this page loaded. Choose the models again."
+  6. Per-task tier overrides (moving a task from Fast to Thorough) are deferred until tasks exist; an empty-state note explains this.
+- Consequences:
+  - Tier configuration is now a core Settings flow, ready for M2's task runner.
+  - Tier selects are tightly coupled to provider kind; kind changes trigger a full re-render of the Providers block.
+  - The "Connected" test state is task-scoped (uses Fast), not provider-scoped; tier changes require re-testing to validate the new tier's model.
+  - Moving tasks between tiers is a future feature, gated on the task table existing.

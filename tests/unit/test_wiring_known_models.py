@@ -61,3 +61,27 @@ def test_known_models_per_provider() -> None:
     gated = build_wiring(environ={}, demo=True, redactor=Redactor(), keyring_backend=backend)
     assert gated.known_models("fake") == factory.known_models("fake")
     assert backend.calls == 0
+
+
+def test_default_models_are_offered_and_match_the_executor_defaults() -> None:
+    """``default_models`` (M1.22): each provider's tier defaults, read-only, among its
+    ``known_models``; nothing chosen yet counts as Claude. No keychain read."""
+    backend = CountingKeyring()
+    factory = wiring(backend)
+    for kind in KINDS:
+        defaults = factory.default_models(kind)
+        ids = {model.id for model in factory.known_models(kind)}
+        assert set(defaults) == {"fast", "thorough"}, kind
+        assert set(defaults.values()) <= ids, kind
+        assert factory.connection_model(AIProviderSettings(kind=kind)) == defaults["fast"]
+        with pytest.raises(TypeError):
+            defaults["fast"] = "fictional-model-9"  # type: ignore[index]
+    assert dict(factory.default_models("fake")) == {
+        "fast": FAKE_FAST_MODEL,
+        "thorough": FAKE_THOROUGH_MODEL,
+    }
+    assert dict(factory.default_models(None)) == {
+        "fast": CLAUDE_FAST_DEFAULT,
+        "thorough": CLAUDE_THOROUGH_DEFAULT,
+    }
+    assert backend.calls == 0

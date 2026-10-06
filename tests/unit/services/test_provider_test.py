@@ -23,7 +23,7 @@ import asyncio
 import inspect
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
@@ -41,7 +41,9 @@ from app.domain.settings import (
     AI_PROVIDER,
     AIProviderSettings,
     OptionalSettingSpec,
+    ProviderKind,
     SettingSpec,
+    Tier,
     TierMap,
 )
 from app.modules.ai import AIProvider, ConnectionResult
@@ -158,6 +160,9 @@ class ScriptedFactory:
         self.fakes += 1
         built = self._wiring.fake_for_key(key)
         return self._provider if self._provider is not None else built
+
+    def default_models(self, kind: ProviderKind | None) -> Mapping[Tier, str]:
+        return self._wiring.default_models(kind)
 
 
 M = TypeVar("M", bound=BaseModel)

@@ -11,7 +11,7 @@ providers are scripted stand-ins or the app-selectable fake. Every value is fict
 
 import asyncio
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,7 +20,7 @@ import pytest
 
 from app.domain.errors import ProviderNotInstalled
 from app.domain.redaction import Redactor
-from app.domain.settings import AIProviderSettings
+from app.domain.settings import AIProviderSettings, ProviderKind, Tier
 from app.modules.ai import AIProvider, ConnectionResult
 from app.modules.secrets.providers.memory import MemorySecretStore
 from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
@@ -101,6 +101,9 @@ class Factory:
     def fake_for_key(self, key: str | None) -> Any:
         self.builds += 1
         return self._wiring.fake_for_key(key)
+
+    def default_models(self, kind: ProviderKind | None) -> Mapping[Tier, str]:
+        return self._wiring.default_models(kind)
 
 
 class Marks:

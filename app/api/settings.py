@@ -19,6 +19,11 @@ or no longer asking, and changes nothing). A valid save answers 303 to
 ``POST /settings/providers/test`` (launch token and origin; POST only) saves, then tests, with
 the provider step's messages; it never marks a guide step done. A result answers 200: htmx
 gets the section with the result focused and announced, a plain request the full page.
+
+``POST /settings/tiers`` (launch token and origin; POST only; M1.22) maps the Fast and
+Thorough tiers to models the active provider offers: 303 to ``/settings``, or for htmx 200
+with the Providers section, focus on the tier status and an "announce" trigger. A refused map
+answers 422 with the field errors and never shows the submitted values back.
 """
 
 import json
@@ -40,6 +45,7 @@ from app.onboarding.steps.provider import ProviderStep
 SETTINGS_PATH = "/settings"
 PROVIDERS_PATH = f"{SETTINGS_PATH}/providers"
 PROVIDERS_TEST_PATH = f"{PROVIDERS_PATH}/test"
+TIERS_PATH = f"{SETTINGS_PATH}/tiers"
 SETTINGS_PAGE = "pages/settings.html"
 SETTINGS_FRAGMENT = "fragments/settings/_settings.html"
 PROVIDERS_FRAGMENT = "fragments/settings/_providers.html"
@@ -62,6 +68,13 @@ def register_settings_pages(app: FastAPI) -> None:
         methods=["POST"],
         response_class=HTMLResponse,
         name="settings_providers_test",
+    )
+    app.add_api_route(
+        TIERS_PATH,
+        save_tiers,
+        methods=["POST"],
+        response_class=HTMLResponse,
+        name="settings_tiers",
     )
     app.add_api_route(
         PROVIDERS_PATH,
@@ -96,6 +109,20 @@ async def save_providers(request: Request) -> Response:
     return response
 
 
+async def save_tiers(request: Request) -> Response:
+    form = await read_form(request)
+    if form is None:
+        return HTMLResponse("", status_code=413)
+    result: StepResult = await run_in_threadpool(_handler(request).save_tiers, form)
+    if not result.ok:  # nothing submitted is shown back
+        return _refused(request, result.errors, None)
+    if not is_htmx(request):
+        return RedirectResponse(SETTINGS_PATH, status_code=303)
+    response = _render(request, tiers_saved=True)
+    response.headers["HX-Trigger"] = json.dumps({"announce": result.message or "Saved."})
+    return response
+
+
 async def test_providers(request: Request) -> Response:
     form = await read_form(request)
     if form is None:
@@ -118,7 +145,7 @@ def _handler(request: Request) -> ProviderStep:
     return handler
 
 
-def _refused(request: Request, errors: Mapping[str, str], submitted: Form) -> HTMLResponse:
+def _refused(request: Request, errors: Mapping[str, str], submitted: Form | None) -> HTMLResponse:
     response = _render(request, errors=errors, submitted=submitted)
     response.status_code = 422
     return response
@@ -133,6 +160,7 @@ def _render(
     stayed: bool = False,
     connection: ConnectionCheck | None = None,
     step_view: Mapping[str, str] | None = None,
+    tiers_saved: bool = False,
 ) -> HTMLResponse:
     """The full Settings page, or for htmx the Providers section (after a POST) or the main
     content (a page GET)."""
@@ -153,6 +181,8 @@ def _render(
             "stayed": stayed,  # saved: focus moves to the credential status
             "connection": connection,  # a test just ran: focus moves to its result
             "step_view": dict(step_view or {}),  # a removal to confirm, or kept: focus there
+            "tiers_saved": tiers_saved,  # the tier map was saved: focus moves to its status
+            "tiers_url": TIERS_PATH,
             # The provider step's fragment, pointed at the Settings routes.
             "provider_context": "settings",
             "provider_post_url": PROVIDERS_PATH,

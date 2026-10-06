@@ -193,6 +193,11 @@ class AIProviderFactory(Protocol):
         Claude models when nothing is chosen yet, like ``connection_model``."""
         ...
 
+    def default_models(self, kind: ProviderKind | None) -> Mapping[Tier, str]:
+        """The default model per tier of the provider a kind stands for (no provider is
+        built); Claude's when nothing is chosen yet, like ``known_models``."""
+        ...
+
     def environment_keys(self) -> frozenset[str]:
         """The secret keys the environment provides (key names only, never values)."""
         ...

@@ -20,6 +20,7 @@ import stat
 import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 from app.domain.errors import ProviderNotInstalled
@@ -189,6 +190,10 @@ class Wiring:
     def known_models(self, kind: ProviderKind | None) -> tuple[ModelChoice, ...]:
         """The models offered by the provider ``kind`` stands for; builds nothing."""
         return _MODELS_BY_PROVIDER[_provider_name(kind)]
+
+    def default_models(self, kind: ProviderKind | None) -> Mapping[Tier, str]:
+        """The default model per tier of the provider ``kind`` stands for; builds nothing."""
+        return MappingProxyType(dict(_DEFAULTS_BY_PROVIDER[_provider_name(kind)]))
 
     def environment_keys(self) -> frozenset[str]:
         """The secret keys the environment provides, fixed at start when wiring was built

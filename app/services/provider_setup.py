@@ -12,6 +12,12 @@ Then it refreshes provider health. Every keychain call (probe, write, delete, lo
 one timed worker thread; a timeout or an error counts as "keychain unavailable". ``view``
 reads the settings row and cached facts only, never the keychain (spec 2.9.12).
 
+``save_tiers`` (M1.22; spec 3.7) maps the Fast and Thorough tiers to models the active kind
+offers (``factory.known_models``), changing nothing else; anything else is refused and nothing
+is saved. If the provider changes while it saves (a retry after a version conflict finds
+another provider's models), it is refused too. Submitted values never reach a result or a log
+line.
+
 ``test_connection`` (M1.18; ADR-044 item 6, ADR-058) saves like ``save``, then awaits the saved
 provider's connection test with the Fast tier model and a timeout; the fake comes from the
 pasted text, which only picks its outcome (ADR-054). Blocking work runs in worker threads.
@@ -31,10 +37,12 @@ from types import MappingProxyType
 from typing import Final, Literal, TypeVar
 
 from app.domain.errors import AppError, NetworkUnavailable, VersionConflict
-from app.domain.settings import AI_PROVIDER, AIProviderSettings, ProviderKind, TierMap
+from app.domain.settings import AI_PROVIDER, AIProviderSettings, ProviderKind, Tier, TierMap
+from app.domain.tiers import resolve_model
 from app.modules.ai import (
     AIProviderFactory,
     ConnectionFailure,
+    ModelChoice,
     ProviderChoice,
     connection_failure,
 )
@@ -106,6 +114,11 @@ MSG_SAVED_FAKE = "Saved. The app will use the fake provider, for testing only."
 MSG_NOT_KEPT = "The pasted text wasn't needed, so it wasn't kept."
 MSG_REMOVED = "The saved {name} was removed."
 MSG_TEST_FAILED = "The connection test didn't finish. Nothing was lost; try again."
+MSG_CHOOSE_MODEL = "Choose one of the listed models."
+MSG_TIERS_SAVE_FAILED = "The tier models couldn't be saved. Try again."
+MSG_TIERS_SAVED = "Tier models saved."
+MSG_TIERS_PROVIDER_CHANGED = "The provider changed since this page loaded. Choose the models again."
+TIERS: Final[tuple[Tier, ...]] = ("fast", "thorough")
 
 
 @dataclass(frozen=True)
@@ -147,6 +160,9 @@ class ProviderSetupView:
     environment_variable: str | None  # the variable providing the chosen kind's key
     keychain_failed: bool  # the last lookup of the chosen kind's key couldn't read the keychain
     keychain_unavailable: bool  # the last probe or write found no usable keychain
+    models: tuple[ModelChoice, ...] = ()  # the active kind's models, offered for each tier
+    # The model each tier uses: the stored one, else the provider's default (M1.22).
+    tier_models: Mapping[Tier, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -155,6 +171,11 @@ class _Seen:
 
     source: SecretSource | None
     keychain_failed: bool
+
+
+class _ProviderChanged(Exception):
+    """A tier map's provider changed between loading and saving; ``_update`` lets it
+    through so the caller can say so."""
 
 
 class _KeychainUnusable(Exception):
@@ -204,6 +225,8 @@ class ProviderSetupService:
             environment_variable=variable,
             keychain_failed=seen is not None and seen.keychain_failed,
             keychain_unavailable=self._keychain_unavailable,
+            models=self._factory.known_models(kind),
+            tier_models=self._tier_models(current),
         )
 
     def save(self, kind: str, credential: str) -> ProviderSetupResult:
@@ -234,6 +257,37 @@ class ProviderSetupService:
         if key in self._environment_keys:
             return self._commit(loaded, chosen, message=self._env_message(key))
         return _refused("credential", _paste_message(chosen))
+
+    def save_tiers(self, fast: str, thorough: str) -> ProviderSetupResult:
+        """Map the tiers to models the active kind offers, changing only ``tiers`` (one retry
+        after a version conflict). A value not on offer (or missing) is refused per field and
+        nothing is saved; the values are never logged or shown back."""
+        loaded = self._settings.load(AI_PROVIDER)
+        offered = {model.id for model in self._factory.known_models(loaded.value.kind)}
+        chosen: dict[Tier, str] = {"fast": fast, "thorough": thorough}
+        errors: dict[str, str] = {
+            tier: MSG_CHOOSE_MODEL for tier in TIERS if chosen[tier] not in offered
+        }
+        if errors:
+            return ProviderSetupResult(ok=False, errors=errors)
+        tiers = TierMap(fast=fast, thorough=thorough)
+
+        def change(value: AIProviderSettings) -> AIProviderSettings:
+            # A retry after a conflict: the kind may have changed meanwhile.
+            if self._factory.known_models(value.kind) != self._factory.known_models(
+                loaded.value.kind
+            ):
+                raise _ProviderChanged
+            return value.model_copy(update={"tiers": tiers})
+
+        try:
+            saved = self._update(loaded, change)
+        except _ProviderChanged:
+            _log.info("AI provider changed while saving the tier map.")
+            return _refused("tiers", MSG_TIERS_PROVIDER_CHANGED)
+        if not saved:
+            return _refused("tiers", MSG_TIERS_SAVE_FAILED)
+        return ProviderSetupResult(ok=True, message=MSG_TIERS_SAVED)
 
     async def test_connection(
         self, kind: str, credential: str, *, data_dir: Path
@@ -364,6 +418,8 @@ class ProviderSetupService:
                 if attempt:
                     break
                 _log.info("AI provider setting changed elsewhere; retrying once.")
+            except _ProviderChanged:
+                raise
             except Exception as error:  # sqlite messages can hold paths: log the type only
                 _log.warning("AI provider setting couldn't be saved (%s).", type(error).__name__)
                 return False
@@ -388,6 +444,10 @@ class ProviderSetupService:
             fast=value.tiers.fast if value.tiers.fast in ids else None,
             thorough=value.tiers.thorough if value.tiers.thorough in ids else None,
         )
+
+    def _tier_models(self, settings: AIProviderSettings) -> Mapping[Tier, str]:
+        defaults = self._factory.default_models(settings.kind)
+        return MappingProxyType({tier: resolve_model(tier, settings, defaults) for tier in TIERS})
 
     def _undo_write(self, key: str) -> None:
         """Best effort: remove a keychain item whose kind couldn't be recorded."""
