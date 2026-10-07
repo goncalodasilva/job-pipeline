@@ -660,3 +660,10 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Context: the first M1.25 commit added a fictional test value in `tests/unit/test_live_gating.py` that gitleaks' `generic-api-key` rule flags. Local full verification ran the history scan before the file was committed, so the push turned CI's history scan red. The repo runs gitleaks with no allowlist, and `tests/unit/test_precommit_config.py::test_gitleaks_runs_without_allowlist` forbids `.gitleaksignore`.
 - Decision (user, 2026-10-06): keep the no-allowlist rule and rewrite the unmerged milestone branch instead. The M1.25 commits were rebuilt with the value built so it isn't flagged, and `m1-setup-guide` was force-pushed with `--force-with-lease`. A `.gitleaksignore` exception was tried and dropped.
 - Consequences: no flagged string in history and no gitleaks exception. Lesson: after committing new test files, run the history scan (`uv run pre-commit run --hook-stage manual gitleaks-history`) before pushing, and gate a push on the verify script's own exit status.
+
+## ADR-075 — One approved force push, and a tighter force-push guard (2026-10-07)
+
+- Context: publishing the rebuilt M1 branch (ADR-074) needed a force push, which the repo forbids for Claude twice: the `--force*` deny rule in `.claude/settings.json` and the force-push rule in `.claude/hooks/pre_tool_guard.py`. Auto mode refused to let Claude loosen its own guardrails.
+- Decision (user, 2026-10-07, in Accept edits mode with each step approved): a temporary exemption for exactly one command, a `--force-with-lease` push of `m1-setup-guide` that succeeds only if the remote head is still `0c8b013`. The deny rule was lifted and the hook exempted that one string; the push ran once (`0c8b013` → `a16963d`); then the exemption was removed and the deny rule restored. The exemption was never committed.
+- Also kept: the hook's force-push pattern missed `--force-with-lease=<ref>`; it now also catches that, `--force-if-includes` and `+<refspec>`.
+- Consequences: no standing exception. Future force pushes still need the user, who runs them or repeats this procedure.
