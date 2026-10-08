@@ -27,12 +27,14 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
+from types import FrameType
+from typing import NoReturn, cast
 
 import uvicorn
 from fastapi import FastAPI
 
 from app import __version__
+from app.api.events import ShutdownSignal
 from app.config import (
     CliOptions,
     RuntimeConfig,
@@ -55,6 +57,7 @@ HOST = "127.0.0.1"
 HEALTH_POLL_SECONDS = 0.25
 HEALTH_POLL_ATTEMPTS = 40  # about 10 seconds
 INTERRUPTED_EXIT = 130  # Ctrl+C before the server took over signal handling
+GRACEFUL_SHUTDOWN_SECONDS = 5  # how long uvicorn waits for connections once a stop is asked
 # The SDK's own CLI version check runs with the full environment; the app checks the version
 # itself, so the SDK's check is turned off for the process (ADR-058).
 SDK_SKIP_VERSION_CHECK = "CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"
@@ -99,10 +102,41 @@ def parse_cli_options(argv: Sequence[str] | None) -> CliOptions:
 
 
 def server_config(app: FastAPI, port: int) -> uvicorn.Config:
-    """Loopback only; our logging, not uvicorn's; no proxy headers or root path (ADR-039)."""
+    """Loopback only; our logging, not uvicorn's; no proxy headers or root path (ADR-039).
+
+    ``timeout_graceful_shutdown`` is only the backstop for a connection that outlives the stop
+    request; open event streams are ended earlier by ``signal_streams_on_exit`` (ADR-076).
+    """
     return uvicorn.Config(
-        app, host=HOST, port=port, proxy_headers=False, log_config=None, root_path=""
+        app,
+        host=HOST,
+        port=port,
+        proxy_headers=False,
+        log_config=None,
+        root_path="",
+        timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
     )
+
+
+def signal_streams_on_exit(server: uvicorn.Server, shutdown: ShutdownSignal) -> None:
+    """Make ``server``'s stop request end the app's event streams first (ADR-076 item 1).
+
+    uvicorn's graceful shutdown waits for open connections to finish, and an event stream never
+    does by itself. ``server.handle_exit`` is what uvicorn installs for SIGINT and SIGTERM, so
+    this wraps that one instance: ``shutdown`` is set, then uvicorn's own handler runs unchanged
+    (its second Ctrl+C still forces the exit). uvicorn's handler runs even if setting the signal
+    fails, so Ctrl+C can always stop the server; that error then propagates. Call it before
+    ``server.run()``.
+    """
+    uvicorn_handle_exit = server.handle_exit
+
+    def handle_exit(sig: int, frame: FrameType | None) -> None:
+        try:
+            shutdown.set()
+        finally:
+            uvicorn_handle_exit(sig, frame)
+
+    server.handle_exit = handle_exit  # type: ignore[method-assign]
 
 
 def default_launcher() -> Launcher:
@@ -301,6 +335,8 @@ def _port_free(port: int) -> bool:
 
 def _serve(config: uvicorn.Config) -> bool:
     server = uvicorn.Server(config)
+    app = cast(FastAPI, config.app)  # server_config always passes the app object
+    signal_streams_on_exit(server, app.state.shutdown_signal)
     server.run()
     return server.started
 

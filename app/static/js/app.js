@@ -101,4 +101,87 @@
     if (target.tabIndex < 0 && !target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     target.focus();
   });
+
+  // Live updates (ADR-076 item 1): the server streams events at the URL in <body data-events-url>
+  // (app pages only; the setup guide has none). EventSource can't send headers, so the stream is
+  // read with fetch and the launch token goes in X-JP-Token like every other request, never in
+  // the URL. Each "resync" event becomes a "tasks:resync" event on the body, which the parts of
+  // the page that show tasks listen for. Anything else is ignored, and a refused or wrong
+  // response ends the reader quietly: reconnecting and telling the user come later (M2.18).
+  var eventsUrl = document.body.getAttribute("data-events-url");
+  var MAX_PENDING = 64 * 1024; // the longest unfinished message the reader will keep
+
+  function launchToken() {
+    try {
+      var value = JSON.parse(document.body.getAttribute("hx-headers") || "{}")["X-JP-Token"];
+      return typeof value === "string" ? value : "";
+    } catch (error) {
+      return "";
+    }
+  }
+
+  // One message is the lines between blank lines: ": comment" lines and fields such as
+  // "event: resync" and "data: {}". Only the event name matters here.
+  function handleMessage(message) {
+    var name = "";
+    message.split("\n").forEach(function (line) {
+      if (line.indexOf("event:") === 0) name = line.slice(6).replace(/^ /, "");
+    });
+    if (name === "resync") {
+      document.body.dispatchEvent(new CustomEvent("tasks:resync", { bubbles: true }));
+    }
+  }
+
+  // Handles the complete messages in `text`, whose lines all end in "\n", and returns the rest.
+  function handleMessages(text) {
+    var messages = text.split("\n\n");
+    var rest = messages.pop();
+    messages.forEach(handleMessage);
+    return rest;
+  }
+
+  // Lines end in "\n", "\r\n" or a bare "\r"; each chunk's endings are turned into "\n" at once.
+  // A chunk that ends in "\r" may hold the first half of a "\r\n", so a "\n" that starts the next
+  // chunk is part of that line ending and is dropped. An unfinished message longer than MAX_PENDING
+  // is not what our server sends: the stream is cancelled and the reader stays quiet.
+  function readEvents(reader) {
+    var decoder = new TextDecoder();
+    var pending = "";
+    var afterCr = false;
+    function next() {
+      reader.read().then(function (chunk) {
+        if (chunk.done) return;
+        var text = decoder.decode(chunk.value, { stream: true });
+        if (text) { // an empty result is the first bytes of a multi-byte character
+          if (afterCr && text.charAt(0) === "\n") text = text.slice(1);
+          afterCr = text.slice(-1) === "\r";
+        }
+        pending = handleMessages(pending + text.replace(/\r\n?/g, "\n"));
+        if (pending.length > MAX_PENDING) {
+          reader.cancel().catch(function () { /* already closed */ });
+          return;
+        }
+        next(); // not returned, so a stream that lasts all day builds no chain of promises
+      }).catch(function () { /* the stream was cut; reconnecting comes with M2.18 */ });
+    }
+    next();
+  }
+
+  function startEvents(url) {
+    var token = launchToken();
+    if (!token) return;
+    fetch(url, {
+      headers: { "X-JP-Token": token, "Accept": "text/event-stream" },
+      mode: "same-origin",
+      cache: "no-store",
+      redirect: "manual", // a redirect is never followed (it shows up as !response.ok)
+      credentials: "omit"
+    }).then(function (response) {
+      var type = (response.headers.get("content-type") || "").toLowerCase();
+      if (!response.ok || type.indexOf("text/event-stream") !== 0 || !response.body) return;
+      readEvents(response.body.getReader());
+    }).catch(function () { /* refused or offline: stay quiet */ });
+  }
+
+  if (eventsUrl && window.fetch && window.TextDecoder) startEvents(eventsUrl);
 })();

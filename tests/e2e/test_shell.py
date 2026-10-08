@@ -17,6 +17,7 @@ The app runs on loopback with temporary folders; no fictional or real user data 
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from urllib.parse import urlsplit
 
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
@@ -38,6 +39,7 @@ MAX_REDUCED_DURATION_S = 0.00001
 
 SIDEBAR = "#sidebar"
 TOGGLE = "button.sidebar-toggle"
+EVENTS = "/events"  # the live-update stream app pages keep open (M2.1)
 
 
 # --- helpers -------------------------------------------------------------------------------
@@ -605,7 +607,11 @@ def test_page_load_has_no_failed_requests(running_app: RunningApp, desktop_page:
         ),
     )
     for path in ("/", "/inbox"):
-        open_app(desktop_page, running_app, path)
-        desktop_page.wait_for_load_state("networkidle")
+        # App pages keep an event stream open (GET /events, M2.1), so the page never reaches
+        # "networkidle". Wait for the load event and for the stream's response headers instead;
+        # the listener above then checks the stream's status like every other request.
+        with desktop_page.expect_response(lambda response: urlsplit(response.url).path == EVENTS):
+            open_app(desktop_page, running_app, path)
+        desktop_page.wait_for_load_state("load")
 
     assert failed == []

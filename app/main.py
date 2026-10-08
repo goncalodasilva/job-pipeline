@@ -22,6 +22,7 @@ from starlette.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.errors import register_error_handlers
+from app.api.events import DEFAULT_KEEPALIVE_SECONDS, ShutdownSignal, register_events
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
@@ -322,13 +323,17 @@ def create_app(
     open_at_startup: bool | None = None,
     wiring: Wiring | None = None,
     setup_registry: StepRegistry | None = None,
+    event_keepalive_seconds: float = DEFAULT_KEEPALIVE_SECONDS,
 ) -> FastAPI:
     """Build the app. ``open_at_startup`` (default: ``opens_workspace_at_startup(config)``)
     says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used.
     ``wiring`` (default: built from the process environment with a new redactor) builds the
     providers; the CLI passes the one whose redactor its logging uses. ``setup_registry``
     (default: ``m1_registry()``) lists the guide's steps; steps without a handler of their
-    own get a placeholder."""
+    own get a placeholder. ``event_keepalive_seconds`` is how often an idle ``GET /events``
+    stream sends a comment line (finite and greater than 0, else ``ValueError``).
+    ``app.state.shutdown_signal`` is made here, not in the lifespan: the CLI sets it when a
+    stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1)."""
     app_clock = clock if clock is not None else SystemClock()
     app_wiring = (
         wiring
@@ -478,6 +483,8 @@ def create_app(
         openapi_url=None,
     )
     app.state.wiring = app_wiring
+    shutdown_signal = ShutdownSignal()
+    app.state.shutdown_signal = shutdown_signal
     launch_token = generate_launch_token()
     app.state.launch_token = launch_token
     # Inside the security middleware: rejections come first and redirects keep its headers.
@@ -496,5 +503,6 @@ def create_app(
     register_pages(app)
     register_settings_pages(app)
     register_setup_pages(app)
+    register_events(app, shutdown=shutdown_signal, keepalive_seconds=event_keepalive_seconds)
     app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="static")
     return app

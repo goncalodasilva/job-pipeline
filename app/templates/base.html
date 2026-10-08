@@ -16,7 +16,9 @@
   <script src="{{ static('vendor/htmx.min.js') }}" defer></script>
   <script src="{{ static('js/app.js') }}" defer></script>
 </head>
-<body hx-headers="{{ hx_headers }}"{% block body_attrs %}{% endblock %}>
+{# data-events-url makes app.js read the live-update stream (ADR-076 item 1). Pages where it
+   makes no sense, such as the setup guide, override events_attr with nothing. #}
+<body hx-headers="{{ hx_headers }}"{% block body_attrs %}{% endblock %}{% block events_attr %} data-events-url="/events"{% endblock %}>
   <a class="skip-link" href="#main">Skip to main content</a>
   {% block navigation %}
   {% include "fragments/shell/_topbar.html" %}
