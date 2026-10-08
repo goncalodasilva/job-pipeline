@@ -1,7 +1,10 @@
 """The ``jobpipeline`` command (spec 7.1; ADR-024, 025, 030, 037, 039, 040).
 
 Start-up order matters: resolve the config, create the data folder, set up redacted logging
-and the exception hooks, build the app, check the port, then serve on 127.0.0.1 only. The
+and the exception hooks, build the app, check the port, then serve on 127.0.0.1 only. On a
+first run (no database yet and no folder named by a flag or the environment) nothing is
+created: logs are buffered in memory until step 1 opens the workspace (ADR-044 item 3), and a
+start-up failure points at the console instead of a log folder. The
 browser opens once ``/health`` answers. Errors print one plain line, never a traceback; the
 log file keeps the details.
 
@@ -30,16 +33,31 @@ import uvicorn
 from fastapi import FastAPI
 
 from app import __version__
-from app.config import CliOptions, RuntimeConfig, resolve_config
+from app.config import (
+    CliOptions,
+    RuntimeConfig,
+    opens_workspace_at_startup,
+    owned_by_another_user,
+    resolve_config,
+)
 from app.domain.errors import ConfigError
 from app.domain.redaction import Redactor
-from app.logging_config import configure_logging, install_exception_hooks
-from app.main import create_app
+from app.logging_config import (
+    LoggingSetup,
+    configure_logging,
+    install_exception_hooks,
+    install_sdk_record_reduction,
+)
+from app.main import LOG_FOLDER, create_app
+from app.wiring import Wiring, build_wiring
 
 HOST = "127.0.0.1"
 HEALTH_POLL_SECONDS = 0.25
 HEALTH_POLL_ATTEMPTS = 40  # about 10 seconds
 INTERRUPTED_EXIT = 130  # Ctrl+C before the server took over signal handling
+# The SDK's own CLI version check runs with the full environment; the app checks the version
+# itself, so the SDK's check is turned off for the process (ADR-058).
+SDK_SKIP_VERSION_CHECK = "CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"
 
 _log = logging.getLogger("jobpipeline")
 
@@ -104,19 +122,75 @@ def main(
     launcher: Launcher | None = None,
 ) -> None:
     cli = parse_cli_options(argv)
+    environ = os.environ if env is None else env
     try:
-        config = resolve_config(cli, os.environ if env is None else env)
+        config = resolve_config(cli, environ)
     except ConfigError as error:
         _fail(2, f"{error.user_message} ({error})")
     try:
-        _run(config, launcher if launcher is not None else default_launcher())
+        _run(config, environ, launcher if launcher is not None else default_launcher())
     except KeyboardInterrupt:
         raise SystemExit(INTERRUPTED_EXIT) from None
 
 
-def _run(config: RuntimeConfig, launcher: Launcher) -> None:
-    log_dir = config.data_dir / "logs"
+@dataclass(frozen=True)
+class _StartPlan:
+    """Whether start-up opens the data folder, decided once (ADR-044 item 3)."""
+
+    open_at_startup: bool
+    attach_log_folder: Callable[[Path], None] | None
+    failed: str  # the one line printed when start-up fails
+
+
+def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) -> None:
+    os.environ[SDK_SKIP_VERSION_CHECK] = "1"
+    # For the whole process, never restored: an SDK record made after the logging setup
+    # closes (a late reader task at shutdown) still reaches ``logging.lastResort`` reduced.
+    # The install inside ``configure_logging`` is then a no-op.
+    install_sdk_record_reduction()
     redactor = Redactor()
+    if opens_workspace_at_startup(config):
+        logging_setup = _log_to_data_folder(config, redactor)
+        plan = _StartPlan(
+            True, None, f"The app couldn't start. Details are in {config.data_dir / LOG_FOLDER}."
+        )
+    else:
+        # First run: create nothing yet; step 1 opens the folder and the buffered records
+        # move into its log file then. Until that, the console has them.
+        logging_setup = configure_logging(None, config.log_level, redactor)
+        plan = _StartPlan(
+            False, logging_setup.attach_log_folder, "The app couldn't start. Details are above."
+        )
+    restore_hooks = install_exception_hooks()
+    stop_polling = threading.Event()
+    try:
+        # After logging is set up, so its fake-provider warning is kept; it registers the
+        # environment secrets with the same redactor before anything can log them.
+        wiring = build_wiring(environ=environ, demo=config.demo, redactor=redactor)
+        _start(config, launcher, wiring, stop_polling, plan)
+    except Exception as error:
+        _log_start_failure(error, to_file=plan.open_at_startup)
+        _fail(1, plan.failed)
+    finally:
+        stop_polling.set()
+        restore_hooks()
+        logging_setup.close()
+
+
+def _log_start_failure(error: Exception, *, to_file: bool) -> None:
+    """Logged while the handlers are still attached.
+
+    With a log file it keeps the traceback (the console shows one line). Without one the
+    console line names the exception type only: its text may hold paths or values.
+    """
+    if to_file:
+        _log.critical("Start-up failed", exc_info=True)
+    else:
+        _log.critical("Start-up failed (%s)", type(error).__name__)
+
+
+def _log_to_data_folder(config: RuntimeConfig, redactor: Redactor) -> LoggingSetup:
+    """Create the data folder (0700) and log into its ``logs`` folder from the start."""
     create_failed = (
         "Couldn't create the data folder or its logs. "
         "Check --data-dir, JOBPIPELINE_DATA_DIR or the settings file."
@@ -127,35 +201,32 @@ def _run(config: RuntimeConfig, launcher: Launcher) -> None:
         _fail(1, create_failed)
     # Checked after mkdir (which writes nothing into an existing folder), so a folder someone
     # else created in the meantime is caught too; before logging writes anything (ADR-043).
-    if _owned_by_another_user(config.data_dir):
+    if owned_by_another_user(config.data_dir):
         _fail(
             2,
             f"The data folder {config.data_dir} belongs to another user. "
             "Choose a folder you own with --data-dir.",
         )
     try:
-        logging_setup = configure_logging(log_dir, config.log_level, redactor)
+        return configure_logging(config.data_dir / LOG_FOLDER, config.log_level, redactor)
     except OSError:
         _fail(1, create_failed)
-    restore_hooks = install_exception_hooks()
-    stop_polling = threading.Event()
-    try:
-        _start(config, launcher, redactor, stop_polling)
-    except Exception:
-        # Logged while the handlers are still attached: the file keeps the traceback.
-        _log.critical("Start-up failed", exc_info=True)
-        _fail(1, f"The app couldn't start. Details are in {log_dir}.")
-    finally:
-        stop_polling.set()
-        restore_hooks()
-        logging_setup.close()
 
 
 def _start(
-    config: RuntimeConfig, launcher: Launcher, redactor: Redactor, stop_polling: threading.Event
+    config: RuntimeConfig,
+    launcher: Launcher,
+    wiring: Wiring,
+    stop_polling: threading.Event,
+    plan: _StartPlan,
 ) -> None:
-    app = create_app(config)
-    redactor.register(app.state.launch_token)
+    app = create_app(
+        config,
+        attach_log_folder=plan.attach_log_folder,
+        open_at_startup=plan.open_at_startup,
+        wiring=wiring,
+    )
+    wiring.redactor.register(app.state.launch_token)  # the redactor logging uses
     if not launcher.port_free(config.port):
         _fail(
             1,
@@ -172,7 +243,7 @@ def _start(
     except KeyboardInterrupt:  # uvicorn re-raises Ctrl+C (and Ctrl+Break) after shutting down
         started = True
     if not started:
-        _fail(1, f"The app couldn't start. Details are in {config.data_dir / 'logs'}.")
+        _fail(1, plan.failed)
 
 
 @contextmanager
@@ -206,23 +277,6 @@ def _open_browser_when_ready(launcher: Launcher, port: int, stop: threading.Even
             _log.warning("Open http://%s:%d/ in your browser.", HOST, port)
 
     threading.Thread(target=poll, name="open-browser", daemon=True).start()
-
-
-def _owned_by_another_user(folder: Path) -> bool:
-    """Whether an existing folder belongs to another account (POSIX only; ADR-043).
-
-    Whoever owns the data folder can replace files or plant symlinks in it, so the app never
-    writes into someone else's folder. ``stat`` follows symlinks: the folder a link points to
-    is what matters.
-    """
-    geteuid = getattr(os, "geteuid", None)
-    if geteuid is None:  # Windows: no POSIX owner ids
-        return False
-    try:
-        owner = folder.stat().st_uid
-    except OSError:  # unusable; configure_logging then reports it with a plain message
-        return False
-    return bool(owner != geteuid())
 
 
 def _fail(code: int, message: str) -> NoReturn:

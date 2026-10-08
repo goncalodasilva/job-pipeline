@@ -1,0 +1,25 @@
+{# The guide: step list and current step. Swapped whole when moving between steps (ADR-053). #}
+<div id="setup-guide" class="setup-guide">
+  <h1>Let's set up Job Search Pipeline</h1>
+  {% if setup_finished %}
+  {# Setup is finished (opened with --setup or from a banner, M1.20): nothing is reset, and
+     leaving is one POST away. #}
+  <div class="setup-reopened">
+    <p>Setup is finished. Fix or change what you need here, then go back to the app.</p>
+    <form method="post" action="/setup/leave" hx-post="/setup/leave" hx-disabled-elt="this">
+      {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
+      <button type="submit" class="button">Back to the app</button>
+    </form>
+  </div>
+  {% endif %}
+  <ol class="setup-steps" aria-label="Setup steps">
+    {% for item in steps %}
+    {# States in words, not colour alone (ADR-053). #}
+    {% set status = statuses.get(item.id) %}
+    <li{% if item.id == step.id %} aria-current="step"{% endif %}>{{ item.title }}{% if item.id in attention %}<span class="step-status"> · Needs attention</span>{% elif status == "done" %}<span class="step-status"> · Done</span>{% elif status == "skipped" %}<span class="step-status"> · Skipped</span>{% endif %}</li>
+    {% endfor %}
+  </ol>
+  <section id="setup-step" class="setup-step" aria-labelledby="step-heading">
+    {% include step.template %}
+  </section>
+</div>

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Show the next open task (or a named task) from docs/PROGRESS.md.
 
-Usage: next_task.py [M<n>.<k>]
+Usage: next_task.py [M<n>.<k> | --open]
+  --open  list every open task of the current milestone with its details.
 Always exits 0, because skills inject its output and a failure would abort them.
 """
 
@@ -68,7 +69,7 @@ def main() -> int:
     current_match = re.search(r"^Current milestone:\s*(M\d+)", text, re.MULTILINE)
     current = current_match.group(1) if current_match else None
 
-    if wanted:
+    if wanted and wanted != "--open":
         milestone = wanted.split(".")[0]
         for task in tasks(by_milestone.get(milestone, "")):
             if task["id"] == wanted:
@@ -91,6 +92,11 @@ def main() -> int:
     open_tasks = [t for t in all_tasks if not t["done"]]
     if not open_tasks:
         print(f"All {current} tasks are done. Run /milestone-acceptance {current}.")
+        return 0
+    if wanted == "--open":
+        print(f"Open tasks ({len(open_tasks)}):")
+        for task in open_tasks:
+            show(task)
         return 0
     print("Next task:")
     show(open_tasks[0])

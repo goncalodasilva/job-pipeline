@@ -8,7 +8,14 @@ The fixtures use Playwright's sync API, so e2e tests must be plain (not async) f
 
 ``running_app`` starts the real app in a subprocess with temporary data and config folders
 (``tests/running_app.py``). Teardown stops it gracefully and fails the test if the app had to
-be killed or did not exit with code 0.
+be killed or did not exit with code 0. The folders start with a completed setup by default;
+``@pytest.mark.parametrize("running_app", ["fresh"], indirect=True)`` starts with no setup done
+(an explicit data folder whose database is created at start-up), so pages redirect to the setup
+guide (M1.9). ``["first_run"]`` is a true first run (AC-M1.1 case 1): no data folder from the
+environment, so the app uses the platform default under the temporary home and creates nothing
+until step 1 is submitted (M1.16). ``["provider_step"]`` opens at the AI provider step with step
+1 done (M1.17). An ``AppStart`` param combines a state with ``allow_fakes=False`` (ADR-059)
+or extra flags such as ``cli_args=("--setup",)`` (M1.20).
 """
 
 import os
@@ -18,7 +25,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Browser, Page, sync_playwright
 
-from tests.running_app import AppDidNotStart, RunningApp, start_app
+from tests.running_app import AppDidNotStart, AppStart, RunningApp, start_app
 
 CHROMIUM_ENV = "JOBPIPELINE_E2E_CHROMIUM"
 DESKTOP = {"width": 1280, "height": 800}
@@ -35,9 +42,16 @@ def browser() -> Iterator[Browser]:
 
 
 @pytest.fixture
-def running_app(tmp_path: Path) -> Iterator[RunningApp]:
+def running_app(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[RunningApp]:
+    param = getattr(request, "param", "complete")
+    start = param if isinstance(param, AppStart) else AppStart(setup=param)
     try:
-        app = start_app(tmp_path)
+        app = start_app(
+            tmp_path,
+            setup=start.setup,
+            allow_fakes=start.allow_fakes,
+            cli_args=start.cli_args,
+        )
     except AppDidNotStart as error:
         pytest.fail(f"the app did not start: {error}", pytrace=False)
     try:

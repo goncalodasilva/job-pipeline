@@ -7,7 +7,7 @@ description: "Procedure for adding or changing a step of the setup guide (app/on
 
 The setup guide is described in `docs/references/detailed-design.md` ("Today and the setup guide") and milestone M1 of the spec.
 
-1. **Define the step** as a class in `app/onboarding/steps/<name>.py` with: `id`, `title`, `required`, `order`, `is_complete(state) -> bool`, `render(ctx)` returning the fragment, and `submit(form) -> StepResult`. Register it in `app/onboarding/registry.py`. Steps only call services; they never touch providers or the database directly.
+1. **Define the step** as a `StepDefinition` (`id`, `title`, `required`, `order`, fragment `template`) registered in `app/onboarding/registry.py`, and a `StepHandler` in `app/onboarding/steps/<name>.py` with `context()` and `submit(form) -> StepResult` (forms are `Mapping[str, Sequence[str]]`). Wiring builds the handlers (`require_handlers` checks one per step). Handlers only call services; they never touch providers or the database directly. A handler marks its step done itself through `SetupProgress` when the step is really finished (ADR-052).
 2. **Persist on every valid submit** in `setup_state` (`pending`, `done`, `skipped`) so closing the app never loses progress. Optional steps support "Skip for now".
 3. **Detection** (`app/onboarding/detection.py`) must keep its four cases: no bootstrap config; config without a database; incomplete required steps; complete setup with a broken provider (banner, not wizard). Adding a required step means existing users with complete setup see a banner that links to it, not the whole wizard.
 4. **Secrets** entered in a step go straight to `SecretStore` and are never echoed back.

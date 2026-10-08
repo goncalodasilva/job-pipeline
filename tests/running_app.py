@@ -7,8 +7,28 @@ flag, which Python 3.14 skips, so the console script may fail to import ``app``.
 Every ``JOBPIPELINE_*``, ``ANTHROPIC_*`` and ``CLAUDE_*`` variable from the caller's
 environment is dropped, the home and platform folders point into the test's temporary folder,
 and so do the data and config folders (ADR-024), so the real user folders and any real
-credentials are never read or written. The server binds to 127.0.0.1 only; nothing here uses
-the network beyond loopback.
+credentials are never read or written. Any inherited ``PYTHON_KEYRING_BACKEND`` is replaced
+by the file-backed test keyring (``tests/fakes/keyring_backends.py``) whose JSON file sits in
+the test's temporary folder, so the app never touches the real system keychain (ADR-044).
+``JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1`` is set, so the fake provider the harness saves is
+healthy and selectable (ADR-054). The
+server binds to 127.0.0.1 only; nothing here uses the network beyond loopback.
+
+``setup`` chooses the folders' starting state (M1.9): ``"complete"`` (the default) runs
+``tests/setup_harness.complete_setup`` on them first, so the app opens straight into its pages;
+``"fresh"`` writes nothing beforehand. The data folder always comes from
+``JOBPIPELINE_DATA_DIR``, so a fresh app is the explicit-folder case, not AC-M1.1 case 1: it
+creates the folder and its database at start-up with no step done, and every page redirects to
+the guide's first step (AC-M1.2). ``"first_run"`` is AC-M1.1 case 1: nothing is written
+beforehand and ``JOBPIPELINE_DATA_DIR`` is not set, so the data folder is the platform default
+under the test's temporary home; the app starts without creating it and step 1 of the guide does
+(M1.16). Its path is computed with the app's own environment and must lie inside the test's
+temporary folder, otherwise the app is not started. ``"provider_step"`` writes ``config.toml``
+and a database with only step 1 done and no provider saved, so the guide opens at the AI provider
+step (M1.17). ``"preferences_step"`` writes ``config.toml`` and a database with steps 1 and 2
+done and the fake provider saved, so the guide opens at the job preferences step (M1.19).
+``AppStart`` combines a state with ``allow_fakes=False`` for runs where
+``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` is unset (ADR-059).
 
 Stopping is graceful first: SIGINT on POSIX, CTRL_BREAK_EVENT on Windows (the child runs in
 its own process group so the event reaches only it; it must share the test runner's console,
@@ -17,6 +37,7 @@ if it does not exit within ``STOP_TIMEOUT_SECONDS``; the caller treats that as a
 """
 
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -24,13 +45,20 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO
+from typing import IO, Literal
 
 import httpx
+
+from app import __version__
+from app.config import APP_NAME, write_bootstrap
+from tests.setup_harness import HARNESS_PROVIDER, complete_setup, seed_workspace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOOPBACK = "127.0.0.1"
 DROPPED_ENV_PREFIXES = ("JOBPIPELINE_", "ANTHROPIC_", "CLAUDE_")
+KEYRING_BACKEND_VARIABLE = "PYTHON_KEYRING_BACKEND"
+TEST_KEYRING_BACKEND = "tests.fakes.keyring_backends.FileKeyring"
+TEST_KEYRING_FILE_VARIABLE = "JOBPIPELINE_TEST_KEYRING_FILE"
 HOME_VARIABLES = (
     "HOME",
     "USERPROFILE",
@@ -44,6 +72,26 @@ STOP_TIMEOUT_SECONDS = 10.0
 POLL_INTERVAL_SECONDS = 0.05
 REQUEST_TIMEOUT_SECONDS = 2.0
 OUTPUT_TAIL_CHARS = 4000
+ALLOWED_CLI_ARGS = frozenset({"--setup"})  # fixed flags only; never paths or user data
+OUTPUT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")  # a plain file-name stem, never a path
+
+SetupState = Literal["complete", "fresh", "first_run", "provider_step", "preferences_step"]
+SETUP_STATES: tuple[SetupState, ...] = (
+    "complete",
+    "fresh",
+    "first_run",
+    "provider_step",
+    "preferences_step",
+)
+
+
+@dataclass(frozen=True)
+class AppStart:
+    """How ``running_app`` starts the app when a state name alone isn't enough."""
+
+    setup: SetupState = "complete"
+    allow_fakes: bool = True
+    cli_args: tuple[str, ...] = ()  # extra fixed flags such as "--setup" (M1.20)
 
 
 class AppDidNotStart(RuntimeError):
@@ -64,19 +112,33 @@ def free_loopback_port() -> int:
     return port
 
 
-def isolated_env(data_dir: Path, config_dir: Path) -> dict[str, str]:
-    """The caller's environment without app or credential variables, pointed at temp folders."""
+def isolated_env(
+    data_dir: Path, config_dir: Path, *, allow_fakes: bool = True, explicit_data_dir: bool = True
+) -> dict[str, str]:
+    """The caller's environment without app or credential variables, pointed at temp folders.
+
+    ``allow_fakes=False`` leaves ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` unset;
+    ``explicit_data_dir=False`` leaves ``JOBPIPELINE_DATA_DIR`` unset (a true first run), while
+    the home folders still point next to ``data_dir``."""
     env = {
         key: value
         for key, value in os.environ.items()
         if not key.upper().startswith(DROPPED_ENV_PREFIXES)
+        and key.upper() not in (KEYRING_BACKEND_VARIABLE, TEST_KEYRING_FILE_VARIABLE)
     }
+    env[KEYRING_BACKEND_VARIABLE] = TEST_KEYRING_BACKEND
+    env[TEST_KEYRING_FILE_VARIABLE] = str(data_dir.parent / "keyring.json")
     home = data_dir.parent / "home"
     home.mkdir(parents=True, exist_ok=True)
     for name in HOME_VARIABLES:
         env[name] = str(home)
-    env["JOBPIPELINE_DATA_DIR"] = str(data_dir)
+    if explicit_data_dir:
+        env["JOBPIPELINE_DATA_DIR"] = str(data_dir)
     env["JOBPIPELINE_CONFIG_DIR"] = str(config_dir)
+    # The harness saves the fake provider; allowing fakes keeps a completed setup healthy, and
+    # the setup guide's e2e tests choose the fake (ADR-044 item 2, ADR-054).
+    if allow_fakes:
+        env["JOBPIPELINE_ALLOW_FAKE_PROVIDERS"] = "1"
     existing = env.get("PYTHONPATH")
     env["PYTHONPATH"] = (
         str(PROJECT_ROOT) if not existing else os.pathsep.join([str(PROJECT_ROOT), existing])
@@ -160,20 +222,49 @@ class RunningApp:
         )
 
 
-def start_app(tmp_path: Path) -> RunningApp:
-    """Start the app on a free loopback port and wait until ``/health`` answers 200."""
+def start_app(
+    tmp_path: Path,
+    *,
+    setup: SetupState = "complete",
+    allow_fakes: bool = True,
+    cli_args: tuple[str, ...] = (),
+    output_name: str = "app",
+) -> RunningApp:
+    """Start the app on a free loopback port and wait until ``/health`` answers 200.
+
+    ``allow_fakes=False`` starts it without ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``; ``cli_args``
+    adds flags from ``ALLOWED_CLI_ARGS`` (such as ``--setup``) to the command line.
+    ``output_name`` names the output files (``<name>-stdout.txt``, ``<name>-stderr.txt`` in
+    ``tmp_path``), so a restart on the same folders keeps the earlier run's output."""
+    if not OUTPUT_NAME.fullmatch(output_name):
+        raise ValueError(f"unsupported output name {output_name!r}")
+    if unknown := [arg for arg in cli_args if arg not in ALLOWED_CLI_ARGS]:
+        raise ValueError(f"unsupported app flags {unknown!r}")
+    if setup not in SETUP_STATES:
+        raise ValueError(f"unknown setup state {setup!r}")
     data_dir = tmp_path / "data"
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
+    if setup == "complete":
+        complete_setup(data_dir, config_dir)
+    elif setup == "provider_step":
+        write_bootstrap(config_dir, data_dir=data_dir, version=__version__)
+        seed_workspace(data_dir, done=("welcome",))
+    elif setup == "preferences_step":
+        write_bootstrap(config_dir, data_dir=data_dir, version=__version__)
+        seed_workspace(data_dir, done=("welcome", "provider"), provider=HARNESS_PROVIDER)
+    explicit = setup != "first_run"
+    env = isolated_env(data_dir, config_dir, allow_fakes=allow_fakes, explicit_data_dir=explicit)
+    if not explicit:
+        data_dir = platform_default_data_dir(env, tmp_path)
     port = free_loopback_port()
-    stdout_path = tmp_path / "app-stdout.txt"
-    stderr_path = tmp_path / "app-stderr.txt"
-    command = [sys.executable, "-m", "app", "--no-browser", "--port", str(port)]
+    stdout_path = tmp_path / f"{output_name}-stdout.txt"
+    stderr_path = tmp_path / f"{output_name}-stderr.txt"
+    command = [sys.executable, "-m", "app", "--no-browser", "--port", str(port), *cli_args]
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
-    env = isolated_env(data_dir, config_dir)
     stdout = stdout_path.open("wb")
     stderr = stderr_path.open("wb")
     start_time = time.monotonic()
@@ -209,6 +300,24 @@ def start_app(tmp_path: Path) -> RunningApp:
         running.stop()
         raise
     return running
+
+
+def platform_default_data_dir(env: dict[str, str], tmp_path: Path) -> Path:
+    """The default data folder the app will choose with ``env`` (``platformdirs``, run in a
+    child process so this process's environment is untouched). Refuses any folder outside
+    ``tmp_path``, so a first run never points at the real user folders."""
+    script = "import sys, platformdirs; sys.stdout.write(platformdirs.user_data_dir(sys.argv[1]))"
+    result = subprocess.run(  # noqa: S603 - fixed argv: this interpreter and a fixed script
+        [sys.executable, "-c", script, APP_NAME],
+        env=env,
+        capture_output=True,
+        check=True,
+        timeout=READY_TIMEOUT_SECONDS,
+    )
+    folder = Path(result.stdout.decode("utf-8"))
+    if not folder.is_absolute() or not folder.resolve().is_relative_to(tmp_path.resolve()):
+        raise AppDidNotStart("the default data folder is outside the test's temporary folder")
+    return folder
 
 
 def _wait_until_healthy(running: RunningApp) -> float:

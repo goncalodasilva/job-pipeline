@@ -4,10 +4,14 @@ Precedence is CLI flag, then environment variable, then bootstrap config, then d
 environment is passed in, never read from ``os.environ``, so resolution is easy to test.
 """
 
+import os
+import stat
+import tempfile
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from platformdirs import user_config_dir, user_data_dir
 
@@ -24,6 +28,11 @@ ENV_DATA_DIR = "JOBPIPELINE_DATA_DIR"
 ENV_CONFIG_DIR = "JOBPIPELINE_CONFIG_DIR"
 ENV_PORT = "JOBPIPELINE_PORT"
 ENV_LOG_LEVEL = "JOBPIPELINE_LOG_LEVEL"
+DATABASE_FILE = "app.db"
+
+DataDirSource = Literal["cli", "environment", "bootstrap", "demo", "default"]
+# A folder the user named explicitly is created and opened at start-up (ADR-044 item 4).
+_EXPLICIT_SOURCES: frozenset[DataDirSource] = frozenset({"cli", "environment", "demo"})
 
 
 @dataclass(frozen=True)
@@ -51,6 +60,34 @@ class RuntimeConfig:
     demo: bool
     setup: bool
     no_browser: bool
+    data_dir_source: DataDirSource = "cli"
+
+
+def data_dir_is_explicit(config: RuntimeConfig) -> bool:
+    """Whether the folder came from ``--data-dir``, ``JOBPIPELINE_DATA_DIR`` or ``--demo``."""
+    return config.data_dir_source in _EXPLICIT_SOURCES
+
+
+def refused_data_folders(config: RuntimeConfig) -> tuple[Path, ...]:
+    """Folders step 1 never accepts as the data folder (ADR-049 item 3, ADR-060): the demo
+    folder outside demo mode or the real default folder in demo mode, and the config folder
+    unless it is the default data folder (on macOS and Windows platformdirs gives both the
+    same path, so ``config.toml`` sits beside ``app.db``)."""
+    other = Path(user_data_dir(DEMO_APP_NAME if not config.demo else APP_NAME))
+    if config.config_dir == Path(user_data_dir(APP_NAME)):
+        return (other,)
+    return (config.config_dir, other)
+
+
+def opens_workspace_at_startup(config: RuntimeConfig) -> bool:
+    """Whether start-up opens the data folder, or waits for step 1 (ADR-044 item 3).
+
+    A first run ("default") or a bootstrap config naming a folder without a database must not
+    create anything. Only reads the file system.
+    """
+    if data_dir_is_explicit(config):
+        return True
+    return (config.data_dir / DATABASE_FILE).exists()
 
 
 def resolve_config_dir(env: Mapping[str, str]) -> Path:
@@ -84,32 +121,113 @@ def load_bootstrap(config_dir: Path) -> BootstrapConfig | None:
     return BootstrapConfig(data_dir=data_path, version=version)
 
 
+def write_bootstrap(config_dir: Path, *, data_dir: Path, version: str) -> Path:
+    """Save ``config.toml`` atomically (spec 2.8; ADR-038, ADR-043, ADR-048).
+
+    A missing final folder is created 0700; it must belong to the current user. The file
+    is 0600. A reader sees either the old file or the new one, never a partial write.
+    """
+    if not data_dir.is_absolute():
+        raise ConfigError(detail="data_dir must be an absolute path")
+    text = (
+        f"data_dir = {_toml_string(str(data_dir), 'data_dir')}\n"
+        f"version = {_toml_string(version, 'version')}\n"
+    )
+    try:
+        config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as error:
+        raise ConfigError(
+            detail=f"config folder can't be created ({type(error).__name__})"
+        ) from None
+    # Checked after mkdir, before writing, like the data folder (ADR-043).
+    if owned_by_another_user(config_dir):
+        raise ConfigError(detail="the config folder belongs to another user")
+    target = config_dir / BOOTSTRAP_FILE
+    temporary: str | None = None
+    try:
+        descriptor, temporary = tempfile.mkstemp(dir=config_dir, prefix=".config-", suffix=".tmp")
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)  # mkstemp made it 0600, so the result is 0600
+        temporary = None
+    except OSError as error:
+        raise ConfigError(detail=f"settings file can't be saved ({type(error).__name__})") from None
+    finally:
+        if temporary is not None:  # any failure, interrupts included, leaves no temp file
+            Path(temporary).unlink(missing_ok=True)
+    return target
+
+
+def _toml_string(value: str, setting: str) -> str:
+    """A TOML basic string; TOML forbids raw control characters and lone surrogates."""
+    parts = ['"']
+    for character in value:
+        code = ord(character)
+        if 0xD800 <= code <= 0xDFFF:
+            raise ConfigError(detail=f"{setting} contains characters a settings file can't hold")
+        if character in '"\\':
+            parts.append("\\" + character)
+        elif code < 0x20 or code == 0x7F:
+            parts.append(f"\\u{code:04X}")
+        else:
+            parts.append(character)
+    parts.append('"')
+    return "".join(parts)
+
+
+def owned_by_another_user(folder: Path) -> bool:
+    """Whether a folder, or a link standing in for it, belongs to another account (POSIX only;
+    ADR-043 and its amendment).
+
+    Whoever owns a folder can replace files or plant symlinks in it, so the app never writes
+    into someone else's folder. A link is judged twice: the link itself must not belong to
+    another account (one planted in a shared folder could point anywhere the user can write),
+    and the folder it points to must belong to the user.
+    """
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is None:  # Windows: no POSIX owner ids
+        return False
+    user = geteuid()
+    try:
+        entry = os.lstat(folder)
+        if stat.S_ISLNK(entry.st_mode) and entry.st_uid != user:
+            return True
+        owner = os.stat(folder).st_uid
+    except OSError:  # unusable; callers report that with a plain message
+        return False
+    return bool(owner != user)
+
+
 def resolve_config(cli: CliOptions, env: Mapping[str, str]) -> RuntimeConfig:
     config_dir = resolve_config_dir(env)
     bootstrap = load_bootstrap(config_dir)
+    data_dir, source = _resolve_data_dir(cli, env, bootstrap)
     return RuntimeConfig(
-        data_dir=_resolve_data_dir(cli, env, bootstrap),
+        data_dir=data_dir,
         config_dir=config_dir,
         port=_resolve_port(cli, env),
         log_level=_resolve_log_level(cli, env),
         demo=cli.demo,
         setup=cli.setup,
         no_browser=cli.no_browser,
+        data_dir_source=source,
     )
 
 
 def _resolve_data_dir(
     cli: CliOptions, env: Mapping[str, str], bootstrap: BootstrapConfig | None
-) -> Path:
+) -> tuple[Path, DataDirSource]:
     if cli.data_dir is not None:
-        return cli.data_dir
+        return cli.data_dir, "cli"
     if ENV_DATA_DIR in env:
-        return _env_path(ENV_DATA_DIR, env[ENV_DATA_DIR])
+        return _env_path(ENV_DATA_DIR, env[ENV_DATA_DIR]), "environment"
     if cli.demo:
-        return Path(user_data_dir(DEMO_APP_NAME))
+        return Path(user_data_dir(DEMO_APP_NAME)), "demo"
     if bootstrap is not None:
-        return bootstrap.data_dir
-    return Path(user_data_dir(APP_NAME))
+        return bootstrap.data_dir, "bootstrap"
+    return Path(user_data_dir(APP_NAME)), "default"
 
 
 def _resolve_port(cli: CliOptions, env: Mapping[str, str]) -> int:

@@ -1,7 +1,7 @@
 # Continuous integration (spec 4.6, ADR-032).
-# Ubuntu runs on every push: lint, fast tests, smoke, e2e and coverage. macOS and Windows run
-# fast and smoke tests on pull requests to main, on manual dispatch and weekly, because the
-# repository is private and those minutes cost more.
+# Ubuntu runs on every push: lint, fast tests, smoke, e2e and coverage. macOS runs fast and
+# smoke tests on pull requests to main, on manual dispatch and weekly, because the repository
+# is private and those minutes cost more. Windows is suspended (ADR-061).
 # Actions are pinned to commit SHAs; the comment names the release.
 name: CI
 
@@ -74,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest]
         python: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -86,7 +86,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
       - run: uv run pytest -m "not e2e and not smoke and not live"
-      # Starts the real app and stops it gracefully; on Windows this checks Ctrl+Break (ADR-040).
+      # Starts the real app and stops it gracefully.
       - run: uv run pytest -m smoke
 
   smoke:

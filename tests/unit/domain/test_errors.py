@@ -13,6 +13,7 @@ from app.domain.errors import (
     NetworkUnavailable,
     ProviderAuthError,
     ProviderNotInstalled,
+    ProviderRequestRejected,
     UsageLimitReached,
     VersionConflict,
 )
@@ -22,6 +23,9 @@ FIXED_MESSAGES: dict[type[AppError], str] = {
     ProviderAuthError: ("The token or key was rejected. Create a new one and paste it again."),
     UsageLimitReached: (
         "Your Claude plan's usage limit was reached. Try later or switch provider."
+    ),
+    ProviderRequestRejected: (
+        "Claude refused the request. Check the model in Settings > Providers."
     ),
     NetworkUnavailable: "No connection. Nothing was lost; try again.",
     InvalidModelOutput: "The AI response didn't have the expected shape. Try again.",

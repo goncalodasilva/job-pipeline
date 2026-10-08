@@ -24,6 +24,7 @@ from app.config import RuntimeConfig
 from app.main import create_app
 from tests.fakes.clock import FrozenClock
 from tests.page_token import TOKEN_HEADER_NAME, page_token
+from tests.setup_harness import complete_setup
 
 pytestmark = pytest.mark.integration
 
@@ -72,6 +73,7 @@ def _config(tmp_path: Path) -> RuntimeConfig:
 
 @pytest.fixture
 def app(tmp_path: Path) -> FastAPI:
+    complete_setup(tmp_path / "data", tmp_path / "cfg", clock=FrozenClock(START))  # AC-M1.2
     return create_app(_config(tmp_path), clock=FrozenClock(START))
 
 
@@ -537,7 +539,8 @@ def test_placeholder_pages_have_empty_state(client: TestClient, path: str, area:
     state, elements = _empty_state(page)
 
     assert len([e for e in elements if e.tag == "h1"]) == 1, "one <h1> per page"
-    headings = [e for e in elements if e.tag == "h1" and e.within(state)]
+    # Settings leads with its own <h1> and Providers; its empty state covers the later parts.
+    headings = [e for e in elements if e.tag == "h1" and (area == "Settings" or e.within(state))]
     assert headings, "the empty state has no <h1>"
     assert area.lower() in headings[0].text.lower(), headings[0].text
 
@@ -584,3 +587,11 @@ def test_pages_link_a_served_svg_favicon(client: TestClient) -> None:
     assert response.headers["content-type"].startswith("image/svg+xml")
     assert response.text.lstrip().startswith("<svg")
     assert "<script" not in response.text.lower()
+
+
+def test_inbox_placeholder_says_adding_jobs_comes_later(client: TestClient) -> None:
+    """Done's "Add a job" opens the inbox (ADR-064); until intake (M4) it says so plainly."""
+    response = client.get("/inbox")
+    assert response.status_code == 200
+    text = " ".join(response.text.split())
+    assert "Adding jobs, by link or by pasting the ad, arrives in a later version." in text

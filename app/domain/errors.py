@@ -53,6 +53,12 @@ class UsageLimitReached(AppError):
     message = "Your Claude plan's usage limit was reached. Try later or switch provider."
 
 
+class ProviderRequestRejected(AppError):
+    """The provider refused the request itself (unknown model, request too large)."""
+
+    message = "Claude refused the request. Check the model in Settings > Providers."
+
+
 class BudgetBlocked(AppError):
     def __init__(self, service: str, resets_on: date, *, detail: str | None = None) -> None:
         self.service = service
@@ -82,5 +88,34 @@ class ConfigError(AppError):
     message = "A setting isn't valid. Check the command options, environment and settings file."
 
 
+class DataFolderUnavailable(ConfigError):
+    """The chosen data folder can't be created, opened or logged into (step 1; ADR-044).
+
+    ``detail`` names the error type only, never the path.
+    """
+
+    message = "This folder can't be used. Choose another folder."
+
+
+class DataFolderNotYours(ConfigError):
+    """The chosen data folder belongs to another account (ADR-043)."""
+
+    message = "This folder belongs to another user. Choose a folder you own."
+
+
 class FetchRefused(AppError):
     message = "This address can't be fetched. Paste the job text instead."
+
+
+class SecretStoreUnavailable(AppError):
+    """The system keychain can't be used. ``detail`` names the error type, never a value."""
+
+    message = "Your system keychain isn't available. You can use an environment variable instead."
+
+
+class UnknownSetupStep(AppError):
+    message = "This setup step doesn't exist."
+
+
+class StepNotSkippable(AppError):
+    message = "This step is needed, so it can't be skipped."

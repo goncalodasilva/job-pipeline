@@ -14,7 +14,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 TEST_JOBS = ("tests", "tests-other-os")
-EXPECTED_OSES = {"ubuntu-latest", "macos-latest", "windows-latest"}
+EXPECTED_OSES = {"ubuntu-latest", "macos-latest"}  # Windows suspended (ADR-061)
 EXPECTED_PYTHONS = ["3.11", "3.14"]
 SYNC_COMMAND = "uv sync --locked"
 FAST_TEST_COMMAND = 'uv run pytest -m "not e2e and not smoke and not live"'
@@ -152,7 +152,7 @@ def test_ci_matrix_covers_three_os_and_oldest_newest_python() -> None:
     assert get_job(workflow, "tests").get("runs-on") == "ubuntu-latest"
     other = get_job(workflow, "tests-other-os")
     assert other.get("runs-on") == MATRIX_OS
-    assert sorted(matrix(other).get("os", [])) == ["macos-latest", "windows-latest"]
+    assert sorted(matrix(other).get("os", [])) == ["macos-latest"]
 
     oldest, newest = EXPECTED_PYTHONS[0], EXPECTED_PYTHONS[-1]
     assert pyproject["project"]["requires-python"] == f">={oldest}"
@@ -161,7 +161,7 @@ def test_ci_matrix_covers_three_os_and_oldest_newest_python() -> None:
     assert max(classifiers, key=version_key) == newest
 
 
-def test_ci_runs_macos_and_windows_only_off_push() -> None:
+def test_ci_runs_macos_only_off_push() -> None:
     workflow = load_workflow()
     triggers = workflow_triggers(workflow)
 
@@ -188,7 +188,7 @@ def test_ci_runs_macos_and_windows_only_off_push() -> None:
     tests_if = str(get_job(workflow, "tests").get("if", ""))
     assert EXCLUDES_PUSH not in tests_if, "Ubuntu tests must run on every push"
     other_if = str(get_job(workflow, "tests-other-os").get("if", ""))
-    assert EXCLUDES_PUSH in other_if, "macOS and Windows must not run on plain pushes"
+    assert EXCLUDES_PUSH in other_if, "macOS must not run on plain pushes"
 
     for name in TEST_JOBS:
         commands = run_commands(get_job(workflow, name))
@@ -328,8 +328,14 @@ def test_ci_has_smoke_e2e_and_coverage_jobs() -> None:
         assert EXCLUDES_PUSH not in str(job.get("if", "")), f"{name} must run on every push"
 
 
-def test_ci_runs_smoke_tests_on_macos_and_windows() -> None:
-    """ADR-040: the Windows run must show the app stopping with exit 0 (Ctrl+Break)."""
+def test_ci_never_runs_windows() -> None:
+    """ADR-061: Windows development is suspended, so CI spends no minutes on it."""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "windows-latest" not in text
+
+
+def test_ci_runs_smoke_tests_on_macos() -> None:
+    """The macOS run shows the app starting and stopping cleanly (Windows suspended, ADR-061)."""
     other = get_job(load_workflow(), "tests-other-os")
 
     assert SMOKE_COMMAND in command_lines(other)

@@ -1,0 +1,10 @@
+{# Settings > Providers (M1.21): the provider step's form, posting to the Settings routes, then
+   the model per tier (M1.22), a sibling form.
+   POSTs swap this whole section; GET reads cached facts only (no keychain). #}
+<section id="providers" class="settings-section" aria-labelledby="providers-heading">
+  <h2 id="providers-heading">Providers</h2>
+  {% include "fragments/setup/_provider.html" %}
+  {% if form.workspace_open %}
+  {% include "fragments/settings/_tiers.html" %}
+  {% endif %}
+</section>

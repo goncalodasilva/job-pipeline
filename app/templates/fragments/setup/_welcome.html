@@ -1,0 +1,58 @@
+{% set folder_error = errors.get("folder") %}
+{% set form_error = errors.get("form") %}
+<h2 id="step-heading"{% if not folder_error %} data-autofocus{% endif %}>Welcome and data folder</h2>
+<p>This app helps you find jobs that fit, tailor your CV and cover letters honestly, and keep track of your applications.</p>
+<p>Everything you add (your CV, jobs, notes and drafts) stays in a data folder on this computer. Only the text needed for each AI request is sent to the AI provider you choose in the next step.</p>
+
+{% if form.mode == "locate_or_fresh" %}
+<div class="notice">
+  <p>Your data folder wasn't found where the settings say it is. It may have been moved or deleted.</p>
+  <p>If you moved it, enter where it is now and choose "Locate the folder". Otherwise, choose "Start fresh" to create a new, empty one.</p>
+</div>
+{% endif %}
+
+<form class="step-form" method="post" action="/setup/welcome"
+      hx-post="/setup/welcome" hx-target="#setup-guide" hx-swap="outerHTML"
+      hx-disabled-elt="find button" novalidate>
+  {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
+  {% if form_error %}
+  <p id="form-error" class="field-error" role="alert">{{ form_error }}</p>
+  {% endif %}
+  <div class="field">
+    <label for="folder">Data folder</label>
+    {% set described = [] %}
+    {% if folder_error %}{% set _ = described.append("folder-error") %}{% endif %}
+    {% if form.folder_fixed %}{% set _ = described.append("folder-fixed") %}{% else %}{% set _ = described.append("folder-hint") %}{% endif %}
+    <input type="text" id="folder" name="folder" value="{{ form.folder }}"
+           autocomplete="off" spellcheck="false" autocapitalize="off"
+           aria-describedby="{{ described | join(' ') }}"
+           {% if folder_error %}aria-invalid="true" data-autofocus{% endif %}
+           {% if form.folder_fixed %}readonly{% endif %}>
+    {% if folder_error %}
+    <p id="folder-error" class="field-error">{{ folder_error }}</p>
+    {% endif %}
+    {% if form.folder_fixed %}
+    <p id="folder-fixed" class="field-hint">
+      {% if form.explicit_folder %}This folder was set when the app started (with --data-dir, JOBPIPELINE_DATA_DIR or --demo), so it can't be changed here.{% else %}The app is already using this folder. To use another one, start the app with --data-dir.{% endif %}
+    </p>
+    {% else %}
+    <p id="folder-hint" class="field-hint">A new or empty folder, or one this app already uses. Enter the full path.</p>
+    {% endif %}
+  </div>
+  <div class="form-actions">
+    {% if form.mode == "locate_or_fresh" %}
+    <button type="submit" name="action" value="locate" class="button button-primary">Locate the folder</button>
+    <button type="submit" name="action" value="fresh" class="button">Start fresh</button>
+    {% else %}
+    <button type="submit" name="action" value="open" class="button button-primary">Use this folder and continue</button>
+    {% endif %}
+  </div>
+</form>
+
+{% if not form.demo %}
+<section class="try-demo" aria-labelledby="try-demo-heading">
+  <h3 id="try-demo-heading">Try the demo</h3>
+  <p>Want to look around first? Stop the app (Ctrl+C) and start the demo, which uses its own separate folder with fictional data:</p>
+  <pre><code>{{ form.demo_command }}</code></pre>
+</section>
+{% endif %}

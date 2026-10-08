@@ -75,7 +75,7 @@ Automatic applying; scraping sites whose terms forbid it; a hosted or multi-user
 | No lost work | Every user edit autosaves; every task ends in a terminal state | Integration and failure-injection tests (M2) |
 | Privacy | No secret ever appears in logs, responses, exports or the database | Automated scans in tests (M0, M1) |
 | Accessibility | WCAG 2.2 AA on core flows | axe-core checks in e2e tests, plus a manual keyboard and screen-reader pass (M9) |
-| Portability | macOS, Windows, Linux; Python 3.11 and newer | CI matrix (4.6) |
+| Portability | macOS, Linux; Python 3.11 and newer (Windows suspended, ADR-061) | CI matrix (4.6) |
 
 ---
 
@@ -168,7 +168,7 @@ class AIProvider(Protocol):
 class AIRequest:
     task: str                      # e.g. "tailor_cv"
     prompt_id: str
-    prompt_version: int
+    prompt_version: str            # e.g. "3", or "3+override" (ADR-055)
     system: str
     user: str                      # rendered prompt; untrusted content already delimited (3.3)
     output_schema: dict            # JSON Schema the response must satisfy
@@ -179,7 +179,7 @@ class AIRequest:
 @dataclass(frozen=True)
 class AIResponse:
     raw_text: str
-    data: dict                     # parsed and schema-validated
+    data: dict                     # parsed JSON object; schema validated by the task executor (ADR-054)
     model: str
     usage: TokenUsage | None       # when the provider reports it
 
@@ -318,11 +318,15 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | `ProviderNotInstalled` | AI provider | "Claude Code wasn't found. Install it, or choose Claude via API key." |
 | `ProviderAuthError` | AI provider | "The token or key was rejected. Create a new one and paste it again." |
 | `UsageLimitReached` | AI provider | "Your Claude plan's usage limit was reached. Try later or switch provider." |
+| `ProviderRequestRejected` | AI provider | "Claude refused the request. Check the model in Settings > Providers." (unknown model, prompt too long, schema refused; ADR-057) |
 | `BudgetBlocked` | Usage service | "Monthly limit reached for <service>. Resets on <date>." |
 | `NetworkUnavailable` | Fetch, providers | "No connection. Nothing was lost; try again." |
 | `InvalidModelOutput` | AI module | "The AI response didn't have the expected shape. Try again." (after one automatic retry) |
 | `VersionConflict` | Repositories | "This item changed elsewhere. Reload to see the latest version." |
 | `FetchRefused` | Fetch | "This address can't be fetched. Paste the job text instead." |
+| `SecretStoreUnavailable` | Secrets (keychain store) | "Your system keychain isn't available. You can use an environment variable instead." (ADR-046) |
+
+`CallCancelled` (AI module) is not a user-facing error: a cancelled call ends quietly and the task shows as cancelled (ADR-054).
 
 ### 2.12 Technology stack
 
@@ -353,36 +357,61 @@ New runtime dependencies require the user's approval and an ADR.
 job-pipeline/
   app/
     api/            routes: pages, fragments, JSON; middleware (host, token, origin)
-    onboarding/     setup guide: detection, step registry, steps
+    onboarding/     setup guide: detection, step registry, steps/
     services/       jobs, companies, applications, facts, sessions, tailoring,
-                    prep, usage, settings, reminders
+                    prep, usage, settings, reminders, provider setup
     domain/         models, enums, state machines, honesty checker, budget math,
-                    normalization, clock and ids
+                    normalization, clock, ids, locales
     modules/
-      ai/           interface, prompt library, schemas, tasks.py, providers/
+      ai/           interface, prompt library, executor.py, schemas, tasks.py,
+                    providers/ (claude_sdk.py, fake.py)
       search/       interface, providers/
-      calendar/     interface, providers/ (ics)
-      storage/      database, migrations/, repositories
-      secrets/      interface, providers/ (keyring, env, memory)
+      calendar/     interface, providers/
+      storage/      database.py, runner.py, migrations/, repositories
+      secrets/      interface, providers/ (keyring_store.py, env.py, chained.py,
+                    redacting.py, memory.py)
       fetch/        SSRF-guarded fetcher, HTML-to-text
-    render/         CV and letter rendering (PDF, Word), country templates
+    render/         CV and letter rendering (PDF, Word), country templates (planned, M6)
     tasks/          runner, handlers registry, SSE broadcaster
     templates/      Jinja2 pages and fragments
-    static/         htmx, SortableJS, scripts, CSS
-    wiring.py       builds providers from settings
-    config.py       runtime config and data folder resolution (ADR-030)
-    logging_config.py  logging setup with redaction (ADR-030)
+    static/         vendor/ (htmx and license only), js/, css/
+    wiring.py       builds providers and services from settings (ADR-047, ADR-059)
+    config.py       runtime config and data folder resolution (ADR-025, ADR-030)
+    logging_config.py  logging setup with redaction (ADR-030, ADR-070)
     cli.py          jobpipeline command
     main.py         app factory and lifespan
-  prompts/          default prompt templates and output schemas (3.6)
-  demo/             fictional persona, facts and jobs
-  docs/             this spec, progress, decisions, references, acceptance reports
-  scripts/          developer scripts (critical coverage check, etc.)
+  prompts/          default prompt templates and output schemas per task (3.6)
+  demo/             fictional persona, facts and jobs (planned, M9)
+  docs/
+    PROGRESS.md     milestone tracking and session log
+    DECISIONS.md    architecture decision records
+    TECHNICAL_SPEC.md  this file
+    live-check-m1.md  manual checklist for M1 live tests
+    references/     product spec, detailed design
+    acceptance/     acceptance reports per milestone
+  scripts/          developer scripts (check_critical_coverage.py, etc.)
   tests/
-    unit/  integration/  contract/  e2e/  live/  fakes/  fixtures/
+    unit/           fast unit tests
+    integration/    fast integration tests with real SQLite
+    contract/       provider contract tests
+    e2e/            end-to-end browser tests with vendor/axe-core (MPL-2.0)
+    live/           live tests against real Claude services (opt-in, M1+)
+    fakes/          scripting helpers, the SDK replay transport and keyring backends
+                    (app-selectable fakes live in app/modules/*/providers/)
+    fixtures/       ai/, prompts/, import_violations/, migration_hashes.json
+    conftest.py     pytest configuration, keyring guard, session fixtures
+    running_app.py  subprocess fixture (smoke and e2e)
+    setup_harness.py  completed setup helper
   .claude/          agents, skills, rules, hooks, settings
-  CLAUDE.md  README.md  LICENSE  pyproject.toml  uv.lock  .env.example  .gitignore
-  .pre-commit-config.yaml
+  CLAUDE.md         Claude Code agent instructions
+  README.md         user guide and troubleshooting
+  LICENSE           MIT license
+  pyproject.toml    build config and dependencies
+  uv.lock           locked dependency versions
+  .env.example      sample environment variables (never commit with values)
+  .gitignore        ignored files
+  .gitattributes    vendored files marked -text (checksum invariant)
+  .pre-commit-config.yaml  ruff format/check, gitleaks
 ```
 
 ---
@@ -420,7 +449,7 @@ Job postings, fetched pages, web search results, uploaded CV text and free-text 
   ```
 
   Any occurrence of the closing tag inside the content is escaped.
-- Every system prompt that includes untrusted content states that such content is data to analyze, never instructions.
+- Every system prompt that includes untrusted content states that such content is data to analyze, never instructions. The renderer adds this notice itself, so templates and user overrides can't remove or reword it (ADR-055).
 - Plain AI tasks run with no tools; web search is enabled only for explicitly requested web tasks.
 - Model output is never executed, and never used to choose file paths or URLs to fetch automatically.
 
@@ -495,14 +524,16 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 | Smoke | `tests/e2e/test_smoke.py` | `smoke` | Start the app, `GET /health` and `/`, stop | Under 20 s |
 | Failure injection | `tests/integration/failures/` | `integration` | Process killed mid-task, network errors, invalid model output, cancel during a call, budget exhaustion | Under 2 min |
 | Property-based | alongside unit tests | none | Hypothesis tests for normalization, dedupe similarity, budget cycles, honesty number extraction | Bounded examples |
-| Live | `tests/live/` | `live` | Real providers, opt-in only (`JOBPIPELINE_LIVE_TESTS=1` plus credentials); never in CI by default; minimal calls | Manual |
+| Live | `tests/live/` | `live` | Real providers, opt-in only: requires `JOBPIPELINE_LIVE_TESTS=1` (env), `-m live` (pytest), and credentials read from `JOBPIPELINE_LIVE_CLAUDE_OAUTH_TOKEN` (required) and `JOBPIPELINE_LIVE_ANTHROPIC_API_KEY` (optional; API-key test skips without it); never in CI by default; minimal calls | Manual |
 
 ### 4.2 Fakes and fixtures
 
-- `FakeAIProvider`: returns scripted responses keyed by task and fixture name, records every request for assertions, and can simulate auth errors, usage limits, network failures, latency, invalid output and token usage. It is selectable in the running app only when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1`.
-- `FakeSearchProvider`, `MemorySecretStore`, `FrozenClock`, `SequentialIdFactory`.
-- Builders for domain objects (`make_job()`, `make_fact()`...) in `tests/fixtures/builders.py`.
-- Fixture files (fictional CVs as PDF and DOCX, job postings as HTML and text) in `tests/fixtures/files/`.
+- `FakeAIProvider` (`app/modules/ai/providers/fake.py`): returns scripted responses keyed by task and fixture name, records every request for assertions, and simulates auth errors, usage limits, network failures, latency, invalid output and token usage. Selectable in the running app only when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` (spec 7.3; ADR-044, ADR-054).
+- `FakeSearchProvider`, `FrozenClock` (`tests/fakes/`), `SequentialIdFactory` (`tests/fakes/`).
+- Test keyring backends (`tests/fakes/keyring_backends.py`): an autouse fixture pins an in-memory backend for every test; a guard backend fails on any use outside test bodies (M1.2, ADR-046). `PYTHON_KEYRING_BACKEND` is pinned for the test session.
+- Replay transport (`tests/fakes/claude_transport.py`): runs the Claude Agent SDK's real protocol and parser against hand-written fixture frames instead of a process (M1.1, ADR-045).
+- `MemorySecretStore` (`app/modules/secrets/providers/memory.py`): an in-memory secret store used by contract and unit tests (ADR-044 item 2).
+- Secret leak scan tools (`tests/leak_scan.py`): detects saved credentials in responses, logs, database and files; used in integration tests (M1.23, ADR-070).
 - All test data is fictional. Real names, real CVs and real personal data MUST NOT be committed.
 
 ### 4.3 Coverage
@@ -539,7 +570,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 A GitHub Actions workflow (created in M0) runs on every push and pull request:
 
 1. Lint, format check, types, import contracts, gitleaks.
-2. Unit, integration and contract tests on Ubuntu, macOS and Windows, with the oldest and newest supported Python versions; smoke tests on all three (on Windows they check the Ctrl+Break stop, ADR-040). macOS and Windows run on pull requests to `main`, manual dispatch and weekly (ADR-032).
+2. Unit, integration and contract tests on Ubuntu and macOS, with the oldest and newest supported Python versions; smoke tests on both. macOS runs on pull requests to `main`, manual dispatch and weekly (ADR-032). Windows is suspended (ADR-061): no CI job, no new Windows work; existing Windows code stays as it is.
 3. Smoke and e2e tests on Ubuntu with Playwright Chromium.
 4. Coverage thresholds, with `scripts/check_critical_coverage.py --from-progress`: a critical module due before the current milestone in `docs/PROGRESS.md` that is missing (for example after a rename) fails. The current milestone's own modules are not required in CI while it is in progress (in M0 nothing is); milestone acceptance runs `--milestone M<n>`, which requires them, as the backstop.
 
@@ -937,6 +968,7 @@ Permission rules pre-approve routine commands (tests, lint, types, git status an
    8. Record: `docs-keeper` ticks the task with evidence and records any decision as an ADR.
    9. Commit with a conventional message naming the task id; `/verify` and the gitleaks pre-commit hook run first.
    10. Report what was done and stop. One task per invocation keeps context small and reviews meaningful.
+   - **Or run all of them.** `/run-milestone` runs steps 1–9 for every open task, one commit each, without stopping between tasks (ADR-065). A problem local to one task parks it (work stashed, a `Blocked:` question in `docs/PROGRESS.md`) and the run moves on to tasks that don't build on it; the global cases in 6.7 stop the run. Tasks marked with a checkpoint stop it before or after them. The run ends with one report: tasks done, parked questions and items left for you, then prepares acceptance.
 3. **Close the milestone.** `/milestone-acceptance M<n>`: full verification, an acceptance report in `docs/acceptance/M<n>.md`, and a manual checklist for you. The milestone is closed only after you confirm the manual checks.
 
 ### 6.7 When agents must stop and ask you
@@ -952,7 +984,7 @@ Permission rules pre-approve routine commands (tests, lint, types, git status an
 
 ### 6.8 Shared memory and handoffs
 
-- `docs/PROGRESS.md` is the single status board. Its format is parsed by scripts: a `Current milestone: M<n>` line; one `## M<n> — Title` heading per milestone; tasks as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines; a session log at the end.
+- `docs/PROGRESS.md` is the single status board. Its format is parsed by scripts: a `Current milestone: M<n>` line; one `## M<n> — Title` heading per milestone; tasks as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, and optional `Checkpoint:` and `Blocked:` lines (ADR-065); a session log at the end.
 - `docs/DECISIONS.md` holds ADRs: context, decision, consequences, date.
 - `docs/acceptance/M<n>.md` holds acceptance reports.
 - `code-reviewer` keeps project-scoped memory in `.claude/agent-memory/code-reviewer/`, committed so recurring lessons persist.
@@ -1009,15 +1041,22 @@ Start in the default (manual) mode until the workflow feels trustworthy, use pla
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `JOBPIPELINE_DATA_DIR` | Data folder override | `user_data_dir("jobpipeline")`; `user_data_dir("jobpipeline-demo")` with `--demo` |
-| `JOBPIPELINE_CONFIG_DIR` | Config folder override (bootstrap config location; used by tests, ADR-024) | `user_config_dir("jobpipeline")` |
-| `JOBPIPELINE_PORT` | Port override (1–65535) | 8000 |
+| `JOBPIPELINE_DATA_DIR` | Data folder override; beats `--demo`, and the `--data-dir` flag beats it (ADR-025). When the folder is set by this variable, `--data-dir` or `--demo`, it can't be changed in step 1 | Precedence: `--data-dir` > `JOBPIPELINE_DATA_DIR` > `--demo` > bootstrap config > default |
+| `JOBPIPELINE_CONFIG_DIR` | Config folder override for tests and manual checks. `config.toml` is parsed in demo mode too; demo mode ignores its `data_dir` and never writes it (ADR-025, ADR-044 item 4) | `user_config_dir("jobpipeline")` |
+| `JOBPIPELINE_PORT` | Port override (1–65535, invalid values are `ConfigError`) | 8000 |
 | `JOBPIPELINE_LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, case-insensitive) | `INFO` |
-| `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | `1` makes fake providers selectable (tests and demos only) | unset |
-| `JOBPIPELINE_LIVE_TESTS` | `1` enables live tests | unset |
-| `JOBPIPELINE_E2E_CHROMIUM` | Path to a Chromium executable for e2e tests instead of Playwright's managed one (tests only, ADR-035) | unset |
-| `ANTHROPIC_API_KEY` | Fallback when no keychain is available | unset |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Fallback when no keychain is available | unset |
+| `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | Exactly `"1"` makes fake providers selectable in the running app (tests and demos only; ADR-054) | unset |
+| `JOBPIPELINE_LIVE_TESTS` | Exactly `"1"` enables live tests, which also need `-m live` (spec 4.1) | unset |
+| `JOBPIPELINE_LIVE_CLAUDE_OAUTH_TOKEN` | Claude subscription token for live tests only (never read from keychain, ADR-044 item 10) | unset |
+| `JOBPIPELINE_LIVE_ANTHROPIC_API_KEY` | Anthropic API key for live tests only (never read from keychain; test skips if unset, ADR-044 item 10) | unset |
+| `JOBPIPELINE_E2E_CHROMIUM` | Path to a Chromium executable for e2e tests instead of Playwright's managed one (tests only; ADR-035) | unset |
+| `ANTHROPIC_API_KEY` | Fallback credential when no keychain is available; stripped of whitespace; read-only (spec 2.9; ADR-047) | unset |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Fallback credential when no keychain is available; stripped of whitespace; read-only (spec 2.9; ADR-047) | unset |
+| `PYTHON_KEYRING_BACKEND` | keyring library variable, honoured by the running app too: selects a keyring backend by class name; tests use it, and an autouse fixture pins an in-memory backend per test (ADR-046) | unset (uses OS discovery) |
+
+Precedence for AI provider credentials (ADR-047): keychain (service `jobpipeline` in normal mode, `jobpipeline-demo` in demo mode) beats environment variables (`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`). Demo mode never reads environment credentials: wiring gives it an empty environment. Live tests read only from `JOBPIPELINE_LIVE_CLAUDE_OAUTH_TOKEN` (required) and `JOBPIPELINE_LIVE_ANTHROPIC_API_KEY` (optional), never from the keychain or other variables (ADR-044 items 7 and 10).
+
+All credential values are registered with the log redactor; the app never writes them to logs or responses (spec 2.10, 3.3; ADR-037, ADR-070).
 
 ### 7.4 Glossary
 

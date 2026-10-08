@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from tests.page_token import page_token
-from tests.running_app import RunningApp
+from tests.running_app import AppStart, RunningApp
 
 pytestmark = pytest.mark.smoke
 
@@ -126,3 +126,55 @@ def test_ac_m0_5_launch_token_not_in_log_files(running_app: RunningApp) -> None:
         assert any(fragment_of_line in line for line in access), (
             f"no access-log line containing {fragment_of_line!r}; got {access}"
         )
+
+
+@pytest.mark.parametrize("running_app", ["fresh"], indirect=True)
+def test_fresh_app_redirects_root_to_guide(running_app: RunningApp) -> None:
+    """AC-M1.2 end to end: with nothing set up, ``/`` sends the browser to the guide."""
+    with running_app.client() as client:
+        root = client.get("/")
+        guide = client.get("/setup/welcome")
+        health = client.get("/health")
+
+    assert root.status_code == 303, (root.status_code, root.text[:200])
+    assert root.headers["location"] in ("/setup/welcome", f"{running_app.base_url}/setup/welcome")
+    for name, value in PROTECTIVE_HEADERS.items():
+        assert root.headers.get_list(name) == [value], name
+    assert guide.status_code == 200, guide.text[:200]
+    assert guide.headers["content-type"].startswith("text/html")
+    assert TOKEN_SHAPE.fullmatch(page_token(guide.text)), "the guide page carries the token"
+    assert health.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "running_app", [AppStart(setup="complete", cli_args=("--setup",))], indirect=True
+)
+def test_ac_m1_7_cli_setup_flag_opens_guide(running_app: RunningApp) -> None:
+    """AC-M1.7 end to end: ``jobpipeline --setup`` on a finished setup reopens the guide at
+    its first step, keeps the data, and "Back to the app" (a POST) returns to the pages."""
+    welcome = "/setup/welcome"
+    with running_app.client() as client:
+        root = client.get("/")
+        assert root.status_code == 303, (root.status_code, root.text[:200])
+        assert root.headers["location"] in (welcome, f"{running_app.base_url}{welcome}")
+
+        guide = client.get(welcome)
+        assert guide.status_code == 200, guide.text[:200]
+        assert "Back to the app" in guide.text
+        done = client.get("/setup/done")
+        assert done.status_code == 200, done.text[:200]
+        assert "Not done yet" not in done.text, "reopening reset no step"
+        health = client.get("/health")
+        assert health.status_code == 200
+        assert health.json()["database"] == "ok"
+
+        token = page_token(guide.text)
+        back = client.post(
+            "/setup/leave", headers={"X-JP-Token": token, "origin": running_app.origin}
+        )
+        assert back.status_code == 303, (back.status_code, back.text[:200])
+        assert back.headers["location"] in ("/", f"{running_app.base_url}/")
+
+        today = client.get("/")
+        assert today.status_code == 200, (today.status_code, today.text[:200])
+        assert TITLE in today.text

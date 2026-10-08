@@ -35,11 +35,13 @@ GUARDRAIL_PATHS = [
     re.compile(r"(^|/)\.claude/hooks/"),
 ]
 
+# Also catches --force-with-lease=<ref>, --force-if-includes and +<refspec> (ADR-075).
+FORCE_PUSH = re.compile(
+    r"\bgit\s+push\b[^;&|]*\s(--force(-with-lease|-if-includes)?(=\S*)?|-f|\+\S+)(\s|$)"
+)
+
 BASH_RULES: list[tuple[re.Pattern[str], str]] = [
-    (
-        re.compile(r"\bgit\s+push\b[^;&|]*\s(--force(-with-lease)?|-f)(\s|$)"),
-        "Force pushes are not allowed. Ask the user to push.",
-    ),
+    (FORCE_PUSH, "Force pushes are not allowed. Ask the user to push."),
     (
         re.compile(r"\bgit\s+commit\b[^;&|]*--no-verify\b"),
         "Commits must run the pre-commit hooks (gitleaks, ruff). Remove --no-verify.",

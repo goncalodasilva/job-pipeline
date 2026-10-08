@@ -36,7 +36,7 @@ def _request() -> AIRequest:
     return AIRequest(
         task="summarize_job",
         prompt_id="summarize_job",
-        prompt_version=1,
+        prompt_version="1",
         system="You summarize job postings.",
         user='<untrusted_document source="job_posting" id="J1">Fictional role</untrusted_document>',
         output_schema={"type": "object"},
@@ -238,7 +238,7 @@ async def allow_tool(tool_name: str) -> bool:
 request = AIRequest(
     task="answer_web_question",
     prompt_id="answer_web_question",
-    prompt_version=1,
+    prompt_version="1",
     system="system",
     user="user",
     output_schema={"type": "object"},

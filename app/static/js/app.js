@@ -57,6 +57,17 @@
     });
   }
 
+  // Esc inside an in-page question (such as "Remove the saved token?") answers it like its
+  // cancel button ("Keep it"), which the server handles as usual.
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    var question = event.target instanceof Element ? event.target.closest(".remove-confirm") : null;
+    var cancel = question ? question.querySelector("[data-cancel]") : null;
+    if (!cancel || cancel.disabled) return;
+    event.preventDefault();
+    cancel.click();
+  });
+
   // Routes can ask for an announcement with the header HX-Trigger: {"announce": "..."}.
   document.body.addEventListener("announce", function (event) {
     if (event.detail && typeof event.detail.value === "string") announce(event.detail.value);
@@ -86,7 +97,8 @@
     var target = document.querySelector("[data-autofocus]");
     if (!target) return;
     target.removeAttribute("data-autofocus");
-    if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+    // Only elements that can't take focus get tabindex="-1"; controls keep their Tab order.
+    if (target.tabIndex < 0 && !target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     target.focus();
   });
 })();

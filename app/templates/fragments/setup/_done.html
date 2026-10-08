@@ -1,0 +1,38 @@
+{# Step 6 (M1.19): what's set up, in words, with links back. No personal details here. #}
+{% set form_error = errors.get("form") %}
+{% set rows = form.get("rows", []) %}
+{% set unfinished = form.get("unfinished", []) %}
+<h2 id="step-heading"{% if not form_error %} data-autofocus{% endif %}>Done</h2>
+{% if unfinished %}
+<p>Almost there. Finish the required steps marked "Not done yet", then come back here to start using the app.</p>
+{% elif form.get("needs_attention") %}
+<p>Something needs attention: open the step marked "Needs attention" to fix it.</p>
+{% else %}
+<p>You're ready to start. Here's what you set up; you can open any step again from this list to change it.</p>
+{% endif %}
+
+<ul class="setup-summary" aria-label="Your setup">
+  {% for row in rows %}
+  <li><a href="/setup/{{ row.id }}">{{ row.title }}</a>: <span class="step-status">{{ row.status_text }}</span></li>
+  {% endfor %}
+</ul>
+
+<form class="step-form" method="post" action="/setup/done"
+      hx-post="/setup/done" hx-target="#setup-guide" hx-swap="outerHTML"
+      hx-disabled-elt="#done-add-job, #done-today" novalidate>
+  {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
+  {% if form_error %}
+  <p id="form-error" class="field-error" role="alert" data-autofocus>
+    {%- if unfinished -%}
+    Finish {% for item in unfinished %}<a href="/setup/{{ item.id }}">{{ item.title }}</a>{% if not loop.last %}{% if loop.revindex == 2 %} and {% else %}, {% endif %}{% endif %}{% endfor %} first, then come back here.
+    {%- else -%}
+    {{ form_error }}
+    {%- endif -%}
+  </p>
+  {% endif %}
+  <p>Next, add a job you're interested in, or go to Today to look around first.</p>
+  <div class="form-actions">
+    <button type="submit" id="done-add-job" name="then" value="add_job" class="button button-primary">Add a job</button>
+    <button type="submit" id="done-today" name="then" value="today" class="button">Go to Today</button>
+  </div>
+</form>

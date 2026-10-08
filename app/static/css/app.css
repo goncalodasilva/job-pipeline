@@ -13,6 +13,8 @@
   --color-focus: #0a58a8;
   --color-warning-bg: #fff4d6;
   --color-warning-border: #9a6700;
+  --color-error: #b3261e;
+  --color-on-accent: #ffffff;
 
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --space-1: 0.25rem;
@@ -40,6 +42,8 @@
     --color-focus: #8bbcff;
     --color-warning-bg: #3a2f12;
     --color-warning-border: #e3b341;
+    --color-error: #ff9a8f;
+    --color-on-accent: #15171c;
   }
 }
 
@@ -55,6 +59,8 @@
   --color-focus: #8bbcff;
   --color-warning-bg: #3a2f12;
   --color-warning-border: #e3b341;
+  --color-error: #ff9a8f;
+  --color-on-accent: #15171c;
 }
 
 :root[data-theme="light"] {
@@ -225,9 +231,42 @@ a {
   padding-top: var(--space-2);
 }
 
+/* Banners and the status message share the grid's status area. */
+.page-status {
+  grid-area: status;
+  min-width: 0;
+}
+
+/* Start-up problems once setup is done (AC-M1.1 case 4): a warning bar with a link to fix it.
+   The words carry the meaning; the colour and left bar only reinforce it. */
+.banners {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-4) var(--space-4) 0;
+}
+
+.banner {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-warning-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-warning-border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+.banner a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  padding-block: var(--space-1);
+  font-weight: 600;
+}
+
 /* Status area for problems such as a stale launch token. */
 .app-status {
-  grid-area: status;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -283,6 +322,341 @@ main {
   color: var(--color-text-muted);
 }
 
+/* Setup guide: no sidebar; the guide's own step list shows the way. */
+body.layout-guide {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas:
+    "top"
+    "status"
+    "main";
+}
+
+.setup-guide {
+  max-width: 40rem;
+  margin-inline: auto;
+  overflow-wrap: anywhere;
+}
+
+.setup-guide h1 {
+  margin-top: 0;
+  font-size: 1.5rem;
+}
+
+.setup-steps {
+  padding-left: var(--space-6);
+  color: var(--color-text-muted);
+}
+
+/* Reopened with --setup: what was set up is kept, and "Back to the app" leaves. */
+.setup-reopened {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.setup-reopened p {
+  margin: 0;
+  flex: 1 1 16rem;
+}
+
+.setup-reopened form {
+  margin: 0;
+}
+
+.setup-step h2 {
+  font-size: 1.25rem;
+}
+
+/* Settings (M1.21): one section per part, below the page heading. */
+.settings-section {
+  max-width: 40rem;
+  margin-top: var(--space-6);
+  overflow-wrap: anywhere;
+}
+
+.settings-section h2 {
+  font-size: 1.25rem;
+}
+
+/* Settings' "Coming later" card: small, spaced like the sections above it. */
+.empty-state.settings-later {
+  margin-top: var(--space-6);
+  padding: var(--space-4);
+}
+
+.settings-later h2 {
+  margin-top: 0;
+  font-size: 1.25rem;
+}
+
+.setup-steps [aria-current="step"] {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.setup-steps .step-status {
+  font-weight: 400;
+}
+
+/* Forms */
+.step-form {
+  margin-block: var(--space-6);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.field label {
+  font-weight: 600;
+}
+
+.field input,
+.field textarea,
+.field select {
+  min-height: var(--target-min);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+}
+
+.field input[readonly] {
+  background: var(--color-bg);
+  border-style: dashed;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field input[aria-invalid="true"],
+.field textarea[aria-invalid="true"],
+.field select[aria-invalid="true"] {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 1px var(--color-error);
+}
+
+.field-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.field-error {
+  margin: 0;
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+.field-error::before {
+  content: "Error: ";
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.button {
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.button-primary {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  font-weight: 600;
+}
+
+.notice {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+}
+
+.notice p {
+  margin: var(--space-2) 0;
+}
+
+/* Provider step (M1.17): one radio per sign-in route, each with its instructions. */
+.choices {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+.choices legend {
+  margin-bottom: var(--space-3);
+  padding: 0;
+  font-weight: 600;
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.choice input[type="radio"],
+.choice input[type="checkbox"] {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.choice label {
+  font-weight: 600;
+}
+
+.choice .field-hint {
+  grid-column: 2;
+}
+
+/* Preferences step (M1.19): amount and currency side by side when there is room. */
+.salary {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+.salary legend {
+  margin-bottom: var(--space-3);
+  padding: 0;
+  font-weight: 600;
+}
+
+.salary-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  column-gap: var(--space-4);
+}
+
+.choices .field-hint {
+  margin-bottom: var(--space-2);
+}
+
+/* Done step (M1.19): each step with its state in words. */
+.setup-summary {
+  padding-left: var(--space-6);
+}
+
+.setup-summary li {
+  margin-bottom: var(--space-2);
+}
+
+.credential-status {
+  margin: 0 0 var(--space-4);
+}
+
+/* Shown only while the provider form's request runs (hx-indicator). */
+.saving-note {
+  display: none;
+  margin: var(--space-3) 0 0;
+}
+
+.saving-note.htmx-request {
+  display: block;
+}
+
+/* The connection test's result (M1.18): the words say which; the border only helps. */
+.connection-result {
+  margin: var(--space-4) 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+
+.connection-ok {
+  border-left-color: var(--color-accent);
+}
+
+.connection-failed {
+  border-left-color: var(--color-error);
+}
+
+.saved-keys {
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.saved-keys li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+/* "Remove the saved token?" asked in place: the question, then Remove and Keep it. */
+.remove-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.remove-question {
+  flex-basis: 100%;
+  margin: 0;
+  font-weight: 600;
+}
+
+.remove-confirm .saving-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.env-note,
+.terms-note {
+  color: var(--color-text-muted);
+}
+
+.try-demo h3 {
+  font-size: 1.1rem;
+}
+
+.try-demo pre {
+  padding: var(--space-3);
+  overflow-x: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
 /* Phone and narrow windows: the sidebar collapses behind the top-bar toggle. */
 @media (max-width: 767.98px) {
   body {
@@ -331,6 +705,28 @@ main {
   .sidebar a[aria-current="page"] {
     border-left-style: solid;
     border-left-color: CanvasText;
+  }
+
+  .button-primary {
+    border: 2px solid ButtonText;
+  }
+
+  /* The setup guide's step list: the words "Done" and "Skipped" carry the state; the current
+     step gets a visible marker instead of its colour and weight alone. */
+  .setup-steps,
+  .setup-steps .step-status {
+    color: CanvasText;
+  }
+
+  .setup-steps [aria-current="step"] {
+    color: CanvasText;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.2em;
+  }
+
+  .setup-steps [aria-current="step"]::marker {
+    color: Highlight;
   }
 }
 
