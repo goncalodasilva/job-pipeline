@@ -714,7 +714,7 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Decision:
   - Snapshot: `ProviderUsageSnapshot` in `app/modules/ai/__init__.py`, provider-agnostic: `service`, `window`, `unit` (`requests` or `fraction`), `used`, `limit`, `utilization`, `resets_at`, `observed_at`. Validated when built (`ValueError`): `service` and `window` non-empty; `used` and `limit` non-negative ints (bools refused); `utilization` finite and within 0 to 1 (huge ints compared exactly); `requests` needs `used`; `fraction` needs `utilization`. `observed_at` and `resets_at` must be timezone-aware and are stored in UTC.
   - Hand-over: `AIRequest.on_usage` callback, run on the event loop during the call. It must only record or queue cheaply, never block or do I/O. `report_usage` swallows an exception and logs only its type name. Usage parsing can never change a call's result.
-  - Claude: `RateLimitEvent` becomes `unit="fraction"` snapshots for `five_hour`, `seven_day`, `seven_day_opus` and `seven_day_sonnet`. Service `claude_subscription` for token and existing sign-in; `claude_api_key` for API-key mode. Ignored: utilization outside [0, 1] or non-numeric, bool, NaN or too large; missing type, utilization or `resetsAt`; a reset not after observation or more than 31 days ahead; unknown types and overage types (including the CLI's `seven_day_overage_included`). `raw`, `uuid`, `session_id` and `status` are never read.
+  - Claude: `RateLimitEvent` becomes `unit="fraction"` snapshots for `five_hour`, `seven_day`, `seven_day_opus` and `seven_day_sonnet`. Service `claude_subscription` for token and existing sign-in; `claude_api_key` for API-key mode. Ignored: utilization below 0, above 10 (1 to 10 is reported as 1.0) or non-numeric, bool, NaN or too large; missing type, utilization or `resetsAt`; a reset not after observation or more than 31 days ahead; unknown types and overage types (including the CLI's `seven_day_overage_included`). `raw`, `uuid`, `session_id` and `status` are never read.
   - Parse errors: a frame with no `status` makes the SDK raise `MessageParseError`, which ends `receive_response()`. The provider drops only `rate_limit_event` parse errors (checked on `error.data`) and resumes on the same stream; cancellation is checked between dropped frames. Other parse errors still fail the call. This depends on SDK 0.2.163 internals and a private `MessageParseError` import; recheck on every SDK upgrade.
   - Known gap: if `rate_limit_info` is not a dict, the SDK raises `TypeError` and the call ends as `NetworkUnavailable`. Misclassified, nothing leaks.
   - Fake: `ScriptedResponse.usage_snapshots` reports scripted `unit="requests"` snapshots (window `month`) in order, before any scripted failure. AC-M2.8 (higher count wins) is proven with it. The Claude fraction is information only (ADR-076 item 6).
@@ -725,9 +725,9 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - M2.15 follow-up: the model accepts any non-negative int, but SQLite `INTEGER` holds at most 2^63-1. `save_snapshot` or the model must bound `used` and `limit`.
   - Privacy: `observed_at` reveals when the user works. Snapshots live only in the data folder. The demo database is separate. They are excluded from diagnostics and exports unless the user opts in.
   - Live checklist (for the user, with the M1.25 live check): whether one short SDK call emits a rate-limit frame at all; token or existing sign-in; whether `utilization` is present when status is allowed; the frame's position relative to the result message; real `resetsAt` values; whether `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (set by `build_options`) suppresses the frames.
-  - Open questions for the user (not decided):
-    - (a) Utilization above 1: the CLI documents it as legitimate (usage can run past a window's cap). The code ignores such frames. Clamp to 1 instead?
-    - (b) Keep a `status` field (`allowed`, `allowed_warning`, `rejected`) for a "nearly at the limit" hint?
-    - (c) Read the CLI's per-window `unifiedWindows` block through an allowlist?
-    - (d) Latest row per `(service, window)` only (recommended), or keep history?
-  - Approval requested: the proposed 0002 table above.
+  - Decided by the user (2026-10-09, "go with your recommendations"):
+    - (a) Utilization above 1 and up to 10 is reported as 1.0 (usage can run past a window's cap); above 10 the frame is ignored as implausible.
+    - (b) No `status` field for now; add it later as a validated field if a "nearly at the limit" hint is wanted.
+    - (c) `unifiedWindows` is not read until the live check confirms its format.
+    - (d) Latest row per `(service, window)` only, `UNIQUE(service, window)`, updated in place; no history.
+  - The proposed 0002 table above is approved for M2.5, with `used` and `limit_count` bounded to SQLite's INTEGER range (save path or model, M2.15).

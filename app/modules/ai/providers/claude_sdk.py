@@ -709,6 +709,8 @@ _SERVICE_BY_MODE: Final[Mapping[AuthMode, str]] = {
 # The subscription windows the CLI reports; anything else (overage, newer windows) is
 # ignored until it is understood.
 _USAGE_WINDOWS: Final = frozenset({"five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"})
+# The CLI documents usage running past a window's cap; beyond this the value is implausible.
+_MAX_UTILIZATION: Final = 10.0
 # A reset further ahead than this is not a real window's.
 _MAX_RESET_AHEAD: Final = timedelta(days=31)
 
@@ -746,8 +748,9 @@ def _usage_snapshot(
     if not isinstance(window, str) or window not in _USAGE_WINDOWS:
         return None
     fraction = _finite_number(utilization)
-    if fraction is None or not 0.0 <= fraction <= 1.0:
+    if fraction is None or not 0.0 <= fraction <= _MAX_UTILIZATION:
         return None
+    fraction = min(fraction, 1.0)  # usage may run past a window's cap: shown as full
     resets_at = _reset_time(info.resets_at, observed_at)
     if resets_at is None:
         return None

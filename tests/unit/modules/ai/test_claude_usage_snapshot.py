@@ -309,7 +309,8 @@ async def test_without_on_usage_frames_are_harmless(
 MALFORMED: dict[str, list[dict[str, Any]]] = {
     # The SDK raises MessageParseError for this frame; the provider must carry on.
     "missing_status": [_rate_limit_frame(_info(status=_DROP))],
-    "utilization_above_1": [_rate_limit_frame(_info(utilization=1.5))],
+    # Usage may run a little past a window's cap (reported as 1.0, see below), but not this far.
+    "utilization_far_above_1": [_rate_limit_frame(_info(utilization=25.0))],
     "negative": [
         _rate_limit_frame(_info(utilization=-0.2), uuid="uuid-fictional-0160"),
         _rate_limit_frame(_info(resetsAt=-60), uuid="uuid-fictional-0161"),
@@ -379,7 +380,7 @@ async def test_incomplete_rate_limit_frames_ignored(
     assert reported == []
 
 
-@pytest.mark.parametrize("bad", ["missing_status", "utilization_above_1", "unknown_type"])
+@pytest.mark.parametrize("bad", ["missing_status", "utilization_far_above_1", "unknown_type"])
 async def test_valid_frame_after_malformed_frame_still_reported(
     bad: str, temp_root: Path, cli: Path, clock: FrozenClock
 ) -> None:
@@ -396,6 +397,36 @@ async def test_valid_frame_after_malformed_frame_still_reported(
     assert [(snapshot.window, snapshot.utilization) for snapshot in reported] == [
         ("seven_day", 0.3)
     ]
+
+
+@pytest.mark.parametrize("value", [1.0000001, 1.5, 10, 10.0])
+async def test_utilization_above_1_reported_as_1(
+    value: float, temp_root: Path, cli: Path, clock: FrozenClock
+) -> None:
+    """The CLI documents usage running past a window's cap; the share shows as full (ADR-078)."""
+    frame = _rate_limit_frame(_info(utilization=value))
+    reported: list[Any] = []
+    provider = _provider(_with_rate_limits(frame), temp_root, cli, clock)
+
+    response = await provider.run(_request(reported.append), NotCancelled())
+
+    assert dict(response.data) == ANSWER
+    assert [(snapshot.window, snapshot.utilization) for snapshot in reported] == [
+        ("five_hour", 1.0)
+    ]
+
+
+@pytest.mark.parametrize("value", [10.000001, 11])
+async def test_utilization_beyond_ten_times_the_cap_ignored(
+    value: float, temp_root: Path, cli: Path, clock: FrozenClock
+) -> None:
+    reported: list[Any] = []
+    frame = _rate_limit_frame(_info(utilization=value))
+    provider = _provider(_with_rate_limits(frame), temp_root, cli, clock)
+
+    await provider.run(_request(reported.append), NotCancelled())
+
+    assert reported == []
 
 
 # --- raw is never kept or logged --------------------------------------------------------
@@ -537,7 +568,7 @@ async def test_snapshot_never_changes_call_result(
 
     frames = _with_rate_limits(
         *MALFORMED["missing_status"],
-        *MALFORMED["utilization_above_1"],
+        *MALFORMED["utilization_far_above_1"],
         _rate_limit_frame(_info(), uuid="uuid-fictional-0180"),
         *MALFORMED["non_numeric"],
         _rate_limit_frame(
