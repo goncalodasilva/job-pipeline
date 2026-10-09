@@ -738,3 +738,9 @@ Architecture decision records, newest last. Each entry: context, decision, conse
     - (c) `unifiedWindows` is not read until the live check confirms its format.
     - (d) Latest row per `(service, window)` only, `UNIQUE(service, window)`, updated in place; no history.
   - The proposed 0002 table above is approved for M2.5, with `used` and `limit_count` bounded to SQLite's INTEGER range (save path or model, M2.15).
+- Update (M2.5, 2026-10-09): migration 0002 is in `app/modules/storage/migrations/0002_tasks_usage_budgets.sql`. Decided while building it (code review and should-fixes):
+  - `service` is free text in `usage_records`, `provider_usage_snapshots` and `budget_notices`: non-empty in SQL, no closed list in the schema. The domain validates the set of services. This supersedes the closed set of services in ADR-076 item 4. Why: the domain owns the set, so a new service id does not need a new migration. A BEFORE INSERT trigger on `usage_records` requires `service` on every new row.
+  - `budget_notices.cycle_start` is stored as the local start date, text `YYYY-MM-DD`, with a format-only CHECK. The CHECK accepts impossible dates such as 2026-02-30. M2.14 and M2.15 must build it from a real date.
+  - `budget_notices` is append-only: no `updated_at` or `version`. ADR-027 covers mutable tables, and this table is not one of them.
+  - An index on `tasks(status, updated_at)` serves the task claim and the tasks panel order.
+  - Follow-up for M2.15: bound `used` and `limit_count` to SQLite's INTEGER range (see the Consequences above).

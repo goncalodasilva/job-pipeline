@@ -1,3 +1,4 @@
 {
-  "0001_initial.sql": "df5edd867e83674d3c37d6fca70eda3d426b3d3b7df31c94c1909f1e12c18d86"
+  "0001_initial.sql": "df5edd867e83674d3c37d6fca70eda3d426b3d3b7df31c94c1909f1e12c18d86",
+  "0002_tasks_usage_budgets.sql": "d1ee8b5853ad66ab94a7f56f61717ad18075c789db8a2aaa781d012f941756d2"
 }
