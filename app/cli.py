@@ -1,7 +1,9 @@
 """The ``jobpipeline`` command (spec 7.1; ADR-024, 025, 030, 037, 039, 040).
 
-Start-up order matters: resolve the config, create the data folder, set up redacted logging
-and the exception hooks, build the app, check the port, then serve on 127.0.0.1 only. On a
+Start-up order matters: resolve the config, create the data folder, refuse one owned by another
+user, lock it (ADR-072; a folder in use exits 1 with one line naming no folder), set up redacted
+logging and the exception hooks, build the app, check the port, then serve on 127.0.0.1 only.
+The lock is released last, after logging closes. On a
 first run (no database yet and no folder named by a flag or the environment) nothing is
 created: logs are buffered in memory until step 1 opens the workspace (ADR-044 item 3), and a
 start-up failure points at the console instead of a log folder. The
@@ -42,7 +44,7 @@ from app.config import (
     owned_by_another_user,
     resolve_config,
 )
-from app.domain.errors import ConfigError
+from app.domain.errors import ConfigError, DataFolderInUse
 from app.domain.redaction import Redactor
 from app.logging_config import (
     LoggingSetup,
@@ -51,6 +53,7 @@ from app.logging_config import (
     install_sdk_record_reduction,
 )
 from app.main import LOG_FOLDER, create_app
+from app.modules.storage import DataFolderLock, lock_data_folder
 from app.wiring import Wiring, build_wiring
 
 HOST = "127.0.0.1"
@@ -174,6 +177,7 @@ class _StartPlan:
     open_at_startup: bool
     attach_log_folder: Callable[[Path], None] | None
     failed: str  # the one line printed when start-up fails
+    data_folder_lock: DataFolderLock | None = None  # held from before logging writes (ADR-072)
 
 
 def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) -> None:
@@ -184,9 +188,12 @@ def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) 
     install_sdk_record_reduction()
     redactor = Redactor()
     if opens_workspace_at_startup(config):
-        logging_setup = _log_to_data_folder(config, redactor)
+        logging_setup, lock = _log_to_data_folder(config, redactor)
         plan = _StartPlan(
-            True, None, f"The app couldn't start. Details are in {config.data_dir / LOG_FOLDER}."
+            True,
+            None,
+            f"The app couldn't start. Details are in {config.data_dir / LOG_FOLDER}.",
+            lock,
         )
     else:
         # First run: create nothing yet; step 1 opens the folder and the buffered records
@@ -209,6 +216,9 @@ def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) 
         stop_polling.set()
         restore_hooks()
         logging_setup.close()
+        if plan.data_folder_lock is not None:
+            # Last: only once nothing writes into the folder's logs can another copy take it.
+            plan.data_folder_lock.release()
 
 
 def _log_start_failure(error: Exception, *, to_file: bool) -> None:
@@ -223,8 +233,14 @@ def _log_start_failure(error: Exception, *, to_file: bool) -> None:
         _log.critical("Start-up failed (%s)", type(error).__name__)
 
 
-def _log_to_data_folder(config: RuntimeConfig, redactor: Redactor) -> LoggingSetup:
-    """Create the data folder (0700) and log into its ``logs`` folder from the start."""
+def _log_to_data_folder(
+    config: RuntimeConfig, redactor: Redactor
+) -> tuple[LoggingSetup, DataFolderLock]:
+    """Create the data folder (0700), lock it, and log into its ``logs`` folder from the start.
+
+    The lock is taken before logging writes anything, so a second copy of the app never writes
+    into the first copy's log file (ADR-072); it then exits with one line naming no folder.
+    """
     create_failed = (
         "Couldn't create the data folder or its logs. "
         "Check --data-dir, JOBPIPELINE_DATA_DIR or the settings file."
@@ -242,9 +258,18 @@ def _log_to_data_folder(config: RuntimeConfig, redactor: Redactor) -> LoggingSet
             "Choose a folder you own with --data-dir.",
         )
     try:
-        return configure_logging(config.data_dir / LOG_FOLDER, config.log_level, redactor)
-    except OSError:
+        lock = lock_data_folder(config.data_dir)
+    except DataFolderInUse as error:
+        _fail(1, error.user_message)
+    except ConfigError:
         _fail(1, create_failed)
+    try:
+        return configure_logging(config.data_dir / LOG_FOLDER, config.log_level, redactor), lock
+    except BaseException as error:
+        lock.release()
+        if isinstance(error, OSError):
+            _fail(1, create_failed)
+        raise
 
 
 def _start(
@@ -259,6 +284,7 @@ def _start(
         attach_log_folder=plan.attach_log_folder,
         open_at_startup=plan.open_at_startup,
         wiring=wiring,
+        data_folder_lock=plan.data_folder_lock,
     )
     wiring.redactor.register(app.state.launch_token)  # the redactor logging uses
     if not launcher.port_free(config.port):

@@ -325,6 +325,7 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | `VersionConflict` | Repositories | "This item changed elsewhere. Reload to see the latest version." |
 | `FetchRefused` | Fetch | "This address can't be fetched. Paste the job text instead." |
 | `SecretStoreUnavailable` | Secrets (keychain store) | "Your system keychain isn't available. You can use an environment variable instead." (ADR-046) |
+| `DataFolderInUse` | Workspace open | "This folder is already open in another copy of the app. Close that copy first, or choose another folder." (ADR-072, ADR-076 item 9) |
 
 `CallCancelled` (AI module) is not a user-facing error: a cancelled call ends quietly and the task shows as cancelled (ADR-054).
 

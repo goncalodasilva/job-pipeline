@@ -3,7 +3,7 @@
 import os
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
@@ -32,6 +32,7 @@ class Database:
         self.path = path
         self._connection = connection
         self._lock = threading.RLock()
+        self._on_close: list[Callable[[], None]] = []
 
     @classmethod
     def open(cls, path: Path) -> "Database":
@@ -73,8 +74,17 @@ class Database:
                     self._connection.execute("ROLLBACK")
                 raise
 
+    def call_on_close(self, callback: Callable[[], None]) -> None:
+        """Run ``callback`` once, right after the connection closes (the data-folder lock)."""
+        self._on_close.append(callback)
+
     def close(self) -> None:
-        self._connection.close()
+        try:
+            self._connection.close()
+        finally:
+            callbacks, self._on_close = self._on_close, []
+            for callback in callbacks:
+                callback()
 
     def __enter__(self) -> Self:
         return self

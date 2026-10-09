@@ -103,6 +103,21 @@ class DataFolderNotYours(ConfigError):
     message = "This folder belongs to another user. Choose a folder you own."
 
 
+class DataFolderInUse(ConfigError):
+    """Another copy of the app holds the data folder's lock (ADR-072, ADR-076 item 9).
+
+    ``detail`` never names the path.
+    """
+
+    message = (
+        "This folder is already open in another copy of the app. "
+        "Close that copy first, or choose another folder."
+    )
+
+    def __init__(self, *, detail: str | None = "the data folder lock is held") -> None:
+        super().__init__(detail=detail)
+
+
 class FetchRefused(AppError):
     message = "This address can't be fetched. Paste the job text instead."
 

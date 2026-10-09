@@ -45,7 +45,13 @@ from app.domain.errors import DataFolderNotYours, DataFolderUnavailable
 from app.domain.redaction import Redactor
 from app.domain.settings import AI_PROVIDER
 from app.modules.ai import ProviderHealth
-from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
+from app.modules.storage import (
+    MIGRATIONS_DIR,
+    Database,
+    DataFolderLock,
+    apply_migrations,
+    lock_data_folder,
+)
 from app.onboarding.progress import SetupProgress
 from app.onboarding.registry import (
     DONE,
@@ -97,16 +103,44 @@ def open_workspace_folder(
     clock: Clock,
     attach_log_folder: Callable[[Path], None] | None = None,
     before_logging: Callable[[Database], None] | None = None,
+    lock: DataFolderLock | None = None,
 ) -> Workspace:
-    """Create the folder (0700, ADR-043), open and migrate its database, then log into it.
+    """Create the folder (0700, ADR-043), lock it, open and migrate its database, then log
+    into it.
 
     Blocking (mkdir, migrations, backups). Raises ``DataFolderNotYours`` for a folder owned by
-    another account and ``DataFolderUnavailable`` when it can't be created, opened or logged
-    into; a failed migration raises ``MigrationError``. ``before_logging`` runs on the migrated
+    another account, ``DataFolderInUse`` when another copy of the app holds its lock (ADR-072)
+    and ``DataFolderUnavailable`` when it can't be created, opened or logged into; a failed
+    migration raises ``MigrationError``. ``lock`` is one the caller already holds on ``folder``
+    (the CLI takes it before logging into the folder); it stays the caller's to release, and
+    one no longer held is refused with ``DataFolderUnavailable`` (POSIX). Without it the lock is
+    taken here, before anything is written into the folder, released if the open fails and
+    otherwise when the workspace's database closes. ``before_logging`` runs on the migrated
     database; whatever it raises closes the database and propagates. File logging is attached
     last, so a failed open leaves logging untouched and the user can choose another folder.
     """
     _prepare_folder(folder)
+    if lock is not None:
+        if not lock.held and os.name == "posix":
+            raise DataFolderUnavailable(detail="the given lock is not held")
+        return _open_locked(folder, migrations_dir, clock, attach_log_folder, before_logging)
+    own_lock = lock_data_folder(folder)
+    try:
+        workspace = _open_locked(folder, migrations_dir, clock, attach_log_folder, before_logging)
+    except BaseException:
+        own_lock.release()
+        raise
+    workspace.db.call_on_close(own_lock.release)
+    return workspace
+
+
+def _open_locked(
+    folder: Path,
+    migrations_dir: Path,
+    clock: Clock,
+    attach_log_folder: Callable[[Path], None] | None,
+    before_logging: Callable[[Database], None] | None,
+) -> Workspace:
     db = _open_database(folder)
     try:
         apply_migrations(db, migrations_dir, folder / BACKUP_FOLDER, clock)
@@ -324,6 +358,7 @@ def create_app(
     wiring: Wiring | None = None,
     setup_registry: StepRegistry | None = None,
     event_keepalive_seconds: float = DEFAULT_KEEPALIVE_SECONDS,
+    data_folder_lock: DataFolderLock | None = None,
 ) -> FastAPI:
     """Build the app. ``open_at_startup`` (default: ``opens_workspace_at_startup(config)``)
     says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used.
@@ -333,7 +368,9 @@ def create_app(
     own get a placeholder. ``event_keepalive_seconds`` is how often an idle ``GET /events``
     stream sends a comment line (finite and greater than 0, else ``ValueError``).
     ``app.state.shutdown_signal`` is made here, not in the lifespan: the CLI sets it when a
-    stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1)."""
+    stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1).
+    ``data_folder_lock`` is the lock the CLI already holds on ``config.data_dir``; the
+    lifespan's open reuses it instead of locking the folder again (ADR-072)."""
     app_clock = clock if clock is not None else SystemClock()
     app_wiring = (
         wiring
@@ -442,6 +479,7 @@ def create_app(
                 clock=app_clock,
                 attach_log_folder=attach_log_folder,
                 before_logging=prepare,
+                lock=data_folder_lock,
             )
         runner = TaskRunner()
         try:

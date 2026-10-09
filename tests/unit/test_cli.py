@@ -1157,3 +1157,131 @@ def test_cli_demo_builds_demo_wiring(
     wiring = calls[0][1]["wiring"]
     assert wiring.secrets.get("claude_code_oauth_token") is None, "demo ignores the environment"
     assert wiring.redactor.redact(FICTIONAL_ENV_TOKEN) == FICTIONAL_ENV_TOKEN
+
+
+# --- M2.4: the data-folder lock (ADR-072, ADR-076 item 9) ------------------------------------
+
+
+def _recording_lock(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> list[Any]:
+    """Wrap ``app.cli.lock_data_folder``: record each lock taken and when it is released."""
+    from app.modules.storage import lock_data_folder as real_lock
+
+    taken: list[Any] = []
+
+    def wrapper(folder: Path) -> Any:
+        lock = real_lock(folder)
+        real_release = lock.release
+
+        def release() -> None:
+            events.append("lock_released")
+            real_release()
+
+        lock.release = release  # type: ignore[method-assign]
+        taken.append(lock)
+        return lock
+
+    monkeypatch.setattr("app.cli.lock_data_folder", wrapper)
+    return taken
+
+
+def test_cli_data_dir_in_use_prints_one_line_without_path(
+    env: dict[str, str],
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.domain.errors import DataFolderInUse
+
+    def in_use(_folder: Path) -> None:
+        raise DataFolderInUse()
+
+    monkeypatch.setattr("app.cli.lock_data_folder", in_use)
+    fake = FakeLaunch()
+
+    code = exit_code(lambda: run_main(["--no-browser"], env, fake))
+
+    assert code == 1
+    err = capsys.readouterr().err
+    lines = [line for line in err.splitlines() if line.startswith("jobpipeline:")]
+    assert lines == [f"jobpipeline: {DataFolderInUse().user_message}"], err
+    assert str(data_dir) not in err and data_dir.name not in err
+    assert "Traceback" not in err
+    assert not (data_dir / "logs").exists(), "a second copy never logs into the folder"
+    assert fake.calls("serve") == []
+
+
+def test_cli_lock_unavailable_prints_create_failed_line(
+    env: dict[str, str],
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.domain.errors import DataFolderUnavailable
+
+    def unavailable(_folder: Path) -> None:
+        raise DataFolderUnavailable(detail="can't lock (OSError)")
+
+    monkeypatch.setattr("app.cli.lock_data_folder", unavailable)
+    fake = FakeLaunch()
+
+    code = exit_code(lambda: run_main(["--no-browser"], env, fake))
+
+    assert code == 1
+    err = capsys.readouterr().err
+    lines = [line for line in err.splitlines() if line.startswith("jobpipeline:")]
+    assert len(lines) == 1, err
+    assert "Couldn't create the data folder or its logs" in lines[0]
+    assert "Traceback" not in err
+    assert not (data_dir / "logs").exists()
+    assert fake.calls("serve") == []
+
+
+def test_cli_logging_setup_failure_releases_the_lock(
+    env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+    taken = _recording_lock(monkeypatch, events)
+
+    def broken_logging(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("fictional logging failure")
+
+    monkeypatch.setattr("app.cli.configure_logging", broken_logging)
+
+    with pytest.raises(RuntimeError):
+        run_main(["--no-browser"], env, FakeLaunch())
+
+    assert len(taken) == 1
+    assert not taken[0].held, "a failed logging set-up must not keep the folder locked"
+
+
+def test_cli_lock_held_while_serving_and_released_after_logging_closes(
+    env: dict[str, str], data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.logging_config import configure_logging as real_configure
+
+    events: list[str] = []
+    taken = _recording_lock(monkeypatch, events)
+
+    def recording_configure(*args: Any, **kwargs: Any) -> Any:
+        setup = real_configure(*args, **kwargs)
+        real_close = setup.close
+
+        def close() -> None:
+            events.append("logging_closed")
+            real_close()
+
+        setup.close = close  # type: ignore[method-assign]
+        return setup
+
+    monkeypatch.setattr("app.cli.configure_logging", recording_configure)
+    calls = capture_create_app_calls(monkeypatch)
+    held_while_serving: list[bool] = []
+    fake = FakeLaunch(on_serve=lambda _c: held_while_serving.append(taken[0].held))
+
+    run_main(["--no-browser"], env, fake)
+
+    assert held_while_serving == [True]
+    assert calls[0][1].get("data_folder_lock") is taken[0], "the app reuses the CLI's lock"
+    assert events[0] == "logging_closed", events
+    assert "lock_released" in events
+    assert not taken[0].held

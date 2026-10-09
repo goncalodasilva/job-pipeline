@@ -156,6 +156,14 @@ def test_system_files_alone_leave_a_folder_empty(tmp_path: Path, name: str) -> N
     assert inspect_data_folder(folder) == "empty"
 
 
+def test_lock_file_alone_leaves_a_folder_empty(tmp_path: Path) -> None:
+    """A folder whose open was refused or that lost its workspace keeps only ``.lock`` (M2.4)."""
+    folder = tmp_path / "left-locked"
+    folder.mkdir()
+    (folder / ".lock").write_bytes(b"")
+    assert inspect_data_folder(folder) == "empty"
+
+
 def test_ignored_names_do_not_count(tmp_path: Path) -> None:
     folder = tmp_path / "shared"
     folder.mkdir()

@@ -690,6 +690,13 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   13. Test changes approved with the plan (none loosens an assertion): the runner stub tests are replaced by real ones keeping the same start and stop checks; `m1_registry` and `test_m1_registers_steps_1_2_5_6` are renamed to include step 3; the full-guide e2e walk and the "Step N of M" assertions include step 3.
   14. No new runtime dependencies: the stream uses Starlette's `StreamingResponse` (`sse-starlette`, present only through `mcp`, is not imported).
 - Consequences: spec 2.9, 2.12, 2.13, 3.7 and 4.2 and the htmx-ui and background-task skills are updated in the tasks that implement these points (M2.1, M2.27). Security review on M2.1, M2.2, M2.4, M2.13, M2.16, M2.17, M2.18 and M2.26; UX review on M2.20 and M2.22–M2.25.
+- Update (M2.4, 2026-10-09): item 9 is built, and it closes the ADR-072 deferral. ADR-072 stays as written (it is only a deferral note).
+  - `app/modules/storage/workspace_lock.py` takes `<data>/.lock`, created with mode 0600 and opened with `O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC`. It is refused unless it is a private regular file owned by the user with one link. The lock is `fcntl.flock(LOCK_EX|LOCK_NB)`. A held lock raises `DataFolderInUse`, whose copy is in spec 2.11 and names no path.
+  - The CLI takes the lock after its ownership check and before logging, when it opens the folder at start-up, and passes it to `create_app`. The app never releases a caller's lock. The CLI releases it after logging is closed.
+  - Step 1 and the lifespan take the lock in `open_workspace_folder` before the database, and release it when opening fails or when the database closes.
+  - A `.lock` file alone does not make a folder "not empty" (`test_lock_file_alone_leaves_a_folder_empty`).
+  - POSIX only (ADR-061). Two demo copies on one folder now refuse each other; this is intended.
+  - Open, not decided: a folder where `flock` fails (for example on some network drives) is refused as unavailable, and the CLI prints the generic "couldn't create the data folder or its logs" line. The recommended "local folder only" note is for the user to decide.
 
 ## ADR-077 — Event stream authorisation, streaming and clean shutdown (M2.1) (2026-10-08)
 
