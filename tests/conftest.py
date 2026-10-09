@@ -4,6 +4,10 @@ Enables the ``pytester`` plugin so tests can run inner pytest sessions
 against the project's real pytest configuration, and gates live tests
 behind ``JOBPIPELINE_LIVE_TESTS=1`` (spec 7.2).
 
+Smoke and then e2e items run after every other item, keeping their collection order within each
+group, so a plain ``pytest`` over the whole tree never runs ``asyncio.run`` under the event loop
+Playwright's sync API leaves running (M2.3).
+
 Every test also runs with an in-memory keyring backend, set directly and pinned through
 ``PYTHON_KEYRING_BACKEND``, so no test can reach the real system keychain (M1.2, ADR-044).
 Outside test bodies (collection, hooks, session fixtures) a guard backend that fails on any
@@ -46,7 +50,18 @@ CREDENTIAL_VARIABLES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_COD
 ALLOW_FAKES_VARIABLE = "JOBPIPELINE_ALLOW_FAKE_PROVIDERS"
 
 
+def _run_group(item: pytest.Item) -> int:
+    """0: fast tests; 1: smoke; 2: e2e (Playwright leaves its loop running until session end)."""
+    if item.get_closest_marker("e2e") is not None:
+        return 2
+    if item.get_closest_marker("smoke") is not None:
+        return 1
+    return 0
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    # Stable sort: collection order is kept within each group (M2.3).
+    items.sort(key=_run_group)
     if os.environ.get(LIVE_ENV) == "1":
         return
     skip_live = pytest.mark.skip(reason=f"live test: set {LIVE_ENV}=1 to run it")
