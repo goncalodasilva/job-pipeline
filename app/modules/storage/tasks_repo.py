@@ -51,6 +51,14 @@ _REQUEUE = (
     "SELECT 1 FROM tasks AS other WHERE other.dedupe_key = tasks.dedupe_key "
     "AND other.status IN ('queued', 'running'))"
 )
+_CLAIM_NEXT = (
+    "UPDATE tasks SET status = 'running', heartbeat_at = ?, updated_at = ?, "
+    "version = version + 1 "
+    "WHERE status = 'queued' AND id = ("
+    "SELECT id FROM tasks WHERE status = 'queued' ORDER BY updated_at, rowid LIMIT 1) "
+    "RETURNING id, type, status, dedupe_key, attempt, progress, heartbeat_at, cancel_requested, "
+    "input_ref, result_ref, error, created_at, updated_at, finished_at, version"
+)
 _HEARTBEAT = (
     "UPDATE tasks SET heartbeat_at = ?, progress = coalesce(?, progress) "
     "WHERE id = ? AND status = 'running'"
@@ -164,10 +172,16 @@ def insert_or_get_active(conn: sqlite3.Connection, row: TaskRow) -> tuple[TaskRo
     )
     if cursor.rowcount == 1:
         return row, True
-    existing = conn.execute(_SELECT_ACTIVE_BY_KEY, (row.dedupe_key,)).fetchone()
+    existing = get_active(conn, row.dedupe_key)
     if existing is None:  # pragma: no cover - the conflict implies an active row
         raise sqlite3.IntegrityError("dedupe conflict without an active task")
-    return _row(existing), False
+    return existing, False
+
+
+def get_active(conn: sqlite3.Connection, key: str) -> TaskRow | None:
+    """The queued or running task holding dedupe ``key``, if any (at most one, by index)."""
+    row = conn.execute(_SELECT_ACTIVE_BY_KEY, (key,)).fetchone()
+    return None if row is None else _row(row)
 
 
 def transition(
@@ -226,6 +240,14 @@ def requeue_for_retry(conn: sqlite3.Connection, task_id: str, now: str) -> bool:
     dedupe key (the caller then returns that task instead)."""
     cursor = conn.execute(_REQUEUE, (now, task_id, _json_list(RETRY_FROM)))
     return cursor.rowcount == 1
+
+
+def claim_next(conn: sqlite3.Connection, now: str) -> TaskRow | None:
+    """Move the oldest queued task (by ``updated_at``, then insertion order) to running and
+    return it; None when nothing is queued. One conditional update, so two claimers in
+    separate transactions never get the same task."""
+    row = conn.execute(_CLAIM_NEXT, (now, now)).fetchone()
+    return None if row is None else _row(row)
 
 
 def heartbeat(

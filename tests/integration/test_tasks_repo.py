@@ -759,3 +759,93 @@ def test_tasks_repo_is_re_exported_by_the_storage_module() -> None:
 
     assert "tasks_repo" in storage.__all__
     assert storage.tasks_repo is _repo()
+
+
+# --- claim the oldest queued task (M2.7) ------------------------------------------------
+
+
+def _claim(db: Database, now: str) -> Any:
+    with db.transaction() as conn:
+        return _repo().claim_next(conn, now)
+
+
+def test_claim_next_takes_oldest_by_updated_at_with_rowid_tie_break(
+    db: Database, clock: FrozenClock, ids: SequentialIdFactory
+) -> None:
+    first = _queued(db, clock, ids, "run-1")
+    clock.advance(timedelta(seconds=10))
+    later = _queued(db, clock, ids, "run-2")
+    clock.set(START)  # same updated_at as the first, inserted after it
+    tie = _queued(db, clock, ids, "run-3")
+    clock.set(START + timedelta(minutes=1))
+    now = _now(clock)
+
+    claimed = [_claim(db, now) for _ in range(3)]
+
+    assert [row.id for row in claimed] == [first, tie, later]
+    for row in claimed:
+        assert row.status == "running"
+        assert row.heartbeat_at == now
+        assert row.updated_at == now
+        assert row.version == 2
+        assert _raw(db, row.id)["status"] == "running"
+    assert _claim(db, now) is None
+
+
+def test_claim_next_skips_running_and_finished_tasks(
+    db: Database, clock: FrozenClock, ids: SequentialIdFactory
+) -> None:
+    assert _claim(db, _now(clock)) is None
+    running_id = _running(db, clock, ids, "run-1")
+    done_id = _running(db, clock, ids, "run-2")
+    assert _transition(db, done_id, ("running",), "succeeded", _now(clock)) is True
+    before = (_raw(db, running_id), _raw(db, done_id))
+
+    assert _claim(db, _now(clock)) is None
+    assert (_raw(db, running_id), _raw(db, done_id)) == before
+
+
+@pytest.mark.parametrize("connections", ["shared", "separate"])
+def test_two_threads_claim_next_one_gets_the_task(
+    tmp_path: Path, clock: FrozenClock, ids: SequentialIdFactory, connections: str
+) -> None:
+    path = tmp_path / "data" / "app.db"
+    first = _open_migrated(path, tmp_path / "backups")
+    second = first if connections == "shared" else Database.open(path)
+    try:
+        task_id = _queued(first, clock, ids, "run-1")
+        barrier = threading.Barrier(2, timeout=BARRIER_TIMEOUT_S)
+        outcomes: list[Any] = []
+        errors: list[BaseException] = []
+        lock = threading.Lock()
+        now = _now(clock)
+
+        def claim(database: Database) -> Callable[[], None]:
+            def run() -> None:
+                try:
+                    barrier.wait()
+                    row = _claim(database, now)
+                    with lock:
+                        outcomes.append(row)
+                except BaseException as exc:  # reported below, never swallowed
+                    with lock:
+                        errors.append(exc)
+
+            return run
+
+        threads = [threading.Thread(target=claim(first)), threading.Thread(target=claim(second))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=BARRIER_TIMEOUT_S * 2)
+            assert not thread.is_alive()
+
+        assert errors == []
+        winners = [row for row in outcomes if row is not None]
+        assert len(outcomes) == 2
+        assert len(winners) == 1
+        assert winners[0].id == task_id
+        assert _raw(first, task_id)["version"] == 2
+    finally:
+        if second is not first:
+            second.close()

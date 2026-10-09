@@ -8,12 +8,16 @@ from app.domain import errors
 from app.domain.errors import (
     AppError,
     BudgetBlocked,
+    ConfigError,
+    DataFolderInUse,
     FetchRefused,
     InvalidModelOutput,
     NetworkUnavailable,
     ProviderAuthError,
     ProviderNotInstalled,
     ProviderRequestRejected,
+    SecretStoreUnavailable,
+    TaskNotRetryable,
     UsageLimitReached,
     VersionConflict,
 )
@@ -120,3 +124,42 @@ def test_reset_date_is_written_the_same_whatever_the_system_locale() -> None:
 
 def test_generic_app_error_makes_no_promise_it_cannot_keep() -> None:
     assert AppError().user_message == "Something went wrong. Try again."
+
+
+# Stored in tasks.error and mapped to messages by the tasks panel (M2.7, M2.19). Changing a
+# string here orphans rows already stored, so a class rename must keep its kind.
+PINNED_KINDS: dict[type[AppError], str] = {
+    ProviderNotInstalled: "ProviderNotInstalled",
+    ProviderAuthError: "ProviderAuthError",
+    UsageLimitReached: "UsageLimitReached",
+    ProviderRequestRejected: "ProviderRequestRejected",
+    BudgetBlocked: "BudgetBlocked",
+    NetworkUnavailable: "NetworkUnavailable",
+    InvalidModelOutput: "InvalidModelOutput",
+    VersionConflict: "VersionConflict",
+    FetchRefused: "FetchRefused",
+    SecretStoreUnavailable: "SecretStoreUnavailable",
+    DataFolderInUse: "DataFolderInUse",
+    TaskNotRetryable: "TaskNotRetryable",
+}
+
+
+@pytest.mark.parametrize(
+    ("cls", "expected"),
+    list(PINNED_KINDS.items()),
+    ids=[cls.__name__ for cls in PINNED_KINDS],
+)
+def test_error_kinds_are_pinned(cls: type[AppError], expected: str) -> None:
+    assert cls.kind == expected
+    # Explicit on the class itself, so renaming the class can't change the stored kind.
+    assert cls.__dict__["kind"] == expected
+
+
+def test_error_kind_defaults_to_the_class_name_and_is_not_inherited() -> None:
+    class FictionalFailure(NetworkUnavailable):
+        pass
+
+    assert AppError.kind == "AppError"
+    assert ConfigError.kind == "ConfigError"
+    assert FictionalFailure.kind == "FictionalFailure"
+    assert FictionalFailure().kind == "FictionalFailure"

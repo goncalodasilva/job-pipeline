@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Protocol
 
 
 class TaskStatus(StrEnum):
@@ -75,6 +75,32 @@ class TaskTypeSpec:
             raise TypeError("label must be a str")
         if not self.label.strip():
             raise ValueError("label must not be blank")
+
+
+@dataclass(frozen=True)
+class TaskRef:
+    """What ``enqueue`` returns: the task's id, and False in ``created`` when an active task
+    with the same dedupe key already existed and its id is returned instead."""
+
+    id: str
+    created: bool
+
+
+@dataclass(frozen=True)
+class TaskChange:
+    """A committed task state change, published after the commit (for the tasks panel)."""
+
+    id: str
+    type: str
+    status: TaskStatus
+
+
+class TaskEnqueuer(Protocol):
+    """How other services start background work (ADR-034); wiring injects the task service."""
+
+    def enqueue(self, task_type: str, target: str, *, input_ref: str | None = None) -> TaskRef:
+        """Queue a task, or return the active task already queued for ``type:target``."""
+        ...
 
 
 class CancelFlag:

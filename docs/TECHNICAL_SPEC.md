@@ -326,6 +326,9 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | `FetchRefused` | Fetch | "This address can't be fetched. Paste the job text instead." |
 | `SecretStoreUnavailable` | Secrets (keychain store) | "Your system keychain isn't available. You can use an environment variable instead." (ADR-046) |
 | `DataFolderInUse` | Workspace open | "This folder is already open in another copy of the app. Close that copy first, or choose another folder." (ADR-072, ADR-076 item 9) |
+| `TaskNotRetryable` | Task service | "This task can't be retried. Only failed, cancelled or interrupted tasks can run again." (M2.7) |
+
+Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
 `CallCancelled` (AI module) is not a user-facing error: a cancelled call ends quietly and the task shows as cancelled (ADR-054).
 

@@ -4,9 +4,13 @@
 ``detail`` is for logs only and never reaches ``user_message``. ``detail`` must not contain
 secrets or personal data: log redaction (M0.10) is a backstop, not permission.
 ``AppError`` is a base class; raise one of its subclasses.
+``kind`` is the stable name stored in the database (``tasks.error``) and mapped back to a
+message. It defaults to the class name; errors that get stored set it explicitly so a class
+rename can't orphan stored rows.
 """
 
 from datetime import date
+from typing import Any, ClassVar
 
 # Fixed English month names, so the system locale never changes user-facing text (spec 3.10).
 _MONTHS = (
@@ -32,6 +36,12 @@ def format_day(day: date) -> str:
 
 class AppError(Exception):
     message = "Something went wrong. Try again."
+    kind: ClassVar[str] = "AppError"
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if "kind" not in cls.__dict__:
+            cls.kind = cls.__name__
 
     def __init__(self, *, detail: str | None = None) -> None:
         super().__init__(detail if detail is not None else self.message)
@@ -42,24 +52,30 @@ class AppError(Exception):
 
 
 class ProviderNotInstalled(AppError):
+    kind = "ProviderNotInstalled"
     message = "Claude Code wasn't found. Install it, or choose Claude via API key."
 
 
 class ProviderAuthError(AppError):
+    kind = "ProviderAuthError"
     message = "The token or key was rejected. Create a new one and paste it again."
 
 
 class UsageLimitReached(AppError):
+    kind = "UsageLimitReached"
     message = "Your Claude plan's usage limit was reached. Try later or switch provider."
 
 
 class ProviderRequestRejected(AppError):
     """The provider refused the request itself (unknown model, request too large)."""
 
+    kind = "ProviderRequestRejected"
     message = "Claude refused the request. Check the model in Settings > Providers."
 
 
 class BudgetBlocked(AppError):
+    kind = "BudgetBlocked"
+
     def __init__(self, service: str, resets_on: date, *, detail: str | None = None) -> None:
         self.service = service
         self.resets_on = resets_on
@@ -71,14 +87,17 @@ class BudgetBlocked(AppError):
 
 
 class NetworkUnavailable(AppError):
+    kind = "NetworkUnavailable"
     message = "No connection. Nothing was lost; try again."
 
 
 class InvalidModelOutput(AppError):
+    kind = "InvalidModelOutput"
     message = "The AI response didn't have the expected shape. Try again."
 
 
 class VersionConflict(AppError):
+    kind = "VersionConflict"
     message = "This item changed elsewhere. Reload to see the latest version."
 
 
@@ -109,6 +128,7 @@ class DataFolderInUse(ConfigError):
     ``detail`` never names the path.
     """
 
+    kind = "DataFolderInUse"
     message = (
         "This folder is already open in another copy of the app. "
         "Close that copy first, or choose another folder."
@@ -119,13 +139,24 @@ class DataFolderInUse(ConfigError):
 
 
 class FetchRefused(AppError):
+    kind = "FetchRefused"
     message = "This address can't be fetched. Paste the job text instead."
 
 
 class SecretStoreUnavailable(AppError):
     """The system keychain can't be used. ``detail`` names the error type, never a value."""
 
+    kind = "SecretStoreUnavailable"
     message = "Your system keychain isn't available. You can use an environment variable instead."
+
+
+class TaskNotRetryable(AppError):
+    """Retry was asked for a task that is still queued or running, or has succeeded."""
+
+    kind = "TaskNotRetryable"
+    message = (
+        "This task can't be retried. Only failed, cancelled or interrupted tasks can run again."
+    )
 
 
 class UnknownSetupStep(AppError):
