@@ -28,8 +28,10 @@ from app.modules.ai import (
     CancelToken,
     ConnectionResult,
     ModelChoice,
+    ProviderUsageSnapshot,
     TokenUsage,
     connection_failure,
+    report_usage,
 )
 
 FakeOutcome = Literal["connected", "auth", "not_installed", "usage_limit", "network"]
@@ -62,6 +64,8 @@ class ScriptedResponse:
     usage: TokenUsage | None = None
     failure: FakeOutcome | None = None  # raise the mapped error instead of answering
     delay_seconds: float = 0.0
+    # Reported through the request's ``on_usage`` during the call, in order (M2.2).
+    usage_snapshots: tuple[ProviderUsageSnapshot, ...] = ()
 
     def __post_init__(self) -> None:
         if self.failure == "connected":
@@ -111,6 +115,8 @@ class FakeAIProvider:
             await self._sleep(response.delay_seconds)
             if cancel.cancelled:  # cancelled while the call was running
                 raise CallCancelled
+        for snapshot in response.usage_snapshots:
+            report_usage(request.on_usage, snapshot)
         if response.failure is not None:
             raise _error(response.failure)
         raw_text = response.raw_text

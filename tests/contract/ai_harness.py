@@ -13,6 +13,7 @@ client factory).
 built options or command line), not echo the request's flag as the fake harness can.
 """
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -25,8 +26,12 @@ from app.modules.secrets import CLAUDE_CODE_OAUTH_TOKEN
 from app.modules.secrets.providers.memory import MemorySecretStore
 from tests.fakes.claude_query import ReplayingQuery, replaying, success_frames
 from tests.fakes.claude_transport import load_frames
+from tests.fakes.clock import FrozenClock
 
 CONTRACT_ANSWER = {"answer": "ok"}
+# The fictional moment usage is observed at (M2.2), and a reset three hours later.
+USAGE_OBSERVED_AT = datetime(2026, 10, 9, 12, 0, tzinfo=UTC)
+USAGE_RESETS_AT = USAGE_OBSERVED_AT + timedelta(hours=3)
 
 # The connection failures every provider maps (spec 2.11), independent of any provider.
 Failure = Literal["auth", "not_installed", "usage_limit", "network"]
@@ -57,6 +62,11 @@ class ProviderHarness(Protocol):
         """Whether everything the last call held was released before ``run`` returned (for
         the Claude provider: the transport closed in the calling task while its working
         folder still existed, and the folder is gone)."""
+        ...
+
+    def reporting_usage(self) -> AIProvider:
+        """A provider that answers with ``CONTRACT_ANSWER`` and reports exactly one usage
+        snapshot through ``AIRequest.on_usage`` during the call (M2.2)."""
         ...
 
 
@@ -96,6 +106,23 @@ class FakeHarness:
     def released_before_return(self) -> bool:
         return True  # the fake holds nothing
 
+    def reporting_usage(self) -> AIProvider:
+        from app.modules.ai import ProviderUsageSnapshot
+
+        snapshot = ProviderUsageSnapshot(
+            service="fake",
+            window="month",
+            unit="requests",
+            used=3,
+            limit=50,
+            utilization=None,
+            resets_at=USAGE_RESETS_AT,
+            observed_at=USAGE_OBSERVED_AT,
+        )
+        fake = _AnyTaskFake(usage_snapshots=(snapshot,))
+        self._provider = fake
+        return fake
+
     def failing(self, outcome: Failure) -> AIProvider:
         fake = FakeAIProvider(connection=outcome)
         self._provider = fake
@@ -117,14 +144,21 @@ class FakeHarness:
 class _AnyTaskFake(FakeAIProvider):
     """Scripts the contract answer for whichever task a run asks for."""
 
-    def __init__(self, *, delay_seconds: float = 0.0, **kwargs: Any) -> None:
+    def __init__(
+        self, *, delay_seconds: float = 0.0, usage_snapshots: tuple[Any, ...] = (), **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
         self._delay_seconds = delay_seconds
+        self._usage_snapshots = usage_snapshots
 
     async def run(self, request: AIRequest, cancel: CancelToken) -> AIResponse:
+        # Only passed when scripted, so the older contract tests don't depend on M2.2.
+        extra: dict[str, Any] = (
+            {"usage_snapshots": self._usage_snapshots} if self._usage_snapshots else {}
+        )
         self.script(
             request.task,
-            ScriptedResponse(data=CONTRACT_ANSWER, delay_seconds=self._delay_seconds),
+            ScriptedResponse(data=CONTRACT_ANSWER, delay_seconds=self._delay_seconds, **extra),
         )
         return await super().run(request, cancel)
 
@@ -166,6 +200,35 @@ class ClaudeTransportHarness:
             and transport.workdir_existed_at_close is True
             and folder_gone
             and root_empty
+        )
+
+    def reporting_usage(self) -> AIProvider:
+        """Replays one fictional five-hour rate-limit frame before the result, with the
+        provider's clock frozen at ``USAGE_OBSERVED_AT``."""
+        frames = self._frames()
+        rate_limit = {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "status": "allowed",
+                "resetsAt": int(USAGE_RESETS_AT.timestamp()),
+                "rateLimitType": "five_hour",
+                "utilization": 0.25,
+            },
+            "uuid": "uuid-fictional-0190",
+            "session_id": "session-fictional-0100",
+        }
+        query = replaying([*frames[:-1], rate_limit, frames[-1]])
+        secrets = MemorySecretStore()
+        secrets.set(CLAUDE_CODE_OAUTH_TOKEN, _CONTRACT_TOKEN)
+        self._queries.append(query)
+        return ClaudeSdkProvider(
+            secrets=secrets,
+            mode="subscription_token",
+            client_factory=query,
+            cli_path=lambda: _FICTIONAL_CLI,
+            environ={},
+            temp_root=self._temp_root,
+            clock=FrozenClock(USAGE_OBSERVED_AT),
         )
 
     def failing(self, outcome: Failure) -> AIProvider:

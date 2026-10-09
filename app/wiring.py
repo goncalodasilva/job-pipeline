@@ -23,6 +23,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
+from app.domain.clock import Clock, SystemClock
 from app.domain.errors import ProviderNotInstalled
 from app.domain.redaction import Redactor
 from app.domain.settings import AIProviderSettings, ProviderKind, Tier, claude_auth_mode
@@ -105,12 +106,15 @@ class Wiring:
         environment: EnvSecretStore,
         allow_fakes: bool,
         demo: bool,
+        clock: Clock | None = None,
     ) -> None:
         self.redactor = redactor
         self.secrets = secrets  # the only store injected anywhere (ADR-047)
         self._environment = environment
         self.allow_fakes = allow_fakes
         self.demo = demo
+        # When providers observe usage (M2.2); the app's clock when ``create_app`` builds it.
+        self.clock: Clock = clock if clock is not None else SystemClock()
         # Names only, computed once: the setup guide shows which variable is in use (M1.17).
         self._environment_keys = frozenset(
             key for key in KNOWN_SECRET_KEYS if environment.get(key) is not None
@@ -145,7 +149,10 @@ class Wiring:
         if mode is None:  # pragma: no cover - every other kind is a Claude kind
             raise ValueError("This AI provider isn't available.")
         return ClaudeSdkProvider(
-            secrets=self.secrets, mode=mode, temp_root=data_dir.joinpath(*AI_TEMP_FOLDER)
+            secrets=self.secrets,
+            mode=mode,
+            temp_root=data_dir.joinpath(*AI_TEMP_FOLDER),
+            clock=self.clock,
         )
 
     def fake_for_key(self, key: str | None) -> FakeAIProvider:
@@ -231,6 +238,7 @@ def build_wiring(
     demo: bool,
     redactor: Redactor,
     keyring_backend: KeyringBackend | None = None,
+    clock: Clock | None = None,
 ) -> Wiring:
     """Compose the secret store and read the allow flag (ADR-047, ADR-054).
 
@@ -253,6 +261,7 @@ def build_wiring(
         environment=environment,
         allow_fakes=allow_fakes,
         demo=demo,
+        clock=clock,
     )
 
 

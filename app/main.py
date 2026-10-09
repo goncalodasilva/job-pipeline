@@ -338,7 +338,9 @@ def create_app(
     app_wiring = (
         wiring
         if wiring is not None
-        else build_wiring(environ=os.environ, demo=config.demo, redactor=Redactor())
+        else build_wiring(
+            environ=os.environ, demo=config.demo, redactor=Redactor(), clock=app_clock
+        )
     )
     open_now = opens_workspace_at_startup(config) if open_at_startup is None else open_at_startup
     open_lock = threading.Lock()

@@ -9,6 +9,7 @@ tests with a fake SDK client (M1.13) and the connection tests (``connection_harn
 since M1.14. All values are fictional.
 """
 
+import dataclasses
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -167,3 +168,30 @@ def test_provider_name_is_stable(harness: ProviderHarness) -> None:
     assert first == second
     assert first
     assert first == first.strip().lower()
+
+
+async def test_provider_usage_snapshot_shape(harness: ProviderHarness) -> None:
+    from app.modules.ai import ProviderUsageSnapshot
+
+    provider = harness.reporting_usage()
+    reported: list[object] = []
+    request = dataclasses.replace(make_request(), on_usage=reported.append)
+
+    response = await provider.run(request, NotCancelled())
+
+    assert dict(response.data) == CONTRACT_ANSWER
+    assert len(reported) == 1, "each harness scripts exactly one snapshot"
+    for snapshot in reported:
+        assert isinstance(snapshot, ProviderUsageSnapshot)
+        assert snapshot.service.strip() and snapshot.window.strip()
+        assert snapshot.unit in ("requests", "fraction")
+        for count in (snapshot.used, snapshot.limit):
+            assert count is None or (isinstance(count, int) and count >= 0)
+        if snapshot.unit == "requests":
+            assert snapshot.used is not None
+        else:
+            assert snapshot.utilization is not None
+        if snapshot.utilization is not None:
+            assert 0.0 <= snapshot.utilization <= 1.0
+        assert snapshot.observed_at.utcoffset() is not None
+        assert snapshot.resets_at is None or snapshot.resets_at.utcoffset() is not None
