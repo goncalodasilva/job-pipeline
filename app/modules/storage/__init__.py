@@ -1,6 +1,7 @@
 """Storage module public interface: the database, the migration runner and the data-folder
 lock (spec 2.4, 2.7; ADR-072)."""
 
+from app.modules.storage import tasks_repo
 from app.modules.storage.database import Database
 from app.modules.storage.runner import (
     MIGRATIONS_DIR,
@@ -37,6 +38,7 @@ __all__ = [
     "list_steps",
     "load_migrations",
     "lock_data_folder",
+    "tasks_repo",
     "update_setting",
     "upsert_step",
 ]
