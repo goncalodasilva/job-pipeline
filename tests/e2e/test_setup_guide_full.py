@@ -412,7 +412,8 @@ def test_ac_m1_2_pages_redirect_to_guide_in_browser(
 
         # An htmx request from a guide page to an app route is sent to the current step too.
         open_app(page, app, "/setup/welcome")
-        page.evaluate("() => htmx.ajax('GET', '/inbox', {target: '#main', swap: 'none'})")
+        # Not awaited: the redirect navigates away, which would destroy the pending promise.
+        page.evaluate("() => { htmx.ajax('GET', '/inbox', {target: '#main', swap: 'none'}); }")
         expect(page).to_have_url(url(app, "/setup/provider"))
         expect(page.locator(CURRENT)).to_contain_text("AI provider")
 
