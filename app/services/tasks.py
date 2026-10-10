@@ -125,6 +125,22 @@ class TaskService:
         with self._db.transaction() as conn:
             return tasks_repo.list_recent(conn, limit)
 
+    # --- when a workspace opens -----------------------------------------------------------
+
+    def recover_interrupted(self) -> int:
+        """Crash recovery (ADR-076 item 10): every task left running by an earlier process
+        becomes interrupted, in one transaction, before the runner claims anything. Queued
+        tasks stay queued; nothing is retried. Returns how many tasks were interrupted."""
+        now = self._now()
+        with self._db.transaction() as conn:
+            changed = tasks_repo.interrupt_running(conn, now)
+            rows = [row for task_id in changed if (row := tasks_repo.get(conn, task_id))]
+        if rows:
+            _log.info("Interrupted %d tasks left running", len(rows))
+        for row in rows:
+            self._publish(row)
+        return len(rows)
+
     # --- for the task runner ------------------------------------------------------------
 
     def claim_next(self) -> TaskRow | None:

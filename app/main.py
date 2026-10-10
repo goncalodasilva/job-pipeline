@@ -210,13 +210,21 @@ def _prepare_workspace(
     onboarding: OnboardingState,
     registry: StepRegistry,
     clock: Clock,
+    ids: IdFactory,
 ) -> ProviderHealth:
-    """Run when a workspace opens, before logging moves into it: clear leftover AI call
-    folders, then check the provider (ADR-049, ADR-057)."""
+    """Run when a workspace opens, before logging moves into it and before its task service
+    is handed to the runner: clear leftover AI call folders, mark tasks a killed process left
+    running as interrupted (ADR-076 item 10), then check the provider (ADR-049, ADR-057)."""
     try:
         clear_ai_temp(folder)
     except OSError as error:
         raise DataFolderUnavailable(detail=f"can't prepare ({type(error).__name__})") from None
+    # Nothing listens yet: the workspace isn't published and the runner hasn't got it.
+    try:
+        TaskService(db, clock, ids, _task_listeners()).recover_interrupted()
+    except sqlite3.Error as error:
+        detail = f"can't recover tasks ({type(error).__name__})"
+        raise DataFolderUnavailable(detail=detail) from None
     return _check_provider(db, wiring=wiring, onboarding=onboarding, registry=registry, clock=clock)
 
 
@@ -450,6 +458,7 @@ def create_app(
                         onboarding=onboarding,
                         registry=registry,
                         clock=app_clock,
+                        ids=task_ids,
                     )
                 )
 
@@ -518,6 +527,7 @@ def create_app(
                     onboarding=onboarding,
                     registry=registry,
                     clock=app_clock,
+                    ids=task_ids,
                 )
 
             workspace = open_workspace_folder(

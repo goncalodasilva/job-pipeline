@@ -67,6 +67,11 @@ _REQUEST_CANCEL = (
     "UPDATE tasks SET cancel_requested = 1, updated_at = ?, version = version + 1 "
     "WHERE id = ? AND status = 'running'"
 )
+_INTERRUPT_RUNNING = (
+    "UPDATE tasks SET status = 'interrupted', finished_at = ?, updated_at = ?, "
+    "version = version + 1 "
+    "WHERE status = 'running' RETURNING id"
+)
 
 
 @dataclass(frozen=True)
@@ -264,6 +269,13 @@ def request_cancel(conn: sqlite3.Connection, task_id: str, now: str) -> bool:
     """Flag a running task for cancellation; the runner ends it. False otherwise."""
     cursor = conn.execute(_REQUEST_CANCEL, (now, task_id))
     return cursor.rowcount == 1
+
+
+def interrupt_running(conn: sqlite3.Connection, now: str) -> list[str]:
+    """Crash recovery (ADR-076 item 10): move every running task to interrupted, with
+    ``finished_at`` and ``updated_at`` set to ``now``; attempt and error stay as they are.
+    Returns the ids changed, sorted (empty when nothing was running)."""
+    return sorted(str(row[0]) for row in conn.execute(_INTERRUPT_RUNNING, (now, now)).fetchall())
 
 
 def list_recent(conn: sqlite3.Connection, limit: int) -> list[TaskRow]:
