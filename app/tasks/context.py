@@ -1,7 +1,8 @@
-"""What a task handler receives from the runner (spec 5 M2 reliability rules 5, 6, 9)."""
+"""What a task handler receives from the runner (spec 5 M2 reliability rules 3, 5, 6, 9)."""
 
 import asyncio
-from collections.abc import Callable
+import sqlite3
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from app.domain.tasks import CancelFlag
@@ -12,9 +13,22 @@ class TaskCancelled(Exception):
     flag is set. Handlers let it propagate; the runner ends the task cancelled."""
 
 
+class TaskSuperseded(Exception):
+    """Raised by ``TaskContext.complete`` when the task (that attempt of it) is no longer
+    running: interrupted, already completed, or a later attempt runs. Nothing was saved and
+    the task's row stays as it is. Handlers let it propagate."""
+
+
 Beat = Callable[[str, int | None], object]
 """Blocking: records a heartbeat for a task id with an optional progress value (and, in the
 runner, sets the task's cancel flag when the database says a cancel was requested)."""
+
+ResultWriter = Callable[[sqlite3.Connection], str]
+"""Blocking, supplied by the handler's service: stores the task's result as new rows on the
+connection it is given (inside the result's transaction; it must not commit) and returns
+the ``result_ref``."""
+
+Complete = Callable[[ResultWriter], Awaitable[str]]
 
 
 @dataclass(frozen=True)
@@ -25,6 +39,7 @@ class TaskContext:
     attempt: int
     cancel_flag: CancelFlag
     _beat: Beat = field(repr=False)
+    _complete: Complete = field(repr=False)
 
     async def heartbeat(self, progress: int | None = None) -> None:
         """Record that the task is alive (and its progress, clamped to 0..100). The database
@@ -39,3 +54,12 @@ class TaskContext:
         """Raise ``TaskCancelled`` once a cancel was requested; call it between steps."""
         if self.cancel_flag.cancelled:
             raise TaskCancelled
+
+    async def complete(self, write: ResultWriter) -> str:
+        """Save the result and end the task succeeded in one transaction, in a worker thread
+        (reliability rule 3); returns the writer's ``result_ref`` once both are committed.
+        Refused and rolled back with ``TaskCancelled`` when a cancel was requested, or
+        ``TaskSuperseded`` when this attempt is no longer running (a second ``complete``
+        included). An exception from ``write`` rolls back and propagates unchanged. What the
+        handler returns or raises after a successful ``complete`` is ignored."""
+        return await self._complete(write)

@@ -6,6 +6,7 @@ commit, once per committed change, and a failing listener never undoes it.
 """
 
 import logging
+import sqlite3
 from collections.abc import Callable
 from datetime import timedelta
 
@@ -16,6 +17,8 @@ from app.domain.tasks import (
     RETRY_FROM,
     TERMINAL,
     CancelFlag,
+    Completion,
+    CompletionOutcome,
     TaskChange,
     TaskRef,
     TaskStatus,
@@ -27,6 +30,27 @@ TaskRow = tasks_repo.TaskRow
 
 _log = logging.getLogger(__name__)
 _NO_ERROR = frozenset({TaskStatus.SUCCEEDED, TaskStatus.CANCELLED})
+
+
+class _Refused(Exception):
+    """Rolls back ``complete``'s transaction when its success update was refused."""
+
+    def __init__(self, outcome: CompletionOutcome) -> None:
+        super().__init__(outcome.value)
+        self.outcome = outcome
+
+
+def _refusal(row: TaskRow | None, attempt: int) -> CompletionOutcome:
+    """Why that attempt's success was refused: a cancel requested while it still runs, or
+    it is no longer running (finished, interrupted, or a later attempt runs)."""
+    if (
+        row is not None
+        and row.status == TaskStatus.RUNNING
+        and row.attempt == attempt
+        and row.cancel_requested
+    ):
+        return CompletionOutcome.CANCEL_REQUESTED
+    return CompletionOutcome.SUPERSEDED
 
 
 class TaskService:
@@ -204,6 +228,40 @@ class TaskService:
         for row in rows:
             self._publish(row)
         return changed
+
+    def complete(
+        self, task_id: str, write: Callable[[sqlite3.Connection], str], *, attempt: int
+    ) -> Completion:
+        """Save that attempt's result and its success atomically (spec 5 M2 rule 3): in ONE
+        transaction ``write(conn)`` stores the result and returns its ref, then the
+        conditional running -> succeeded update stores that ref. A refused update (a cancel
+        was requested, or that attempt is no longer running) rolls the writer's rows back
+        too. An exception from ``write`` or the update rolls back and propagates unchanged.
+        The success is published after the commit."""
+        now = self._now()
+        try:
+            with self._db.transaction() as conn:
+                result_ref = write(conn)
+                if not conn.in_transaction:
+                    # Its rows are already committed apart from the success: refuse it.
+                    raise sqlite3.ProgrammingError("the result writer ended the transaction")
+                changed = tasks_repo.transition(
+                    conn,
+                    task_id,
+                    [TaskStatus.RUNNING],
+                    TaskStatus.SUCCEEDED,
+                    now=now,
+                    result_ref=result_ref,
+                    attempt=attempt,
+                )
+                row = tasks_repo.get(conn, task_id)
+                if not changed:
+                    raise _Refused(_refusal(row, attempt))
+        except _Refused as refused:
+            return Completion(refused.outcome)
+        if row is not None:  # pragma: no branch - read in the transaction that updated it
+            self._publish(row)
+        return Completion(CompletionOutcome.SUCCEEDED, result_ref)
 
     def finish(
         self,

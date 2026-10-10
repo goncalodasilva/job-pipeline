@@ -563,6 +563,10 @@ async def test_progress_clamped_0_to_100(given: int | None, stored: int | None) 
     from app.tasks import TaskContext
 
     beats: list[tuple[str, int | None]] = []
+
+    async def no_complete(write: object) -> str:  # this test never saves a result
+        raise AssertionError("complete is not used here")
+
     ctx = TaskContext(
         task_id="task-0001",
         task_type=SHORT,
@@ -570,6 +574,7 @@ async def test_progress_clamped_0_to_100(given: int | None, stored: int | None) 
         attempt=1,
         cancel_flag=CancelFlag(),
         _beat=lambda task_id, progress: beats.append((task_id, progress)),
+        _complete=no_complete,
     )
     await ctx.heartbeat(given)
     assert beats == [("task-0001", stored)]

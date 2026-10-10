@@ -60,8 +60,8 @@ from typing import Literal, Protocol, cast
 
 from app.domain.errors import AppError, TaskFailed, UnknownTaskType
 from app.domain.settings import TaskRunnerSettings
-from app.domain.tasks import CancelFlag, TaskStatus
-from app.tasks.context import TaskContext
+from app.domain.tasks import CancelFlag, Completion, CompletionOutcome, TaskStatus
+from app.tasks.context import ResultWriter, TaskCancelled, TaskContext, TaskSuperseded
 from app.tasks.handlers import HandlerRegistry, TaskHandler
 
 RunnerStatus = Literal["running", "stopped"]
@@ -102,6 +102,8 @@ class RunnerService(Protocol):
 
     def interrupt_stale(self, task_type: str, timeout: timedelta) -> list[str]: ...
 
+    def complete(self, task_id: str, write: ResultWriter, *, attempt: int) -> Completion: ...
+
     def finish(
         self,
         task_id: str,
@@ -126,6 +128,7 @@ class _Running:
     attempt: int
     flag: CancelFlag = field(default_factory=CancelFlag)
     finishing: bool = field(default=False)  # the handler has ended; its outcome is being saved
+    settled: bool = field(default=False)  # ctx.complete committed, or found the row moved on
 
 
 @dataclass(frozen=True)
@@ -388,6 +391,8 @@ class TaskRunner:
         else:
             outcome = await self._call(running, claimed, entry[1])
         running.finishing = True
+        if running.settled:
+            return  # the row already ended as complete left it; the handler's outcome is moot
         # Shielded: the outcome is saved even if this task is cancelled meanwhile.
         await asyncio.shield(self._save(running, outcome))
 
@@ -411,6 +416,33 @@ class TaskRunner:
         def beat(task_id: str, progress: int | None) -> object:
             return service.heartbeat(task_id, progress=progress, attempt=attempt, cancel_flag=flag)
 
+        def settle(completion: Completion) -> None:
+            if completion.outcome == CompletionOutcome.CANCEL_REQUESTED:
+                flag.cancel()  # the task ends cancelled however the handler ends
+            else:
+                running.settled = True  # committed, or the row moved on: never finish it
+
+        async def complete(write: ResultWriter) -> str:
+            # The writer and the success share one transaction in a worker thread.
+            saving = asyncio.ensure_future(
+                asyncio.to_thread(service.complete, claimed.id, write, attempt=attempt)
+            )
+            try:
+                completion = await asyncio.shield(saving)
+            except asyncio.CancelledError:
+                # The thread runs on regardless and its outcome decides the task: wait for
+                # it, so a committed success is never finished again by this handler.
+                await asyncio.wait({saving})
+                if saving.exception() is None:
+                    settle(saving.result())
+                raise
+            settle(completion)
+            if completion.outcome == CompletionOutcome.CANCEL_REQUESTED:
+                raise TaskCancelled
+            if completion.outcome == CompletionOutcome.SUPERSEDED:
+                raise TaskSuperseded
+            return cast(str, completion.result_ref)
+
         context = TaskContext(
             task_id=claimed.id,
             task_type=claimed.type,
@@ -418,6 +450,7 @@ class TaskRunner:
             attempt=claimed.attempt,
             cancel_flag=flag,
             _beat=beat,
+            _complete=complete,
         )
         try:
             result_ref = await handler(context)

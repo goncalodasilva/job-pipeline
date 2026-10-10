@@ -95,6 +95,22 @@ class TaskChange:
     status: TaskStatus
 
 
+class CompletionOutcome(StrEnum):
+    """How saving a task's result together with its success ended (spec 5 M2 rule 3)."""
+
+    SUCCEEDED = "succeeded"  # the result and the success committed together
+    CANCEL_REQUESTED = "cancel_requested"  # refused and rolled back: that attempt ends cancelled
+    SUPERSEDED = "superseded"  # refused and rolled back: that attempt is no longer running
+
+
+@dataclass(frozen=True)
+class Completion:
+    """What ``TaskService.complete`` returns; ``result_ref`` only when it succeeded."""
+
+    outcome: CompletionOutcome
+    result_ref: str | None = None
+
+
 class TaskEnqueuer(Protocol):
     """How other services start background work (ADR-034); wiring injects the task service."""
 

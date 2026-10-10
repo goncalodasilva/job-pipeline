@@ -685,6 +685,164 @@ def test_finish_missing_task_returns_false(service: Any, events: Recorder) -> No
     assert events.changes == []
 
 
+# --- complete: the result and the success in one transaction (M2.12) ---------------------
+
+
+def _results_table(db: Database) -> None:
+    with db.transaction() as conn:
+        conn.execute(
+            "CREATE TABLE fictional_results (id INTEGER PRIMARY KEY, task_id TEXT NOT NULL)"
+        )
+
+
+def _results(db: Database) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = db.connection.execute(
+        "SELECT id, task_id FROM fictional_results ORDER BY id"
+    ).fetchall()
+    return rows
+
+
+def _result_writer(task_id: str) -> Callable[[sqlite3.Connection], str]:
+    def write(conn: sqlite3.Connection) -> str:
+        cursor = conn.execute("INSERT INTO fictional_results (task_id) VALUES (?)", (task_id,))
+        return f"fictional-result:{cursor.lastrowid}"
+
+    return write
+
+
+def _outcome(value: str) -> Any:
+    from app.domain.tasks import CompletionOutcome
+
+    return CompletionOutcome(value)
+
+
+def test_complete_saves_result_and_success_together(
+    service: Any, db: Database, clock: FrozenClock, events: Recorder
+) -> None:
+    _results_table(db)
+    task_id = _running(service)
+    clock.advance(timedelta(seconds=45))
+    events.changes.clear()
+
+    completion = service.complete(task_id, _result_writer(task_id), attempt=1)
+
+    assert completion.outcome == _outcome("succeeded")
+    ((result_id, result_task),) = _results(db)
+    assert result_task == task_id
+    assert completion.result_ref == f"fictional-result:{result_id}"
+    stored = _raw(db, task_id)
+    assert stored["status"] == "succeeded"
+    assert stored["result_ref"] == completion.result_ref
+    assert stored["error"] is None
+    assert stored["finished_at"] == clock.now().isoformat()
+    assert events.triples() == [(task_id, TASK_TYPE, "succeeded")]
+
+
+def test_complete_refused_when_cancel_requested(
+    service: Any, db: Database, events: Recorder
+) -> None:
+    _results_table(db)
+    task_id = _running(service)
+    assert service.request_cancel(task_id) is not None
+    before = _snapshot(db)
+    events.changes.clear()
+
+    completion = service.complete(task_id, _result_writer(task_id), attempt=1)
+
+    assert completion.outcome == _outcome("cancel_requested")
+    assert completion.result_ref is None
+    assert _results(db) == [], "the writer's rows are rolled back"
+    assert _snapshot(db) == before
+    assert events.changes == []
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "missing",
+        "other_attempt",
+        "other_attempt_cancel_requested",
+        "queued",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ],
+)
+def test_complete_refused_as_superseded(
+    service: Any, db: Database, events: Recorder, case: str
+) -> None:
+    _results_table(db)
+    attempt = 1
+    if case == "missing":
+        task_id = "task-9999"
+    elif case.startswith("other_attempt"):
+        task_id = _running(service)
+        attempt = 2  # the row runs attempt 1
+        if case == "other_attempt_cancel_requested":
+            assert service.request_cancel(task_id) is not None
+    elif case == "queued":
+        task_id = _enqueue(service)
+    else:
+        task_id = _ended(service, case)
+    before = _snapshot(db)
+    events.changes.clear()
+
+    completion = service.complete(task_id, _result_writer(task_id), attempt=attempt)
+
+    assert completion.outcome == _outcome("superseded")
+    assert completion.result_ref is None
+    assert _results(db) == [], "the writer's rows are rolled back"
+    assert _snapshot(db) == before
+    assert events.changes == []
+
+
+def test_complete_writer_error_rolls_back_and_propagates(
+    service: Any, db: Database, events: Recorder
+) -> None:
+    _results_table(db)
+    task_id = _running(service)
+    before = _snapshot(db)
+    events.changes.clear()
+    failure = RuntimeError("fictional writer failure")
+
+    def write(conn: sqlite3.Connection) -> str:
+        _result_writer(task_id)(conn)
+        raise failure
+
+    with pytest.raises(RuntimeError) as raised:
+        service.complete(task_id, write, attempt=1)
+
+    assert raised.value is failure
+    assert _results(db) == []
+    assert _snapshot(db) == before
+    assert events.changes == []
+
+
+def test_complete_refuses_writer_that_ends_the_transaction(
+    service: Any, db: Database, events: Recorder
+) -> None:
+    """A writer that commits on its own would leave its rows saved apart from the success."""
+    _results_table(db)
+    task_id = _running(service)
+    events.changes.clear()
+
+    def write(conn: sqlite3.Connection) -> str:
+        ref = _result_writer(task_id)(conn)
+        conn.execute("COMMIT")
+        return ref
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        service.complete(task_id, write, attempt=1)
+
+    stored = _raw(db, task_id)
+    assert stored["status"] == "running", "no success without the result's transaction"
+    assert stored["result_ref"] is None
+    assert events.changes == []
+    with db.transaction():  # the connection is usable again
+        pass
+
+
 @pytest.mark.parametrize("target", ["queued", "running"])
 def test_finish_rejects_non_terminal_status(service: Any, db: Database, target: str) -> None:
     task_id = _running(service)
