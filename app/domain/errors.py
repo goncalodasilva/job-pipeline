@@ -159,6 +159,22 @@ class TaskNotRetryable(AppError):
     )
 
 
+class TaskFailed(AppError):
+    """A task handler raised something other than an ``AppError``. ``detail`` names the
+    exception type only, never its text."""
+
+    kind = "TaskFailed"
+    message = "This task stopped because of an unexpected problem. Try again."
+
+
+class UnknownTaskType(AppError):
+    """A queued task has a type no handler is registered for (for example, a newer app
+    version queued it)."""
+
+    kind = "UnknownTaskType"
+    message = "This task can't run in this version of the app."
+
+
 class UnknownSetupStep(AppError):
     message = "This setup step doesn't exist."
 

@@ -42,8 +42,10 @@ from app.config import (
 )
 from app.domain.clock import Clock, SystemClock
 from app.domain.errors import DataFolderNotYours, DataFolderUnavailable
+from app.domain.ids import IdFactory, UuidIdFactory
 from app.domain.redaction import Redactor
-from app.domain.settings import AI_PROVIDER
+from app.domain.settings import AI_PROVIDER, TASK_RUNNER
+from app.domain.tasks import TaskChange, TaskStatus
 from app.modules.ai import ProviderHealth
 from app.modules.storage import (
     MIGRATIONS_DIR,
@@ -73,7 +75,8 @@ from app.services.health import HealthService
 from app.services.provider_setup import ProviderSetupService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
-from app.tasks import TaskRunner
+from app.services.tasks import TaskService
+from app.tasks import HandlerRegistry, TaskRunner
 from app.wiring import Wiring, build_wiring, clear_ai_temp
 
 BACKUP_FOLDER = "backups"
@@ -233,6 +236,34 @@ def _check_provider(
     return health
 
 
+def _task_listeners(
+    *listeners: Callable[[TaskChange], None],
+) -> Callable[[TaskChange], None]:
+    """One ``on_change`` that tells each listener in turn (the event publisher joins in
+    M2.18)."""
+
+    def on_change(change: TaskChange) -> None:
+        for listener in listeners:
+            listener(change)
+
+    return on_change
+
+
+def _attach_tasks(runner: TaskRunner, db: Database, *, clock: Clock, ids: IdFactory) -> TaskService:
+    """Build the workspace's task service and hand it to the runner with the stored
+    ``TASK_RUNNER`` settings. Blocking (a settings read): runs in the thread opening the
+    workspace (step 1's worker thread, or the loop itself during the lifespan, before the app
+    serves requests); the hand-off itself is thread-safe."""
+
+    def wake_runner(change: TaskChange) -> None:
+        if change.status == TaskStatus.QUEUED:
+            runner.notify()
+
+    service = TaskService(db, clock, ids, _task_listeners(wake_runner))
+    runner.attach(service, settings=SettingsService(db, clock).load(TASK_RUNNER).value)
+    return service
+
+
 def _step_handlers(
     app: FastAPI,
     config: RuntimeConfig,
@@ -359,6 +390,7 @@ def create_app(
     setup_registry: StepRegistry | None = None,
     event_keepalive_seconds: float = DEFAULT_KEEPALIVE_SECONDS,
     data_folder_lock: DataFolderLock | None = None,
+    task_registry: HandlerRegistry | None = None,
 ) -> FastAPI:
     """Build the app. ``open_at_startup`` (default: ``opens_workspace_at_startup(config)``)
     says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used.
@@ -370,7 +402,10 @@ def create_app(
     ``app.state.shutdown_signal`` is made here, not in the lifespan: the CLI sets it when a
     stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1).
     ``data_folder_lock`` is the lock the CLI already holds on ``config.data_dir``; the
-    lifespan's open reuses it instead of locking the folder again (ADR-072)."""
+    lifespan's open reuses it instead of locking the folder again (ADR-072).
+    ``task_registry`` (default: empty) maps task types to their handlers; whenever a workspace
+    opens, its task service (``app.state.task_service``, None before) is handed to the
+    runner."""
     app_clock = clock if clock is not None else SystemClock()
     app_wiring = (
         wiring
@@ -382,6 +417,8 @@ def create_app(
     open_now = opens_workspace_at_startup(config) if open_at_startup is None else open_at_startup
     open_lock = threading.Lock()
     closed = threading.Event()
+    task_ids = UuidIdFactory()
+    handlers = task_registry if task_registry is not None else HandlerRegistry()
 
     def open_workspace(folder: Path) -> Workspace:
         """Open the data folder chosen in step 1 (see ``open_workspace_folder``).
@@ -427,6 +464,15 @@ def create_app(
             except BaseException:
                 onboarding.refresh(None)  # no I/O: back to the no-workspace decision
                 raise
+            try:
+                task_service = _attach_tasks(
+                    app.state.runner, workspace.db, clock=app_clock, ids=task_ids
+                )
+            except BaseException:
+                workspace.db.close()  # releases the folder lock, so the user can retry
+                onboarding.refresh(None)
+                raise
+            app.state.task_service = task_service
             app.state.provider_health = health[-1]
             app.state.workspace = workspace
             return workspace
@@ -458,6 +504,7 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         registry = setup_registry if setup_registry is not None else m1_registry()
         onboarding = OnboardingState(registry, _startup_inputs(config))
+        runner = TaskRunner(registry=handlers)
         workspace = None
         health: ProviderHealth | None = None
         if open_now:
@@ -481,8 +528,12 @@ def create_app(
                 before_logging=prepare,
                 lock=data_folder_lock,
             )
-        runner = TaskRunner()
         try:
+            task_service = (
+                _attach_tasks(runner, workspace.db, clock=app_clock, ids=task_ids)
+                if workspace is not None
+                else None
+            )
             await runner.start()
             app.state.provider_health = health  # None until a workspace opens
             app.state.setup_registry = registry
@@ -499,6 +550,7 @@ def create_app(
             app.state.open_workspace = open_workspace
             app.state.refresh_provider_health = refresh_provider_health
             app.state.runner = runner
+            app.state.task_service = task_service
             app.state.health = HealthService(
                 lambda: _current_db(app), lambda: runner.status, __version__
             )

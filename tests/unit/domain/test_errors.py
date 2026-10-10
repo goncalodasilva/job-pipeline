@@ -17,7 +17,9 @@ from app.domain.errors import (
     ProviderNotInstalled,
     ProviderRequestRejected,
     SecretStoreUnavailable,
+    TaskFailed,
     TaskNotRetryable,
+    UnknownTaskType,
     UsageLimitReached,
     VersionConflict,
 )
@@ -141,6 +143,8 @@ PINNED_KINDS: dict[type[AppError], str] = {
     SecretStoreUnavailable: "SecretStoreUnavailable",
     DataFolderInUse: "DataFolderInUse",
     TaskNotRetryable: "TaskNotRetryable",
+    TaskFailed: "TaskFailed",
+    UnknownTaskType: "UnknownTaskType",
 }
 
 
@@ -153,6 +157,27 @@ def test_error_kinds_are_pinned(cls: type[AppError], expected: str) -> None:
     assert cls.kind == expected
     # Explicit on the class itself, so renaming the class can't change the stored kind.
     assert cls.__dict__["kind"] == expected
+
+
+# Shown in the tasks panel for tasks the runner ends itself (M2.8).
+RUNNER_MESSAGES: dict[type[AppError], str] = {
+    TaskFailed: "This task stopped because of an unexpected problem. Try again.",
+    UnknownTaskType: "This task can't run in this version of the app.",
+}
+
+
+@pytest.mark.parametrize(
+    ("cls", "expected"),
+    list(RUNNER_MESSAGES.items()),
+    ids=[cls.__name__ for cls in RUNNER_MESSAGES],
+)
+def test_runner_error_messages_are_plain_and_hide_detail(
+    cls: type[AppError], expected: str
+) -> None:
+    assert cls().user_message == expected
+    error = cls(detail="Fictional failure for Ada Example")
+    assert error.user_message == expected
+    assert "Ada Example" not in error.user_message
 
 
 def test_error_kind_defaults_to_the_class_name_and_is_not_inherited() -> None:

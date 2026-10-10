@@ -607,3 +607,59 @@ def test_database_and_backups_are_private_on_posix(
         for path in (db_path, db_path.with_name("app.db-wal"), result.backup):
             assert stat.S_IMODE(path.stat().st_mode) == 0o600, path.name
         assert stat.S_IMODE(backup_dir.stat().st_mode) == 0o700
+
+
+# --- close() and transactions in other threads (M2.8 code review) -------------------------
+
+
+def test_close_waits_for_another_threads_transaction(tmp_path: Path) -> None:
+    db = Database.open(tmp_path / "app.db")
+    inside = threading.Event()
+    release = threading.Event()
+    outcome: list[str] = []
+
+    def hold_transaction() -> None:
+        with db.transaction() as conn:
+            conn.execute("CREATE TABLE fictional (id INTEGER)")
+            inside.set()
+            release.wait(10)
+            conn.execute("INSERT INTO fictional VALUES (1)")
+        outcome.append("committed")
+
+    holder = threading.Thread(target=hold_transaction)
+    holder.start()
+    assert inside.wait(10)
+    closer = threading.Thread(target=db.close)
+    closer.start()
+    closer.join(0.2)
+    assert closer.is_alive(), "close() must wait while another thread is in a transaction"
+
+    release.set()
+    holder.join(10)
+    closer.join(10)
+    assert not closer.is_alive()
+    assert outcome == ["committed"]
+    with pytest.raises(sqlite3.ProgrammingError):
+        db.connection.execute("SELECT 1")
+    with closing(sqlite3.connect(tmp_path / "app.db")) as check:
+        assert check.execute("SELECT count(*) FROM fictional").fetchone()[0] == 1
+
+
+def test_close_inside_own_transaction_returns(tmp_path: Path) -> None:
+    db = Database.open(tmp_path / "app.db")
+    finished = threading.Event()
+
+    def close_inside() -> None:
+        try:
+            with db.transaction():
+                db.close()
+        except sqlite3.ProgrammingError:
+            pass  # the commit can't run on a closed connection
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=close_inside, daemon=True)
+    worker.start()
+    assert finished.wait(10), "close() inside the same thread's transaction must not hang"
+    with pytest.raises(sqlite3.ProgrammingError):
+        db.connection.execute("SELECT 1")

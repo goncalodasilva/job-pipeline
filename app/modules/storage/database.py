@@ -79,8 +79,13 @@ class Database:
         self._on_close.append(callback)
 
     def close(self) -> None:
+        """Close once any transaction in another thread has ended: closing a connection
+        another thread is using can crash SQLite. Called inside the same thread's own
+        transaction it returns at once (the lock is re-entrant); that transaction's commit
+        then fails with ``sqlite3.ProgrammingError``."""
         try:
-            self._connection.close()
+            with self._lock:
+                self._connection.close()
         finally:
             callbacks, self._on_close = self._on_close, []
             for callback in callbacks:
