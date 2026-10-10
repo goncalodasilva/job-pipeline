@@ -849,3 +849,21 @@ def test_two_threads_claim_next_one_gets_the_task(
     finally:
         if second is not first:
             second.close()
+
+
+def test_interrupt_stale_falls_back_to_updated_at_without_heartbeat(
+    db: Database, clock: FrozenClock, ids: SequentialIdFactory
+) -> None:
+    """A running row with no heartbeat at all (written by older code or by hand) is judged
+    by ``updated_at`` instead of never being stale."""
+    task_id = _running(db, clock, ids, "run-1")
+    db.connection.execute("UPDATE tasks SET heartbeat_at = NULL WHERE id = ?", (task_id,))
+    claimed_at = _now(clock)
+
+    with db.transaction() as conn:
+        assert _repo().interrupt_stale(conn, TASK_TYPE, claimed_at, _now(clock)) == []
+    clock.advance(timedelta(minutes=3))
+    cutoff = (clock.now() - timedelta(minutes=2)).isoformat()
+    with db.transaction() as conn:
+        assert _repo().interrupt_stale(conn, TASK_TYPE, cutoff, _now(clock)) == [task_id]
+    assert _get(db, task_id).status == _status("interrupted")

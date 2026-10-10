@@ -77,7 +77,7 @@ from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
 from app.services.tasks import TaskService
 from app.tasks import HandlerRegistry, TaskRunner
-from app.wiring import Wiring, build_wiring, clear_ai_temp
+from app.wiring import PROVIDER_RUN_TIMEOUT, Wiring, build_wiring, clear_ai_temp
 
 BACKUP_FOLDER = "backups"
 LOG_FOLDER = "logs"
@@ -411,9 +411,10 @@ def create_app(
     stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1).
     ``data_folder_lock`` is the lock the CLI already holds on ``config.data_dir``; the
     lifespan's open reuses it instead of locking the folder again (ADR-072).
-    ``task_registry`` (default: empty) maps task types to their handlers; whenever a workspace
-    opens, its task service (``app.state.task_service``, None before) is handed to the
-    runner."""
+    ``task_registry`` (default: empty; either way ``app.state.task_registry``, refusing
+    timeouts not longer than ``PROVIDER_RUN_TIMEOUT``) maps task types to their handlers;
+    whenever a workspace opens, its task service (``app.state.task_service``, None before)
+    is handed to the runner."""
     app_clock = clock if clock is not None else SystemClock()
     app_wiring = (
         wiring
@@ -427,6 +428,7 @@ def create_app(
     closed = threading.Event()
     task_ids = UuidIdFactory()
     handlers = task_registry if task_registry is not None else HandlerRegistry()
+    handlers.require_min_timeout(PROVIDER_RUN_TIMEOUT)  # ValueError for a too-short type
 
     def open_workspace(folder: Path) -> Workspace:
         """Open the data folder chosen in step 1 (see ``open_workspace_folder``).
@@ -587,6 +589,7 @@ def create_app(
     app.state.wiring = app_wiring
     shutdown_signal = ShutdownSignal()
     app.state.shutdown_signal = shutdown_signal
+    app.state.task_registry = handlers
     launch_token = generate_launch_token()
     app.state.launch_token = launch_token
     # Inside the security middleware: rejections come first and redirects keep its headers.

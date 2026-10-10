@@ -72,6 +72,12 @@ _INTERRUPT_RUNNING = (
     "version = version + 1 "
     "WHERE status = 'running' RETURNING id"
 )
+_INTERRUPT_STALE = (
+    "UPDATE tasks SET status = 'interrupted', finished_at = ?, updated_at = ?, "
+    "version = version + 1 "
+    "WHERE status = 'running' AND type = ? AND coalesce(heartbeat_at, updated_at) < ? "
+    "RETURNING id"
+)
 
 
 @dataclass(frozen=True)
@@ -276,6 +282,16 @@ def interrupt_running(conn: sqlite3.Connection, now: str) -> list[str]:
     ``finished_at`` and ``updated_at`` set to ``now``; attempt and error stay as they are.
     Returns the ids changed, sorted (empty when nothing was running)."""
     return sorted(str(row[0]) for row in conn.execute(_INTERRUPT_RUNNING, (now, now)).fetchall())
+
+
+def interrupt_stale(conn: sqlite3.Connection, task_type: str, cutoff: str, now: str) -> list[str]:
+    """Watchdog (spec 5 M2 reliability rule 5): move every running task of ``task_type``
+    whose heartbeat (``updated_at`` when it has none) is strictly older than ``cutoff`` to
+    interrupted, with ``finished_at`` and ``updated_at`` set to ``now``. One conditional
+    update, so a heartbeat or finish that commits first keeps the task out of it.
+    Returns the ids changed, sorted."""
+    rows = conn.execute(_INTERRUPT_STALE, (now, now, task_type, cutoff)).fetchall()
+    return sorted(str(row[0]) for row in rows)
 
 
 def list_recent(conn: sqlite3.Connection, limit: int) -> list[TaskRow]:

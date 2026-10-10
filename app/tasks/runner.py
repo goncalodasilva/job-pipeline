@@ -18,13 +18,27 @@ handlers still working and ends their tasks interrupted; queued tasks stay queue
 next time (ADR-076 item 10). A failed claim (a database error) schedules one wake-up after a
 backoff (``claim_retry_seconds`` doubling up to 30 s, reset by a successful claim): only on
 that error path, so the runner still never polls.
+
+Watchdog (reliability rule 5): once a workspace is attached, the worker starts one watchdog
+loop that awaits the injected ``sleep(watchdog_interval)`` and then runs
+``check_watchdog_once``, until ``stop()``. A check asks the service to interrupt, per
+registered type, every running task whose heartbeat is older than the type's timeout (one
+conditional update each), then cancels the local handlers of those tasks. A cancelled
+handler's own finish is refused by the conditional update, and its slot is freed. Each type
+is checked on its own: a failed check is logged by task type and exception type only, and
+the other types (and the loop) carry on. A task that went past its timeout without a
+heartbeat is interrupted even if its handler returns at that moment: whichever conditional
+update commits first wins, and a finish still in its worker thread is then refused. A
+watchdog loop that died is started again on the worker's next look.
 """
 
 import asyncio
 import contextlib
 import logging
 import threading
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Literal, Protocol, cast
 
 from app.domain.errors import AppError, TaskFailed, UnknownTaskType
@@ -36,6 +50,7 @@ from app.tasks.handlers import HandlerRegistry, TaskHandler
 RunnerStatus = Literal["running", "stopped"]
 
 DEFAULT_CLAIM_RETRY_SECONDS = 1.0
+DEFAULT_WATCHDOG_INTERVAL_SECONDS = 30.0
 MAX_CLAIM_RETRY_SECONDS = 30.0
 
 _log = logging.getLogger(__name__)
@@ -58,6 +73,8 @@ class RunnerService(Protocol):
     def claim_next(self) -> ClaimedTask | None: ...
 
     def heartbeat(self, task_id: str, *, progress: int | None = None) -> bool: ...
+
+    def interrupt_stale(self, task_type: str, timeout: timedelta) -> list[str]: ...
 
     def finish(
         self,
@@ -95,11 +112,18 @@ class TaskRunner:
         *,
         registry: HandlerRegistry,
         claim_retry_seconds: float = DEFAULT_CLAIM_RETRY_SECONDS,
+        watchdog_interval: float = DEFAULT_WATCHDOG_INTERVAL_SECONDS,
+        sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
     ) -> None:
         if not claim_retry_seconds > 0:
             raise ValueError("claim_retry_seconds must be positive")
+        if not watchdog_interval > 0:
+            raise ValueError("watchdog_interval must be positive")
         self._registry = registry
         self._claim_retry_seconds = claim_retry_seconds
+        self._watchdog_interval = watchdog_interval
+        self._sleep = sleep
+        self._watchdog: asyncio.Task[None] | None = None
         self._retry: asyncio.TimerHandle | None = None
         self._lock = threading.Lock()  # guards what attach/notify read from other threads
         self._attached: _Attached | None = None
@@ -153,6 +177,10 @@ class TaskRunner:
             # Shielded: a cancelled stop() never cuts the worker off in the middle of a claim.
             await asyncio.shield(worker)
         self._worker = None  # only once the worker has ended (a cancelled stop keeps it)
+        watchdog, self._watchdog = self._watchdog, None
+        if watchdog is not None:
+            watchdog.cancel()
+            await asyncio.gather(watchdog, return_exceptions=True)
         with self._lock:
             self._loop = self._wake = self._stopping = None
         if self._retry is not None:
@@ -177,6 +205,8 @@ class TaskRunner:
             wake.clear()  # before looking, so a notify() from now on is never lost
             with self._lock:
                 attached = self._attached
+            if attached is not None:
+                self._ensure_watchdog()
             if attached is None or attached.slots.locked():
                 await wake.wait()
                 continue
@@ -197,6 +227,53 @@ class TaskRunner:
                 await wake.wait()
                 continue
             self._spawn(attached, claimed, wake)
+
+    async def check_watchdog_once(self) -> list[str]:
+        """Interrupt the running tasks whose heartbeat is older than their type's timeout
+        and cancel their local handlers, type by type; returns the ids interrupted. A type
+        whose check fails is logged and skipped. Does nothing (and returns ``[]``) with no
+        workspace attached."""
+        with self._lock:
+            attached = self._attached
+        if attached is None:
+            return []
+        interrupted: list[str] = []
+        for task_type, spec in self._registry.specs():
+            try:
+                stale = await asyncio.to_thread(
+                    attached.service.interrupt_stale, task_type, spec.timeout
+                )
+            except Exception as error:
+                # Only the names: a database message could quote stored values.
+                _log.error("watchdog check for %s failed (%s)", task_type, type(error).__name__)
+                continue
+            self._cancel_local(set(stale))
+            interrupted += stale
+        return interrupted
+
+    def _cancel_local(self, task_ids: set[str]) -> None:
+        for task, entry in list(self._handlers.items()):
+            if entry.task_id in task_ids and not entry.finishing:
+                task.cancel()  # its slot comes back when the task ends
+
+    def _ensure_watchdog(self) -> None:
+        current = self._watchdog
+        if current is not None and not current.done():
+            return
+        if current is not None and not current.cancelled() and current.exception() is not None:
+            _log.error(
+                "watchdog loop ended (%s); starting it again", type(current.exception()).__name__
+            )
+        self._watchdog = asyncio.create_task(self._watch(), name="task-watchdog")
+
+    async def _watch(self) -> None:
+        while True:
+            await self._sleep(self._watchdog_interval)
+            try:
+                await self.check_watchdog_once()
+            except Exception as error:
+                # Only the type: a database message could quote stored values.
+                _log.error("watchdog check failed (%s)", type(error).__name__)
 
     def _spawn(self, attached: _Attached, claimed: ClaimedTask, wake: asyncio.Event) -> None:
         running = _Running(attached.service, claimed.id)

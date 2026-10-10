@@ -169,7 +169,7 @@ class Recorder:
 
 def _app(tmp_path: Path, path: str, echo: Recorder, watch: Recorder) -> FastAPI:
     registry = HandlerRegistry()
-    spec = TaskTypeSpec(timeout=timedelta(minutes=5), label="Fictional")
+    spec = TaskTypeSpec(timeout=timedelta(minutes=10), label="Fictional")
     registry.register(ECHO, spec, echo)
     registry.register(WATCH, spec, watch)
     source = "cli" if path == "lifespan" else "default"  # "default": a first run

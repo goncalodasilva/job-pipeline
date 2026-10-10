@@ -19,6 +19,7 @@ import shutil
 import stat
 import sys
 from collections.abc import Callable, Mapping
+from datetime import timedelta
 from pathlib import Path
 from types import MappingProxyType
 from typing import Final
@@ -65,12 +66,16 @@ from app.modules.secrets.providers.keyring_store import (
 )
 from app.modules.secrets.providers.redacting import register_environment_secrets
 
-__all__ = ["AI_TEMP_FOLDER", "Wiring", "build_wiring", "clear_ai_temp"]
+__all__ = ["AI_TEMP_FOLDER", "PROVIDER_RUN_TIMEOUT", "Wiring", "build_wiring", "clear_ai_temp"]
 
 ALLOW_FAKES_VARIABLE: Final = "JOBPIPELINE_ALLOW_FAKE_PROVIDERS"
 AI_TEMP_FOLDER: Final = ("tmp", "ai")  # under the data folder (ADR-057)
 PROMPTS_DIR: Final = Path(__file__).resolve().parent.parent / "prompts"
 OVERRIDES_FOLDER: Final = ("prompts", "overrides")
+# The overall limit on one provider run: M2.13 injects it into the Claude provider's
+# ``run``. Every task type's watchdog timeout must be longer (spec 5 M2 reliability rule 5),
+# so a slow but live run is never taken for a hung task.
+PROVIDER_RUN_TIMEOUT: Final = timedelta(minutes=5)
 
 _log = logging.getLogger(__name__)
 

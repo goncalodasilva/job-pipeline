@@ -55,7 +55,7 @@ def _registry(handler: Any) -> Any:
     from app.tasks.handlers import HandlerRegistry
 
     registry = HandlerRegistry()
-    registry.register(ECHO, TaskTypeSpec(timeout=timedelta(minutes=5), label="Echo"), handler)
+    registry.register(ECHO, TaskTypeSpec(timeout=timedelta(minutes=10), label="Echo"), handler)
     return registry
 
 
@@ -194,3 +194,39 @@ def test_failed_task_hand_off_closes_workspace_and_retry_works(
         ref = app.state.task_service.enqueue(ECHO, "run-1")
         _wait_succeeded(app, ref.id)
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("timeout", [timedelta(seconds=60), timedelta(minutes=5)])
+def test_create_app_refuses_injected_type_within_provider_run_timeout(
+    tmp_path: Path, timeout: timedelta
+) -> None:
+    """Every task type's timeout must outlast one provider run (PROVIDER_RUN_TIMEOUT), even
+    in a registry built without that floor."""
+    from app.domain.tasks import TaskTypeSpec
+    from app.tasks.handlers import HandlerRegistry
+
+    registry = HandlerRegistry()
+    registry.register(ECHO, TaskTypeSpec(timeout=timeout, label="Echo"), Echo())
+    with pytest.raises(ValueError):
+        app_main.create_app(
+            _config(tmp_path, "cli"),
+            clock=FrozenClock(START),
+            migrations_dir=MIGRATIONS_DIR,
+            task_registry=registry,
+        )
+
+
+def test_create_app_default_registry_refuses_type_within_provider_run_timeout(
+    tmp_path: Path,
+) -> None:
+    from app.domain.tasks import TaskTypeSpec
+
+    app = app_main.create_app(
+        _config(tmp_path, "cli"), clock=FrozenClock(START), migrations_dir=MIGRATIONS_DIR
+    )
+    registry = app.state.task_registry
+    with pytest.raises(ValueError):
+        registry.register(ECHO, TaskTypeSpec(timeout=timedelta(seconds=60), label="Echo"), Echo())
+    assert registry.get(ECHO) is None
+    registry.register(ECHO, TaskTypeSpec(timeout=timedelta(minutes=6), label="Echo"), Echo())
+    assert registry.get(ECHO) is not None

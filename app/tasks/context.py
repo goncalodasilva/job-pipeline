@@ -20,6 +20,8 @@ class TaskContext:
     _beat: Beat = field(repr=False)
 
     async def heartbeat(self, progress: int | None = None) -> None:
-        """Record that the task is alive (and its progress, 0 to 100). The database write
-        runs in a worker thread, never on the event loop (reliability rule 9)."""
-        await asyncio.to_thread(self._beat, self.task_id, progress)
+        """Record that the task is alive (and its progress, clamped to 0..100). The database
+        write runs in a worker thread, never on the event loop (reliability rule 9). Only
+        handlers beat: a hung call stops the heartbeats and the watchdog ends the task."""
+        clamped = None if progress is None else max(0, min(100, progress))
+        await asyncio.to_thread(self._beat, self.task_id, clamped)

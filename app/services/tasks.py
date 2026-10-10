@@ -7,6 +7,7 @@ commit, once per committed change, and a failing listener never undoes it.
 
 import logging
 from collections.abc import Callable
+from datetime import timedelta
 
 from app.domain.clock import Clock
 from app.domain.errors import AppError, TaskNotRetryable
@@ -157,6 +158,20 @@ class TaskService:
         now = self._now()
         with self._db.transaction() as conn:
             return tasks_repo.heartbeat(conn, task_id, now, progress=progress)
+
+    def interrupt_stale(self, task_type: str, timeout: timedelta) -> list[str]:
+        """Watchdog: every running ``task_type`` task whose last heartbeat is more than
+        ``timeout`` ago becomes interrupted, in one conditional update. Returns the ids
+        changed; each change is published after the commit. Times compare as ISO text, so
+        this relies on every stored timestamp coming from the injected (UTC) Clock."""
+        now = self._clock.now()
+        cutoff = (now - timeout).isoformat()
+        with self._db.transaction() as conn:
+            changed = tasks_repo.interrupt_stale(conn, task_type, cutoff, now.isoformat())
+            rows = [row for task_id in changed if (row := tasks_repo.get(conn, task_id))]
+        for row in rows:
+            self._publish(row)
+        return changed
 
     def finish(
         self,
