@@ -23,7 +23,13 @@ from starlette.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.errors import register_error_handlers
-from app.api.events import DEFAULT_KEEPALIVE_SECONDS, ShutdownSignal, register_events
+from app.api.events import (
+    DEFAULT_EVENT_QUEUE_SIZE,
+    DEFAULT_KEEPALIVE_SECONDS,
+    ShutdownSignal,
+    TaskEvents,
+    register_events,
+)
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
@@ -260,8 +266,7 @@ def _check_provider(
 def _task_listeners(
     *listeners: Callable[[TaskChange], None],
 ) -> Callable[[TaskChange], None]:
-    """One ``on_change`` that tells each listener in turn (the event publisher joins in
-    M2.18)."""
+    """One ``on_change`` that tells each listener in turn, on the committing thread."""
 
     def on_change(change: TaskChange) -> None:
         for listener in listeners:
@@ -270,9 +275,18 @@ def _task_listeners(
     return on_change
 
 
-def _attach_tasks(runner: TaskRunner, db: Database, *, clock: Clock, ids: IdFactory) -> TaskService:
+def _attach_tasks(
+    runner: TaskRunner,
+    db: Database,
+    *,
+    clock: Clock,
+    ids: IdFactory,
+    publish: Callable[[TaskChange], None],
+) -> TaskService:
     """Build the workspace's task service and hand it to the runner with the stored
-    ``TASK_RUNNER`` settings. Blocking (a settings read): runs in the thread opening the
+    ``TASK_RUNNER`` settings. Every committed change wakes the runner and then goes to
+    ``publish`` (the event streams; it only schedules, so nothing here waits). Blocking
+    (a settings read): runs in the thread opening the
     workspace (step 1's worker thread, or the loop itself during the lifespan, before the app
     serves requests); the hand-off itself is thread-safe."""
 
@@ -282,7 +296,7 @@ def _attach_tasks(runner: TaskRunner, db: Database, *, clock: Clock, ids: IdFact
         elif change.status == TaskStatus.RUNNING:  # a claim or a cancel request
             runner.notify_cancel(change.id)
 
-    service = TaskService(db, clock, ids, _task_listeners(wake_runner))
+    service = TaskService(db, clock, ids, _task_listeners(wake_runner, publish))
     runner.attach(service, settings=SettingsService(db, clock).load(TASK_RUNNER).value)
     return service
 
@@ -443,6 +457,7 @@ def create_app(
     wiring: Wiring | None = None,
     setup_registry: StepRegistry | None = None,
     event_keepalive_seconds: float = DEFAULT_KEEPALIVE_SECONDS,
+    event_queue_size: int = DEFAULT_EVENT_QUEUE_SIZE,
     data_folder_lock: DataFolderLock | None = None,
     task_registry: HandlerRegistry | None = None,
     tz: tzinfo | None = None,
@@ -454,6 +469,9 @@ def create_app(
     (default: ``m1_registry()``) lists the guide's steps; steps without a handler of their
     own get a placeholder. ``event_keepalive_seconds`` is how often an idle ``GET /events``
     stream sends a comment line (finite and greater than 0, else ``ValueError``).
+    ``event_queue_size`` is how many task-change frames one stream may have waiting before
+    the server ends it (at least 1, else ``ValueError``); ``app.state.task_events`` publishes
+    every committed task change to the open streams.
     ``app.state.shutdown_signal`` is made here, not in the lifespan: the CLI sets it when a
     stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1).
     ``data_folder_lock`` is the lock the CLI already holds on ``config.data_dir``; the
@@ -478,6 +496,8 @@ def create_app(
     open_lock = threading.Lock()
     closed = threading.Event()
     app_ids = UuidIdFactory()
+    shutdown_signal = ShutdownSignal()
+    task_events = TaskEvents(shutdown_signal, queue_size=event_queue_size)  # ValueError: no bound
     handlers = task_registry if task_registry is not None else HandlerRegistry()
     handlers.require_min_timeout(TASK_TIMEOUT_FLOOR)  # ValueError for a too-short type
 
@@ -528,7 +548,11 @@ def create_app(
                 raise
             try:
                 task_service = _attach_tasks(
-                    app.state.runner, workspace.db, clock=app_clock, ids=app_ids
+                    app.state.runner,
+                    workspace.db,
+                    clock=app_clock,
+                    ids=app_ids,
+                    publish=task_events.publish,
                 )
             except BaseException:
                 workspace.db.close()  # releases the folder lock, so the user can retry
@@ -594,7 +618,13 @@ def create_app(
             )
         try:
             task_service = (
-                _attach_tasks(runner, workspace.db, clock=app_clock, ids=app_ids)
+                _attach_tasks(
+                    runner,
+                    workspace.db,
+                    clock=app_clock,
+                    ids=app_ids,
+                    publish=task_events.publish,
+                )
                 if workspace is not None
                 else None
             )
@@ -650,8 +680,8 @@ def create_app(
         handlers.register(
             PRACTICE, TaskTypeSpec(PRACTICE_TIMEOUT, PRACTICE_LABEL), practice_handler(practice)
         )
-    shutdown_signal = ShutdownSignal()
     app.state.shutdown_signal = shutdown_signal
+    app.state.task_events = task_events
     app.state.task_registry = handlers
     launch_token = generate_launch_token()
     app.state.launch_token = launch_token
@@ -672,6 +702,11 @@ def create_app(
     register_settings_pages(app)
     register_task_routes(app)
     register_setup_pages(app)
-    register_events(app, shutdown=shutdown_signal, keepalive_seconds=event_keepalive_seconds)
+    register_events(
+        app,
+        shutdown=shutdown_signal,
+        keepalive_seconds=event_keepalive_seconds,
+        task_events=task_events,
+    )
     app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="static")
     return app

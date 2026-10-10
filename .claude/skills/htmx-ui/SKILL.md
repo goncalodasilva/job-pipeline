@@ -27,12 +27,12 @@ Read `references/patterns.md` for code. These rules apply to every UI change.
 ## Live updates
 
 - Pages read `GET /events` with the small fetch-based reader in `app/static/js/app.js`. There is no `EventSource` and no htmx SSE extension (ADR-077).
-- `base.html` sets `data-events-url="/events"` on `<body>` through the `events_attr` block. The setup guide and its not-found page override that block, so guide pages open no stream.
-- The reader sends `X-JP-Token` as a header, taken from `<body hx-headers>`. The token is never in a URL.
-- Each `resync` event becomes a `tasks:resync` CustomEvent on `document.body`. Parts that show tasks refresh with a trigger from the body, for example `hx-trigger="tasks:resync from:body"` (htmx 2.0 `from:` modifier). No trigger filters, `js:` values or `hx-on*` attributes (ADR-041).
+- A page opts in with `{% set live_updates = true %}` before `{% extends %}`-level content renders; `base.html` then puts `data-events-url="/events"` on `<body>`. Opt in exactly on pages that include the tasks slot (every app page); guide pages never do, so they open no stream.
+- The reader sends `X-JP-Token` as a header, taken from `<body hx-headers>` on every attempt. The token is never in a URL.
+- It dispatches two bubbling CustomEvents on `document.body`, both with no detail: `tasks:resync` on every connection (and when a tab joins or is shown again) and `tasks:updated` for each task change. Events can arrive out of order, so a listener always refetches; never read a status from the event.
+- Parts that show tasks refresh with a trigger from the body, for example `hx-trigger="tasks:resync from:body, tasks:updated from:body"` (htmx 2.0 `from:` modifier). No trigger filters, `js:` values or `hx-on*` attributes (ADR-041).
 - A refreshed fragment is an ordinary GET fragment route: it needs the token and has no side effects.
-- The reader dispatches `tasks:resync` once per connection and ignores other events. Reconnects, backoff, the hidden-tab pause and task-change events come with M2.18.
-- Don't copy the SSE example in `references/patterns.md`; it is out of date (ADR-077).
+- The reader reconnects by itself (backoff 1 to 30 s), pauses while the tab is hidden, shows the restart message on a 403, and shares one stream per browser between tabs (ADR-077, M2.18 update). Don't open another stream or an `EventSource`.
 
 ## Layout and accessibility
 

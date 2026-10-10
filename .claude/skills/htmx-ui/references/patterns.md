@@ -12,7 +12,7 @@
   <script src="{{ static('vendor/htmx.min.js') }}" defer></script>
   <script src="{{ static('js/app.js') }}" defer></script>
 </head>
-<body hx-headers='{"X-JP-Token": "{{ launch_token }}"}' data-events-url="/events">
+<body hx-headers='{"X-JP-Token": "{{ launch_token }}"}'{% if live_updates %} data-events-url="/events"{% endif %}>
   <a class="skip-link" href="#main">Skip to content</a>
   {% include "fragments/shell/_sidebar.html" %}
   <main id="main" tabindex="-1">{% block content %}{% endblock %}</main>
@@ -60,7 +60,7 @@ document.body.addEventListener("htmx:afterSettle", () => {
 `app.js` reads `/events` with fetch (no `EventSource`, no htmx SSE extension; ADR-077) and dispatches `tasks:resync` on `document.body` for each `resync` event. The server sends one first on every connection. Any element inside `<body>` can refresh on it:
 
 ```html
-<div id="task-{{ task.id }}" hx-get="/tasks/{{ task.id }}" hx-trigger="tasks:resync from:body"
+<div id="task-{{ task.id }}" hx-get="/tasks/{{ task.id }}" hx-trigger="tasks:resync from:body, tasks:updated from:body"
      hx-swap="outerHTML">{% include "fragments/tasks/_status.html" %}</div>
 ```
 

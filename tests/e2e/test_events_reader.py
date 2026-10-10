@@ -3,10 +3,16 @@
 ``app/static/js/app.js`` reads ``GET /events`` with ``fetch`` (an ``EventSource`` can't send
 the ``X-JP-Token`` header), but only on pages whose ``<body>`` has ``data-events-url``: the
 app's pages, not the setup guide. It takes the token from the body's ``hx-headers``, turns each
-``resync`` event into a bubbling ``tasks:resync`` event on ``document.body``, and on a refused
-or wrong response stops without a sound (reconnecting is M2.18). The reader is invisible, so
-there is no keyboard path or axe scan of its own: the existing page scans run with a stream open.
-The page-wide checks run on a desktop and a phone viewport. Every value here is fictional.
+``resync`` event into a bubbling ``tasks:resync`` event on ``document.body``, and on a wrong
+response stops without a sound. Reconnecting, the restart message after a 403, hidden tabs and
+the stream shared between tabs came with M2.18 (``tests/e2e/test_task_events_client.py``). The
+reader is invisible, so there is no keyboard path or axe scan of its own: the existing page scans
+run with a stream open. The page-wide checks run on a desktop and a phone viewport. Every value
+here is fictional.
+
+Since M2.18 the reader opens a new stream 1 s after one ends. The tests that answer with a
+stream that ends and then count events stop the page's clock first (``pause_clock``), so that
+no second connection is made while they count.
 
 An open stream keeps the page from ever being "network idle": tests here wait on conditions
 (``wait_for_function``, request events) and never on ``networkidle``.
@@ -15,6 +21,7 @@ An open stream keeps the page from ever being "network idle": tests here wait on
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 import pytest
@@ -33,6 +40,9 @@ document.addEventListener("tasks:resync", () => { window.__resync += 1; });
 READ_HX_HEADERS_JS = "() => JSON.parse(document.body.getAttribute('hx-headers'))['X-JP-Token']"
 WAIT_MS = 10_000  # each awaited thing normally happens within milliseconds
 AFTER_A_TURN = "() => new Promise((resolve) => setTimeout(() => resolve(true), 0))"
+CLOCK_START = datetime(2026, 4, 7, 9, 0, 0, tzinfo=UTC)
+LONG_MS = 120_000  # far beyond the reader's longest wait between attempts (30 s)
+ROUND_TRIP_JS = "() => fetch('/health', { cache: 'no-store' }).then((response) => response.status)"
 APP_PAGE = "/"
 GUIDE_PAGES = ("/setup/welcome", "/setup/no-such-step")
 PAGE_FIXTURES = ["desktop_page", "phone_page"]
@@ -59,6 +69,12 @@ def watch(page: Page) -> Seen:
     page.on("pageerror", lambda error: seen.errors.append(str(error)))
     page.add_init_script(RECORD_RESYNC)
     return seen
+
+
+def pause_clock(page: Page) -> None:
+    """Fake timers that stand still: the reader's reconnect timer (M2.18) never fires."""
+    page.clock.install(time=CLOCK_START)
+    page.clock.pause_at(CLOCK_START)
 
 
 def wait_until(page: Page, expression: str) -> None:
@@ -150,6 +166,7 @@ def test_reader_dispatches_one_event_per_resync_and_ignores_everything_else(
     """Comments, other event names, nameless messages and noise are ignored; both line
     endings the SSE format allows are understood."""
     seen = watch(desktop_page)
+    pause_clock(desktop_page)  # the body ends: no reconnect while the events are counted
     body = (
         ": keepalive\n\n"
         "event: other\ndata: {}\n\n"
@@ -177,7 +194,6 @@ def test_reader_dispatches_one_event_per_resync_and_ignores_everything_else(
 # name -> (status, headers, body, the browser event that ends the request). A fulfilled redirect
 # that is not followed (`redirect: "manual"`) ends as a failed request in Chromium.
 REFUSED_RESPONSES = {
-    "forbidden": (403, {"content-type": "text/plain"}, "Forbidden.", "requestfinished"),
     "server_error": (
         500,
         {"content-type": "text/plain"},
@@ -207,14 +223,24 @@ REFUSED_RESPONSES = {
 }
 
 
+def assert_no_second_request(page: Page, seen: Seen) -> None:
+    """With the page's clock paused: let two minutes of its timers run (a retry would be due
+    after 1 s, and after 30 s at the latest), then a round trip to the server, so a request
+    the page made by then has been noted."""
+    page.clock.run_for(LONG_MS)
+    assert page.evaluate(ROUND_TRIP_JS) == 200
+    assert len(seen.events) == 1, "no retry, however long the page waits"
+
+
 @pytest.mark.parametrize("name", REFUSED_RESPONSES)
 def test_reader_stops_quietly_on_a_refused_or_wrong_response(
     running_app: RunningApp, desktop_page: Page, name: str
 ) -> None:
     """Not OK, or not an event stream: no event, no banner, no error, no second request (and
-    no redirect followed). Reconnecting and telling the user come with M2.18."""
+    no redirect followed). Only a stream that ends, or no answer at all, is tried again (M2.18)."""
     status, headers, body, ended_by = REFUSED_RESPONSES[name]
     seen = watch(desktop_page)
+    pause_clock(desktop_page)
     fulfil(desktop_page, status=status, headers=headers, body=body)
 
     with desktop_page.expect_event(
@@ -223,7 +249,7 @@ def test_reader_stops_quietly_on_a_refused_or_wrong_response(
         timeout=WAIT_MS,
     ):
         open_app(desktop_page, running_app, APP_PAGE)
-    desktop_page.evaluate(AFTER_A_TURN)
+    assert_no_second_request(desktop_page, seen)
 
     assert resyncs(desktop_page) == 0, "text in a refused or wrong response is not read"
     assert seen.errors == []
@@ -232,6 +258,27 @@ def test_reader_stops_quietly_on_a_refused_or_wrong_response(
         "a redirect is not followed"
     )
     expect(desktop_page.locator("#app-status")).to_be_hidden()
+
+
+def test_reader_does_not_retry_after_a_403(running_app: RunningApp, desktop_page: Page) -> None:
+    """A 403 is not read and not tried again. Since M2.18 it is no longer quiet: the page shows
+    the restart message (``test_stale_token_on_reconnect_shows_restart_message``)."""
+    seen = watch(desktop_page)
+    pause_clock(desktop_page)
+    fulfil(desktop_page, status=403, headers={"content-type": "text/plain"}, body="Forbidden.")
+
+    with desktop_page.expect_event(
+        "requestfinished",
+        predicate=lambda request: urlsplit(request.url).path == "/events",
+        timeout=WAIT_MS,
+    ):
+        open_app(desktop_page, running_app, APP_PAGE)
+    assert_no_second_request(desktop_page, seen)
+
+    assert resyncs(desktop_page) == 0, "text in a refused response is not read"
+    assert seen.errors == []
+    assert len(seen.events) == 1, "no retry"
+    expect(desktop_page.locator("#app-status")).to_be_visible()
 
 
 # --- how the reader asks, and when it reads the token -------------------------------------------
@@ -383,6 +430,7 @@ def test_reader_dispatches_the_same_events_wherever_the_chunks_are_cut(
 ) -> None:
     chunks, expected = BOUNDARY_CASES[name]
     seen = watch(desktop_page)
+    pause_clock(desktop_page)  # the stream ends: no reconnect while the events are counted
     deliver_in_chunks(desktop_page, chunks)
 
     open_app(desktop_page, running_app, APP_PAGE)

@@ -24,6 +24,7 @@ from app.domain.tasks import (
     TaskStatus,
     dedupe_key,
 )
+from app.domain.usage import is_task_type
 from app.modules.storage import Database, tasks_repo
 
 TaskRow = tasks_repo.TaskRow
@@ -79,7 +80,11 @@ class TaskService:
     # --- for routes and other services --------------------------------------------------
 
     def enqueue(self, task_type: str, target: str, *, input_ref: str | None = None) -> TaskRef:
-        """Queue a task; an active task with the same dedupe key is returned instead."""
+        """Queue a task; an active task with the same dedupe key is returned instead.
+        ``ValueError`` for a task type that is not an id (the rule usage records follow): it is
+        stored, shown and sent on the event stream, so it is never prose."""
+        if not is_task_type(task_type):
+            raise ValueError("a task type is 1 to 64 characters: a-z first, then a-z, 0-9 or _")
         now = self._now()
         new = TaskRow(
             id=self._ids.new(),

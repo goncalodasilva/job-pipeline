@@ -843,6 +843,36 @@ def test_complete_refuses_writer_that_ends_the_transaction(
         pass
 
 
+@pytest.mark.parametrize(
+    "task_type",
+    [
+        "A free-text type, such as a job title",
+        "Practice",
+        "practice task",
+        "practice-task",
+        "practice\n",
+        "1practice",
+        "",
+        "a" * 65,
+    ],
+)
+def test_enqueue_refuses_a_task_type_that_is_not_an_id(
+    service: Any, db: Database, events: Recorder, task_type: str
+) -> None:
+    """A task type is an id (the rule the usage service applies), never prose: it is stored,
+    shown and sent on the event stream (M2.18 security review)."""
+    with pytest.raises(ValueError):
+        service.enqueue(task_type, "run-1")
+
+    assert _count(db) == 0
+    assert events.changes == []
+
+
+def test_enqueue_accepts_the_longest_task_type(service: Any, db: Database) -> None:
+    assert service.enqueue("a" * 64, "run-1").created is True
+    assert _count(db) == 1
+
+
 @pytest.mark.parametrize("target", ["queued", "running"])
 def test_finish_rejects_non_terminal_status(service: Any, db: Database, target: str) -> None:
     task_id = _running(service)
