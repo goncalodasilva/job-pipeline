@@ -1022,9 +1022,17 @@ def test_panel_390x844_and_360_no_horizontal_scroll(
 
 def assert_one_row(page: Page, what: str) -> None:
     """Menu, the brand and the Tasks button share one row of the top bar."""
-    bar = page.locator("header.topbar").bounding_box()
-    menu = page.locator(".sidebar-toggle").bounding_box()
-    tasks = toggle(page).bounding_box()
+    # One read for the three boxes: the page can still be shifting after a task starts,
+    # and boxes read one by one could come from different frames.
+    bar, menu, tasks = page.evaluate(
+        """(selectors) => selectors.map((selector) => {
+            const element = document.querySelector(selector);
+            if (!element || !element.getClientRects().length) return null;
+            const box = element.getBoundingClientRect();
+            return { x: box.x, y: box.y, width: box.width, height: box.height };
+        })""",
+        ["header.topbar", ".sidebar-toggle", f"{SLOT} {TOGGLE}"],
+    )
     assert bar is not None and menu is not None and tasks is not None, what
     assert abs((menu["y"] + menu["height"] / 2) - (tasks["y"] + tasks["height"] / 2)) < 2, (
         f"{what}: Menu at y={menu['y']:.0f}, Tasks at y={tasks['y']:.0f}"
