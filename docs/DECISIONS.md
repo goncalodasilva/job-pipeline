@@ -778,3 +778,27 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Open (needs the user's approval): the Claude provider enables the SDK's `WebSearch` tool when a request allows web search but does not call `on_tool_use` yet (ADR-076 item 12 defers the hook to before M8), so a real search would be uncounted. Nothing can reach it today (no task allows web search). The security review recommends that the provider refuse such requests until the hook exists; doing so changes three assertions in `tests/unit/modules/ai/test_claude_provider.py` (the same options stay pinned at `build_options` level), so it waits for approval.
 - Update (2026-10-11): approved by the user. `ClaudeSdkProvider.run` refuses a request that allows web search with `ProviderRequestRejected` before reading the credential, until the hook is wired; the three assertions in tests/unit/modules/ai/test_claude_provider.py that ran the provider with web search on now expect the refusal (the tool options stay pinned at `build_options` level). Remove the refusal in the task that wires the hook.
 
+## ADR-081 — One version for all usage budgets and the reload prompt (2026-10-10)
+
+- Context: M2.22 puts the budgets of all services in one versioned setting (ADR-079), so each service's form in Settings > Usage budgets carries the same version. A tab that was open before a save could otherwise overwrite newer budgets. The reviews found that a second save after a conflict overwrote without a reload.
+- Decision: all budgets share one version. An htmx save refreshes the other forms' hidden version out of band. A 409 or 422 answer keeps the version the user submitted, so a stale tab keeps getting the reload prompt until it reloads. The reload prompt (`app/templates/fragments/shell/_reload_prompt.html`, `role="alert"`, answered with 409) is new and reusable by other versioned forms.
+- Consequences: any form that saves to a versioned setting follows the same rules. Out-of-band refresh and the prompt have their own tests in tests/integration/test_settings_usage_budgets.py.
+
+## ADR-082 — Background tasks at once is stored now and applies at the next start (2026-10-10)
+
+- Context: the "Background tasks at once (1–3)" setting sets how many tasks the runner runs together. The runner starts when the workspace opens, so a change saved while the app runs has no effect until then.
+- Decision: the value is stored only. The runner reads it when the workspace opens, so a change applies at the next start. The hint next to the field says so.
+- Consequences: a change does not affect tasks already running or the running app. Applying it at once would need a change to the runner and a new decision.
+
+## ADR-083 — Refuse an empty budget save; Remove clears a budget at once (2026-10-10)
+
+- Context: a save with every field empty could be read as "no limit" or as a mistake. A way back to "No limit" is still needed.
+- Decision: a save with every field empty is refused, with an error on the allowance field. Remove clears a service's budget immediately, without a confirmation step.
+- Consequences: "No limit" comes only from Remove or from a service that never had a budget. Remove has no undo; undo is an open UX idea recorded in the M2.22 Evidence line.
+
+## ADR-084 — Unreadable stored budgets are never shown as "No limit" (2026-10-10)
+
+- Context: ADR-079 makes unreadable stored budgets fail closed, so reserve and preflight refuse actions. If Settings then showed "No limit", the page would hide that the limits are not applying.
+- Decision: when the stored budgets are unreadable, the section shows a notice and never "No limit". Saving a budget clears the notice. The fail-closed behaviour of ADR-079 is unchanged.
+- Consequences: the Settings page reads the usage budgets and shows the notice. A test covers the notice (tests/integration/test_settings_usage_budgets.py).
+

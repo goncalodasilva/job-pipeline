@@ -1,0 +1,4 @@
+{# One service's status line (M2.22): needs `item` (a BudgetView); `status_oob` true swaps it
+   out of band. While the stored budgets can't be read, no service is said to have no limit:
+   the app refuses AI requests until a budget is saved (ADR-079). #}
+<p id="budget-{{ item.service }}-status" class="budget-status"{% if status_oob %} hx-swap-oob="true"{% endif %}>{% if usage.view.budgets_unreadable %}Not known: the saved budgets couldn't be read.{% elif item.budget %}Budget set: {{ item.budget.allowance }} requests per month.{% else %}No limit{% endif %}</p>

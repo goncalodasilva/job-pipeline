@@ -85,7 +85,10 @@ class UsageStatus:
 
 
 @dataclass(frozen=True)
-class _StoredBudgets:
+class StoredBudgets:
+    """The stored budgets and their one version (ADR-079). ``unreadable``: the stored value
+    can't be read, so ``budgets`` is empty and requests are refused until one is saved."""
+
     budgets: Mapping[ServiceId, Budget]
     version: int
     unreadable: bool = False
@@ -124,6 +127,11 @@ class UsageService:
             loaded = self._budgets(conn)
         return Versioned(loaded.budgets, loaded.version)
 
+    def read_budgets(self) -> StoredBudgets:
+        """Like ``load_budgets``, and whether the stored budgets can't be read."""
+        with self._db.transaction() as conn:
+            return self._budgets(conn)
+
     def save_budget(self, service: str, budget: Budget | None, *, expected_version: int) -> None:
         """Set (or with ``None`` remove) one service's budget; ``VersionConflict`` when the
         budgets changed since ``expected_version`` was loaded.
@@ -150,17 +158,17 @@ class UsageService:
                     conn, USAGE_BUDGETS.key, text, expected_version=expected_version, now=now
                 )
 
-    def _budgets(self, conn: sqlite3.Connection) -> _StoredBudgets:
+    def _budgets(self, conn: sqlite3.Connection) -> StoredBudgets:
         stored = get_setting(conn, USAGE_BUDGETS.key)
         if stored is None:
-            return _StoredBudgets(USAGE_BUDGETS.default.budgets, 0)
+            return StoredBudgets(USAGE_BUDGETS.default.budgets, 0)
         try:
             loaded = UsageBudgets.model_validate_json(stored.value)
         except ValidationError as error:
             # Only the type: pydantic's message repeats the stored value. Fails closed.
             _log.warning("usage budgets are not valid (%s)", type(error).__name__)
-            return _StoredBudgets(USAGE_BUDGETS.default.budgets, stored.version, unreadable=True)
-        return _StoredBudgets(loaded.budgets, stored.version)
+            return StoredBudgets(USAGE_BUDGETS.default.budgets, stored.version, unreadable=True)
+        return StoredBudgets(loaded.budgets, stored.version)
 
     # --- records -------------------------------------------------------------------------
 

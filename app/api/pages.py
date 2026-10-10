@@ -73,7 +73,7 @@ AREAS: tuple[Area, ...] = (
         "settings",
         "/settings",
         "Settings",
-        "Settings for your job search, usage budgets, lists, prompts and data will appear here.",
+        "Settings for your job search, lists, prompts and data will appear here.",
         pinned=True,
         coming="They arrive in a later version.",
         placeholder=False,

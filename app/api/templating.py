@@ -49,12 +49,19 @@ def render(request: Request, *, page: str, fragment: str, ctx: dict[str, Any]) -
 
     A history restore replaces the whole body, so it always gets the full page.
     """
-    headers = request.headers
-    if headers.get("HX-Request") == "true" and headers.get("HX-History-Restore-Request") != "true":
+    if renders_fragment(request):
         return templates.TemplateResponse(request, fragment, ctx)
     hx_headers = json.dumps({TOKEN_HEADER: request.app.state.launch_token})
     shell = {"hx_headers": hx_headers, "banners": _banners(request), "tasks_count": _tasks_count}
     return templates.TemplateResponse(request, page, {**ctx, **shell})
+
+
+def renders_fragment(request: Request) -> bool:
+    """Whether ``render`` answers this request with the fragment (else the full page)."""
+    headers = request.headers
+    return (
+        headers.get("HX-Request") == "true" and headers.get("HX-History-Restore-Request") != "true"
+    )
 
 
 def _tasks_count(request: Request) -> str:

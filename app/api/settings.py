@@ -26,6 +26,12 @@ gets the section with the result focused and announced, a plain request the full
 Thorough tiers to models the active provider offers: 303 to ``/settings``, or for htmx 200
 with the Providers section, focus on the tier status and an "announce" trigger. A refused map
 answers 422 with the field errors and never shows the submitted values back.
+
+The Usage budgets section (M2.22) is shown here and saved by the routes in
+``app/api/settings_usage.py``. It is read only for an answer that shows it (the full page, the
+page fragment, a usage form's answer).
+
+Rendering reads the database, so the async routes render in a worker thread.
 """
 
 import json
@@ -41,7 +47,8 @@ from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
 from app.api.setup_redirect import setup_step_path
-from app.api.templating import render
+from app.api.templating import render, renders_fragment
+from app.api.usage_forms import UsageFormState, usage_context
 from app.onboarding.registry import ConnectionCheck, Form, StepRegistry, StepResult
 from app.onboarding.steps.provider import ProviderStep
 from app.services.practice import PRACTICE_FIELDS, PracticeService
@@ -118,16 +125,18 @@ async def save_providers(request: Request) -> Response:
     # Blocking (database, keychain): never on the event loop.
     result: StepResult = await run_in_threadpool(_handler(request).submit, form)
     if not result.ok:
-        return _refused(request, result.errors, form)
+        return await run_in_threadpool(_refused, request, result.errors, form)
     if result.view is not None:  # nothing changed: a removal to confirm, or kept (200)
-        response = _render(request, step_view=result.view)
+        response = await run_in_threadpool(_render, request, step_view=result.view)
         if is_htmx(request) and result.message:
             response.headers["HX-Trigger"] = json.dumps({"announce": result.message})
         return response
     if not is_htmx(request):
         return RedirectResponse(SETTINGS_PATH, status_code=303)
     # The saved kind may change whether Testing tools is offered: refresh it out of band.
-    response = _render(request, stayed=True, fragment=PROVIDERS_SAVED_FRAGMENT)
+    response = await run_in_threadpool(
+        _render, request, stayed=True, fragment=PROVIDERS_SAVED_FRAGMENT
+    )
     response.headers["HX-Trigger"] = json.dumps({"announce": result.message or "Saved."})
     return response
 
@@ -138,10 +147,10 @@ async def save_tiers(request: Request) -> Response:
         return HTMLResponse("", status_code=413)
     result: StepResult = await run_in_threadpool(_handler(request).save_tiers, form)
     if not result.ok:  # nothing submitted is shown back
-        return _refused(request, result.errors, None)
+        return await run_in_threadpool(_refused, request, result.errors, None)
     if not is_htmx(request):
         return RedirectResponse(SETTINGS_PATH, status_code=303)
-    response = _render(request, tiers_saved=True)
+    response = await run_in_threadpool(_render, request, tiers_saved=True)
     response.headers["HX-Trigger"] = json.dumps({"announce": result.message or "Saved."})
     return response
 
@@ -153,8 +162,8 @@ async def test_providers(request: Request) -> Response:
     # Awaited here (ADR-063); the handler runs its blocking parts in worker threads.
     check: ConnectionCheck = await _handler(request).test(form, mark_done=False)
     if check.errors:
-        return _refused(request, check.errors, form)
-    response = _render(request, connection=check)
+        return await run_in_threadpool(_refused, request, check.errors, form)
+    response = await run_in_threadpool(_render, request, connection=check)
     if is_htmx(request):
         response.headers["HX-Trigger"] = json.dumps({"announce": check.message})
     return response
@@ -177,6 +186,12 @@ def testing_tools_response(
         practice_error=error,
         practice_selected=selected,
     )
+
+
+def render_settings(request: Request, *, fragment: str, usage: UsageFormState) -> HTMLResponse:
+    """The answer to one of the Usage budgets forms: ``fragment`` for htmx, the full Settings
+    page otherwise, with ``usage`` saying what happened to the form. Blocking."""
+    return _render(request, fragment=fragment, usage=usage)
 
 
 # --- helpers ---------------------------------------------------------------------------------
@@ -207,14 +222,19 @@ def _render(
     practice_status: str | None = None,
     practice_error: str | None = None,
     practice_selected: Mapping[str, str] | None = None,
+    usage: UsageFormState | None = None,
 ) -> HTMLResponse:
     """The full Settings page, or for htmx the Providers section (after a POST), the main
-    content (a page GET) or ``fragment``."""
+    content (a page GET) or ``fragment``. Blocking."""
     handler = _handler(request)
     practice: PracticeService = request.app.state.practice
     if fragment is None:
         fragment = PROVIDERS_FRAGMENT if section_only else SETTINGS_FRAGMENT
     registry: StepRegistry = request.app.state.setup_registry
+    # Usage budgets (M2.22): read only when this answer shows the section or one of its forms.
+    shows_usage = (
+        usage is not None or fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
+    )
     form: dict[str, Any] = dict(handler.context())
     if submitted:
         echo_submitted(form, handler, submitted)
@@ -238,6 +258,7 @@ def _render(
             "provider_test_url": PROVIDERS_TEST_PATH,
             "provider_target": PROVIDERS_TARGET,
             "guide_url": setup_step_path(registry.first.id),  # re-run the setup guide
+            "usage": usage_context(request, usage) if shows_usage else None,
             # Testing tools (M2.17): shown only while the practice task is offered.
             "practice": {
                 "offered": practice.offered(),  # a settings read; writes nothing

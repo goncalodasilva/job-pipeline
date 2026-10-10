@@ -91,7 +91,7 @@ def anthropic_shaped(kind: str, body: str) -> str:
 # Distinctive bodies, so any 6-character piece of them showing up in a page is a leak.
 FICTIONAL_TOKEN = anthropic_shaped("oat01", "FICTIONALqz7Wv3Kp9Xr2Lm5Jd8Tb4Nc6Hy")
 FICTIONAL_API_KEY = anthropic_shaped("api03", "FICTIONAL" + "apikey" + "qz" * 12)
-SECOND_TOKEN = anthropic_shaped("oat01", "FICTIONALsecondWq3Zx8Kv2Pn6Rt9Lb4")
+SECOND_TOKEN = anthropic_shaped("oat01", "FICTIONALscndXqWq3Zx8Kv2Pn6Rt9Lb4")
 ENV_TOKEN = "FictionalEnvToken-0101-FICTIONAL-notreal"  # noqa: S105 - fictional
 ENV_API_KEY = "FictionalEnvApiKey-0102-FICTIONAL-notreal"
 FAKE_PASTED = "fake-connected-FICTIONALpastedVr8Qm2Xw5Lz"

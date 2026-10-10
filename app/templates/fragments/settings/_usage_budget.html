@@ -1,0 +1,79 @@
+{# One service's budget (M2.22): needs `item` (a BudgetView). The form swaps this block. After
+   a save or a removal the heading takes focus and a line under it says what was done; after
+   a refused save the first refused field takes focus; after a stale version the reload
+   prompt does. Results are also announced through the page's live region (HX-Trigger). Every
+   id starts with the service's, so the forms never share one ("-field-" keeps a field's id
+   from spelling a model id such as the fake's). A refused save shows back what was typed
+   (autoescaped); otherwise the fields hold the stored budget, or nothing. A refused or stale
+   form keeps the version it was sent with. #}
+{% set labels = {
+  "allowance": "Monthly allowance (requests)",
+  "first_warning": "First warning at (requests)",
+  "second_warning": "Second warning at (requests)",
+  "block_at": "Blocking point",
+  "reset_day": "Reset day of the month",
+  "fast_cap": "Fast tier cap (optional)",
+  "thorough_cap": "Thorough tier cap (optional)",
+} %}
+{% set hints = {
+  "block_at": "The app stops using this service here until the reset day.",
+  "reset_day": "Days 29 to 31 move to the last day of shorter months.",
+  "fast_cap": "Leave empty for no cap.",
+  "thorough_cap": "Leave empty for no cap.",
+} %}
+{% set prefix = "budget-" ~ item.service %}
+{% set active = usage.target == item.service %}
+{% set field_errors = usage.errors if active else {} %}
+{% set shown = usage.typed if (active and usage.typed) else item.values %}
+{% set version = usage.kept_version if (active and usage.kept_version is not none) else usage.view.budgets_version %}
+<div id="{{ prefix }}" class="budget">
+  <h3 id="{{ prefix }}-heading"{% if active and usage.changed %} tabindex="-1" data-autofocus{% endif %}>{{ item.name }}</h3>
+  {% set status_oob = false %}
+  {% include "fragments/settings/_usage_budget_status.html" %}
+  {% if active and usage.changed and usage.confirmed %}
+  <p id="{{ prefix }}-done" class="budget-done">{{ usage.confirmed }}</p>
+  {% endif %}
+  {% if active and usage.conflict %}
+  {% set reload_id = prefix ~ "-conflict" %}
+  {% set reload_message = usage.conflict_message %}
+  {% set reload_detail = usage.conflict_detail %}
+  {% set reload_url = area.path %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% endif %}
+  <form id="{{ prefix }}-form" class="step-form" method="post" action="{{ usage.budgets_url }}"
+        hx-post="{{ usage.budgets_url }}" hx-target="#{{ prefix }}" hx-swap="outerHTML"
+        hx-indicator="#{{ prefix }}-saving" hx-disabled-elt="#{{ prefix }}-form button"
+        aria-labelledby="{{ prefix }}-heading" novalidate>
+    <input type="hidden" name="service" value="{{ item.service }}">
+    <input type="hidden" id="{{ prefix }}-version" name="version" value="{{ version }}">
+    <div class="budget-fields">
+      {% for name in usage.fields %}
+      {% set field_id = prefix ~ "-field-" ~ name %}
+      {% set error = field_errors.get(name) %}
+      {% set hint = hints.get(name) %}
+      {% set described = ([field_id ~ "-error"] if error else []) + ([field_id ~ "-note"] if hint else []) %}
+      <div class="field">
+        <label for="{{ field_id }}">{{ labels[name] }}</label>
+        <input type="text" inputmode="numeric" autocomplete="off" id="{{ field_id }}" name="{{ name }}"
+               value="{{ shown.get(name, "") }}"
+               {% if described %}aria-describedby="{{ described | join(" ") }}"{% endif %}
+               {% if error %}aria-invalid="true"{% endif %}
+               {% if active and name == usage.first_invalid %}data-autofocus{% endif %}>
+        {% if hint %}
+        <p id="{{ field_id }}-note" class="field-hint">{{ hint }}</p>
+        {% endif %}
+        {% if error %}
+        <p id="{{ field_id }}-error" class="field-error">{{ error }}</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="button button-primary" name="action" value="save" aria-describedby="{{ prefix }}-heading">Save budget</button>
+      {% if item.budget %}
+      <button type="submit" class="button" name="action" value="remove" aria-describedby="{{ prefix }}-heading">Remove budget</button>
+      {% endif %}
+    </div>
+    <p id="{{ prefix }}-saving" class="saving-note" role="status">Saving…</p>
+  </form>
+</div>

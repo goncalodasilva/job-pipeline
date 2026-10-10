@@ -1,0 +1,43 @@
+{# Settings > Usage budgets: how many background tasks run at once (M2.22). A setting of its
+   own, with its own version. A refused value is never shown back: the select keeps what is
+   saved. The form swaps this block; focus, the line saying it was saved and announcements
+   work as in the budget blocks. A refused or stale form keeps the version it was sent with. #}
+{% set active = usage.target == usage.concurrency_target %}
+{% set error = usage.errors.get(usage.concurrency_field) if active else none %}
+{% set version = usage.kept_version if (active and usage.kept_version is not none) else usage.view.runner_version %}
+<div id="usage-concurrency" class="budget">
+  <h3 id="usage-concurrency-heading"{% if active and usage.changed %} tabindex="-1" data-autofocus{% endif %}>Background tasks</h3>
+  {% if active and usage.changed and usage.confirmed %}
+  <p id="usage-concurrency-done" class="budget-done">{{ usage.confirmed }}</p>
+  {% endif %}
+  {% if active and usage.conflict %}
+  {% set reload_id = "usage-concurrency-conflict" %}
+  {% set reload_message = usage.conflict_message %}
+  {% set reload_detail = usage.conflict_detail %}
+  {% set reload_url = area.path %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% endif %}
+  <form id="usage-concurrency-form" class="step-form" method="post" action="{{ usage.concurrency_url }}"
+        hx-post="{{ usage.concurrency_url }}" hx-target="#usage-concurrency" hx-swap="outerHTML"
+        hx-indicator="#usage-concurrency-saving" hx-disabled-elt="#usage-concurrency-form button" novalidate>
+    <input type="hidden" name="version" value="{{ version }}">
+    <div class="field">
+      <label for="usage-max-concurrent">Background tasks at once</label>
+      <select id="usage-max-concurrent" name="{{ usage.concurrency_field }}"
+              aria-describedby="{% if error %}usage-max-concurrent-error {% endif %}usage-max-concurrent-hint"
+              {% if error %}aria-invalid="true" data-autofocus{% endif %}>
+        {% for choice in usage.concurrency_choices %}
+        <option value="{{ choice }}"{% if choice == usage.view.max_concurrent %} selected{% endif %}>{{ choice }}</option>
+        {% endfor %}
+      </select>
+      <p id="usage-max-concurrent-hint" class="field-hint">How many AI tasks can run at the same time. A change applies the next time you start the app.</p>
+      {% if error %}
+      <p id="usage-max-concurrent-error" class="field-error">{{ error }}</p>
+      {% endif %}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="button button-primary" aria-describedby="usage-concurrency-heading">Save</button>
+    </div>
+    <p id="usage-concurrency-saving" class="saving-note" role="status">Saving…</p>
+  </form>
+</div>

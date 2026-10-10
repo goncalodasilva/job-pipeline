@@ -34,6 +34,7 @@ from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.api.settings import register_settings_pages
+from app.api.settings_usage import register_usage_settings
 from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
 from app.api.tasks import register_task_routes
@@ -87,6 +88,7 @@ from app.services.setup_state import SetupStateService
 from app.services.task_views import TaskViews
 from app.services.tasks import TaskService
 from app.services.usage import UsageService
+from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
 from app.tasks.practice import practice_handler
 from app.wiring import (
@@ -418,6 +420,21 @@ def _provider_setup(
     return service
 
 
+def _usage_settings(app: FastAPI, *, wiring: Wiring, clock: Clock) -> UsageSettings:
+    """Settings > Usage budgets (M2.22): like the practice service, it reads the open
+    workspace through the app's state at call time."""
+
+    def settings() -> SettingsService | None:
+        db = _current_db(app)
+        return SettingsService(db, clock) if db is not None else None
+
+    return UsageSettings(
+        usage=lambda: getattr(app.state, "usage", None) if _current_db(app) else None,
+        settings=settings,
+        allow_fakes=wiring.allow_fakes,
+    )
+
+
 def _practice(
     app: FastAPI, *, wiring: Wiring, clock: Clock, registry: HandlerRegistry
 ) -> PracticeService:
@@ -687,6 +704,7 @@ def create_app(
     app.state.wiring = app_wiring
     practice = _practice(app, wiring=app_wiring, clock=app_clock, registry=handlers)
     app.state.practice = practice
+    app.state.usage_settings = _usage_settings(app, wiring=app_wiring, clock=app_clock)
     app.state.task_views = TaskViews(
         tasks=lambda: (
             getattr(app.state, "task_service", None)
@@ -720,6 +738,7 @@ def create_app(
     app.include_router(health_router)
     register_pages(app)
     register_settings_pages(app)
+    register_usage_settings(app)
     register_task_routes(app)
     register_setup_pages(app)
     register_events(
