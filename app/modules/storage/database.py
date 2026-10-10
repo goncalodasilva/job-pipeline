@@ -74,6 +74,24 @@ class Database:
                     self._connection.execute("ROLLBACK")
                 raise
 
+    @contextmanager
+    def read(self) -> Iterator[sqlite3.Connection]:
+        """For lookups: one consistent snapshot without the write lock, so another process
+        can still write. The connection refuses writes while it is open."""
+        with self._lock:
+            self._connection.execute("PRAGMA query_only = ON")
+            try:
+                self._connection.execute("BEGIN")
+                try:
+                    yield self._connection
+                    self._connection.execute("COMMIT")
+                except BaseException:
+                    if self._connection.in_transaction:
+                        self._connection.execute("ROLLBACK")
+                    raise
+            finally:
+                self._connection.execute("PRAGMA query_only = OFF")
+
     def call_on_close(self, callback: Callable[[], None]) -> None:
         """Run ``callback`` once, right after the connection closes (the data-folder lock)."""
         self._on_close.append(callback)

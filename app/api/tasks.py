@@ -12,6 +12,20 @@ A start answers 303 to ``/settings?practice=started#testing-tools`` (``already``
 was already queued or running: it is kept and no second one starts), or for htmx 200 with the
 Testing tools section, the accepted choices still selected, focus on its status line and the
 same words in an "announce" trigger (as Settings > Providers does after a save).
+
+Task status (M2.19; fragments only, the same with or without ``HX-Request``):
+``GET /tasks/panel`` and ``GET /tasks/{id}`` need the launch token and change nothing
+(spec 2.9 rule 12). ``POST /tasks/{id}/cancel`` and ``POST /tasks/{id}/retry`` need the token
+and origin and answer the task's fragment with focus on its status and the outcome in an
+"announce" trigger: for a retry, the task now queued or running (an active duplicate when
+there is one), or 409 with the task as it is and the reason when it can't be retried. Those
+last two also trigger ``tasks:resync``, so whatever lists tasks refetches.
+
+Only an id of the safe shape (``is_task_id``) is looked up. Anything else, and any id that
+isn't a task, answers 404 with one fixed fragment that repeats nothing from the request. The
+id is a ``path`` parameter so that a GET, or a POST ending in ``/cancel`` or ``/retry``, with
+slashes in the id gets that same answer. Other shapes get the framework's own fixed answers:
+405 for a POST to any other path under ``/tasks/``, 404 for an id holding a line break.
 """
 
 import json
@@ -27,8 +41,10 @@ from app.api.settings import (
     practice_started_url,
     testing_tools_response,
 )
+from app.api.templating import templates
 from app.domain.errors import PracticeNotOffered
 from app.services.practice import PracticeService, choice_from_form
+from app.services.task_views import ActionView, TaskView, TaskViews
 
 MSG_INVALID = "Choose one of the listed values for each field."
 # Never the section's heading: a 404 must not look like the section.
@@ -45,6 +61,15 @@ def register_task_routes(app: FastAPI) -> None:
         response_class=HTMLResponse,
         name="tasks_practice",
     )
+    # After the fixed paths above, which the id parameter would otherwise take.
+    routes = (
+        ("/tasks/panel", tasks_panel, "GET", "tasks_panel"),
+        ("/tasks/{task_id:path}/cancel", cancel_task, "POST", "tasks_cancel"),
+        ("/tasks/{task_id:path}/retry", retry_task, "POST", "tasks_retry"),
+        ("/tasks/{task_id:path}", show_task, "GET", "tasks_show"),
+    )
+    for path, endpoint, method, name in routes:
+        app.add_api_route(path, endpoint, methods=[method], response_class=HTMLResponse, name=name)
 
 
 async def start_practice(request: Request) -> Response:
@@ -79,3 +104,64 @@ async def start_practice(request: Request) -> Response:
 
 def _not_offered() -> PlainTextResponse:
     return PlainTextResponse(MSG_NOT_OFFERED, status_code=404)
+
+
+# The routes below are plain functions: FastAPI runs them in its thread pool, so their
+# database reads never block the event loop.
+
+RESYNC_EVENT = "tasks:resync"
+
+
+def _views(request: Request) -> TaskViews:
+    views: TaskViews = request.app.state.task_views
+    return views
+
+
+def _not_found(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "fragments/tasks/_not_found.html", {}, status_code=404
+    )
+
+
+def _task(request: Request, task: TaskView, *, focus: bool = False) -> HTMLResponse:
+    """``focus``: the status takes focus after the swap (an answer to a button only; a
+    refresh must never move focus)."""
+    ctx = {"task": task, "refresh": True, "focus": focus}
+    return templates.TemplateResponse(request, "fragments/tasks/_task.html", ctx)
+
+
+def _acted(request: Request, action: ActionView | None) -> HTMLResponse:
+    """The task after a cancel or retry: focus on its status, the outcome for the page's
+    live region and, when the page may show stale tasks, a resync for whatever lists them."""
+    if action is None:
+        return _not_found(request)
+    response = _task(request, action.task, focus=True)
+    if action.refused:
+        response.status_code = 409
+    events: dict[str, str] = {}
+    if action.announce is not None:
+        events["announce"] = action.announce
+    if action.resync:
+        events[RESYNC_EVENT] = ""
+    if events:
+        response.headers["HX-Trigger"] = json.dumps(events)
+    return response
+
+
+def tasks_panel(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "fragments/tasks/_panel.html", {"tasks": _views(request).panel()}
+    )
+
+
+def show_task(request: Request, task_id: str) -> HTMLResponse:
+    task = _views(request).get(task_id)
+    return _not_found(request) if task is None else _task(request, task)
+
+
+def cancel_task(request: Request, task_id: str) -> HTMLResponse:
+    return _acted(request, _views(request).cancel(task_id))
+
+
+def retry_task(request: Request, task_id: str) -> HTMLResponse:
+    return _acted(request, _views(request).retry(task_id))

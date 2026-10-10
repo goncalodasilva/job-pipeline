@@ -84,6 +84,7 @@ from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
+from app.services.task_views import TaskViews
 from app.services.tasks import TaskService
 from app.services.usage import UsageService
 from app.tasks import HandlerRegistry, TaskRunner
@@ -447,6 +448,16 @@ def _practice(
     )
 
 
+def _task_labels(registry: HandlerRegistry) -> Callable[[str], str | None]:
+    """The label of a registered task type; None for a type no handler is registered for."""
+
+    def label_for(task_type: str) -> str | None:
+        entry = registry.get(task_type)
+        return entry[0].label if entry is not None else None
+
+    return label_for
+
+
 def create_app(
     config: RuntimeConfig,
     *,
@@ -676,6 +687,14 @@ def create_app(
     app.state.wiring = app_wiring
     practice = _practice(app, wiring=app_wiring, clock=app_clock, registry=handlers)
     app.state.practice = practice
+    app.state.task_views = TaskViews(
+        tasks=lambda: (
+            getattr(app.state, "task_service", None)
+            if getattr(app.state, "workspace", None)
+            else None
+        ),
+        label_for=_task_labels(handlers),
+    )
     if task_registry is None and app_wiring.allow_fakes:  # the default registry only
         handlers.register(
             PRACTICE, TaskTypeSpec(PRACTICE_TIMEOUT, PRACTICE_LABEL), practice_handler(practice)

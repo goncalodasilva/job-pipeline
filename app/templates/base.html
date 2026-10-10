@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ area.name }}{% endblock %} · Job Search Pipeline</title>
   {# Read by htmx when it loads, so it comes first. Hardened settings: ADR-041. 422 (a refused
-     form) is swapped so field errors show; other 4xx/5xx stay errors (M1.16). #}
-  <meta name="htmx-config" content='{"selfRequestsOnly":true,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0,"refreshOnHistoryMiss":true,"historyRestoreAsHxRequest":false,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
+     form) is swapped so field errors show, and 409 (a refused task retry, M2.19) so the task
+     shows as it is with the reason; other 4xx/5xx stay errors (M1.16). #}
+  <meta name="htmx-config" content='{"selfRequestsOnly":true,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0,"refreshOnHistoryMiss":true,"historyRestoreAsHxRequest":false,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"409","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
   {# Lets CSS collapse the phone sidebar only when scripts run. #}
   <script>document.documentElement.classList.add("js");</script>
   {# A declared icon stops browsers asking for /favicon.ico, which the token guard refuses

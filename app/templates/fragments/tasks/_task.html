@@ -1,0 +1,27 @@
+{# One task's status (M2.19). Expects `task` (a TaskView) and `refresh`: true when this is
+   the whole response, so the element refetches itself on the body's task events (ADR-077);
+   inside the panel it is false, because the panel refetches all of its tasks at once.
+   Status is in words, never color alone. The reason is a fixed message chosen by the
+   server; nothing stored with the task is printed here. The buttons swap this element;
+   their answer sets `focus`, so the new status takes focus (never on a refresh). #}
+<div id="task-{{ task.id }}" class="task-item"{% if refresh %}
+     hx-get="/tasks/{{ task.id }}" hx-trigger="tasks:resync from:body, tasks:updated from:body" hx-swap="outerHTML"{% endif %}>
+  <span id="task-{{ task.id }}-label" class="task-label">{{ task.label }}</span>
+  <span id="task-{{ task.id }}-status" class="task-status"{% if focus %} data-autofocus="true"{% endif %}>{{ task.status }}</span>
+  {% if task.progress is not none %}
+  <progress id="task-{{ task.id }}-progress" value="{{ task.progress }}" max="100" aria-label="{{ task.label }} progress">{{ task.progress }}%</progress>
+  {% endif %}
+  {% if task.reason %}
+  <p id="task-{{ task.id }}-reason" class="task-reason">{{ task.reason }}</p>
+  {% endif %}
+  {% if task.has_result %}
+  {# The place for the result link (M2.20). #}
+  <span id="task-{{ task.id }}-result" class="task-result"></span>
+  {% endif %}
+  {% if task.can_cancel %}
+  <button type="button" id="task-{{ task.id }}-cancel" class="button" hx-post="/tasks/{{ task.id }}/cancel" hx-target="#task-{{ task.id }}" hx-swap="outerHTML">Cancel</button>
+  {% endif %}
+  {% if task.can_retry %}
+  <button type="button" id="task-{{ task.id }}-retry" class="button" hx-post="/tasks/{{ task.id }}/retry" hx-target="#task-{{ task.id }}" hx-swap="outerHTML">Retry</button>
+  {% endif %}
+</div>

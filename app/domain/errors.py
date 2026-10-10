@@ -227,3 +227,30 @@ class UnknownSetupStep(AppError):
 
 class StepNotSkippable(AppError):
     message = "This step is needed, so it can't be skipped."
+
+
+BUDGET_MESSAGE = (
+    "A monthly usage limit was reached. Open Settings > Usage budgets to see when it resets."
+)
+"""What a stored budget kind reads as: the service, tier and reset date aren't stored."""
+
+
+def _own_subclasses(cls: type[AppError]) -> list[type[AppError]]:
+    found: list[type[AppError]] = []
+    for sub in cls.__subclasses__():
+        if sub.__module__ == __name__:  # never a class defined elsewhere
+            found.append(sub)
+        found.extend(_own_subclasses(sub))
+    return found
+
+
+def message_for_kind(kind: str | None) -> str:
+    """The message for an error kind stored in ``tasks.error``. An exact match on a kind of
+    this module's classes only: anything else (None, other text, another letter case) reads
+    as the generic message, and what was stored is never part of the answer."""
+    if not isinstance(kind, str):
+        return AppError.message
+    for cls in _own_subclasses(AppError):
+        if cls.kind == kind:
+            return BUDGET_MESSAGE if issubclass(cls, BudgetBlocked) else cls.message
+    return AppError.message

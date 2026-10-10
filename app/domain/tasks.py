@@ -1,12 +1,13 @@
 """Background task states, dedupe keys, task-type specs and the cancel flag (spec 5 M2
 reliability rules 1, 2, 6; ADR-076 item 11)."""
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Final, Protocol
+from typing import Final, Protocol, TypeGuard
 
 
 class TaskStatus(StrEnum):
@@ -26,6 +27,16 @@ TERMINAL: Final = frozenset(
 )
 # Retry (ADR-076 item 11) re-queues a finished row from these; never from succeeded.
 RETRY_FROM: Final = frozenset({TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.INTERRUPTED})
+
+_TASK_ID: Final = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def is_task_id(value: object) -> TypeGuard[str]:
+    """Whether ``value`` has the shape of a task id: 1 to 64 of A-Z, a-z, 0-9, ``_`` and
+    ``-`` (what every ``IdFactory`` makes). Only such an id is looked up, put in a URL or
+    used as an element id; anything else is treated as no task at all."""
+    return isinstance(value, str) and _TASK_ID.fullmatch(value) is not None
+
 
 # The only ordinary transitions; terminal states leave only through retry.
 ALLOWED_TRANSITIONS: Final[Mapping[TaskStatus, frozenset[TaskStatus]]] = MappingProxyType(

@@ -441,6 +441,38 @@ def test_transaction_takes_write_lock_up_front(db: Database, db_path: Path) -> N
                 other.execute("BEGIN IMMEDIATE")
 
 
+def test_read_takes_no_write_lock_and_refuses_writes(db: Database, db_path: Path) -> None:
+    """``read()`` is for lookups (M2.19 review): another connection can still take the write
+    lock while it is open, and a write through it is refused."""
+    with db.transaction() as conn:
+        conn.execute("CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        conn.execute("INSERT INTO widgets (name) VALUES ('Kept')")
+
+    with db.read() as conn:
+        assert [row[0] for row in conn.execute("SELECT name FROM widgets")] == ["Kept"]
+        with closing(sqlite3.connect(db_path, timeout=0.1, isolation_level=None)) as other:
+            other.execute("PRAGMA busy_timeout = 100")
+            other.execute("BEGIN IMMEDIATE")
+            other.execute("ROLLBACK")
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            conn.execute("INSERT INTO widgets (name) VALUES ('Refused')")
+
+    assert not db.connection.in_transaction
+
+    # Writes work again afterwards, and after a read that raised.
+    class Boom(Exception):
+        pass
+
+    with pytest.raises(Boom), db.read():
+        raise Boom
+    assert not db.connection.in_transaction
+    with db.transaction() as conn:
+        conn.execute("INSERT INTO widgets (name) VALUES ('Later')")
+    with db.read() as conn:
+        names = [row[0] for row in conn.execute("SELECT name FROM widgets ORDER BY id")]
+    assert names == ["Kept", "Later"]
+
+
 # --- review regressions -------------------------------------------------------
 
 

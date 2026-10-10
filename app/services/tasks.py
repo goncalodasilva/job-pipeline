@@ -155,12 +155,12 @@ class TaskService:
         return result
 
     def get(self, task_id: str) -> TaskRow | None:
-        with self._db.transaction() as conn:
+        with self._db.read() as conn:
             return tasks_repo.get(conn, task_id)
 
     def recent(self, limit: int) -> list[TaskRow]:
         """Up to ``limit`` tasks, most recently changed first."""
-        with self._db.transaction() as conn:
+        with self._db.read() as conn:
             return tasks_repo.list_recent(conn, limit)
 
     # --- when a workspace opens -----------------------------------------------------------
