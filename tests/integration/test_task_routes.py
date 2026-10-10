@@ -261,6 +261,10 @@ def assert_action_button(item: Item, action: str, word: str) -> None:
     assert button.attrs.get("type") == "button"
     assert button.attrs.get("hx-target") == f"#task-{item.task_id}"
     assert button.attrs.get("hx-swap") == "outerHTML"
+    assert button.attrs.get("aria-describedby") == f"task-{item.task_id}-label", (
+        "named with its task (M2.20)"
+    )
+    assert item.part("label") is not None
     assert "disabled" not in button.attrs
     assert button.attrs.get("tabindex") in (None, "0"), "reachable by keyboard"
 
@@ -835,7 +839,6 @@ def test_task_templates_have_no_safe_filter_and_never_extend() -> None:
 
 # --- review follow-ups (M2.19) -----------------------------------------------------------------
 
-MSG_CANCELLED = "Task cancelled."
 MSG_CANCELLING = "Cancelling the task."
 MSG_REQUEUED = "Task queued again."
 MSG_ALREADY_ACTIVE = "This task is already queued or running."
@@ -962,14 +965,19 @@ def test_cancel_answer_moves_focus_and_announces(
         queued = tasks.add("queued")
         running = tasks.add("running", task_type=DRAFT)
         done = tasks.add("succeeded")
-        for task_id, message in ((queued, MSG_CANCELLED), (running, MSG_CANCELLING)):
+        # A queued task is cancelled at once: focus lands on "Cancelled" and the one
+        # announcement, with the task's label, comes from the indicator (M2.20). A running
+        # task only starts to cancel, which nothing else says.
+        for task_id, expected in ((queued, {}), (running, {"announce": MSG_CANCELLING})):
             response = tasks.post(f"/tasks/{task_id}/cancel")
             assert response.status_code == 200
             item = Item(response.text, task_id)
             assert focused(item) == [f"task-{task_id}-status"], "focus lands on the new status"
             status = item.part("status")
             assert status is not None and status.attrs.get("data-autofocus") == "true"
-            assert triggers(response) == {"announce": message}
+            assert triggers(response) == expected
+        said = [task["message"] for task in finished(tasks.get(INDICATOR))]
+        assert said.count(f"{ECHO_LABEL} cancelled.") == 1
         # Nothing changed for a finished task: focus still has a place, nothing is claimed.
         response = tasks.post(f"/tasks/{done}/cancel")
         assert focused(Item(response.text, done)) == [f"task-{done}-status"]
@@ -1046,3 +1054,215 @@ def test_no_workspace_shows_empty_panel_and_404s(
             assert response.status_code == 404, response.status_code
             assert response.text == missing.text
         assert tasks.row(task_id) == before
+
+
+# --- the top-bar indicator (M2.20) -------------------------------------------------------------
+#
+# ``GET /tasks/indicator`` (token; fragment only; no side effects): root ``#tasks-count`` with
+# the running and queued tasks counted in words. Its ``HX-Trigger`` always fires
+# ``tasks:finished`` with ``{"tasks": [{"key": "<id>:<attempt>", "message": ..., "age": n}]}``:
+# the recently finished tasks, newest change first, each with a fixed sentence built from the
+# type's label and the outcome and the whole seconds since it finished (by the app's clock),
+# for the page to announce once.
+
+INDICATOR = "/tasks/indicator"
+COUNT_ID = "tasks-count"
+FINISHED = "tasks:finished"
+NONE_RUNNING = "No tasks running"
+SEE_WHY = "Open Tasks to see why."
+
+
+def count_text(response: Response) -> str:
+    assert response.status_code == 200, (response.status_code, response.text[:300])
+    elements = outline(response.text)
+    assert elements[0].attrs.get("id") == COUNT_ID, "the fragment's root comes first"
+    assert all(e.within(elements[0]) for e in elements[1:]), "one root element"
+    return elements[0].text
+
+
+def finished(response: Response) -> list[dict[str, str]]:
+    fired = triggers(response)
+    assert sorted(fired) == [FINISHED], fired
+    assert sorted(fired[FINISHED]) == ["tasks"], fired
+    found: list[dict[str, str]] = fired[FINISHED]["tasks"]
+    return found
+
+
+def test_indicator_counts_queued_and_running_in_words(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with serving(tmp_path, monkeypatch) as tasks:
+        empty = tasks.get(INDICATOR)
+        assert count_text(empty) == NONE_RUNNING
+        assert finished(empty) == [], "sent even when empty, so a page knows it has asked"
+
+        tasks.add("succeeded")
+        tasks.add("failed", error=NetworkUnavailable.kind)
+        assert count_text(tasks.get(INDICATOR)) == NONE_RUNNING
+        first = tasks.add("queued")
+        assert count_text(tasks.get(INDICATOR)) == "1 queued"
+        second = tasks.add("queued", task_type=DRAFT)
+        assert count_text(tasks.get(INDICATOR)) == "2 queued"
+        with tasks.db.transaction() as conn:
+            assert tasks_repo.transition(
+                conn, first, [TaskStatus.QUEUED], TaskStatus.RUNNING, now=tasks._now()
+            )
+        assert count_text(tasks.get(INDICATOR)) == "1 running, 1 queued"
+        tasks.add("running", cancel_requested=True, task_type=DRAFT, target="fictional-other")
+        response = tasks.get(INDICATOR)
+        assert count_text(response) == "2 running, 1 queued", "a task being cancelled still runs"
+        with tasks.db.transaction() as conn:
+            assert tasks_repo.transition(
+                conn, second, [TaskStatus.QUEUED], TaskStatus.CANCELLED, now=tasks._now()
+            )
+        assert count_text(tasks.get(INDICATOR)) == "2 running"
+        assert response.headers["content-type"].startswith("text/html")
+        for raw in (ECHO, DRAFT, "succeeded", "cancel"):
+            assert raw not in response.text
+
+
+def test_indicator_lists_finished_tasks_with_fixed_sentences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with serving(tmp_path, monkeypatch) as tasks:
+        done = tasks.add("succeeded", result_ref="fictional:1")
+        failed = tasks.add("failed", task_type=DRAFT, error=HOSTILE)
+        cancelled = tasks.add("cancelled")
+        interrupted = tasks.add("interrupted", task_type=DRAFT)
+        gone = tasks.add("failed", task_type=GONE, error="UnknownTaskType")
+        tasks.add("queued")
+        tasks.add("running")
+
+        response = tasks.get(INDICATOR)
+        assert finished(response) == [
+            {"key": f"{gone}:1", "message": f"{NEUTRAL_LABEL} failed. {SEE_WHY}", "age": 2},
+            {"key": f"{interrupted}:1", "message": f"{DRAFT_LABEL} was interrupted.", "age": 3},
+            {"key": f"{cancelled}:1", "message": f"{ECHO_LABEL} cancelled.", "age": 4},
+            {"key": f"{failed}:1", "message": f"{DRAFT_LABEL} failed. {SEE_WHY}", "age": 5},
+            {"key": f"{done}:1", "message": f"{ECHO_LABEL} finished.", "age": 6},
+        ]
+        # The age follows the app's clock, in whole seconds, and is never negative.
+        tasks.practice.clock.advance(timedelta(seconds=54, milliseconds=900))
+        assert [task["age"] for task in finished(tasks.get(INDICATOR))] == [56, 57, 58, 59, 60]
+        tasks.practice.clock.advance(timedelta(hours=-1))
+        assert [task["age"] for task in finished(tasks.get(INDICATOR))] == [0, 0, 0, 0, 0]
+        tasks.practice.clock.advance(timedelta(hours=1, milliseconds=100))
+        raw = response.headers["hx-trigger"] + response.text
+        for part in (*HOSTILE_PARTS, ECHO, DRAFT, GONE, "fictional:1"):
+            assert part not in raw, part
+
+        # A retry is a new attempt: the same task can be announced again when it ends.
+        retried = tasks.post(f"/tasks/{failed}/retry")
+        assert retried.status_code == 200
+        assert f"{failed}:1" not in [task["key"] for task in finished(tasks.get(INDICATOR))]
+        with tasks.db.transaction() as conn:
+            now = tasks._now()
+            assert tasks_repo.transition(
+                conn, failed, [TaskStatus.QUEUED], TaskStatus.CANCELLED, now=now
+            )
+        assert finished(tasks.get(INDICATOR))[0] == {
+            "key": f"{failed}:2",
+            "message": f"{DRAFT_LABEL} cancelled.",
+            "age": 0,
+        }
+
+
+def test_indicator_requires_token_and_is_a_fragment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with serving(tmp_path, monkeypatch) as tasks:
+        task_id = tasks.add("succeeded")
+        client = tasks.run.client
+        for headers in (
+            {},
+            {"HX-Request": "true"},
+            {"origin": ORIGIN},
+            {TOKEN_HEADER: "fictional-wrong-token"},
+        ):
+            refused = client.get(INDICATOR, headers=headers)
+            assert refused.status_code == 403, (headers, refused.status_code)
+            assert "hx-trigger" not in refused.headers
+            assert COUNT_ID not in refused.text and task_id not in refused.text
+        assert client.get(f"{INDICATOR}?token={tasks.run.token}").status_code == 403
+
+        htmx = tasks.get(INDICATOR)
+        plain = tasks.get(INDICATOR, htmx=False)
+        restore = client.get(
+            INDICATOR, headers=tasks.run.htmx(**{"HX-History-Restore-Request": "true"})
+        )
+        for response in (htmx, plain, restore):
+            assert count_text(response) == NONE_RUNNING
+            assert_fragment_only(response.text)
+            assert tasks.run.token not in response.text
+            assert "hx-headers" not in response.text
+            assert finished(response) == [
+                {"key": f"{task_id}:1", "message": "Echo check finished.", "age": 0}
+            ]
+        assert plain.text == htmx.text == restore.text
+        assert client.post(INDICATOR, headers=tasks.run.action()).status_code == 405
+
+
+def test_indicator_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spec 2.9 rule 12: asking for the count changes no row and creates no file."""
+    with serving(tmp_path, monkeypatch) as tasks:
+        tasks.add("queued")
+        tasks.add("running", progress=30)
+        tasks.add("succeeded", result_ref="fictional:2")
+        tasks.add("failed", error=UsageLimitReached.kind)
+        tasks.add("cancelled")
+        tasks.add("interrupted")
+        data_dir = tasks.practice.app.state.workspace.db.path.parent
+        before = database_state(data_dir)
+
+        for _ in range(2):
+            for htmx in (True, False):
+                assert tasks.get(INDICATOR, htmx=htmx).status_code == 200
+
+        assert database_state(data_dir) == before
+        assert tasks.practice.fake.requests == []
+        assert tasks.practice.usage_rows() == []
+
+
+def test_indicator_without_workspace_or_with_unsafe_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with serving(tmp_path, monkeypatch) as tasks:
+        tasks.ids = _FixedId("fictional.unsafe:id")  # type: ignore[assignment]
+        tasks.add("failed", error=None)
+        response = tasks.get(INDICATOR)
+        assert finished(response) == [], "an id of another shape is never sent to the page"
+
+        tasks.ids = SequentialIdFactory("t")
+        tasks.add("running")
+        assert count_text(tasks.get(INDICATOR)) == "1 running"
+        monkeypatch.setattr(tasks.practice.app.state, "workspace", None)
+        closed = tasks.get(INDICATOR)
+        assert count_text(closed) == NONE_RUNNING
+        assert finished(closed) == []
+
+
+def test_registered_task_labels_are_short_single_line_constants(tmp_path: Path) -> None:
+    """A label ends up in the panel, in an announcement and in a response header (M2.20)."""
+    with practising(tmp_path) as practice:
+        specs = dict(practice.app.state.task_registry.specs())
+    assert specs, "the app registers at least the practice task here"
+    for task_type, spec in specs.items():
+        label = spec.label
+        assert label == label.strip() and 1 <= len(label) <= 40, (task_type, label)
+        assert label.isprintable() and "\n" not in label, (task_type, label)
+        assert not label.endswith("."), f"{task_type}: sentences are built around the label"
+
+
+def test_page_load_shows_the_current_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The top bar is right before the first event: the page itself carries the count."""
+    with serving(tmp_path, monkeypatch) as tasks:
+        tasks.add("running", progress=10)
+        tasks.add("queued", task_type=DRAFT)
+        tasks.add("failed", error=NetworkUnavailable.kind)
+        for path in ("/", "/settings"):
+            page = tasks.run.client.get(path)
+            assert page.status_code == 200, path
+            shown = by_id(outline(page.text), COUNT_ID)
+            assert shown is not None and shown.text == "1 running, 1 queued", path
+        guide = tasks.run.client.get("/setup/welcome")
+        assert by_id(outline(guide.text), COUNT_ID) is None

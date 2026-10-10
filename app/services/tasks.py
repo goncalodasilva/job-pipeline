@@ -163,6 +163,13 @@ class TaskService:
         with self._db.read() as conn:
             return tasks_repo.list_recent(conn, limit)
 
+    def active_counts(self) -> tuple[int, int]:
+        """How many tasks are running and how many are queued, in that order."""
+        with self._db.read() as conn:
+            rows = tasks_repo.list_active(conn)
+        running = sum(1 for row in rows if row.status == TaskStatus.RUNNING)
+        return running, len(rows) - running
+
     # --- when a workspace opens -----------------------------------------------------------
 
     def recover_interrupted(self) -> int:

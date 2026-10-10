@@ -21,6 +21,12 @@ and origin and answer the task's fragment with focus on its status and the outco
 there is one), or 409 with the task as it is and the reason when it can't be retried. Those
 last two also trigger ``tasks:resync``, so whatever lists tasks refetches.
 
+``GET /tasks/indicator`` (M2.20; token; changes nothing) answers the top bar's count of
+queued and running tasks in words. Its ``HX-Trigger`` always fires ``tasks:finished`` with
+the recently finished tasks (``{"tasks": [{"key", "message", "age"}]}``: id and attempt, a
+fixed sentence from the type's label and the outcome, and the whole seconds since it
+finished), which the page announces once each.
+
 Only an id of the safe shape (``is_task_id``) is looked up. Anything else, and any id that
 isn't a task, answers 404 with one fixed fragment that repeats nothing from the request. The
 id is a ``path`` parameter so that a GET, or a POST ending in ``/cancel`` or ``/retry``, with
@@ -64,6 +70,7 @@ def register_task_routes(app: FastAPI) -> None:
     # After the fixed paths above, which the id parameter would otherwise take.
     routes = (
         ("/tasks/panel", tasks_panel, "GET", "tasks_panel"),
+        (INDICATOR_PATH, tasks_indicator, "GET", "tasks_indicator"),
         ("/tasks/{task_id:path}/cancel", cancel_task, "POST", "tasks_cancel"),
         ("/tasks/{task_id:path}/retry", retry_task, "POST", "tasks_retry"),
         ("/tasks/{task_id:path}", show_task, "GET", "tasks_show"),
@@ -110,6 +117,8 @@ def _not_offered() -> PlainTextResponse:
 # database reads never block the event loop.
 
 RESYNC_EVENT = "tasks:resync"
+INDICATOR_PATH = "/tasks/indicator"
+FINISHED_EVENT = "tasks:finished"
 
 
 def _views(request: Request) -> TaskViews:
@@ -152,6 +161,18 @@ def tasks_panel(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request, "fragments/tasks/_panel.html", {"tasks": _views(request).panel()}
     )
+
+
+def tasks_indicator(request: Request) -> HTMLResponse:
+    indicator = _views(request).indicator()
+    response = templates.TemplateResponse(
+        request, "fragments/tasks/_indicator.html", {"count": indicator.count}
+    )
+    finished = [
+        {"key": task.key, "message": task.message, "age": task.age} for task in indicator.finished
+    ]
+    response.headers["HX-Trigger"] = json.dumps({FINISHED_EVENT: {"tasks": finished}})
+    return response
 
 
 def show_task(request: Request, task_id: str) -> HTMLResponse:

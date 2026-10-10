@@ -74,18 +74,21 @@
   });
 
   // A 403 means this page holds an old launch token, usually because the app restarted.
+  // The tasks panel's own refetch is not "that last action": it reports inside the panel.
   document.body.addEventListener("htmx:responseError", function (event) {
     var xhr = event.detail && event.detail.xhr;
     if (xhr && xhr.status === 403) {
       showProblem("restarted", true);
+    } else if (isTasksPanelFetch(event)) {
+      showTasksError();
     } else {
       showProblem("failed", false);
     }
   });
 
   // No response at all: the app was stopped or the connection dropped.
-  document.body.addEventListener("htmx:sendError", function () {
-    showProblem("offline", false);
+  document.body.addEventListener("htmx:sendError", function (event) {
+    if (isTasksPanelFetch(event)) showTasksError(); else showProblem("offline", false);
   });
 
   // Fragments mark the element that should receive focus after a swap with data-autofocus.
@@ -100,6 +103,222 @@
     // Only elements that can't take focus get tabindex="-1"; controls keep their Tab order.
     if (target.tabIndex < 0 && !target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     target.focus();
+  });
+
+  // The top-bar task indicator (M2.20): #tasks-toggle is a disclosure button for the non-modal
+  // #tasks-popover. Opening moves no focus. The panel closes on Esc (focus goes to the button
+  // only when it was on it or in the panel), on a pointer press outside the two, and when
+  // keyboard focus moves from them to something else. Only app pages have them.
+  //
+  // The popover is the one element that fetches the panel: on the body's task events and on
+  // "tasks:refresh" from here (see its hx-trigger). Closed, it fetches nothing.
+  var tasksToggle = document.getElementById("tasks-toggle");
+  var tasksPopover = document.getElementById("tasks-popover");
+  var tasksSlot = tasksToggle ? tasksToggle.parentElement : null;
+  var TASKS_POLL_MS = 2000;
+  var tasksTimer = null;
+  var tasksPaused = false; // a request from the panel failed: no timed refetch until one works
+
+  function isTasksPanelFetch(event) {
+    return !!tasksPopover && !!event.detail && event.detail.elt === tasksPopover;
+  }
+
+  // The message is in the template (spec 3.10); it is said once each time it appears.
+  function showTasksError() {
+    var line = document.getElementById("tasks-error");
+    if (!line || !line.hidden) return;
+    line.hidden = false;
+    announce(line.textContent.trim());
+  }
+
+  function hideTasksError() {
+    var line = document.getElementById("tasks-error");
+    if (line) line.hidden = true;
+  }
+
+  function refreshTasksPanel() {
+    tasksPopover.dispatchEvent(new CustomEvent("tasks:refresh"));
+  }
+
+  // Progress is saved without an event, so the open panel asks again every two seconds while
+  // it shows a task that is queued or running (those have a progress bar). An idle or closed
+  // panel, a hidden tab and a panel whose last request failed ask nothing.
+  function pollTasksPanel() {
+    if (tasksPaused || document.visibilityState === "hidden") return;
+    if (tasksPopover.querySelector("progress")) refreshTasksPanel();
+  }
+
+  // A panel with no control in it is a Tab stop itself, so its list can be scrolled by
+  // keyboard; with one, Tab goes from the button straight to the first control.
+  function syncTasksTabStop() {
+    if (tasksPopover.querySelector("button, a[href]")) {
+      tasksPopover.removeAttribute("tabindex");
+    } else {
+      tasksPopover.setAttribute("tabindex", "0");
+    }
+  }
+
+  function setTasksOpen(open) {
+    if (open === !tasksPopover.hidden) return;
+    tasksPopover.hidden = !open;
+    tasksToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    window.clearInterval(tasksTimer);
+    tasksTimer = null;
+    if (!open) return;
+    tasksPaused = false;
+    hideTasksError();
+    syncTasksTabStop();
+    refreshTasksPanel();
+    tasksTimer = window.setInterval(pollTasksPanel, TASKS_POLL_MS);
+  }
+
+  if (tasksToggle && tasksPopover && tasksSlot) {
+    tasksToggle.addEventListener("click", function () {
+      setTasksOpen(tasksToggle.getAttribute("aria-expanded") !== "true");
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" || event.defaultPrevented || tasksPopover.hidden) return;
+      var inside = tasksSlot.contains(document.activeElement);
+      event.preventDefault();
+      setTasksOpen(false);
+      if (inside) tasksToggle.focus();
+    });
+    // Focus that moves to another element closes the panel. Focus that just goes away (its
+    // element was replaced, or the window lost focus) names no other element and doesn't.
+    tasksSlot.addEventListener("focusout", function (event) {
+      var next = event.relatedTarget;
+      if (next instanceof Element && !tasksSlot.contains(next)) setTasksOpen(false);
+    });
+    // Closed, the panel asks for nothing: only the count follows the task events.
+    document.body.addEventListener("htmx:beforeRequest", function (event) {
+      if (isTasksPanelFetch(event) && tasksPopover.hidden) event.preventDefault();
+    });
+    function pauseTasksPolling(event) {
+      var from = event.detail && event.detail.elt;
+      if (from instanceof Element && tasksPopover.contains(from)) tasksPaused = true;
+    }
+    document.body.addEventListener("htmx:responseError", pauseTasksPolling);
+    document.body.addEventListener("htmx:sendError", pauseTasksPolling);
+
+    // A refetched panel that says what the page already shows is not swapped in: replacing
+    // a button loses a click or key press that is under way, and for a moment the new one
+    // isn't wired up. What is compared is every id and the text; only the progress values
+    // may differ, and those are copied into the bars already on the page.
+    function tasksSignature(panel) {
+      var ids = [];
+      panel.querySelectorAll("[id]").forEach(function (element) { ids.push(element.id); });
+      var copy = panel.cloneNode(true);
+      copy.querySelectorAll("progress").forEach(function (bar) { bar.remove(); });
+      return ids.join(" ") + "|" + copy.textContent.replace(/\s+/g, " ").trim();
+    }
+    document.body.addEventListener("htmx:beforeSwap", function (event) {
+      var detail = event.detail || {};
+      var shown = detail.target;
+      if (!shown || shown.id !== "tasks-panel" || !detail.shouldSwap || detail.isError) return;
+      tasksPaused = false;
+      hideTasksError();
+      if (typeof detail.serverResponse !== "string" || !window.DOMParser) return;
+      var parsed = new DOMParser().parseFromString(detail.serverResponse, "text/html");
+      var fresh = parsed.getElementById("tasks-panel");
+      if (!fresh || tasksSignature(fresh) !== tasksSignature(shown)) return;
+      fresh.querySelectorAll("progress[id]").forEach(function (bar) {
+        var same = document.getElementById(bar.id);
+        if (!same || !shown.contains(same)) return;
+        same.setAttribute("value", bar.getAttribute("value") || "0");
+        same.textContent = bar.textContent;
+      });
+      detail.shouldSwap = false;
+    });
+
+    // A refresh replaces the panel's content, and an answer to Cancel or Retry replaces a
+    // task. Keyboard focus that was inside the panel is never left on <body>: it goes to the
+    // new element with the same id, else to what the answer marks with data-autofocus, else
+    // to the button. A removed element fires no event, so the last element focused in the
+    // panel is remembered until focus goes elsewhere or the user presses outside the panel.
+    var tasksFocusId = null; // "" for an element without an id
+    document.addEventListener("focusin", function (event) {
+      var inside = event.target instanceof Element && tasksPopover.contains(event.target);
+      tasksFocusId = inside ? event.target.id : null;
+    });
+    document.addEventListener("pointerdown", function (event) {
+      var target = event.target;
+      if (!(target instanceof Element) || !tasksPopover.contains(target)) tasksFocusId = null;
+      if (!(target instanceof Node) || !tasksSlot.contains(target)) setTasksOpen(false);
+    });
+    function restoreTasksFocus() {
+      if (tasksFocusId === null || tasksPopover.hidden) return;
+      var active = document.activeElement;
+      if (active && active !== document.body && document.body.contains(active)) return; // kept
+      var next = tasksFocusId ? document.getElementById(tasksFocusId) : null;
+      if (!next || !tasksPopover.contains(next)) next = tasksPopover.querySelector("[data-autofocus]");
+      if (next) {
+        if (next.tabIndex < 0 && !next.hasAttribute("tabindex")) next.setAttribute("tabindex", "-1");
+        next.focus();
+      }
+      if (!next || document.activeElement !== next) tasksToggle.focus();
+    }
+    // htmx wires up swapped-in content only when the swap settles, 20 ms later; until then a
+    // new Cancel or Retry would ignore a click or key press, and focus would wait on <body>.
+    // In the panel both happen at once, and again at the settle in case that changed things.
+    document.body.addEventListener("htmx:afterSwap", function (event) {
+      if (!(event.target instanceof Element) || !tasksPopover.contains(event.target)) return;
+      if (window.htmx) window.htmx.process(event.target);
+      syncTasksTabStop();
+      restoreTasksFocus();
+    });
+    document.body.addEventListener("htmx:afterSettle", restoreTasksFocus);
+  }
+
+  // Finished tasks are announced once (M2.20). Every answer to the indicator's request fires
+  // "tasks:finished" with the recently finished tasks: { tasks: [{ key, message }] }, the key
+  // being the task's id and attempt and the message a fixed sentence from the server. The
+  // keys already dealt with are kept in localStorage (keys only, never a message; the newest
+  // 50), so a reload or another tab says nothing again; without storage they are kept for
+  // this page. The first answer a page gets is what happened before it was opened: its keys
+  // are remembered, and only a task that finished in the last 10 seconds is said (it may have
+  // ended while the browser was going from one page to the next). "age" is the server's
+  // count of whole seconds since the task finished.
+  var ANNOUNCED_KEY = "jobpipeline-tasks-announced";
+  var ANNOUNCED_MAX = 50;
+  var ANNOUNCE_RECENT_S = 10;
+  var announcedHere = [];
+  var announcedBaseline = false;
+
+  function storedAnnounced() {
+    try {
+      var stored = JSON.parse(window.localStorage.getItem(ANNOUNCED_KEY) || "[]");
+      if (!Array.isArray(stored)) return [];
+      return stored.filter(function (key) { return typeof key === "string"; });
+    } catch (error) {
+      return []; // no storage, or something else wrote there
+    }
+  }
+
+  function rememberAnnounced(known, keys) {
+    announcedHere = known.concat(keys).filter(function (key, index, all) {
+      return all.indexOf(key) === index;
+    }).slice(-ANNOUNCED_MAX);
+    try {
+      window.localStorage.setItem(ANNOUNCED_KEY, JSON.stringify(announcedHere));
+    } catch (error) { /* kept for this page only */ }
+  }
+
+  document.body.addEventListener("tasks:finished", function (event) {
+    var tasks = event.detail && event.detail.tasks;
+    if (!Array.isArray(tasks)) return;
+    var known = storedAnnounced().concat(announcedHere);
+    var fresh = tasks.filter(function (task) {
+      return task && typeof task.key === "string" && typeof task.message === "string" &&
+        known.indexOf(task.key) < 0;
+    }).reverse(); // the server lists the newest first; say them in the order they ended
+    var first = !announcedBaseline;
+    announcedBaseline = true;
+    if (!fresh.length) return;
+    rememberAnnounced(known, fresh.map(function (task) { return task.key; }));
+    var said = fresh.filter(function (task) {
+      return !first || (typeof task.age === "number" && task.age <= ANNOUNCE_RECENT_S);
+    });
+    if (said.length) announce(said.map(function (task) { return task.message; }).join(" "));
   });
 
   // Live updates (ADR-076 item 1, ADR-077): the server streams events at the URL in

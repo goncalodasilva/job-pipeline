@@ -18,6 +18,7 @@ from starlette.templating import Jinja2Templates
 from app.api.security import TOKEN_HEADER
 from app.onboarding.registry import PROVIDER, StepRegistry
 from app.onboarding.startup import OnboardingState
+from app.services.task_views import NONE_RUNNING, TaskViews
 
 _APP_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = _APP_DIR / "templates"
@@ -52,9 +53,15 @@ def render(request: Request, *, page: str, fragment: str, ctx: dict[str, Any]) -
     if headers.get("HX-Request") == "true" and headers.get("HX-History-Restore-Request") != "true":
         return templates.TemplateResponse(request, fragment, ctx)
     hx_headers = json.dumps({TOKEN_HEADER: request.app.state.launch_token})
-    return templates.TemplateResponse(
-        request, page, {**ctx, "hx_headers": hx_headers, "banners": _banners(request)}
-    )
+    shell = {"hx_headers": hx_headers, "banners": _banners(request), "tasks_count": _tasks_count}
+    return templates.TemplateResponse(request, page, {**ctx, **shell})
+
+
+def _tasks_count(request: Request) -> str:
+    """The top bar's count of running and queued tasks (M2.20), read only when a page with
+    the app's top bar is rendered (the setup guide's never asks)."""
+    views: TaskViews | None = getattr(request.app.state, "task_views", None)
+    return views.count() if views is not None else NONE_RUNNING
 
 
 def _banners(request: Request) -> list[dict[str, str]]:

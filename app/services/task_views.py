@@ -7,7 +7,9 @@ shown: any other id, asked for or stored, is treated as no task.
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
+from app.domain.clock import Clock
 from app.domain.errors import TaskNotRetryable, message_for_kind
 from app.domain.tasks import RETRY_FROM, TaskStatus, is_task_id
 from app.services.tasks import TaskRow, TaskService
@@ -23,10 +25,20 @@ MSG_INTERRUPTED = (
     "This task stopped before it finished, for example because the app closed. "
     "Retry to run it again."
 )
-MSG_CANCELLED = "Task cancelled."
 MSG_CANCELLING = "Cancelling the task."
 MSG_REQUEUED = "Task queued again."
 MSG_ALREADY_ACTIVE = "This task is already queued or running."
+
+NONE_RUNNING = "No tasks running"
+
+# How a finished task is announced: "<label> <outcome>" (M2.20). The reason for a failure
+# is in the panel, so the sentence says where to look.
+_OUTCOMES = {
+    TaskStatus.SUCCEEDED: "finished.",
+    TaskStatus.FAILED: "failed. Open Tasks to see why.",
+    TaskStatus.CANCELLED: "cancelled.",
+    TaskStatus.INTERRUPTED: "was interrupted.",
+}
 
 _WORDS = {
     TaskStatus.QUEUED: "Queued",
@@ -65,6 +77,44 @@ class ActionView:
     it isn't in, or ``task`` is another task that may already be listed."""
 
 
+@dataclass(frozen=True)
+class FinishedView:
+    """A finished task for the page to announce once."""
+
+    key: str
+    """The task's id and attempt: a retry that ends is news again."""
+    message: str
+    age: int | None
+    """Whole seconds since it finished, by the app's clock; None when that isn't known."""
+
+
+@dataclass(frozen=True)
+class IndicatorView:
+    """What the top-bar indicator shows (M2.20)."""
+
+    count: str
+    """The running and the queued tasks counted, in words."""
+    finished: tuple[FinishedView, ...]
+    """The recently finished tasks, newest change first."""
+
+
+def _count_words(running: int, queued: int) -> str:
+    """ "1 running", "2 queued", "1 running, 1 queued"; "No tasks running" when idle."""
+    parts = [
+        f"{count} {word}" for count, word in ((running, "running"), (queued, "queued")) if count
+    ]
+    return ", ".join(parts) or NONE_RUNNING
+
+
+def _age(finished_at: str | None, now: datetime) -> int | None:
+    if finished_at is None:
+        return None
+    try:
+        return max(0, int((now - datetime.fromisoformat(finished_at)).total_seconds()))
+    except (ValueError, TypeError):  # not a time, or one without a zone
+        return None
+
+
 def _reason(row: TaskRow) -> str | None:
     if row.status == TaskStatus.FAILED:
         return message_for_kind(row.error)
@@ -101,9 +151,11 @@ class TaskViews:
         self,
         tasks: Callable[[], TaskService | None],
         label_for: Callable[[str], str | None],
+        clock: Clock,
     ) -> None:
         self._tasks = tasks
         self._label_for = label_for
+        self._clock = clock
 
     def _view(self, row: TaskRow, *, reason: str | None = None) -> TaskView | None:
         return task_view(row, self._label_for(row.type), reason=reason)
@@ -120,6 +172,29 @@ class TaskViews:
         views = (self._view(row) for row in service.recent(PANEL_LIMIT))
         return [view for view in views if view is not None]
 
+    def indicator(self) -> IndicatorView:
+        """The running count and the finished tasks among those the panel lists. Reads only.
+        A sentence holds a registered label and a fixed word, never anything stored."""
+        service = self._tasks()
+        if service is None:
+            return IndicatorView(_count_words(0, 0), ())
+        now = self._clock.now()
+        finished = tuple(
+            FinishedView(
+                key=f"{row.id}:{row.attempt}",
+                message=f"{self._label_for(row.type) or NEUTRAL_LABEL} {_OUTCOMES[row.status]}",
+                age=_age(row.finished_at, now),
+            )
+            for row in service.recent(PANEL_LIMIT)
+            if row.status in _OUTCOMES and is_task_id(row.id)
+        )
+        return IndicatorView(_count_words(*service.active_counts()), finished)
+
+    def count(self) -> str:
+        """The indicator's count alone, for a page being rendered. Reads only."""
+        service = self._tasks()
+        return _count_words(*service.active_counts()) if service is not None else NONE_RUNNING
+
     def get(self, task_id: str) -> TaskView | None:
         """One task, or None when there is none with that id. Reads only."""
         service = self._service(task_id)
@@ -128,14 +203,13 @@ class TaskViews:
 
     def cancel(self, task_id: str) -> ActionView | None:
         """Ask for a cancel and show the task as it is afterwards (unchanged when it had
-        already finished). None when there is no such task."""
+        already finished). None when there is no such task. Only "cancelling" is announced
+        from here: a task that has ended is announced once, by the indicator."""
         service = self._service(task_id)
         row = service.request_cancel(task_id) if service is not None else None
         view = None if row is None else self._view(row)
         if row is None or view is None:
             return None
-        if row.status == TaskStatus.CANCELLED:
-            return ActionView(view, MSG_CANCELLED)
         if row.status == TaskStatus.RUNNING and row.cancel_requested:
             return ActionView(view, MSG_CANCELLING)
         return ActionView(view)

@@ -19,9 +19,9 @@
   <span id="task-{{ task.id }}-result" class="task-result"></span>
   {% endif %}
   {% if task.can_cancel %}
-  <button type="button" id="task-{{ task.id }}-cancel" class="button" hx-post="/tasks/{{ task.id }}/cancel" hx-target="#task-{{ task.id }}" hx-swap="outerHTML">Cancel</button>
+  <button type="button" id="task-{{ task.id }}-cancel" class="button" aria-describedby="task-{{ task.id }}-label" hx-post="/tasks/{{ task.id }}/cancel" hx-target="#task-{{ task.id }}" hx-swap="outerHTML">Cancel</button>
   {% endif %}
   {% if task.can_retry %}
-  <button type="button" id="task-{{ task.id }}-retry" class="button" hx-post="/tasks/{{ task.id }}/retry" hx-target="#task-{{ task.id }}" hx-swap="outerHTML">Retry</button>
+  <button type="button" id="task-{{ task.id }}-retry" class="button" aria-describedby="task-{{ task.id }}-label" hx-post="/tasks/{{ task.id }}/retry" hx-target="#task-{{ task.id }}" hx-swap="outerHTML">Retry</button>
   {% endif %}
 </div>

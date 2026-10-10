@@ -694,6 +694,7 @@ def create_app(
             else None
         ),
         label_for=_task_labels(handlers),
+        clock=app_clock,
     )
     if task_registry is None and app_wiring.allow_fakes:  # the default registry only
         handlers.register(
