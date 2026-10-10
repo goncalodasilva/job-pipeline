@@ -230,3 +230,40 @@ def test_create_app_default_registry_refuses_type_within_provider_run_timeout(
     assert registry.get(ECHO) is None
     registry.register(ECHO, TaskTypeSpec(timeout=timedelta(minutes=6), label="Echo"), Echo())
     assert registry.get(ECHO) is not None
+
+
+def _registry_with(timeout: timedelta) -> Any:
+    from app.domain.tasks import TaskTypeSpec
+    from app.tasks.handlers import HandlerRegistry
+
+    registry = HandlerRegistry()
+    registry.register(ECHO, TaskTypeSpec(timeout=timeout, label="Echo"), Echo())
+    return registry
+
+
+def test_create_app_refuses_type_shorter_than_run_plus_close(tmp_path: Path) -> None:
+    """A provider call may last PROVIDER_RUN_TIMEOUT plus the client's bounded close, so a
+    type just past the run timeout is still too short (TASK_TIMEOUT_FLOOR)."""
+    from app.wiring import PROVIDER_RUN_TIMEOUT
+
+    with pytest.raises(ValueError):
+        app_main.create_app(
+            _config(tmp_path, "cli"),
+            clock=FrozenClock(START),
+            migrations_dir=MIGRATIONS_DIR,
+            task_registry=_registry_with(PROVIDER_RUN_TIMEOUT + timedelta(seconds=10)),
+        )
+
+
+def test_create_app_accepts_type_above_task_timeout_floor(tmp_path: Path) -> None:
+    from app.modules.ai.providers.claude_sdk import DISCONNECT_TIMEOUT_SECONDS
+    from app.wiring import PROVIDER_RUN_TIMEOUT, TASK_TIMEOUT_FLOOR
+
+    assert PROVIDER_RUN_TIMEOUT + timedelta(seconds=DISCONNECT_TIMEOUT_SECONDS) < TASK_TIMEOUT_FLOOR
+    app = app_main.create_app(
+        _config(tmp_path, "cli"),
+        clock=FrozenClock(START),
+        migrations_dir=MIGRATIONS_DIR,
+        task_registry=_registry_with(TASK_TIMEOUT_FLOOR + timedelta(seconds=1)),
+    )
+    assert app.state.task_registry.get(ECHO) is not None

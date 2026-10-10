@@ -524,7 +524,9 @@ class ClaudeSdkProvider:
     user's sign-in lives); the folder is removed after the call. ``client_factory`` builds
     the SDK client (tests inject one with a replaying transport); ``cli_path`` finds the CLI
     at call time (a per-instance ``CliResolver`` by default). ``test_connection`` gives up
-    after ``connection_timeout`` seconds, CLI lookup included.
+    after ``connection_timeout`` seconds, CLI lookup included. Every call, ``run`` and the
+    connection test alike, gives up after ``run_timeout`` (no limit when ``None``; the
+    earlier of the two applies) with ``NetworkUnavailable``, closing the client first.
     """
 
     name: Final = "claude"
@@ -541,6 +543,7 @@ class ClaudeSdkProvider:
         temp_root: Path | None = None,
         connection_timeout: float = CONNECTION_TIMEOUT_SECONDS,
         clock: Clock | None = None,
+        run_timeout: timedelta | None = None,
     ) -> None:
         self._secrets = secrets
         self._mode: AuthMode = mode
@@ -551,6 +554,7 @@ class ClaudeSdkProvider:
         self._temp_root = temp_root
         self._connection_timeout = connection_timeout
         self._clock: Clock = clock if clock is not None else SystemClock()
+        self._run_timeout = None if run_timeout is None else run_timeout.total_seconds()
 
     async def test_connection(self, model: str) -> ConnectionResult:
         """One tiny single-turn, no-tool request with fixed texts (AC-M1.3).
@@ -582,6 +586,7 @@ class ClaudeSdkProvider:
         if cancel.cancelled:
             raise CallCancelled
         credential = self._credential()
+        timeout = _earliest(timeout, self._run_timeout)
         # asyncio.timeout ties the provider to asyncio, which the app runs on (uvicorn).
         deadline = None if timeout is None else asyncio.get_running_loop().time() + timeout
         try:
@@ -662,6 +667,15 @@ class ClaudeSdkProvider:
         if mapped is not None:
             raise mapped
         return run.response(request.model)
+
+
+def _earliest(first: float | None, second: float | None) -> float | None:
+    """The shorter of two optional timeouts; ``None`` means no limit."""
+    if first is None:
+        return second
+    if second is None:
+        return first
+    return min(first, second)
 
 
 async def _receive(

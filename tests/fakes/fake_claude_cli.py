@@ -14,7 +14,12 @@ Behaviour:
   init frame, an assistant frame and a success result whose ``structured_output`` is
   ``{"ok": true}``. With ``JOBPIPELINE_FAKE_CLI_SCENARIO=auth_failed`` it answers with the
   CLI's authentication failure pair instead (assistant ``authentication_failed`` and a
-  401 error result) and exits 1 once stdin closes.
+  401 error result) and exits 1 once stdin closes. With ``silent`` it answers the control
+  protocol but sends nothing after the user frame, and exits once stdin closes; with
+  ``silent_ignore_eof`` it also ignores stdin closing and waits until it is signalled
+  (only a terminate or kill stops it). Both model a CLI that went quiet (M2.13).
+- Writes its own process id to the path in ``JOBPIPELINE_FAKE_CLI_PID`` (if set) when the
+  user frame arrives, so tests can check the process is gone afterwards.
 - When the user frame arrives, writes a JSON report to the path in
   ``JOBPIPELINE_FAKE_CLI_REPORT`` (if set): argv, cwd, the cwd listing, selected
   environment values (``None`` when absent), the listing of ``CLAUDE_CONFIG_DIR``, the
@@ -25,6 +30,7 @@ All content is fictional.
 
 import json
 import os
+import signal
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,6 +39,8 @@ VERSION_TEXT = "2.1.286 (Claude Code)"
 MODEL = "claude-haiku-fictional-cli"
 REPORT_VARIABLE = "JOBPIPELINE_FAKE_CLI_REPORT"
 SCENARIO_VARIABLE = "JOBPIPELINE_FAKE_CLI_SCENARIO"
+PID_VARIABLE = "JOBPIPELINE_FAKE_CLI_PID"
+SILENT_SCENARIOS = frozenset({"silent", "silent_ignore_eof"})
 REPORTED_VARIABLES = (
     "ANTHROPIC_API_KEY",
     "CLAUDE_CODE_OAUTH_TOKEN",
@@ -159,6 +167,18 @@ def _answer_auth_failed() -> None:
     )
 
 
+def _write_pid() -> None:
+    target = os.environ.get(PID_VARIABLE)
+    if target:
+        Path(target).write_text(str(os.getpid()), encoding="utf-8")
+
+
+def _wait_for_signal() -> None:
+    """Block until a signal ends the process (SIGTERM or SIGKILL by default)."""
+    while True:
+        signal.pause()
+
+
 def main(argv: list[str]) -> int:
     if "-v" in argv or "--version" in argv:
         print(VERSION_TEXT)
@@ -184,6 +204,9 @@ def main(argv: list[str]) -> int:
         elif kind == "user" and not answered:
             answered = True
             _write_report(argv, frame.get("message", {}).get("content"))
+            _write_pid()
+            if scenario in SILENT_SCENARIOS:
+                continue  # nothing is ever sent after the prompt
             _emit(
                 {
                     "type": "system",
@@ -202,6 +225,8 @@ def main(argv: list[str]) -> int:
                 _answer_auth_failed()
             else:
                 _answer_success()
+    if scenario == "silent_ignore_eof":
+        _wait_for_signal()
     return 1 if scenario == "auth_failed" else 0
 
 

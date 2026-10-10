@@ -42,6 +42,7 @@ from app.modules.ai.providers.claude_sdk import (
     CALL_FOLDER_PREFIX,
     CLAUDE_FAST_DEFAULT,
     CLAUDE_THOROUGH_DEFAULT,
+    DISCONNECT_TIMEOUT_SECONDS,
     SECRET_KEY_BY_MODE,
     ClaudeSdkProvider,
     bundled_cli_path,
@@ -66,7 +67,14 @@ from app.modules.secrets.providers.keyring_store import (
 )
 from app.modules.secrets.providers.redacting import register_environment_secrets
 
-__all__ = ["AI_TEMP_FOLDER", "PROVIDER_RUN_TIMEOUT", "Wiring", "build_wiring", "clear_ai_temp"]
+__all__ = [
+    "AI_TEMP_FOLDER",
+    "PROVIDER_RUN_TIMEOUT",
+    "TASK_TIMEOUT_FLOOR",
+    "Wiring",
+    "build_wiring",
+    "clear_ai_temp",
+]
 
 ALLOW_FAKES_VARIABLE: Final = "JOBPIPELINE_ALLOW_FAKE_PROVIDERS"
 AI_TEMP_FOLDER: Final = ("tmp", "ai")  # under the data folder (ADR-057)
@@ -74,8 +82,14 @@ PROMPTS_DIR: Final = Path(__file__).resolve().parent.parent / "prompts"
 OVERRIDES_FOLDER: Final = ("prompts", "overrides")
 # The overall limit on one provider run: M2.13 injects it into the Claude provider's
 # ``run``. Every task type's watchdog timeout must be longer (spec 5 M2 reliability rule 5),
-# so a slow but live run is never taken for a hung task.
+# so a slow but live run is never taken for a hung task; TASK_TIMEOUT_FLOOR adds the close.
 PROVIDER_RUN_TIMEOUT: Final = timedelta(minutes=5)
+# The shortest task-type timeout create_app accepts: a provider call may run for
+# PROVIDER_RUN_TIMEOUT and then spend up to DISCONNECT_TIMEOUT_SECONDS closing the client (the
+# CLI subprocess), plus a small margin, so the watchdog never interrupts a call still closing.
+TASK_TIMEOUT_FLOOR: Final = (
+    PROVIDER_RUN_TIMEOUT + timedelta(seconds=DISCONNECT_TIMEOUT_SECONDS) + timedelta(seconds=5)
+)
 
 _log = logging.getLogger(__name__)
 
@@ -158,6 +172,7 @@ class Wiring:
             mode=mode,
             temp_root=data_dir.joinpath(*AI_TEMP_FOLDER),
             clock=self.clock,
+            run_timeout=PROVIDER_RUN_TIMEOUT,
         )
 
     def fake_for_key(self, key: str | None) -> FakeAIProvider:
