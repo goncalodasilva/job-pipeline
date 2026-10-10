@@ -587,6 +587,12 @@ class ClaudeSdkProvider:
     ) -> AIResponse:
         if cancel.cancelled:
             raise CallCancelled
+        # ADR-080 (open item): this provider does not call ``AIRequest.on_tool_use`` yet
+        # (ADR-076 item 12, due before M8), so a real web search would run uncounted.
+        # Refused before the credential, the CLI and any client are touched. Remove this
+        # refusal when the hook is wired.
+        if request.allow_web_search:
+            raise ProviderRequestRejected(detail="web search not metered")
         credential = self._credential()
         timeout = _earliest(timeout, self._run_timeout)
         # asyncio.timeout ties the provider to asyncio, which the app runs on (uvicorn).
