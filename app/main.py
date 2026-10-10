@@ -266,6 +266,8 @@ def _attach_tasks(runner: TaskRunner, db: Database, *, clock: Clock, ids: IdFact
     def wake_runner(change: TaskChange) -> None:
         if change.status == TaskStatus.QUEUED:
             runner.notify()
+        elif change.status == TaskStatus.RUNNING:  # a claim or a cancel request
+            runner.notify_cancel(change.id)
 
     service = TaskService(db, clock, ids, _task_listeners(wake_runner))
     runner.attach(service, settings=SettingsService(db, clock).load(TASK_RUNNER).value)

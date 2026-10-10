@@ -30,6 +30,23 @@ the other types (and the loop) carry on. A task that went past its timeout witho
 heartbeat is interrupted even if its handler returns at that moment: whichever conditional
 update commits first wins, and a finish still in its worker thread is then refused. A
 watchdog loop that died is started again on the worker's next look.
+
+Cancellation (reliability rule 6): ``notify_cancel(task_id)`` (safe from any thread; the app
+calls it for every ``running`` change) makes the runner read the row's cancel flag when the
+task is a local handler still working; the runner also reads it once as it starts each
+handler, so a cancel requested between the claim and that start is not lost. When the flag is
+set the runner sets that task's ``CancelFlag`` and cancels the handler's asyncio task, which
+aborts an in-flight provider call. A heartbeat mirrors the flag too (a cancel from another
+process) and then raises ``TaskCancelled``. Once the flag is set the task ends cancelled
+however the handler ends (``TaskCancelled``, a provider's cancel error or an outside
+cancellation): no result, no error kind. A result returned anyway is refused by the database
+(a success needs ``cancel_requested = 0``) and the task ends cancelled. ``stop()`` and the
+watchdog cancel without setting the flag, and a flag read that comes back once ``stop()`` has
+begun is ignored, so their tasks end interrupted.
+
+Attempts never mix: a handler's heartbeats, flag reads and finish name its attempt, so a
+handler of an earlier attempt that outlives it (it swallowed a cancellation) never beats for,
+reads the flag of or finishes the next attempt of the same task.
 """
 
 import asyncio
@@ -72,7 +89,16 @@ class RunnerService(Protocol):
 
     def claim_next(self) -> ClaimedTask | None: ...
 
-    def heartbeat(self, task_id: str, *, progress: int | None = None) -> bool: ...
+    def heartbeat(
+        self,
+        task_id: str,
+        *,
+        progress: int | None = None,
+        attempt: int | None = None,
+        cancel_flag: CancelFlag | None = None,
+    ) -> bool: ...
+
+    def cancel_requested(self, task_id: str, *, attempt: int | None = None) -> bool: ...
 
     def interrupt_stale(self, task_type: str, timeout: timedelta) -> list[str]: ...
 
@@ -83,6 +109,7 @@ class RunnerService(Protocol):
         *,
         error: AppError | None = None,
         result_ref: str | None = None,
+        attempt: int | None = None,
     ) -> bool: ...
 
 
@@ -96,6 +123,8 @@ class _Attached:
 class _Running:
     service: RunnerService
     task_id: str
+    attempt: int
+    flag: CancelFlag = field(default_factory=CancelFlag)
     finishing: bool = field(default=False)  # the handler has ended; its outcome is being saved
 
 
@@ -104,6 +133,9 @@ class _Outcome:
     status: TaskStatus
     error: AppError | None = None
     result_ref: str | None = None
+
+
+_CANCELLED = _Outcome(TaskStatus.CANCELLED)
 
 
 class TaskRunner:
@@ -132,6 +164,8 @@ class TaskRunner:
         self._stopping: asyncio.Event | None = None
         self._worker: asyncio.Task[None] | None = None
         self._handlers: dict[asyncio.Task[None], _Running] = {}
+        self._probes: set[asyncio.Task[None]] = set()  # cancel-flag reads in flight
+        self._shutting_down = False  # stop() has begun: a flag read coming back is ignored
 
     @property
     def status(self) -> RunnerStatus:
@@ -156,11 +190,51 @@ class TaskRunner:
         with contextlib.suppress(RuntimeError):  # the loop has closed: nothing to wake
             loop.call_soon_threadsafe(wake.set)
 
+    def notify_cancel(self, task_id: str) -> None:
+        """A task's row changed while running (a claim or a cancel request); safe from any
+        thread, a no-op when stopped. When it is a local handler still working and its cancel
+        flag is set in the database, the handler is cancelled."""
+        with self._lock:
+            loop = self._loop
+        if loop is None:
+            return
+        with contextlib.suppress(RuntimeError):  # the loop has closed: nothing to cancel
+            loop.call_soon_threadsafe(self._probe_cancel, task_id)
+
     # --- on the event loop --------------------------------------------------------------
+
+    def _probe_cancel(self, task_id: str) -> None:
+        for task, entry in list(self._handlers.items()):
+            if entry.task_id == task_id:
+                self._start_probe(task, entry)
+
+    def _start_probe(self, task: "asyncio.Task[None]", entry: _Running) -> None:
+        if entry.finishing or entry.flag.cancelled or self._shutting_down:
+            return
+        probe = asyncio.create_task(self._read_cancel(task, entry), name="task-cancel")
+        self._probes.add(probe)
+        probe.add_done_callback(self._probes.discard)
+
+    async def _read_cancel(self, task: "asyncio.Task[None]", entry: _Running) -> None:
+        try:
+            requested = await asyncio.to_thread(
+                entry.service.cancel_requested, entry.task_id, attempt=entry.attempt
+            )
+        except Exception as error:
+            # Only the type: a database message could quote stored values.
+            _log.error("reading cancel of task %s failed (%s)", entry.task_id, type(error).__name__)
+            return
+        if not requested or entry.finishing or self._shutting_down:
+            return  # stop() ends a task interrupted even when a cancel was requested
+        # Both happen in this one step: the handler only resumes (with CancelledError) on a
+        # later turn of the loop, and by then its flag is already set.
+        entry.flag.cancel()
+        task.cancel()
 
     async def start(self) -> None:
         if self.status == "running":
             return
+        self._shutting_down = False
         wake, stopping = asyncio.Event(), asyncio.Event()
         with self._lock:
             self._loop, self._wake, self._stopping = asyncio.get_running_loop(), wake, stopping
@@ -170,6 +244,7 @@ class TaskRunner:
         """Stop claiming, cancel the handlers still working and end their tasks interrupted.
         A cancellation of ``stop()`` itself propagates without cancelling the worker; calling
         ``stop()`` again finishes the job."""
+        self._shutting_down = True
         worker, wake, stopping = self._worker, self._wake, self._stopping
         if worker is not None and wake is not None and stopping is not None:
             stopping.set()
@@ -186,6 +261,10 @@ class TaskRunner:
         if self._retry is not None:
             self._retry.cancel()
             self._retry = None
+        probes = list(self._probes)
+        for probe in probes:
+            probe.cancel()
+        await asyncio.gather(*probes, return_exceptions=True)
         await self._interrupt_handlers()
 
     async def _interrupt_handlers(self) -> None:
@@ -197,7 +276,8 @@ class TaskRunner:
         for entry in running.values():
             if not entry.finishing:
                 # Conditional: a task that already finished stays as it ended.
-                await self._finish(entry.service, entry.task_id, _Outcome(TaskStatus.INTERRUPTED))
+                interrupted = _Outcome(TaskStatus.INTERRUPTED)
+                await self._finish(entry.service, entry.task_id, entry.attempt, interrupted)
 
     async def _run(self, wake: asyncio.Event, stopping: asyncio.Event) -> None:
         delay = self._claim_retry_seconds
@@ -252,8 +332,18 @@ class TaskRunner:
         return interrupted
 
     def _cancel_local(self, task_ids: set[str]) -> None:
-        for task, entry in list(self._handlers.items()):
-            if entry.task_id in task_ids and not entry.finishing:
+        """Cancel the local handlers of the tasks just interrupted. The row that was running
+        holds the task's newest attempt, so only the newest local attempt of each task is
+        cancelled; an older one (a handler that outlived its attempt) is left alone."""
+        newest: dict[str, tuple[asyncio.Task[None], _Running]] = {}
+        for task, entry in self._handlers.items():
+            current = newest.get(entry.task_id)
+            if entry.task_id in task_ids and (
+                current is None or entry.attempt > current[1].attempt
+            ):
+                newest[entry.task_id] = (task, entry)
+        for task, entry in newest.values():
+            if not entry.finishing:
                 task.cancel()  # its slot comes back when the task ends
 
     def _ensure_watchdog(self) -> None:
@@ -276,9 +366,11 @@ class TaskRunner:
                 _log.error("watchdog check failed (%s)", type(error).__name__)
 
     def _spawn(self, attached: _Attached, claimed: ClaimedTask, wake: asyncio.Event) -> None:
-        running = _Running(attached.service, claimed.id)
+        running = _Running(attached.service, claimed.id, claimed.attempt)
         task = asyncio.create_task(self._execute(running, claimed), name=f"task-{claimed.id}")
         self._handlers[task] = running
+        # A cancel requested between the claim and now had no handler to reach: read it once.
+        self._start_probe(task, running)
 
         def done(finished: asyncio.Task[None]) -> None:
             self._handlers.pop(finished, None)
@@ -288,44 +380,58 @@ class TaskRunner:
         task.add_done_callback(done)
 
     async def _execute(self, running: _Running, claimed: ClaimedTask) -> None:
-        service = running.service
         entry = self._registry.get(claimed.type)
         if entry is None:
             _log.warning("task %s has no registered handler", claimed.id)
             failure = UnknownTaskType(detail="no handler")
             outcome = _Outcome(TaskStatus.FAILED, error=failure)
         else:
-            outcome = await self._call(service, claimed, entry[1])
+            outcome = await self._call(running, claimed, entry[1])
         running.finishing = True
         # Shielded: the outcome is saved even if this task is cancelled meanwhile.
-        await asyncio.shield(self._finish(service, claimed.id, outcome))
+        await asyncio.shield(self._save(running, outcome))
+
+    async def _save(self, running: _Running, outcome: _Outcome) -> None:
+        service, task_id, attempt = running.service, running.task_id, running.attempt
+        saved = await self._finish(service, task_id, attempt, outcome)
+        if outcome.status == TaskStatus.SUCCEEDED and saved is False:
+            # Refused: a cancel was requested before the success committed (also how a
+            # result returned after a cancel is discarded), or this attempt is no longer
+            # running (then this is refused too).
+            await self._finish(service, task_id, attempt, _CANCELLED)
 
     async def _call(
-        self, service: RunnerService, claimed: ClaimedTask, handler: TaskHandler
+        self, running: _Running, claimed: ClaimedTask, handler: TaskHandler
     ) -> _Outcome:
-        """Run the handler and turn how it ended into an outcome. A cancellation from outside
-        propagates; whoever cancelled ends the task."""
+        """Run the handler and turn how it ended into an outcome. Once its cancel flag is set
+        it ends cancelled, however it ended. Otherwise a cancellation from outside propagates;
+        whoever cancelled ends the task."""
+        service, flag, attempt = running.service, running.flag, running.attempt
 
         def beat(task_id: str, progress: int | None) -> object:
-            return service.heartbeat(task_id, progress=progress)
+            return service.heartbeat(task_id, progress=progress, attempt=attempt, cancel_flag=flag)
 
         context = TaskContext(
             task_id=claimed.id,
             task_type=claimed.type,
             input_ref=claimed.input_ref,
             attempt=claimed.attempt,
-            cancel_flag=CancelFlag(),
+            cancel_flag=flag,
             _beat=beat,
         )
         try:
             result_ref = await handler(context)
-        except AppError as error:
-            return _Outcome(TaskStatus.FAILED, error=error)
         except asyncio.CancelledError:
+            if flag.cancelled:
+                return _CANCELLED
             if cast("asyncio.Task[None]", asyncio.current_task()).cancelling():
-                raise  # cancelled from outside (stop)
+                raise  # cancelled from outside (stop, watchdog)
             return self._unexpected(claimed.id, "CancelledError")  # raised by the handler
         except BaseException as error:  # any other exception, never left running
+            if flag.cancelled:
+                return _CANCELLED  # the cancel signal or a provider's cancel error
+            if isinstance(error, AppError):
+                return _Outcome(TaskStatus.FAILED, error=error)
             return self._unexpected(claimed.id, type(error).__name__)
         return _Outcome(TaskStatus.SUCCEEDED, result_ref=result_ref)
 
@@ -334,14 +440,20 @@ class TaskRunner:
         _log.error("task %s handler failed (%s)", task_id, name)
         return _Outcome(TaskStatus.FAILED, error=TaskFailed(detail=name))
 
-    async def _finish(self, service: RunnerService, task_id: str, outcome: _Outcome) -> None:
+    async def _finish(
+        self, service: RunnerService, task_id: str, attempt: int, outcome: _Outcome
+    ) -> bool | None:
+        """Save the outcome of that attempt; False when it was refused, None when saving
+        failed (logged)."""
         try:
-            await asyncio.to_thread(
+            return await asyncio.to_thread(
                 service.finish,
                 task_id,
                 outcome.status,
                 error=outcome.error,
                 result_ref=outcome.result_ref,
+                attempt=attempt,
             )
         except Exception as failure:
             _log.error("finishing task %s failed (%s)", task_id, type(failure).__name__)
+            return None

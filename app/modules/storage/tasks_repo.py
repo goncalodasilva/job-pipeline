@@ -41,7 +41,8 @@ _TRANSITION = (
     "heartbeat_at = coalesce(?, heartbeat_at), finished_at = coalesce(?, finished_at), "
     "error = coalesce(?, error), result_ref = coalesce(?, result_ref), "
     "progress = coalesce(?, progress) "
-    "WHERE id = ? AND status IN (SELECT value FROM json_each(?))"
+    "WHERE id = ? AND status IN (SELECT value FROM json_each(?)) "
+    "AND (? <> 'succeeded' OR cancel_requested = 0) AND (? IS NULL OR attempt = ?)"
 )
 _REQUEUE = (
     "UPDATE tasks SET status = 'queued', attempt = attempt + 1, error = NULL, progress = 0, "
@@ -61,7 +62,8 @@ _CLAIM_NEXT = (
 )
 _HEARTBEAT = (
     "UPDATE tasks SET heartbeat_at = ?, progress = coalesce(?, progress) "
-    "WHERE id = ? AND status = 'running'"
+    "WHERE id = ? AND status = 'running' AND (? IS NULL OR attempt = ?) "
+    "RETURNING cancel_requested"
 )
 _REQUEST_CANCEL = (
     "UPDATE tasks SET cancel_requested = 1, updated_at = ?, version = version + 1 "
@@ -205,13 +207,17 @@ def transition(
     error: str | None = None,
     result_ref: str | None = None,
     progress: int | None = None,
+    attempt: int | None = None,
 ) -> bool:
-    """Move the task to ``target`` if its status is one of ``expected``; False otherwise.
+    """Move the task to ``target`` if its status is one of ``expected`` (and, when
+    ``attempt`` is given, it is that attempt); False otherwise.
 
     Expected states that can't reach ``target`` (``can_transition``) are dropped; ValueError
     only when none can (re-queueing a finished task is ``requeue_for_retry``'s job).
     ``result_ref`` is accepted only when ``target`` is succeeded (ValueError otherwise).
     Entering running starts the heartbeat; entering a terminal state sets ``finished_at``.
+    Entering succeeded also needs ``cancel_requested = 0``: a cancel requested before the
+    success commits wins (spec 5 M2 reliability rule 6).
     Options left as ``None`` keep their stored values.
     """
     sources = [TaskStatus(s) for s in expected]
@@ -237,6 +243,9 @@ def transition(
             progress,
             task_id,
             _json_list(allowed),
+            target.value,
+            attempt,
+            attempt,
         ),
     )
     return cursor.rowcount == 1
@@ -262,13 +271,32 @@ def claim_next(conn: sqlite3.Connection, now: str) -> TaskRow | None:
 
 
 def heartbeat(
-    conn: sqlite3.Connection, task_id: str, now: str, *, progress: int | None = None
+    conn: sqlite3.Connection,
+    task_id: str,
+    now: str,
+    *,
+    progress: int | None = None,
+    attempt: int | None = None,
 ) -> bool:
     """Record a heartbeat (and progress, if given) for a running task; False otherwise.
-    Not a state change, so ``version`` and ``updated_at`` stay as they are."""
+    Not a state change, so ``version`` and ``updated_at`` stay as they are. With ``attempt``,
+    only that attempt's beat counts."""
+    return beat(conn, task_id, now, progress=progress, attempt=attempt) is not None
+
+
+def beat(
+    conn: sqlite3.Connection,
+    task_id: str,
+    now: str,
+    *,
+    progress: int | None = None,
+    attempt: int | None = None,
+) -> bool | None:
+    """``heartbeat`` that also reports the row's cancel flag, in the same update: None when
+    the task (or that ``attempt`` of it) isn't running, else whether a cancel was requested."""
     _check_progress(progress)
-    cursor = conn.execute(_HEARTBEAT, (now, progress, task_id))
-    return cursor.rowcount == 1
+    row = conn.execute(_HEARTBEAT, (now, progress, task_id, attempt, attempt)).fetchone()
+    return None if row is None else bool(row[0])
 
 
 def request_cancel(conn: sqlite3.Connection, task_id: str, now: str) -> bool:

@@ -12,7 +12,15 @@ from datetime import timedelta
 from app.domain.clock import Clock
 from app.domain.errors import AppError, TaskNotRetryable
 from app.domain.ids import IdFactory
-from app.domain.tasks import RETRY_FROM, TERMINAL, TaskChange, TaskRef, TaskStatus, dedupe_key
+from app.domain.tasks import (
+    RETRY_FROM,
+    TERMINAL,
+    CancelFlag,
+    TaskChange,
+    TaskRef,
+    TaskStatus,
+    dedupe_key,
+)
 from app.modules.storage import Database, tasks_repo
 
 TaskRow = tasks_repo.TaskRow
@@ -153,11 +161,35 @@ class TaskService:
             self._publish(row)
         return row
 
-    def heartbeat(self, task_id: str, *, progress: int | None = None) -> bool:
-        """Record that a running task is alive; not a state change, so nothing is published."""
+    def heartbeat(
+        self,
+        task_id: str,
+        *,
+        progress: int | None = None,
+        attempt: int | None = None,
+        cancel_flag: CancelFlag | None = None,
+    ) -> bool:
+        """Record that a running task (that ``attempt`` of it, when given) is alive; not a
+        state change, so nothing is published. False when it isn't running. When the row's
+        cancel flag is set (perhaps by another process), ``cancel_flag`` is set too, so the
+        handler sees the request."""
         now = self._now()
         with self._db.transaction() as conn:
-            return tasks_repo.heartbeat(conn, task_id, now, progress=progress)
+            requested = tasks_repo.beat(conn, task_id, now, progress=progress, attempt=attempt)
+        if requested and cancel_flag is not None:
+            cancel_flag.cancel()
+        return requested is not None
+
+    def cancel_requested(self, task_id: str, *, attempt: int | None = None) -> bool:
+        """Whether a cancel was requested for this running task (that ``attempt`` of it,
+        when given)."""
+        row = self.get(task_id)
+        return (
+            row is not None
+            and row.status == TaskStatus.RUNNING
+            and row.cancel_requested
+            and (attempt is None or row.attempt == attempt)
+        )
 
     def interrupt_stale(self, task_type: str, timeout: timedelta) -> list[str]:
         """Watchdog: every running ``task_type`` task whose last heartbeat is more than
@@ -180,8 +212,11 @@ class TaskService:
         *,
         error: AppError | None = None,
         result_ref: str | None = None,
+        attempt: int | None = None,
     ) -> bool:
-        """End a running task in a terminal ``status``; False when it isn't running.
+        """End a running task (that ``attempt`` of it, when given) in a terminal ``status``;
+        False when it isn't running, or when it would succeed while a cancel is requested
+        (the runner then ends it cancelled).
         Failed needs an ``error``, succeeded and cancelled take none, interrupted may have
         one. ``error`` is stored as its stable ``kind`` only, never its text."""
         if status not in TERMINAL:
@@ -201,6 +236,7 @@ class TaskService:
                 now=now,
                 error=kind,
                 result_ref=result_ref,
+                attempt=attempt,
             )
             row = tasks_repo.get(conn, task_id) if changed else None
         if row is not None:
