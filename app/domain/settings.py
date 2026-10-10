@@ -20,6 +20,9 @@ from pydantic import (
     model_validator,
 )
 
+from app.domain.budgets import Budget
+from app.domain.usage import ServiceId
+
 Tier = Literal["fast", "thorough"]
 # How the Claude provider signs in; the Claude provider uses these names too.
 ClaudeAuthMode = Literal["subscription_token", "existing_login", "api_key"]
@@ -118,6 +121,24 @@ class TaskRunnerSettings(_Setting):
     max_concurrent: Annotated[int, Field(ge=1, le=3)] = 1
 
 
+class UsageBudgets(_Setting):
+    """The request budget per service (spec 3.7; ADR-076 items 4, 5). A service without an
+    entry has no budget: never warned or blocked. ``Budget`` validates each entry."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    budgets: Mapping[ServiceId, Budget] = Field(default_factory=lambda: MappingProxyType({}))
+
+    @field_validator("budgets", mode="after")
+    @classmethod
+    def _read_only(cls, value: Mapping[ServiceId, Budget]) -> Mapping[ServiceId, Budget]:
+        return MappingProxyType(dict(value))
+
+    @field_serializer("budgets")
+    def _as_dict(self, value: Mapping[ServiceId, Budget]) -> dict[ServiceId, Budget]:
+        return dict(value)
+
+
 def claude_auth_mode(kind: ProviderKind | None) -> ClaudeAuthMode | None:
     """The Claude sign-in mode a provider kind stands for; None for other providers."""
     modes: Mapping[str, ClaudeAuthMode] = {
@@ -152,3 +173,4 @@ class OptionalSettingSpec(Generic[T]):
 AI_PROVIDER = SettingSpec("ai_provider", AIProviderSettings, AIProviderSettings())
 JOB_PREFERENCES = OptionalSettingSpec("job_preferences", JobPreferences)
 TASK_RUNNER = SettingSpec("task_runner", TaskRunnerSettings, TaskRunnerSettings())
+USAGE_BUDGETS = SettingSpec("usage_budgets", UsageBudgets, UsageBudgets())

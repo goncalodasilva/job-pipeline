@@ -745,3 +745,16 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - `budget_notices` is append-only: no `updated_at` or `version`. ADR-027 covers mutable tables, and this table is not one of them.
   - An index on `tasks(status, updated_at)` serves the task claim and the tasks panel order.
   - Follow-up for M2.15: bound `used` and `limit_count` to SQLite's INTEGER range (see the Consequences above).
+
+## ADR-079 — Usage service decisions (M2.15) (2026-10-10)
+
+- Context: M2.15 implements the usage service and repository (`app/services/usage.py`, `app/services/usage_values.py`, `app/modules/storage/usage_repo.py`, `app/domain/usage.py`). The tests and the code review settled several points the spec leaves open.
+- Decision:
+  - Services are `claude_subscription`, `claude_api_key`, `web_search` and `fake` (ADR-076 item 4), with display names in `app/domain/usage.py`. Budgets for all services live in one versioned setting (`usage_budgets`), so a save with a stale version is a `VersionConflict`.
+  - `reserve` evaluates the budget on the effective count and inserts the usage record in one `BEGIN IMMEDIATE` transaction; a block raises `BudgetBlocked` and writes nothing. A tier cap raises `TierCapReached` (a `BudgetBlocked` subclass carrying the tier and `offer_fast`). Unfinished and failed records count. `skip_budget` is accepted only for the connection test (ADR-076 item 3), which is counted but never warned or blocked.
+  - Unreadable stored budgets fail closed: `reserve` and `preflight` raise `UsageLimitsUnreadable` and `status` reports `budgets_unreadable`; the connection test still works; saving a budget overwrites the unreadable setting. Chosen over failing open because a spending limit that silently stops applying is worse than a refused action. Needs the user's confirmation.
+  - `acknowledge` accepts any threshold already reached in the current cycle (so a warning can still be confirmed after the count moved on) and refuses the rest with `BudgetNoticeRefused`.
+  - A provider `month` request count is compared only when it was observed in the current cycle and its `resets_at` is absent or equals the cycle end; fraction snapshots are shown, never compared (ADR-078). Counts above SQLite's INTEGER range, unknown services and observations older than the stored one are refused.
+  - A service without a budget is shown by calendar month. Token counts out of range are stored as NULL. Usage records hold ids, service, tier, task type, times and counts only.
+- Consequences: spec 2.11 lists the three new errors. M2.16 wires the meter into provider calls; M2.22–M2.24 use `status` (which also reports the thresholds already shown), `preflight` and `acknowledge`. `status` and `preflight` take the write lock although they only read; revisit if the panel polls often.
+

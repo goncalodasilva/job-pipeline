@@ -86,6 +86,44 @@ class BudgetBlocked(AppError):
         return f"Monthly limit reached for {self.service}. Resets on {format_day(self.resets_on)}."
 
 
+class TierCapReached(BudgetBlocked):
+    """Only a tier's cap blocks (spec 3.7). ``offer_fast`` (Thorough only) means the caller
+    may offer to run once on Fast after checking Fast; it never switches by itself."""
+
+    kind = "TierCapReached"
+
+    def __init__(
+        self, service: str, tier: str, resets_on: date, *, detail: str | None = None
+    ) -> None:
+        self.tier = tier
+        self.offer_fast = tier == "thorough"
+        super().__init__(service, resets_on, detail=detail)
+
+    @property
+    def user_message(self) -> str:
+        text = (
+            f"The {self.tier.capitalize()} limit for {self.service} is reached. "
+            f"It resets on {format_day(self.resets_on)}"
+        )
+        return text + ("; you can run this once on Fast." if self.offer_fast else ".")
+
+
+class UsageLimitsUnreadable(AppError):
+    """The stored budgets can't be read, so no AI request runs until they are saved again."""
+
+    kind = "UsageLimitsUnreadable"
+    message = (
+        "Your usage limits couldn't be read. Open Settings > Usage budgets and save them again."
+    )
+
+
+class BudgetNoticeRefused(AppError):
+    """A budget warning was confirmed that isn't due in the current cycle."""
+
+    kind = "BudgetNoticeRefused"
+    message = "This warning can't be confirmed now. Reload the page to see your current usage."
+
+
 class NetworkUnavailable(AppError):
     kind = "NetworkUnavailable"
     message = "No connection. Nothing was lost; try again."

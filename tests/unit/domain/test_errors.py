@@ -8,6 +8,7 @@ from app.domain import errors
 from app.domain.errors import (
     AppError,
     BudgetBlocked,
+    BudgetNoticeRefused,
     ConfigError,
     DataFolderInUse,
     FetchRefused,
@@ -19,8 +20,10 @@ from app.domain.errors import (
     SecretStoreUnavailable,
     TaskFailed,
     TaskNotRetryable,
+    TierCapReached,
     UnknownTaskType,
     UsageLimitReached,
+    UsageLimitsUnreadable,
     VersionConflict,
 )
 
@@ -145,6 +148,9 @@ PINNED_KINDS: dict[type[AppError], str] = {
     TaskNotRetryable: "TaskNotRetryable",
     TaskFailed: "TaskFailed",
     UnknownTaskType: "UnknownTaskType",
+    TierCapReached: "TierCapReached",
+    UsageLimitsUnreadable: "UsageLimitsUnreadable",
+    BudgetNoticeRefused: "BudgetNoticeRefused",
 }
 
 
@@ -188,3 +194,60 @@ def test_error_kind_defaults_to_the_class_name_and_is_not_inherited() -> None:
     assert ConfigError.kind == "ConfigError"
     assert FictionalFailure.kind == "FictionalFailure"
     assert FictionalFailure().kind == "FictionalFailure"
+
+
+# --- usage budgets (M2.15) ----------------------------------------------------------
+
+
+def test_tier_cap_reached_on_thorough_offers_fast() -> None:
+    error = TierCapReached("Claude API key", "thorough", date(2026, 3, 15))
+
+    assert (error.service, error.tier, error.resets_on) == (
+        "Claude API key",
+        "thorough",
+        date(2026, 3, 15),
+    )
+    assert error.offer_fast is True
+    assert error.user_message == (
+        "The Thorough limit for Claude API key is reached. It resets on 15 March 2026; "
+        "you can run this once on Fast."
+    )
+
+
+def test_tier_cap_reached_on_fast_offers_nothing() -> None:
+    error = TierCapReached("Web search", "fast", date(2027, 2, 1))
+
+    assert error.offer_fast is False
+    assert error.user_message == (
+        "The Fast limit for Web search is reached. It resets on 1 February 2027."
+    )
+
+
+def test_tier_cap_reached_is_a_budget_block_and_hides_detail() -> None:
+    error = TierCapReached("Claude API key", "thorough", date(2026, 3, 15), detail="cap 3 of 3")
+
+    assert isinstance(error, BudgetBlocked)
+    assert "cap 3" not in error.user_message
+    assert str(error) == "cap 3 of 3"
+
+
+@pytest.mark.parametrize(
+    ("cls", "expected"),
+    [
+        (
+            UsageLimitsUnreadable,
+            "Your usage limits couldn't be read. "
+            "Open Settings > Usage budgets and save them again.",
+        ),
+        (
+            BudgetNoticeRefused,
+            "This warning can't be confirmed now. Reload the page to see your current usage.",
+        ),
+    ],
+    ids=["UsageLimitsUnreadable", "BudgetNoticeRefused"],
+)
+def test_usage_error_messages_are_plain_and_hide_detail(cls: type[AppError], expected: str) -> None:
+    assert cls().user_message == expected
+    error = cls(detail="Fictional detail for Ada Example")
+    assert error.user_message == expected
+    assert "Ada Example" not in error.user_message

@@ -329,6 +329,9 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | `TaskNotRetryable` | Task service | "This task can't be retried. Only failed, cancelled or interrupted tasks can run again." (M2.7) |
 | `TaskFailed` | Task runner | "This task stopped because of an unexpected problem. Try again." (an unexpected exception in a handler; M2.8) |
 | `UnknownTaskType` | Task runner | "This task can't run in this version of the app." (M2.8) |
+| `TierCapReached` | Usage service | "The Thorough limit for <service> is reached. It resets on <date>; you can run this once on Fast." (a `BudgetBlocked` subclass; the Fast cap has no offer; ADR-079) |
+| `UsageLimitsUnreadable` | Usage service | "Your usage limits couldn't be read. Open Settings > Usage budgets and save them again." (ADR-079) |
+| `BudgetNoticeRefused` | Usage service | "This warning can't be confirmed now. Reload the page to see your current usage." (ADR-079) |
 
 Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
