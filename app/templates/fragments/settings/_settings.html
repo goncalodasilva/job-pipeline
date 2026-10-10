@@ -2,8 +2,9 @@
    guide, then a small card for the parts that arrive later. #}
 {# One focus target: a result, an error, a saved status, a confirmation or a saved tier map in
    Providers takes it instead. #}
-<h1 id="page-heading"{% if not (connection or errors or stayed or step_view or tiers_saved) %} data-autofocus{% endif %}>{{ area.name }}</h1>
+<h1 id="page-heading"{% if not (connection or errors or stayed or step_view or tiers_saved or practice.status or practice.error) %} data-autofocus{% endif %}>{{ area.name }}</h1>
 {% include "fragments/settings/_providers.html" %}
+{% include "fragments/settings/_testing_tools.html" %}
 <section id="setup-guide-again" class="settings-section" aria-labelledby="setup-guide-heading">
   <h2 id="setup-guide-heading">Setup guide</h2>
   <p>Go through the setup steps again to check or change what you set up. Nothing is reset, and you can go back to the app at any step.</p>

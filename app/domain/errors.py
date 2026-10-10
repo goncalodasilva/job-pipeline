@@ -205,6 +205,14 @@ class TaskFailed(AppError):
     message = "This task stopped because of an unexpected problem. Try again."
 
 
+class PracticeNotOffered(AppError):
+    """The practice task (M2.17) was started or claimed while it isn't offered: fakes aren't
+    allowed, or the saved provider isn't the fake."""
+
+    kind = "PracticeNotOffered"
+    message = "Practice tasks are only available while the fake provider is active."
+
+
 class UnknownTaskType(AppError):
     """A queued task has a type no handler is registered for (for example, a newer app
     version queued it)."""

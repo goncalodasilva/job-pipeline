@@ -52,10 +52,13 @@ from app.modules.ai.providers.claude_sdk import KNOWN_MODELS as CLAUDE_MODELS
 from app.modules.ai.providers.fake import (
     FAKE_FAST_MODEL,
     FAKE_THOROUGH_MODEL,
+    PRACTICE_TASK,
     FakeAIProvider,
     outcome_for_key,
+    practice_responses,
 )
 from app.modules.ai.providers.fake import KNOWN_MODELS as FAKE_MODELS
+from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS, TaskSpec
 from app.modules.secrets import KNOWN_SECRET_KEYS
 from app.modules.secrets.providers.chained import ChainedSecretStore
 from app.modules.secrets.providers.env import EnvSecretStore
@@ -237,7 +240,8 @@ class Wiring:
     ) -> AITaskRunner:
         """The task executor over ``provider``, with that provider's default model per tier;
         ``settings`` is read at run time. User prompt overrides live in
-        ``<data>/prompts/overrides`` (nothing is created here). Raises ``ValueError`` for a
+        ``<data>/prompts/overrides`` (nothing is created here). Over the fake, while fakes
+        are allowed, it also knows the practice task (M2.17). Raises ``ValueError`` for a
         provider wiring doesn't know."""
         defaults = _DEFAULTS_BY_PROVIDER.get(provider.name)
         if defaults is None:
@@ -245,9 +249,27 @@ class Wiring:
         prompts = PromptLibrary(
             defaults_dir=PROMPTS_DIR, overrides_dir=data_dir.joinpath(*OVERRIDES_FOLDER)
         )
+        specs: Mapping[str, TaskSpec] = TASK_SPECS
+        if self._is_allowed_fake(provider):
+            specs = MappingProxyType({**TASK_SPECS, PRACTICE_SPEC.name: PRACTICE_SPEC})
         return TaskExecutor(
-            provider=provider, prompts=prompts, settings=settings, provider_defaults=defaults
+            provider=provider,
+            prompts=prompts,
+            settings=settings,
+            provider_defaults=defaults,
+            specs=specs,
         )
+
+    def script_practice(self, provider: AIProvider, *, outcome: str, delay_seconds: float) -> None:
+        """Script the fake for one practice run (M2.17): every call takes ``delay_seconds``
+        and ``outcome`` says how the run goes. Raises ``ValueError`` for any provider but
+        the fake, while fakes aren't allowed, or for an unknown outcome."""
+        if not isinstance(provider, FakeAIProvider) or not self._is_allowed_fake(provider):
+            raise ValueError("The practice task needs the fake provider.")
+        provider.script(PRACTICE_TASK, *practice_responses(outcome, delay_seconds=delay_seconds))
+
+    def _is_allowed_fake(self, provider: AIProvider) -> bool:
+        return self.allow_fakes and provider.name == FakeAIProvider.name
 
     def _offered(self) -> frozenset[ProviderKind]:
         return frozenset(choice.kind for choice in self.provider_choices())

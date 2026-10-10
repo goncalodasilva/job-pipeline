@@ -16,5 +16,10 @@ class TaskSpec:
     allow_web_search: bool = False
 
 
+# The practice task (M2.17; ADR-076 item 2) drives the runner, the meter and the tasks UI
+# before M3. It is not in TASK_SPECS: wiring adds it only for the fake provider while fakes
+# are allowed. It generates no user-facing content and cites no facts.
+PRACTICE_SPEC: Final = TaskSpec("practice", kind="summary")
+
 # Real tasks arrive with their features (extract_cv in M3 and so on).
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({})

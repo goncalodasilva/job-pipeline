@@ -15,7 +15,7 @@ import threading
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import tzinfo
+from datetime import timedelta, tzinfo
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -30,6 +30,7 @@ from app.api.security import SecurityMiddleware, generate_launch_token, page_rou
 from app.api.settings import register_settings_pages
 from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
+from app.api.tasks import register_task_routes
 from app.api.templating import STATIC_DIR, STATIC_URL
 from app.config import (
     BOOTSTRAP_FILE,
@@ -45,8 +46,8 @@ from app.domain.clock import Clock, SystemClock
 from app.domain.errors import DataFolderNotYours, DataFolderUnavailable
 from app.domain.ids import IdFactory, UuidIdFactory
 from app.domain.redaction import Redactor
-from app.domain.settings import AI_PROVIDER, TASK_RUNNER
-from app.domain.tasks import TaskChange, TaskStatus
+from app.domain.settings import AI_PROVIDER, TASK_RUNNER, AIProviderSettings
+from app.domain.tasks import TaskChange, TaskStatus, TaskTypeSpec
 from app.modules.ai import ProviderHealth
 from app.modules.storage import (
     MIGRATIONS_DIR,
@@ -73,12 +74,14 @@ from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.health import HealthService
+from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
 from app.services.tasks import TaskService
 from app.services.usage import UsageService
 from app.tasks import HandlerRegistry, TaskRunner
+from app.tasks.practice import practice_handler
 from app.wiring import (
     TASK_TIMEOUT_FLOOR,
     Wiring,
@@ -89,6 +92,8 @@ from app.wiring import (
 
 BACKUP_FOLDER = "backups"
 LOG_FOLDER = "logs"
+# Longer than one provider run plus its close, so a slow step is never taken for a hung task.
+PRACTICE_TIMEOUT = TASK_TIMEOUT_FLOOR + timedelta(minutes=1)
 
 
 @dataclass(frozen=True)
@@ -398,6 +403,36 @@ def _provider_setup(
     return service
 
 
+def _practice(
+    app: FastAPI, *, wiring: Wiring, clock: Clock, registry: HandlerRegistry
+) -> PracticeService:
+    """The practice task's service (M2.17): it reads the open workspace through the app's
+    state at call time, so one instance serves the whole run of the app."""
+
+    def workspace() -> Workspace | None:
+        found: Workspace | None = getattr(app.state, "workspace", None)
+        return found
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db is not None else None
+
+    def data_dir() -> Path | None:
+        found = workspace()
+        return found.data_dir if found is not None else None
+
+    return PracticeService(
+        factory=wiring,
+        allow_fakes=wiring.allow_fakes,
+        script=wiring.script_practice,
+        registered=lambda: registry.get(PRACTICE) is not None,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None) if workspace() else None,
+        usage=lambda: getattr(app.state, "usage", None) if workspace() else None,
+        data_dir=data_dir,
+    )
+
+
 def create_app(
     config: RuntimeConfig,
     *,
@@ -423,7 +458,8 @@ def create_app(
     stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1).
     ``data_folder_lock`` is the lock the CLI already holds on ``config.data_dir``; the
     lifespan's open reuses it instead of locking the folder again (ADR-072).
-    ``task_registry`` (default: empty; either way ``app.state.task_registry``, refusing
+    ``task_registry`` (default: the practice task while fakes are allowed, else empty;
+    either way ``app.state.task_registry``, refusing
     timeouts not longer than ``TASK_TIMEOUT_FLOOR``, one provider run plus its close) maps
     task types to their handlers; whenever a workspace opens, its task service
     (``app.state.task_service``, None before) is handed to the runner, and its usage service
@@ -608,6 +644,12 @@ def create_app(
         openapi_url=None,
     )
     app.state.wiring = app_wiring
+    practice = _practice(app, wiring=app_wiring, clock=app_clock, registry=handlers)
+    app.state.practice = practice
+    if task_registry is None and app_wiring.allow_fakes:  # the default registry only
+        handlers.register(
+            PRACTICE, TaskTypeSpec(PRACTICE_TIMEOUT, PRACTICE_LABEL), practice_handler(practice)
+        )
     shutdown_signal = ShutdownSignal()
     app.state.shutdown_signal = shutdown_signal
     app.state.task_registry = handlers
@@ -628,6 +670,7 @@ def create_app(
     app.include_router(health_router)
     register_pages(app)
     register_settings_pages(app)
+    register_task_routes(app)
     register_setup_pages(app)
     register_events(app, shutdown=shutdown_signal, keepalive_seconds=event_keepalive_seconds)
     app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="static")

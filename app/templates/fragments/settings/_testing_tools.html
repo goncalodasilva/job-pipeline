@@ -1,0 +1,51 @@
+{# Settings > Testing tools (M2.17; ADR-076 item 2): starts the practice task. The wrapper is
+   always rendered, empty while the task isn't offered (fakes allowed and the fake provider
+   saved), so a provider save can fill or empty it out of band (practice.oob). Every control
+   is a select over a fixed list: no free text, and a refused value is never shown back (so
+   no label here repeats a value in another letter case); after a start the accepted choices
+   stay selected. The POST swaps the wrapper. As in Providers, the result takes focus and the
+   same words go to the page's live region (HX-Trigger); the only live region here is the
+   "Starting…" note, shown while the request runs. #}
+<div id="testing-tools"{% if practice.oob %} hx-swap-oob="true"{% endif %}>
+{% if practice.offered %}
+{% set field_labels = {"duration": "Duration", "outcome": "Outcome", "tier": "Tier"} %}
+{% set option_labels = {
+  "quick": "No delay",
+  "slow": "A few seconds per step",
+  "ok": "Succeeds",
+  "usage_limit": "Fails: usage limit reached",
+  "network": "Fails: no connection",
+  "invalid_output": "Fails: invalid output",
+  "fast": "Fast",
+  "thorough": "Thorough",
+} %}
+<section class="settings-section" aria-labelledby="testing-tools-heading">
+  <h2 id="testing-tools-heading">Testing tools</h2>
+  <p id="practice-hint" class="field-hint">Shown because the fake provider is active. A practice task runs a few steps on the fake provider. It uses none of your data and counts only against the fake provider's usage.</p>
+  <form id="practice-form" class="step-form" method="post" action="{{ practice.url }}"
+        hx-post="{{ practice.url }}" hx-target="#testing-tools" hx-swap="outerHTML"
+        hx-indicator="#practice-starting" hx-disabled-elt="#practice-form button" novalidate>
+    {% if practice.error %}
+    <p id="practice-error" class="field-error" tabindex="-1" data-autofocus>{{ practice.error }}</p>
+    {% endif %}
+    {% for name, values in practice.fields.items() %}
+    <div class="field">
+      <label for="practice-{{ name }}">{{ field_labels[name] }}</label>
+      <select id="practice-{{ name }}" name="{{ name }}">
+        {% for value in values %}
+        <option value="{{ value }}"{% if value == practice.selected.get(name) %} selected{% endif %}>{{ option_labels[value] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endfor %}
+    <div class="form-actions">
+      <button type="submit" class="button">Start practice task</button>
+    </div>
+    <p id="practice-starting" class="saving-note" role="status">Starting…</p>
+    {% if practice.status %}
+    <p id="practice-status" class="credential-status" tabindex="-1"{% if not practice.oob %} data-autofocus{% endif %}>{{ practice.status }}</p>
+    {% endif %}
+  </form>
+</section>
+{% endif %}
+</div>

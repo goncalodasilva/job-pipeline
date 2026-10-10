@@ -332,6 +332,7 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | `TierCapReached` | Usage service | "The Thorough limit for <service> is reached. It resets on <date>; you can run this once on Fast." (a `BudgetBlocked` subclass; the Fast cap has no offer; ADR-079) |
 | `UsageLimitsUnreadable` | Usage service | "Your usage limits couldn't be read. Open Settings > Usage budgets and save them again." (ADR-079) |
 | `BudgetNoticeRefused` | Usage service | "This warning can't be confirmed now. Reload the page to see your current usage." (ADR-079) |
+| `PracticeNotOffered` | Practice service | "Practice tasks are only available while the fake provider is active." (M2.17) |
 
 Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
@@ -501,6 +502,8 @@ Prompt files live in `prompts/<task>/` as `prompt.md` (YAML front matter plus te
 - User overrides live in `<data folder>/prompts/overrides/<task>/prompt.md` and win over defaults; "reset" deletes the override.
 - Prompts MUST NOT contain personal data, names or criteria; everything personal arrives through inputs.
 - Responses are parsed as JSON and validated against the schema; one automatic retry with the validation error appended, then `InvalidModelOutput`.
+
+The `practice` task (M2.17, ADR-076 item 2) is not in this table and not in `TASK_SPECS`: it is a fake-only vehicle for the task runner, offered only when fake providers are allowed and the fake is the saved provider. It never reaches a real model, produces no user-facing content and so cites no fact ids; this exemption is for that task alone.
 
 ### 3.7 Tiers and usage
 

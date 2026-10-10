@@ -14,6 +14,7 @@ from app.domain.errors import (
     FetchRefused,
     InvalidModelOutput,
     NetworkUnavailable,
+    PracticeNotOffered,
     ProviderAuthError,
     ProviderNotInstalled,
     ProviderRequestRejected,
@@ -151,6 +152,7 @@ PINNED_KINDS: dict[type[AppError], str] = {
     TierCapReached: "TierCapReached",
     UsageLimitsUnreadable: "UsageLimitsUnreadable",
     BudgetNoticeRefused: "BudgetNoticeRefused",
+    PracticeNotOffered: "PracticeNotOffered",
 }
 
 

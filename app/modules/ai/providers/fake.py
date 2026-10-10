@@ -56,6 +56,10 @@ _KEY_KEYWORDS: Final[tuple[tuple[str, FakeOutcome], ...]] = (
     ("fake-offline", "network"),
     ("fake-connected", "connected"),
 )
+# The practice task (M2.17; ADR-076 item 2): the form's outcome chooses the script.
+PRACTICE_TASK: Final = "practice"
+_PRACTICE_DATA: Final[Mapping[str, Any]] = {"done": True}  # matches prompts/practice/schema.json
+_PRACTICE_NOT_JSON: Final = "fictional practice output that is not JSON"
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,23 @@ def outcome_for_key(key: str | None) -> FakeOutcome:
         if key and keyword in key:
             return outcome
     return "auth"
+
+
+def practice_responses(outcome: str, *, delay_seconds: float) -> tuple[ScriptedResponse, ...]:
+    """The script of one practice run: every call takes ``delay_seconds``; a failing outcome
+    fails the first call (``invalid_output``: the first call and its one retry). ``ValueError``
+    for any other outcome."""
+    ok = ScriptedResponse(data=_PRACTICE_DATA, delay_seconds=delay_seconds)
+    if outcome == "ok":
+        return (ok,)
+    if outcome == "usage_limit":
+        return (ScriptedResponse(failure="usage_limit", delay_seconds=delay_seconds), ok)
+    if outcome == "network":
+        return (ScriptedResponse(failure="network", delay_seconds=delay_seconds), ok)
+    if outcome == "invalid_output":
+        bad = ScriptedResponse(raw_text=_PRACTICE_NOT_JSON, delay_seconds=delay_seconds)
+        return (bad, bad, ok)
+    raise ValueError("Unknown practice outcome.")
 
 
 class FakeAIProvider:
