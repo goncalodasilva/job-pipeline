@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
 
-from app.modules.ai.providers.claude_sdk import MAX_TURNS, WEB_SEARCH_TOOL, build_options
+from app.modules.ai.providers.claude_sdk import _SDK_WEB_SEARCH_TOOL, MAX_TURNS, build_options
 
 FAKE_TOKEN = "fake-" + "token-" + "x" * 8
 FAKE_API_KEY = "fake-" + "key-" + "y" * 8
@@ -93,7 +93,7 @@ def test_options_disable_all_tools_by_default(
 def test_options_enable_only_web_search_when_requested(workdir: Path) -> None:
     options = _build(workdir, allow_web_search=True)
 
-    assert WEB_SEARCH_TOOL == "WebSearch"
+    assert _SDK_WEB_SEARCH_TOOL == "WebSearch"
     assert options.tools == ["WebSearch"]
     assert options.allowed_tools == ["WebSearch"]
     assert options.permission_mode == "dontAsk"
@@ -357,8 +357,8 @@ def test_options_blank_redirecting_variables_even_when_not_inherited(workdir: Pa
 def test_options_web_search_cli_flags_keep_isolation(workdir: Path) -> None:
     argv = _argv(_build(workdir, allow_web_search=True))
 
-    assert _flag_value(argv, "--tools") == WEB_SEARCH_TOOL
-    assert _flag_value(argv, "--allowedTools") == WEB_SEARCH_TOOL
+    assert _flag_value(argv, "--tools") == _SDK_WEB_SEARCH_TOOL
+    assert _flag_value(argv, "--allowedTools") == _SDK_WEB_SEARCH_TOOL
     assert "--setting-sources=" in argv
     assert "--strict-mcp-config" in argv
     assert _flag_value(argv, "--permission-mode") == "dontAsk"

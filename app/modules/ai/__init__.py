@@ -25,6 +25,10 @@ from app.domain.errors import (
 )
 from app.domain.settings import AIProviderSettings, ProviderKind, Tier
 
+# Re-exported: services that count provider calls use these through this interface.
+from app.modules.ai.uninterrupted import reserve_uninterrupted as reserve_uninterrupted
+from app.modules.ai.uninterrupted import settled as settled
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -196,6 +200,29 @@ class CallCancelled(Exception):
 
 TaskKind = Literal["extraction", "generation", "feedback", "summary"]
 
+# What a usage record counts: a provider call, or one web search inside a call (spec 3.7).
+UsageKind = Literal["request", "search"]
+# The tool name ``AIRequest.on_tool_use`` is asked about for a web search.
+WEB_SEARCH_TOOL: Final = "web_search"
+
+
+class UsageMeter(Protocol):
+    """Counts provider calls against the budgets (M2.16; implemented in ``app/services``).
+
+    Every method blocks (database work): the executor calls them in worker threads, never on
+    the event loop. ``reserve`` counts one request or search before it is made and returns
+    its record id; it raises ``BudgetBlocked`` (or another error) and writes nothing when
+    the call may not be made. ``complete`` records the outcome; ``snapshot`` keeps usage
+    the provider reported."""
+
+    def reserve(
+        self, *, tier: str, task_type: str, task_id: str | None, kind: UsageKind
+    ) -> str: ...
+
+    def complete(self, record_id: str, *, success: bool, tokens: TokenUsage | None) -> None: ...
+
+    def snapshot(self, snapshot: ProviderUsageSnapshot) -> None: ...
+
 
 @dataclass(frozen=True)
 class TaskResult:
@@ -213,8 +240,19 @@ class AITaskRunner(Protocol):
     never import the prompt module or its template engine (ADR-055)."""
 
     async def run_task(
-        self, task: str, inputs: Mapping[str, object], cancel: CancelToken
-    ) -> TaskResult: ...
+        self,
+        task: str,
+        inputs: Mapping[str, object],
+        cancel: CancelToken,
+        *,
+        meter: UsageMeter,
+        tier: Tier | None = None,
+        task_id: str | None = None,
+    ) -> TaskResult:
+        """``meter`` counts every provider call (there is no uncounted run); ``tier``
+        overrides the task's tier for this run only; ``task_id`` is the background task the
+        usage records belong to."""
+        ...
 
 
 class AIProvider(Protocol):

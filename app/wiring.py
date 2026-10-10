@@ -19,7 +19,7 @@ import shutil
 import stat
 import sys
 from collections.abc import Callable, Mapping
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from types import MappingProxyType
 from typing import Final
@@ -74,6 +74,7 @@ __all__ = [
     "Wiring",
     "build_wiring",
     "clear_ai_temp",
+    "local_timezone",
 ]
 
 ALLOW_FAKES_VARIABLE: Final = "JOBPIPELINE_ALLOW_FAKE_PROVIDERS"
@@ -283,6 +284,43 @@ def build_wiring(
         demo=demo,
         clock=clock,
     )
+
+
+class _LocalTimezone(tzinfo):
+    """The computer's time zone with its daylight-saving rules, asked from the operating
+    system for each instant (no zone name to look up, no extra dependency). It reads zone
+    rules only, never the current time."""
+
+    def utcoffset(self, dt: datetime | None) -> timedelta | None:
+        return None if dt is None else _system_local(dt).utcoffset()
+
+    def dst(self, dt: datetime | None) -> timedelta | None:
+        return None  # not known apart from the offset; nothing here needs it
+
+    def tzname(self, dt: datetime | None) -> str | None:
+        return None if dt is None else _system_local(dt).tzname()
+
+    def fromutc(self, dt: datetime) -> datetime:
+        offset = dt.replace(tzinfo=UTC).astimezone().utcoffset()
+        if offset is None:  # pragma: no cover - an aware datetime always has an offset
+            raise ValueError("The local time zone has no offset.")
+        local = dt + offset
+        # The second pass through a repeated hour (clocks set back) is the ``fold``.
+        return local if self.utcoffset(local) == offset else local.replace(fold=1)
+
+    def __repr__(self) -> str:
+        return "local_timezone()"
+
+
+def _system_local(wall: datetime) -> datetime:
+    """A wall-clock time read as the system's local time (``fold`` picks a repeated hour)."""
+    return wall.replace(tzinfo=None).astimezone()
+
+
+def local_timezone() -> tzinfo:
+    """The time zone budget cycles use: the computer's own (ADR-076 item 8). ``create_app``
+    takes another one for tests."""
+    return _LocalTimezone()
 
 
 def clear_ai_temp(data_dir: Path) -> Path:

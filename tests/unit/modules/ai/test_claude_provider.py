@@ -50,11 +50,11 @@ from app.domain.redaction import Redactor
 from app.logging_config import LOG_FILE_NAME, SdkRecordFilter, configure_logging
 from app.modules.ai import AICapabilities, AIResponse, CallCancelled, TokenUsage
 from app.modules.ai.providers.claude_sdk import (
+    _SDK_WEB_SEARCH_TOOL,
     CLAUDE_FAST_DEFAULT,
     CLAUDE_THOROUGH_DEFAULT,
     MAX_TURNS,
     SECRET_KEY_BY_MODE,
-    WEB_SEARCH_TOOL,
     AuthMode,
     ClaudeSdkProvider,
     bundled_cli_path,
@@ -284,8 +284,8 @@ async def test_run_passes_no_tools_and_no_setting_sources(temp_root: Path, cli: 
     await _provider(searching, temp_root, cli).run(
         make_request(model=MODEL, allow_web_search=True), NotCancelled()
     )
-    assert searching.last.options.tools == [WEB_SEARCH_TOOL]
-    assert searching.last.options.allowed_tools == [WEB_SEARCH_TOOL]
+    assert searching.last.options.tools == [_SDK_WEB_SEARCH_TOOL]
+    assert searching.last.options.allowed_tools == [_SDK_WEB_SEARCH_TOOL]
     assert searching.last.options.setting_sources == []
 
 

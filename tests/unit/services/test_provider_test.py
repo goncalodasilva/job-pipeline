@@ -60,6 +60,7 @@ from app.services.settings import SettingsService, Versioned
 from app.wiring import Wiring, build_wiring
 from tests.fakes.clock import FrozenClock
 from tests.fakes.keyring_backends import CountingKeyring
+from tests.fakes.usage import CountingUsage
 
 START = datetime(2026, 1, 3, 9, 0, 0, tzinfo=UTC)
 TOKEN_KIND = "claude_subscription_token"  # noqa: S105 - a provider kind, not a secret
@@ -239,6 +240,7 @@ def service(
         factory,  # type: ignore[arg-type]
         frozenset(),
         refresh if refresh is not None else Refreshes(),
+        usage=CountingUsage(),
         **kwargs,
     )
 

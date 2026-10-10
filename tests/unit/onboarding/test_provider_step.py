@@ -39,6 +39,7 @@ from app.services.settings import SettingsService
 from app.wiring import Wiring, build_wiring
 from tests.fakes.clock import FrozenClock
 from tests.fakes.keyring_backends import CountingKeyring
+from tests.fakes.usage import CountingUsage
 
 START = datetime(2026, 1, 3, 9, 0, 0, tzinfo=UTC)
 EXISTING_KIND = "claude_existing_login"
@@ -142,6 +143,7 @@ def build(
         factory,  # type: ignore[arg-type]
         frozenset(),
         lambda: None,
+        usage=CountingUsage(),
         connection_timeout=connection_timeout,
     )
     marks = marks if marks is not None else Marks()

@@ -21,6 +21,7 @@ from app.domain.errors import (
     UsageLimitReached,
 )
 from app.modules.ai import (
+    WEB_SEARCH_TOOL,
     AICapabilities,
     AIRequest,
     AIResponse,
@@ -66,8 +67,12 @@ class ScriptedResponse:
     delay_seconds: float = 0.0
     # Reported through the request's ``on_usage`` during the call, in order (M2.2).
     usage_snapshots: tuple[ProviderUsageSnapshot, ...] = ()
+    # Web searches the fake asks ``on_tool_use`` for, when the request allows search (M2.16).
+    tool_calls: int = 0
 
     def __post_init__(self) -> None:
+        if self.tool_calls < 0:
+            raise ValueError("tool_calls can't be negative.")
         if self.failure == "connected":
             raise ValueError("'connected' is not a failure.")
         if self.failure is None and self.data is None and self.raw_text is None:
@@ -100,6 +105,8 @@ class FakeAIProvider:
         self._app_mode = app_mode
         self._scripts: dict[str, deque[ScriptedResponse]] = {}
         self.requests: list[AIRequest] = []
+        # Every simulated tool call as (tool, allowed): no personal data, so app mode keeps it.
+        self.tool_calls: list[tuple[str, bool]] = []
 
     def script(self, task: str, *responses: ScriptedResponse) -> None:
         """Queue responses for a task; each run takes the next, and the last one repeats."""
@@ -115,6 +122,9 @@ class FakeAIProvider:
             await self._sleep(response.delay_seconds)
             if cancel.cancelled:  # cancelled while the call was running
                 raise CallCancelled
+        if request.allow_web_search:
+            for _ in range(response.tool_calls):
+                await self._tool_call(request)
         for snapshot in response.usage_snapshots:
             report_usage(request.on_usage, snapshot)
         if response.failure is not None:
@@ -140,6 +150,12 @@ class FakeAIProvider:
 
     def known_models(self) -> list[ModelChoice]:
         return list(KNOWN_MODELS)
+
+    async def _tool_call(self, request: AIRequest) -> None:
+        """Ask the budget hook for one web search; no hook means no search."""
+        hook = request.on_tool_use
+        allowed = hook is not None and await hook(WEB_SEARCH_TOOL) is True
+        self.tool_calls.append((WEB_SEARCH_TOOL, allowed))
 
     def _next(self, task: str) -> ScriptedResponse:
         queue = self._scripts.get(task)

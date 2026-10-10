@@ -15,6 +15,7 @@ import threading
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import tzinfo
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -76,8 +77,15 @@ from app.services.provider_setup import ProviderSetupService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
 from app.services.tasks import TaskService
+from app.services.usage import UsageService
 from app.tasks import HandlerRegistry, TaskRunner
-from app.wiring import TASK_TIMEOUT_FLOOR, Wiring, build_wiring, clear_ai_temp
+from app.wiring import (
+    TASK_TIMEOUT_FLOOR,
+    Wiring,
+    build_wiring,
+    clear_ai_temp,
+    local_timezone,
+)
 
 BACKUP_FOLDER = "backups"
 LOG_FOLDER = "logs"
@@ -382,6 +390,7 @@ def _provider_setup(
                         wiring,
                         wiring.environment_keys(),
                         refresh_health,
+                        usage=app.state.usage,  # set whenever a workspace is open
                     )
                 )
             return built[0]
@@ -401,6 +410,7 @@ def create_app(
     event_keepalive_seconds: float = DEFAULT_KEEPALIVE_SECONDS,
     data_folder_lock: DataFolderLock | None = None,
     task_registry: HandlerRegistry | None = None,
+    tz: tzinfo | None = None,
 ) -> FastAPI:
     """Build the app. ``open_at_startup`` (default: ``opens_workspace_at_startup(config)``)
     says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used.
@@ -416,8 +426,11 @@ def create_app(
     ``task_registry`` (default: empty; either way ``app.state.task_registry``, refusing
     timeouts not longer than ``TASK_TIMEOUT_FLOOR``, one provider run plus its close) maps
     task types to their handlers; whenever a workspace opens, its task service
-    (``app.state.task_service``, None before) is handed to the runner."""
+    (``app.state.task_service``, None before) is handed to the runner, and its usage service
+    (``app.state.usage``, None before; one per workspace) counts provider calls in budget
+    cycles of ``tz`` (default: the computer's time zone; ADR-076 item 8)."""
     app_clock = clock if clock is not None else SystemClock()
+    app_tz = tz if tz is not None else local_timezone()
     app_wiring = (
         wiring
         if wiring is not None
@@ -428,7 +441,7 @@ def create_app(
     open_now = opens_workspace_at_startup(config) if open_at_startup is None else open_at_startup
     open_lock = threading.Lock()
     closed = threading.Event()
-    task_ids = UuidIdFactory()
+    app_ids = UuidIdFactory()
     handlers = task_registry if task_registry is not None else HandlerRegistry()
     handlers.require_min_timeout(TASK_TIMEOUT_FLOOR)  # ValueError for a too-short type
 
@@ -462,7 +475,7 @@ def create_app(
                         onboarding=onboarding,
                         registry=registry,
                         clock=app_clock,
-                        ids=task_ids,
+                        ids=app_ids,
                     )
                 )
 
@@ -479,13 +492,14 @@ def create_app(
                 raise
             try:
                 task_service = _attach_tasks(
-                    app.state.runner, workspace.db, clock=app_clock, ids=task_ids
+                    app.state.runner, workspace.db, clock=app_clock, ids=app_ids
                 )
             except BaseException:
                 workspace.db.close()  # releases the folder lock, so the user can retry
                 onboarding.refresh(None)
                 raise
             app.state.task_service = task_service
+            app.state.usage = UsageService(workspace.db, app_clock, app_ids, app_tz)
             app.state.provider_health = health[-1]
             app.state.workspace = workspace
             return workspace
@@ -531,7 +545,7 @@ def create_app(
                     onboarding=onboarding,
                     registry=registry,
                     clock=app_clock,
-                    ids=task_ids,
+                    ids=app_ids,
                 )
 
             workspace = open_workspace_folder(
@@ -544,7 +558,7 @@ def create_app(
             )
         try:
             task_service = (
-                _attach_tasks(runner, workspace.db, clock=app_clock, ids=task_ids)
+                _attach_tasks(runner, workspace.db, clock=app_clock, ids=app_ids)
                 if workspace is not None
                 else None
             )
@@ -565,6 +579,11 @@ def create_app(
             app.state.refresh_provider_health = refresh_provider_health
             app.state.runner = runner
             app.state.task_service = task_service
+            app.state.usage = (
+                UsageService(workspace.db, app_clock, app_ids, app_tz)
+                if workspace is not None
+                else None
+            )
             app.state.health = HealthService(
                 lambda: _current_db(app), lambda: runner.status, __version__
             )

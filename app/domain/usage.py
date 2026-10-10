@@ -20,6 +20,17 @@ SERVICE_NAMES: Final[Mapping[str, str]] = MappingProxyType(
         "fake": "Fake provider",
     }
 )
+# Web searches have a budget of their own, whichever provider runs them (ADR-076 item 4).
+WEB_SEARCH_SERVICE: Final[ServiceId] = "web_search"
+# The service a provider kind's requests count on: both subscription sign-ins share one.
+SERVICE_BY_PROVIDER_KIND: Final[Mapping[str, ServiceId]] = MappingProxyType(
+    {
+        "claude_subscription_token": "claude_subscription",
+        "claude_existing_login": "claude_subscription",
+        "claude_api_key": "claude_api_key",
+        "fake": "fake",
+    }
+)
 # The task type recorded for the connection test (ADR-076 item 3).
 CONNECTION_TEST_TASK_TYPE: Final = "connection_test"
 # Largest value an SQLite INTEGER holds; larger counts are refused, never clamped.

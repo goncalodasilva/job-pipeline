@@ -89,7 +89,9 @@ AuthMode = ClaudeAuthMode
 # Structured output is delivered through a tool call inside the CLI, so one model turn
 # may not be enough; the exact bound is confirmed by the live check (M1.25, ADR-045).
 MAX_TURNS: Final = 2
-WEB_SEARCH_TOOL: Final = "WebSearch"
+# The SDK's own name for its web search. Providers translate SDK tool names to the hook name
+# ``app.modules.ai.WEB_SEARCH_TOOL`` ("web_search") before asking ``AIRequest.on_tool_use``.
+_SDK_WEB_SEARCH_TOOL: Final = "WebSearch"
 
 # Tier defaults as aliases, so they follow the current models (ADR-044 item 9).
 CLAUDE_FAST_DEFAULT: Final = "haiku"
@@ -193,7 +195,7 @@ def build_options(
         raise ValueError("Token and API-key modes need a private config folder; no other.")
     if config_dir is not None and not config_dir.is_absolute():
         raise ValueError("The config folder must be an absolute path.")
-    tools = [WEB_SEARCH_TOOL] if allow_web_search else []
+    tools = [_SDK_WEB_SEARCH_TOOL] if allow_web_search else []
     return ClaudeAgentOptions(
         tools=list(tools),
         allowed_tools=list(tools),
