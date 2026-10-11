@@ -307,6 +307,9 @@ async def test_ac_m2_5_complete_saves_result_and_success_in_one_transaction(
     await h.start()
     try:
         await h.changes.wait_status(task_id, "succeeded")
+        # The change is published from the saving thread: the handler may not have resumed
+        # yet, and stopping the runner now would cancel it before ``then`` has read the row.
+        await _wait_until(lambda: states, "the handler read the row after complete")
     finally:
         await h.runner.stop()
 
@@ -448,6 +451,9 @@ async def test_result_rolled_back_when_cancelled_meanwhile(db: Database, how: st
             await asyncio.to_thread(_flag_in_database, db, task_id)  # no on_change
             handler.gate.set()
         await h.changes.wait_status(task_id, "cancelled")
+        # As above: let the handler see what ``complete`` raised before the runner stops,
+        # or the stop's own cancellation is what it records.
+        await _wait_until(lambda: handler.outcomes, "the handler called complete")
     finally:
         await h.runner.stop()
 
