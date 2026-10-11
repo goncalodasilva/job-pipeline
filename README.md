@@ -2,7 +2,7 @@
 
 A local, open-source web app for running a job search: collect postings, see honestly how well you fit, position yourself for each role with a growing bank of your own facts, draft tailored CVs and cover letters, track every application on a board, and prepare for interviews. You always submit applications yourself.
 
-**Status:** milestone M0 (foundation: app shell, security guards, tooling) is nearly complete; the features arrive from M1 on. See `docs/PROGRESS.md`.
+**Status:** M0 is accepted. M1 (setup guide and Claude connection) and M2 (background tasks and usage budgets) are built but not yet accepted. Most job-search features arrive from M3 on. See `docs/PROGRESS.md`.
 
 ## How it works
 
@@ -32,9 +32,11 @@ The setup guide opens on first launch. Follow these steps:
    
    The setup guide tests your connection with a tiny request (using a negligible amount of your plan or credits). Anthropic's Agent SDK documentation asks developers who build products or services on the SDK to use API key authentication, not a Claude plan sign-in, unless Anthropic has approved it. See https://docs.claude.com/en/docs/agent-sdk/overview for details.
 
-3. **Set your job preferences:** target roles, locations, work preferences, preferred salary and your CV country. You can edit these anytime by re-running the setup guide.
+3. **Web search (optional):** nothing in this version searches the web yet, and web search only runs when you ask for it. You can set a monthly limit on web searches now. Leave the budget empty for no limit, or choose "Skip for now".
 
-4. **Done:** the app opens with a choice to add your first job or go to Today. You can re-run the setup guide anytime with `--setup`.
+4. **Set your job preferences:** target roles, locations, work preferences, preferred salary and your CV country. You can edit these anytime by re-running the setup guide.
+
+5. **Done:** the app opens with a choice to add your first job or go to Today. You can re-run the setup guide anytime with `--setup`.
 
 In Settings, you can change your AI connection, replace a saved credential, and choose which models to use for fast and thorough tasks.
 
@@ -58,7 +60,7 @@ The app serves on http://127.0.0.1:8000 and opens your browser once it is ready.
 | `--data-dir PATH` | Folder for your data (default: your system's app-data folder) |
 | `--port N` | Port to use (default 8000) |
 | `--no-browser` | Don't open the browser |
-| `--demo` | Use a separate demo workspace with a separate data folder and keychain service |
+| `--demo` | Use a separate demo workspace with its own data folder and keychain service; it offers the practice provider on that demo folder only, not with `--data-dir` (see below) |
 | `--setup` | Open the setup guide to change settings or credentials |
 | `--version` | Show the version |
 
@@ -68,11 +70,31 @@ To explore without using your real data folder, try the demo:
 uv run jobpipeline --demo
 ```
 
+The demo's second setup step offers the practice provider, listed as "Fake (testing only)". It needs no account or key. Choose it, then start practice tasks from Settings > Testing tools. A practice task makes five fake calls and sends nothing to any service. Only the practice provider is fake: the Claude options are still listed in the demo, and if you choose one and save your own token or key, the app calls Claude.
+
 Or use a fresh temporary folder:
 
 ```bash
 uv run jobpipeline --data-dir "$(mktemp -d)"
 ```
+
+## Background tasks
+
+AI work runs as background tasks. The **Tasks** button in the top bar shows how many are running or queued, and says "1 needs attention" when a failed or interrupted task is waiting for you to look at it. Open it to see each task's progress and its buttons:
+
+- **Cancel** stops a queued or running task. A running task that is cancelled discards its partial output.
+- **Retry** runs a failed, cancelled or interrupted task again.
+- If the app stopped while a task ran, for example after a crash, that task shows as **interrupted** when the app starts again. It runs again only when you press Retry. Queued tasks run after a restart.
+
+Nothing retries on its own. In this version the only task type is the practice task, which is offered only on the demo's own folder, or when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` is set. With `--data-dir` or `JOBPIPELINE_DATA_DIR`, even `--demo` needs that variable. Real AI tasks arrive in later milestones.
+
+## Usage budgets
+
+Settings > Usage budgets sets a monthly limit for each service: Claude subscription, Claude API key, Web search and, in the demo, the practice provider. A service has no limit until you set one. A budget has an allowance, a first and a second warning, a blocking point (at most the allowance), a reset day, and optional caps for the Fast and Thorough tiers. Days 29 to 31 mean the last day of shorter months. Limits count requests; token counts are shown but not used for limits yet.
+
+Each warning appears once per cycle, in a dialog that asks you to continue. At the blocking point the action is disabled and says when the count resets. The usage panel above the forms shows each service's count, its reset date and any calls still running. Claude's own plan usage is shown for information only and never blocks an action. A connection test counts as one request and is never blocked.
+
+In this version the only requests that count are the connection test and, in the demo, the practice task. Web search budgets take effect once web search is used. "Background tasks at once" sets how many tasks run together; a change applies the next time you start the app.
 
 ## Credentials and the keychain
 

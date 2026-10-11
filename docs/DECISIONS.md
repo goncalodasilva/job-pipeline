@@ -277,6 +277,7 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   13. The prompt loader takes the default prompts folder from wiring; packaging `prompts/` into the wheel is settled in M9.
   14. Still open: the Anthropic terms URL linked from the provider step. Ask the user during M1.17.
 - Consequences: spec 2.13, 4.2 and 7.3 and ADR-023 are updated in the tasks that implement these points (M1.5, M1.10, M1.25). Known gap: M1 has no optional setup step, so AC-M1.7's "Done lists skipped steps" is proven with a test-registered optional step until steps 3 and 4 arrive (M2, M3). Provider health for case 4 is computed at start-up and after POSTs and cached, so GET routes never read secrets (spec 2.9.12). Docs nit: ADR-041's `app/render.py render()` is `app/api/templating.render`.
+- Update (M2.26, 2026-10-11): see ADR-088. Item 2's variable rule applies outside the demo folder only; `--demo` on the demo folder offers the fake by itself.
 
 ## ADR-045 — Claude Agent SDK spike findings and call isolation (2026-10-04)
 
@@ -478,6 +479,7 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - `<data>/tmp/ai` is created 0700 (a linked `tmp` or `tmp/ai` is refused) and leftover call folders are removed when the workspace opens.
   - Tests: an autouse fixture removes credential variables and allows fakes, so in-process tests don't depend on the developer's shell; tests of the gate pass explicit environments.
 - Accepted: two app instances on the same data folder (different ports) would clear each other's call folders at start-up; a data-folder lock is a candidate follow-up (decided at M1 acceptance).
+- Update (M2.26, 2026-10-11): see ADR-088. The fake is offered by itself in the demo folder under `--demo`; everywhere else the variable rule above stands.
 
 ## ADR-060 — Step 1: data folder choice (2026-10-05)
 
