@@ -876,3 +876,22 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Consequences: reviews in M3 cover larger diffs. Spec 2.3, 2.12, 2.13, 4.3 and section 5 are updated in M3.10. ADR-069 and ADR-076 item 12 carry over as described in items 3 and 9.
 - Update (M3.1, 2026-10-11): `python-docx` brings `lxml` 6.1.3 as a transitive dependency (a compiled extension with bundled libxml2; wheels for macOS and Linux on Python 3.11 to 3.14 are in the lock). Item 2's "no transitive dependencies" describes `pypdf` only. Mitigations: python-docx's parser has entity resolution off, Word zip entries are size-checked first, and all parsing runs in a child process with a cleared environment, a CPU limit and a kill at the deadline. App code never imports `lxml` directly.
 - Update (M3.1, 2026-10-11): interface choices. `read_upload` lives in `app/api/uploads.py` and raises domain errors; the M3.4 route reaches sniffing and extraction through a service. A file together with non-blank text is refused. The seven error classes are `UnsupportedDocumentType`, `UnreadableDocument`, `EncryptedDocument`, `NoTextFound`, `ParseTimedOut`, `UploadTooLarge` and `UploadNotAccepted`. Spec 2.11's table gets their rows in M3.10.
+
+## ADR-090 — Fact bank schema choices (M3.2) (2026-10-11)
+
+- Context: M3 needs one migration for all its tables (`0003_fact_bank.sql`). The sources left these choices open. A committed migration is never edited, so later changes need a new migration.
+- Decision: the M3.2 task made these choices. The user reviews them at the M3.2 checkpoint.
+  1. Ids are text from `IdFactory`. `facts.number` is the stable number in `F12@3`; it never changes and is also the FTS rowid.
+  2. `facts.current_version_id` is a deferred composite foreign key, so the version must belong to the fact. A fact and its first version are written in one transaction, and COMMIT can raise `IntegrityError`.
+  3. `fact_versions` and `fact_events` are append-only: UPDATE, DELETE and INSERT OR REPLACE are refused by triggers. Undo is a compensating event or a new version, never a deletion. History is ordered by `created_at, rowid`.
+  4. Role, skills, tags, dates and privacy live on `facts`. Changing them is an event, not a version.
+  5. A merged draft is discarded with `merged_into_fact_id` set (CHECK). Merge undo clears the link and restores the draft.
+  6. `fact_versions.source` and `fact_events.type` are free text, validated in the domain. Later milestones add values.
+  7. `cv_imports` keeps kind, a generated `stored_name` (letters, digits, dot, dash, underscore; no leading dot), state `uploaded|done` and its task. No client file name is stored. Removing an import clears `facts.cv_import_id` and keeps the drafts.
+  8. The CV quote of an imported unit goes in `original_answer`. `needs_check` is a flag.
+  9. Tags and skill aliases are JSON arrays. The service checks alias collisions.
+  10. Capture notes are soft-deleted (`deleted_at`). Refine sessions hold turns, suggestion, flagged and acknowledged claims as JSON, with at most 3 answer rounds and one open session per fact.
+  11. `fact_events` are fact history, not calendar events, so the IANA time-zone rule does not apply.
+  12. The lifecycle adds Discarded→Draft (undo) to the design diagram, per the plan.
+  13. Text line endings are normalised (`clean_part`) before comparing and storing.
+- Consequences: there is no erase path for fact text yet. One would need a later migration that drops the append-only triggers and keeps the `facts` row so numbers are not reused. M3.3 must assign `number` inside the write transaction, must not match on UNIQUE message text for the three guarded tables, and must make merge undo append a version.
