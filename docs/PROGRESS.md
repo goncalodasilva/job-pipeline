@@ -2,7 +2,7 @@
 
 Current milestone: M3
 
-How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/run-milestone` (or `/next-task`, one at a time) works through them, and `docs-keeper` ticks each task with evidence. Scripts parse this format, so keep it: a `Current milestone:` line, `## M<n> — Title` headings, and tasks written as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, plus optional `Checkpoint:` and `Blocked:` lines (ADR-065).
+How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/run-milestone` (or `/next-task`, one at a time) works through them, and `docs-keeper` ticks each task with evidence. Scripts parse this format, so keep it: a `Current milestone:` line, `## M<n> — Title` headings, and tasks written as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, plus optional `Checkpoint:` and `Blocked:` lines (ADR-065). Open technical debt, known limits and unverified items are listed in `docs/TECH_DEBT.md`.
 
 ## M0 — Foundation and tooling
 
@@ -461,3 +461,4 @@ Status: not planned
 - 2026-10-11: M3 planned (10 tasks) with `/plan-milestone M3`; the user asked for at most ten steps and accepted all planner recommendations, recorded in ADR-089 (dependencies, extract module, AC-M3.8 on the Done screen only, refine honesty check, mechanical near-duplicates, per-task tier list to M9). Checkpoints after M3.2, M3.5, M3.9. Branch `m3-fact-bank`; next: `/run-milestone` or `/next-task`.
 - 2026-10-11: M3 plan committed (cf6f887); M3.1 done (extraction module, upload reader, CV fixtures, three dependencies); next M3.2.
 - 2026-10-11: M3.2 done (migration 0003 with every M3 table, fact lifecycle, versions, refs and word diff; ADR-090). Run stopped at the M3.2 checkpoint for the user's schema review; next M3.3.
+- 2026-10-11: `docs/TECH_DEBT.md` created: one register of open technical debt, known limits, deferred hardening and unverified items from PROGRESS, the acceptance reports, the live-check file, ADRs and the spec. No code changed.
