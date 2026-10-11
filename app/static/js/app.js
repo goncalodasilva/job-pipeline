@@ -105,6 +105,166 @@
     target.focus();
   });
 
+  // A link to a section of the page it is on (a[data-section-link], such as "Open Usage
+  // budgets" on Settings) scrolls there but leaves keyboard focus behind. Focus goes to the
+  // section's heading (the element its aria-labelledby names), else to the section.
+  function sectionHeading(link) {
+    if (!link.hash || link.pathname !== window.location.pathname) return null;
+    var section = document.getElementById(link.hash.slice(1));
+    if (!section) return null;
+    var labelledBy = section.getAttribute("aria-labelledby");
+    return (labelledBy && document.getElementById(labelledBy)) || section;
+  }
+
+  function focusQuietly(element) {
+    if (element.tabIndex < 0 && !element.hasAttribute("tabindex")) element.setAttribute("tabindex", "-1");
+    element.focus();
+  }
+
+  document.addEventListener("click", function (event) {
+    var target = event.target instanceof Element ? event.target : null;
+    var link = target ? target.closest("a[data-section-link]") : null;
+    if (!link || link.closest("dialog[data-modal]")) return; // a dialog's link: when it closes
+    var heading = sectionHeading(link);
+    // After the browser has gone to the section, which drops focus.
+    if (heading) window.setTimeout(function () { focusQuietly(heading); }, 0);
+  });
+
+  // Modal questions (M2.24: the budget warning). A fragment holds <dialog data-modal>; once
+  // its swap settles it is opened with showModal(), which moves focus to its [autofocus]
+  // control ("Not now"), makes the rest of the page inert and closes on Esc. Tab and
+  // Shift+Tab wrap inside it. "Not now" ([data-modal-close]) and Esc only close it: nothing
+  // is sent. A closed dialog is removed, and focus goes to the control its data-return-focus
+  // selects (the action that asked); when a link in it was followed, to the heading of the
+  // section the link names if that is on this page. A confirmed start replaces the dialog
+  // with the answer, and until that answer is here Esc and "Not now" do nothing; an answer
+  // that can't be shown closes it, so the problem is visible.
+  var MODAL_STOPS = "a[href], button:not([disabled]), select:not([disabled]), " +
+    "textarea:not([disabled]), input:not([disabled]):not([type='hidden']), " +
+    "[tabindex]:not([tabindex='-1'])";
+  var modalLeavingTo = null; // where focus goes after a link in the dialog was followed
+
+  function openModal() {
+    return document.querySelector("dialog[data-modal][open]");
+  }
+
+  // htmx marks the form whose request is on its way.
+  function modalBusy(dialog) {
+    return dialog.querySelector(".htmx-request") !== null;
+  }
+
+  document.body.addEventListener("htmx:afterSettle", function () {
+    if (openModal()) return;
+    var dialog = document.querySelector("dialog[data-modal]");
+    if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+  });
+
+  document.addEventListener("click", function (event) {
+    var target = event.target instanceof Element ? event.target : null;
+    var dialog = target ? target.closest("dialog[data-modal]") : null;
+    if (!dialog || !dialog.open) return;
+    var link = target.closest("a[href]");
+    if (link) {
+      dialog.setAttribute("data-leaving", "");
+      modalLeavingTo = sectionHeading(link);
+      dialog.close();
+    } else if (target.closest("[data-modal-close]") && !modalBusy(dialog)) {
+      dialog.close();
+    }
+  });
+
+  // Esc while the confirmed start is on its way: the dialog stays until the answer is here.
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") return;
+    var dialog = openModal();
+    if (dialog && modalBusy(dialog)) event.preventDefault();
+  }, true);
+  // "cancel" doesn't bubble either.
+  document.addEventListener("cancel", function (event) {
+    var dialog = event.target;
+    if (!(dialog instanceof Element) || !dialog.matches("dialog[data-modal]")) return;
+    if (modalBusy(dialog)) event.preventDefault();
+  }, true);
+
+  // "close" doesn't bubble, so it is caught on its way down.
+  document.addEventListener("close", function (event) {
+    var dialog = event.target;
+    if (!(dialog instanceof Element) || !dialog.matches("dialog[data-modal]")) return;
+    var leaving = dialog.hasAttribute("data-leaving");
+    var selector = dialog.getAttribute("data-return-focus");
+    var next = leaving ? modalLeavingTo : (selector ? document.querySelector(selector) : null);
+    modalLeavingTo = null;
+    dialog.remove();
+    if (next) focusQuietly(next);
+  }, true);
+
+  // A part of the page that fetches itself again (Testing tools, when a budget changes) is
+  // not replaced while it holds an open modal: the question on screen would vanish.
+  document.body.addEventListener("htmx:beforeRequest", function (event) {
+    var detail = event.detail || {};
+    var from = detail.elt;
+    if (!(from instanceof Element) || from !== detail.target) return;
+    if (from.querySelector("dialog[data-modal][open]")) event.preventDefault();
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Tab") return;
+    var dialog = openModal();
+    if (!dialog) return;
+    var stops = dialog.querySelectorAll(MODAL_STOPS);
+    var first = stops[0];
+    var last = stops[stops.length - 1];
+    var active = document.activeElement;
+    var outside = !dialog.contains(active);
+    if (!first) {
+      event.preventDefault();
+    } else if (event.shiftKey ? (outside || active === first) : (outside || active === last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  });
+
+  function closeModalAfterFailure(event) {
+    var from = event.detail && event.detail.elt;
+    var dialog = openModal();
+    if (dialog && from instanceof Element && dialog.contains(from)) dialog.close();
+  }
+  document.body.addEventListener("htmx:responseError", closeModalAfterFailure);
+  document.body.addEventListener("htmx:sendError", closeModalAfterFailure);
+
+  // A control with aria-disabled="true" (an action a budget blocks) can take focus, so its
+  // reason is read, but does nothing: no click (Enter and Space on a button, and Enter in a
+  // field of its form, arrive as clicks on it) and no submit of the form it would submit.
+  // Pressing it says the reason again (the text its aria-describedby names), so the press
+  // isn't met with silence. The server refuses the request as well.
+  function blockedControl(element) {
+    return element instanceof Element ? element.closest("[aria-disabled='true']") : null;
+  }
+  function sayWhyBlocked(control) {
+    var ids = (control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+    var reason = ids.map(function (id) {
+      var element = document.getElementById(id);
+      return element ? element.textContent.replace(/\s+/g, " ").trim() : "";
+    }).filter(Boolean).join(" ");
+    if (reason) announce(reason);
+  }
+  function refuseBlocked(event, control) {
+    if (!control) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    sayWhyBlocked(control);
+  }
+  document.addEventListener("click", function (event) {
+    refuseBlocked(event, blockedControl(event.target));
+  }, true);
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    var submitter = event.submitter ||
+      form.querySelector("button[type='submit'], button:not([type]), input[type='submit']");
+    refuseBlocked(event, blockedControl(submitter));
+  }, true);
+
   // The top-bar task indicator (M2.20): #tasks-toggle is a disclosure button for the non-modal
   // #tasks-popover. Opening moves no focus. The panel closes on Esc (focus goes to the button
   // only when it was on it or in the panel), on a pointer press outside the two, and when

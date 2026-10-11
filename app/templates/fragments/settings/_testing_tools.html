@@ -5,8 +5,19 @@
    no label here repeats a value in another letter case); after a start the accepted choices
    stay selected. The POST swaps the wrapper. As in Providers, the result takes focus and the
    same words go to the page's live region (HX-Trigger); the only live region here is the
-   "Starting…" note, shown while the request runs. #}
-<div id="testing-tools"{% if practice.oob %} hx-swap-oob="true"{% endif %}>
+   "Starting…" note, shown while the request runs.
+   The budget gate (M2.24; app/api/budget_gate.py) adds, for a start it didn't let through,
+   the warning dialog or the reason with a link to the budgets; while the fake service is at
+   its blocking point, the Start button is aria-disabled; the reason is always above the
+   button, which is described by it; and after a start past a confirmed warning, a note with
+   the count.
+   The wrapper is the one fetcher of the section: on the body's usage:changed event (a budget
+   was saved or removed on this page) it asks for itself again with the form's values, so the
+   button is blocked or freed without a reload. That refresh moves no focus and announces
+   nothing, and app.js skips it while the section holds an open dialog. Every control has an
+   id, so htmx keeps focus on one that had it when the section is replaced. hx-include is
+   not inherited: the dialog's form posts its own hidden fields only. #}
+<div id="testing-tools" hx-get="{{ practice.refresh_url }}" hx-trigger="{{ practice.refresh_on }}" hx-include="#practice-form" hx-swap="outerHTML" hx-disinherit="hx-include"{% if practice.oob %} hx-swap-oob="true"{% endif %}>
 {% if practice.offered %}
 {% set field_labels = {"duration": "Duration", "outcome": "Outcome", "tier": "Tier"} %}
 {% set option_labels = {
@@ -38,14 +49,23 @@
       </select>
     </div>
     {% endfor %}
+    {% if practice.budget_reason %}
+    {% with budget_blocked = practice.budget_reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}
+    {% endif %}
     <div class="form-actions">
-      <button type="submit" class="button">Start practice task</button>
+      <button type="submit" id="practice-start" class="button"{% if practice.blocked %} aria-disabled="true"{% endif %}{% if practice.budget_reason %} aria-describedby="{{ practice.budget_reason.id }}"{% endif %}>Start practice task</button>
     </div>
     <p id="practice-starting" class="saving-note" role="status">Starting…</p>
     {% if practice.status %}
     <p id="practice-status" class="credential-status" tabindex="-1"{% if not practice.oob %} data-autofocus{% endif %}>{{ practice.status }}</p>
     {% endif %}
+    {% if practice.note %}
+    <p id="practice-budget-note" class="field-hint">{{ practice.note }}</p>
+    {% endif %}
   </form>
+  {% if practice.dialog %}
+  {% with budget_dialog = practice.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}
+  {% endif %}
 </section>
 {% endif %}
 </div>

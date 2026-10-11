@@ -813,3 +813,16 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   5. The e2e tests for the panel seed usage rows by opening the running app's temporary database from the test process. Reads already used this database; seeding from the test process is new.
 - Consequences: M2.24's dialog copy must name the count after the request, never "you have used". The panel and the dialog share the blocking rule but not the warning level. Any later panel or dialog that shows budget levels follows item 1.
 
+## ADR-086 — Budget warning dialog and blocked action rules (2026-10-11)
+
+- Context: M2.24 adds the warning dialog and blocked actions (AC-M2.7, AC-M2.10), first used by the practice task. The server must not accept a forged acknowledgement, and a blocked action must not stay blocked after the budget is raised or removed on the same page. The dialog counts the next request (ADR-085 item 1).
+- Decision:
+  1. The route-level gate decides from the server's own check. A confirmation is stored only when its service, threshold and cycle start equal the warning due right now, in one transaction (`UsageService.check_start`). The app no longer calls `UsageService.acknowledge`; it stays, with its looser rule, until its removal is approved.
+  2. A blocked action is a focusable button with `aria-disabled="true"`, described by the reason. The client guards it and the server refuses it. A press announces the reason.
+  3. htmx and plain answers for a block, a tier cap without a free Fast tier, and unreadable budgets are 409. A warning for a plain request is 409 text. The dialog answer is 200.
+  4. The dialog is a native `<dialog>` opened with `showModal()`, with explicit `role="dialog"` and `aria-modal="true"`. Initial focus is on "Not now". Esc and "Not now" send nothing. Tab wraps in script.
+  5. "Run once on Fast" re-enters the normal start on Fast. Fast is checked again, so a warning due on Fast still shows. Nothing is stored, and the form's tier select keeps the tier the user chose.
+  6. A page that shows a blocked action and can change budgets refreshes it on `usage:changed`. Testing tools refetches itself. Neither refreshes while it holds an open dialog.
+  7. The warning names the blocking point when it differs from the allowance, and says when the next request is the last one before it.
+- Consequences: a warning is shown once per cycle, and again after the reset. Spec 2.5's diagram, spec 2.11 and the htmx-ui skill's modal pattern need updating in M2.27. Removing `UsageService.acknowledge` and its tests needs the user's approval. How actions that make several requests are checked is open and must be decided before M3 (see the M2.24 Evidence line).
+

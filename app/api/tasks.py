@@ -8,10 +8,22 @@ htmx the 422 is the section with a fixed message; for a plain request, which onl
 form can send, it is that message as text, because the full page's other copy could happen
 to contain what was sent.
 
+Before it queues anything, a start asks the budget gate (M2.24; ``BudgetGate`` over
+``UsageService.check_start``) about the fake service and the chosen tier. A warning not yet
+confirmed this cycle answers 200 (htmx) with the section and the warning dialog, whose
+"Continue" posts the same values with ``budget_service``, ``budget_threshold`` and
+``budget_cycle_start``; those count only when they name the warning that is due right now
+for the fake service. A Thorough cap with Fast free answers the dialog with "Run once on
+Fast" (the same start with ``tier=fast`` and, in ``budget_chosen_tier``, the tier the form
+showed, which it keeps showing). The blocking point, a cap without that offer and unreadable
+budgets answer 409 with the reason. A plain request gets 409 with the reason as text.
+Nothing is queued in any of these cases.
+
 A start answers 303 to ``/settings?practice=started#testing-tools`` (``already`` when a task
 was already queued or running: it is kept and no second one starts), or for htmx 200 with the
 Testing tools section, the accepted choices still selected, focus on its status line and the
-same words in an "announce" trigger (as Settings > Providers does after a save).
+same words in an "announce" trigger (as Settings > Providers does after a save). A start past
+a confirmed warning also shows a note with the count, added to the announcement.
 
 Task status (M2.19; fragments only, the same with or without ``HX-Request``):
 ``GET /tasks/panel`` and ``GET /tasks/{id}`` need the launch token and change nothing
@@ -40,6 +52,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from app.api.budget_gate import FAST, TIER_FIELD, chosen_tier, refusal_message
 from app.api.forms import is_htmx, read_form
 from app.api.settings import (
     PRACTICE_PATH,
@@ -49,7 +62,15 @@ from app.api.settings import (
 )
 from app.api.templating import templates
 from app.domain.errors import PracticeNotOffered
-from app.services.practice import PracticeService, choice_from_form
+from app.onboarding.registry import Form
+from app.services.budget_gate import BudgetGate, Refusal, Start, confirmation_from_form
+from app.services.practice import (
+    PRACTICE_SERVICE,
+    TIERS,
+    PracticeChoice,
+    PracticeService,
+    choice_from_form,
+)
 from app.services.task_views import ActionView, TaskView, TaskViews
 
 MSG_INVALID = "Choose one of the listed values for each field."
@@ -94,6 +115,17 @@ async def start_practice(request: Request) -> Response:
         response = await run_in_threadpool(testing_tools_response, request, error=MSG_INVALID)
         response.status_code = 422
         return response
+    # The budget first (M2.24): only ``Start`` lets the task be queued. A confirmation that
+    # names the warning due right now is stored by this check; any other changes nothing.
+    gate: BudgetGate = request.app.state.budget_gate
+    answer = await run_in_threadpool(
+        gate.check,
+        PRACTICE_SERVICE,
+        tier=choice.tier,
+        confirmation=confirmation_from_form(form),
+    )
+    if not isinstance(answer, Start):
+        return await run_in_threadpool(_not_started, request, choice, answer)
     try:
         ref = await run_in_threadpool(practice.start, choice)
     except PracticeNotOffered:  # the provider changed since the check above
@@ -102,10 +134,39 @@ async def start_practice(request: Request) -> Response:
     if not is_htmx(request):
         return RedirectResponse(practice_started_url(flag), status_code=303)
     message = PRACTICE_STATUS[flag]
+    note = answer.note if ref.created else None
     response = await run_in_threadpool(
-        testing_tools_response, request, status=message, selected=choice.as_form()
+        testing_tools_response,
+        request,
+        status=message,
+        selected=_shown_choice(form, choice),
+        note=note,
     )
-    response.headers["HX-Trigger"] = json.dumps({"announce": message})
+    announced = message if note is None else f"{message} {note}"
+    response.headers["HX-Trigger"] = json.dumps({"announce": announced})
+    return response
+
+
+def _shown_choice(form: Form, choice: PracticeChoice) -> dict[str, str]:
+    """What the form shows after a start: the accepted values, except that a run moved to
+    Fast for once ("Run once on Fast") keeps the tier the user chose."""
+    shown = dict(choice.as_form())
+    kept = chosen_tier(form, TIERS)
+    if kept is not None and choice.tier == FAST:
+        shown[TIER_FIELD] = kept
+    return shown
+
+
+def _not_started(request: Request, choice: PracticeChoice, answer: Refusal) -> Response:
+    """The budget gate's answer to a start it didn't let through. For htmx the section: 200
+    with the dialog when there is something to confirm, else 409 with the reason (the
+    blocked button, or a line with a link to the budgets). A plain request, which only a
+    hand-made form can send, gets the reason as text. Blocking."""
+    if not is_htmx(request):
+        return PlainTextResponse(refusal_message(answer), status_code=409)
+    response = testing_tools_response(request, selected=choice.as_form(), refusal=answer)
+    if not answer.asks:
+        response.status_code = 409
     return response
 
 

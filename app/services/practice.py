@@ -30,6 +30,8 @@ PRACTICE_TARGET: Final = "settings"  # one practice task at a time
 PRACTICE_STEPS: Final = 5
 SLOW_STEP_SECONDS: Final = 3.0
 FAKE_KIND: Final = "fake"
+# The usage service a practice run is counted on, and its start is checked against.
+PRACTICE_SERVICE: Final = SERVICE_BY_PROVIDER_KIND[FAKE_KIND]
 
 DURATIONS: Final = ("quick", "slow")
 OUTCOMES: Final = ("ok", "usage_limit", "network", "invalid_output")
@@ -157,7 +159,7 @@ class PracticeService:
             raise PracticeNotOffered
         provider = self._scripted_provider(settings, data_dir, choice)
         runner = self._factory.task_runner(provider, lambda: settings, data_dir=data_dir)
-        meter = ServiceUsageMeter(usage, SERVICE_BY_PROVIDER_KIND[FAKE_KIND])
+        meter = ServiceUsageMeter(usage, PRACTICE_SERVICE)
         for step in range(PRACTICE_STEPS):
             ctx.check_cancelled()
             await ctx.heartbeat(step * 100 // PRACTICE_STEPS)

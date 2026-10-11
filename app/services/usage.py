@@ -24,6 +24,7 @@ from app.domain.budgets import (
     EffectiveCount,
     ProviderCount,
     TierUsage,
+    Warn,
     budget_level,
     cycle_bounds,
     effective_count,
@@ -114,6 +115,30 @@ class StoredBudgets:
     budgets: Mapping[ServiceId, Budget]
     version: int
     unreadable: bool = False
+
+
+@dataclass(frozen=True)
+class Confirmation:
+    """The warning a start says the user confirmed (M2.24): checked, never trusted."""
+
+    service: str  # as it was sent: it counts only when it is the service being checked
+    threshold: str
+    cycle_start: date
+
+
+@dataclass(frozen=True)
+class StartCheck:
+    """What starting an action on a tier meets, from one transaction (M2.24)."""
+
+    decision: Decision
+    cycle_start: date  # the current cycle's local start date: what a warning is confirmed for
+    # The confirmation that came with the start named the warning that was due: it is stored
+    # now, and ``decision`` is what the start meets after it.
+    acknowledged: bool = False
+    # For a tier cap that offers Fast: what the same start meets on Fast.
+    fast: Decision | None = None
+    # The budget's blocking point, for the warning's wording; None without a budget.
+    block_at: int | None = None
 
 
 def _reached(budget: Budget, count: int) -> frozenset[str]:
@@ -314,6 +339,43 @@ class UsageService:
         with self._db.transaction() as conn:
             return self._decide(conn, service, self._clock.now(), checked_tier)
 
+    def check_start(
+        self, service: str, *, tier: str, confirming: Confirmation | None = None
+    ) -> StartCheck:
+        """``preflight`` for an action the user starts, with what its answer needs.
+
+        ``confirming`` is the warning the user confirmed with this start. It is stored only
+        when its service, threshold and cycle start are exactly those of the warning due
+        right now for ``service``, in the same transaction as the check; any other value is
+        ignored, so a confirmation never gets past a warning it doesn't name, and one made
+        for another service counts for none. Raises ``UsageLimitsUnreadable``.
+        """
+        service = check_service(service)
+        checked_tier = check_tier(tier)
+        with self._db.transaction() as conn:
+            now = self._clock.now()
+            counts = self._counts(conn, service, now)
+            cycle_start = counts.cycle.start_date
+            decision = self._decide_on(conn, service, counts, checked_tier)
+            block_at = None if counts.budget is None else counts.budget.block_at
+            if isinstance(decision, Warn) and confirming == Confirmation(
+                service, decision.threshold, cycle_start
+            ):
+                usage_repo.insert_notice(
+                    conn,
+                    notice_id=self._ids.new(),
+                    service=service,
+                    cycle_start=cycle_start,
+                    threshold=decision.threshold,
+                    now=utc_text(now),
+                )
+                after = self._decide(conn, service, now, checked_tier)
+                return StartCheck(after, cycle_start, acknowledged=True, block_at=block_at)
+            fast = None
+            if isinstance(decision, CapBlocked) and decision.offer_fast:
+                fast = self._decide_on(conn, service, counts, "fast")
+            return StartCheck(decision, cycle_start, fast=fast, block_at=block_at)
+
     def breakdown(
         self, service: str, *, cycle: Cycle | None = None
     ) -> tuple[usage_repo.BreakdownRow, ...]:
@@ -436,7 +498,11 @@ class UsageService:
     def _decide(
         self, conn: sqlite3.Connection, service: ServiceId, now: datetime, tier: BudgetTier
     ) -> Decision:
-        counts = self._counts(conn, service, now)
+        return self._decide_on(conn, service, self._counts(conn, service, now), tier)
+
+    def _decide_on(
+        self, conn: sqlite3.Connection, service: ServiceId, counts: _Counts, tier: BudgetTier
+    ) -> Decision:
         if counts.unreadable:
             raise UsageLimitsUnreadable(detail="stored usage budgets are not valid")
         if counts.budget is None:

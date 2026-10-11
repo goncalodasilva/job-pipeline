@@ -93,6 +93,16 @@ class BudgetBlocked(AppError):
         return f"Monthly limit reached for {self.service}. Resets on {format_day(self.resets_on)}."
 
 
+def tier_cap_message(service: str, tier: str, resets_on: date, *, offer_fast: bool) -> str:
+    """The ``TierCapReached`` sentence (spec 2.11). ``offer_fast``: say that this can run once
+    on Fast; a caller that has checked Fast passes what it found (M2.24)."""
+    text = (
+        f"The {tier.capitalize()} limit for {service} is reached. "
+        f"It resets on {format_day(resets_on)}"
+    )
+    return text + ("; you can run this once on Fast." if offer_fast else ".")
+
+
 class TierCapReached(BudgetBlocked):
     """Only a tier's cap blocks (spec 3.7). ``offer_fast`` (Thorough only) means the caller
     may offer to run once on Fast after checking Fast; it never switches by itself."""
@@ -108,11 +118,7 @@ class TierCapReached(BudgetBlocked):
 
     @property
     def user_message(self) -> str:
-        text = (
-            f"The {self.tier.capitalize()} limit for {self.service} is reached. "
-            f"It resets on {format_day(self.resets_on)}"
-        )
-        return text + ("; you can run this once on Fast." if self.offer_fast else ".")
+        return tier_cap_message(self.service, self.tier, self.resets_on, offer_fast=self.offer_fast)
 
 
 class UsageLimitsUnreadable(AppError):

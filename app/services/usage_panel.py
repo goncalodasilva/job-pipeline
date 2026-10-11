@@ -118,10 +118,16 @@ def _unfinished(count: int) -> str | None:
     return f"{count} calls are still running or didn't finish. They are counted."
 
 
-def _block_note(budget: Budget | None) -> str | None:
-    if budget is None or budget.block_at == budget.allowance:
+def block_point_note(block_at: int, allowance: int) -> str | None:
+    """Where the app stops, said only when that isn't the allowance. Also part of the budget
+    warning (``app/services/budget_gate.py``), so both say it in the same words."""
+    if block_at == allowance:
         return None
-    return f"The app stops at {_requests(budget.block_at)} (your blocking point)."
+    return f"The app stops at {_requests(block_at)} (your blocking point)."
+
+
+def _block_note(budget: Budget | None) -> str | None:
+    return None if budget is None else block_point_note(budget.block_at, budget.allowance)
 
 
 def _cap_line(cap: TierUsage, reset: str) -> CapLine:

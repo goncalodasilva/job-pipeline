@@ -1260,3 +1260,141 @@ def test_reports_read_status_and_breakdown_without_the_write_lock(
 def test_reports_refuse_an_unknown_service(usage: Any) -> None:
     with pytest.raises(ValueError):
         usage.reports((SERVICE, "fictional_service"))
+
+
+# --- check_start (M2.24): preflight for a started action, with its confirmation -------------
+
+
+def test_check_start_reports_the_decision_and_the_cycle_and_writes_nothing(
+    db: Database, usage: Any
+) -> None:
+    from app.services.usage import StartCheck
+
+    assert usage.check_start(SERVICE, tier="fast") == StartCheck(Allow(), date(2026, 2, 1))
+    _set_budget(usage, _budget())
+    _reserve_n(usage, 4)
+    before = _all_rows(db)
+
+    assert usage.check_start(SERVICE, tier="fast") == StartCheck(
+        Warn("first", 5, 10, RESET), CYCLE_START, block_at=10
+    )
+    assert _all_rows(db) == before
+
+
+def test_check_start_stores_only_the_warning_that_is_due(db: Database, usage: Any) -> None:
+    """Both warnings are reached and none confirmed: the second is due. Naming the first
+    (which ``acknowledge`` would accept), another cycle or anything else stores nothing."""
+    from app.services.usage import Confirmation, StartCheck
+
+    _set_budget(usage, _budget())
+    _reserve_n(usage, 7)
+    due = StartCheck(Warn("second", 8, 10, RESET), CYCLE_START, block_at=10)
+
+    for other in (("first", CYCLE_START), ("second", RESET), ("block", CYCLE_START), ("", RESET)):
+        named = Confirmation(SERVICE, *other)
+        assert usage.check_start(SERVICE, tier="fast", confirming=named) == due
+        assert _notices(db) == []
+
+    genuine = Confirmation(SERVICE, "second", CYCLE_START)
+    confirmed = usage.check_start(SERVICE, tier="fast", confirming=genuine)
+    assert confirmed == StartCheck(Note(8, 10, RESET), CYCLE_START, acknowledged=True, block_at=10)
+    assert _notices(db) == [(SERVICE, "2026-02-15", "second")]
+    # Confirmed once: the same post again finds no warning due and stores nothing more.
+    again = usage.check_start(SERVICE, tier="fast", confirming=genuine)
+    assert again == StartCheck(Note(8, 10, RESET), CYCLE_START, block_at=10)
+    assert _notices(db) == [(SERVICE, "2026-02-15", "second")]
+
+
+@pytest.mark.parametrize("named", ["fake", "claude_subscription", "fictional_service", "", "FAKE"])
+def test_check_start_refuses_a_confirmation_that_names_another_service(
+    db: Database, usage: Any, named: str
+) -> None:
+    """Two services are at the same warning in the same cycle, so only the service's name
+    tells their confirmations apart: one that names anything but the service being checked
+    stores nothing for either, and the warning stays due."""
+    from app.services.usage import Confirmation, StartCheck
+
+    other = "fake"
+    for service in (SERVICE, other):
+        _set_budget(usage, _budget(), service)
+        _reserve_n(usage, 4, service=service)
+    due = StartCheck(Warn("first", 5, 10, RESET), CYCLE_START, block_at=10)
+    assert usage.check_start(other, tier="fast") == due
+
+    forged = Confirmation(named, "first", CYCLE_START)
+    assert usage.check_start(SERVICE, tier="fast", confirming=forged) == due
+    assert _notices(db) == []
+
+    # The same warning, named for the service being checked, is accepted.
+    genuine = Confirmation(SERVICE, "first", CYCLE_START)
+    assert usage.check_start(SERVICE, tier="fast", confirming=genuine).acknowledged
+    assert _notices(db) == [(SERVICE, "2026-02-15", "first")]
+    assert usage.check_start(other, tier="fast") == due, "the other service is still asked"
+
+
+def test_check_start_reports_the_blocking_point_of_the_budget(usage: Any) -> None:
+    """What the warning's wording needs: the blocking point, whatever the decision is; None
+    for a service without a budget."""
+    assert usage.check_start(SERVICE, tier="fast").block_at is None
+    _set_budget(usage, _budget(allowance=12, block_at=9))
+    assert usage.check_start(SERVICE, tier="fast").block_at == 9
+    _reserve_n(usage, 4)
+    checked = usage.check_start(SERVICE, tier="fast")
+    assert checked.decision == Warn("first", 5, 12, RESET)
+    assert checked.block_at == 9
+    assert usage.check_start("fake", tier="fast").block_at is None, "another service: no budget"
+
+
+def test_check_start_never_confirms_past_a_block(db: Database, usage: Any) -> None:
+    from app.services.usage import Confirmation, StartCheck
+
+    _set_budget(usage, _budget())
+    _reserve_n(usage, 10)
+
+    checked = usage.check_start(
+        SERVICE, tier="fast", confirming=Confirmation(SERVICE, "second", CYCLE_START)
+    )
+
+    assert checked == StartCheck(Blocked(RESET), CYCLE_START, block_at=10)
+    assert _notices(db) == []
+
+
+@pytest.mark.parametrize(
+    ("fast_used", "on_fast"), [(0, Allow()), (2, CapBlocked("fast", False, RESET))]
+)
+def test_check_start_on_a_capped_thorough_tier_says_what_fast_would_meet(
+    usage: Any, fast_used: int, on_fast: Any
+) -> None:
+    from app.services.usage import StartCheck
+
+    _set_budget(usage, _budget(fast_cap=2, thorough_cap=3))
+    _reserve_n(usage, 3, tier="thorough")
+    _reserve_n(usage, fast_used, tier="fast")
+
+    assert usage.check_start(SERVICE, tier="thorough") == StartCheck(
+        CapBlocked("thorough", True, RESET), CYCLE_START, fast=on_fast, block_at=10
+    )
+    if fast_used:  # the Fast cap itself offers nothing, so nothing else is checked
+        assert usage.check_start(SERVICE, tier="fast") == StartCheck(
+            on_fast, CYCLE_START, block_at=10
+        )
+
+
+def test_check_start_with_unreadable_budgets_raises(db: Database, usage: Any) -> None:
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value, created_at, updated_at, version) "
+            "VALUES ('usage_budgets', ?, ?, ?, 3)",
+            (
+                '{"budgets": {"claude_api_key": {"allowance": "ten"}}}',
+                START.isoformat(),
+                START.isoformat(),
+            ),
+        )
+    from app.services.usage import Confirmation
+
+    with pytest.raises(UsageLimitsUnreadable):
+        usage.check_start(
+            SERVICE, tier="fast", confirming=Confirmation(SERVICE, "first", CYCLE_START)
+        )
+    assert _notices(db) == []

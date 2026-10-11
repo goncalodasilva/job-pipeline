@@ -272,6 +272,11 @@ def test_panel_follows_a_practice_task_without_a_reload(
 
         tab_to(page, f'{PRACTICE_FORM} button[type="submit"]')
         page.keyboard.press("Enter")
+        # The seeded count (7 reported) is past the first warning (5): the start asks first
+        # (M2.24), and Continue by keyboard starts the task.
+        proceed = page.get_by_role("dialog").get_by_role("button", name="Continue", exact=True)
+        proceed.focus()
+        page.keyboard.press("Enter")
         expect(page.locator(PRACTICE_STATUS)).to_have_text("Practice task started.")
 
         expect(page.locator(LOCAL)).to_have_text(f"Counted on this computer: {after}")

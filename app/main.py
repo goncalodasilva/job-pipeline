@@ -80,6 +80,7 @@ from app.onboarding.steps.done import DoneStep
 from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
+from app.services.budget_gate import BudgetGate
 from app.services.health import HealthService
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
@@ -711,6 +712,8 @@ def create_app(
     app.state.wiring = app_wiring
     practice = _practice(app, wiring=app_wiring, clock=app_clock, registry=handlers)
     app.state.practice = practice
+    # The budget check in front of a started action (M2.24): the open workspace's usage.
+    app.state.budget_gate = BudgetGate(_open_usage(app))
     usage_settings = _usage_settings(app, wiring=app_wiring, clock=app_clock)
     app.state.usage_settings = usage_settings
     # The usage panel (M2.23) reads the open workspace's usage service at call time too.

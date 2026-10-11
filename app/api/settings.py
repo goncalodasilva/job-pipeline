@@ -11,6 +11,13 @@ later and has a small empty state after Providers. While the practice task is of
 allowed and the fake saved; M2.17), a "Testing tools" section follows Providers; its form posts
 to ``/tasks/practice`` (``app/api/tasks.py``).
 
+``GET /settings/testing-tools`` (M2.24; launch token; GET only; changes nothing) answers the
+Testing tools section alone, the same with or without ``HX-Request``. The section fetches it
+on the body's ``usage:changed`` event (a budget was saved or removed on this page), so its
+Start button is blocked or freed without a reload. The request carries the form's values:
+they stay selected when each is a listed value, and are never shown back otherwise. Nothing
+in the answer takes focus or is announced.
+
 ``POST /settings/providers`` (launch token and origin) saves like the provider step: ``kind``,
 ``credential``, ``action=save`` (default) or ``remove=<kind>`` (deletes only with
 ``confirm=<kind>``; without it, or with ``keep=<kind>``, it answers 200 with the section asking
@@ -43,15 +50,27 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from app.api.budget_gate import dialog_context, reason_context, refusal_message
 from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
 from app.api.setup_redirect import setup_step_path
-from app.api.templating import render, renders_fragment
-from app.api.usage_forms import UsageFormState, panel_context, usage_context
+from app.api.templating import render, renders_fragment, templates
+from app.api.usage_forms import (
+    USAGE_CHANGED_EVENT,
+    UsageFormState,
+    panel_context,
+    usage_context,
+)
 from app.onboarding.registry import ConnectionCheck, Form, StepRegistry, StepResult
 from app.onboarding.steps.provider import ProviderStep
-from app.services.practice import PRACTICE_FIELDS, PracticeService
+from app.services.budget_gate import BlockedAction, BudgetGate, Refusal
+from app.services.practice import (
+    PRACTICE_FIELDS,
+    PRACTICE_SERVICE,
+    PracticeService,
+    choice_from_form,
+)
 
 SETTINGS_PATH = "/settings"
 PROVIDERS_PATH = f"{SETTINGS_PATH}/providers"
@@ -64,7 +83,12 @@ PROVIDERS_TARGET = "#providers"
 PROVIDERS_SAVED_FRAGMENT = "fragments/settings/_providers_saved.html"
 TESTING_TOOLS_FRAGMENT = "fragments/settings/_testing_tools.html"
 TESTING_TOOLS_ID = "testing-tools"
+TESTING_TOOLS_PATH = f"{SETTINGS_PATH}/testing-tools"  # the section alone (M2.24)
+# The section shows a blocked action: it fetches itself again when a budget changes.
+TESTING_TOOLS_TRIGGER = f"{USAGE_CHANGED_EVENT} from:body"
 PRACTICE_PATH = "/tasks/practice"
+PRACTICE_START = "#practice-form button[type=submit]"  # gets focus back from the dialog
+PRACTICE_REASON_ID = "practice-budget-reason"  # why a start is blocked or was refused
 PRACTICE_FLAG = "practice"  # ?practice=<key of PRACTICE_STATUS>, after a plain start
 PRACTICE_STATUS: Mapping[str, str] = MappingProxyType(
     {
@@ -83,6 +107,13 @@ def register_settings_pages(app: FastAPI) -> None:
         tags=[PAGE_TAG],
         response_class=HTMLResponse,
         name="page_settings",
+    )
+    app.add_api_route(  # not a page: it needs the token
+        TESTING_TOOLS_PATH,
+        testing_tools,
+        methods=["GET"],
+        response_class=HTMLResponse,
+        name="settings_testing_tools",
     )
     app.add_api_route(
         PROVIDERS_TEST_PATH,
@@ -111,6 +142,23 @@ def settings_page(request: Request) -> HTMLResponse:
     # After a plain practice start: one of two fixed words; anything else shows nothing.
     flag = request.query_params.get(PRACTICE_FLAG, "")
     return _render(request, section_only=False, practice_status=PRACTICE_STATUS.get(flag))
+
+
+def testing_tools(request: Request) -> HTMLResponse:
+    """The Testing tools section alone, with the choices the page sent still selected. A
+    plain function: FastAPI runs it in its thread pool, so the database reads never block
+    the event loop."""
+    practice: PracticeService = request.app.state.practice
+    sent = {name: request.query_params.getlist(name) for name in PRACTICE_FIELDS}
+    choice = choice_from_form(sent)
+    ctx = {
+        "practice": _practice_context(
+            request,
+            offered=practice.offered(),
+            selected=None if choice is None else choice.as_form(),
+        )
+    }
+    return templates.TemplateResponse(request, TESTING_TOOLS_FRAGMENT, ctx)
 
 
 def practice_started_url(flag: str) -> str:
@@ -175,16 +223,22 @@ def testing_tools_response(
     status: str | None = None,
     error: str | None = None,
     selected: Mapping[str, str] | None = None,
+    note: str | None = None,
+    refusal: Refusal | None = None,
 ) -> HTMLResponse:
     """The Testing tools section for htmx (the full Settings page otherwise), with the
-    result of a start (``status``) or why it was refused (``error``); ``selected`` is the
-    accepted choice per field, kept in the selects. Blocking."""
+    result of a start (``status``, and ``note`` when a confirmed budget warning is passed)
+    or why it was refused (``error``, or ``refusal``: the budget gate's answer, shown as
+    its dialog, the blocked button or a reason with a link to the budgets); ``selected`` is
+    the accepted choice per field, kept in the selects. Blocking."""
     return _render(
         request,
         fragment=TESTING_TOOLS_FRAGMENT,
         practice_status=status,
         practice_error=error,
         practice_selected=selected,
+        practice_note=note,
+        practice_refusal=refusal,
     )
 
 
@@ -222,12 +276,15 @@ def _render(
     practice_status: str | None = None,
     practice_error: str | None = None,
     practice_selected: Mapping[str, str] | None = None,
+    practice_note: str | None = None,
+    practice_refusal: Refusal | None = None,
     usage: UsageFormState | None = None,
 ) -> HTMLResponse:
     """The full Settings page, or for htmx the Providers section (after a POST), the main
     content (a page GET) or ``fragment``. Blocking."""
     handler = _handler(request)
     practice: PracticeService = request.app.state.practice
+    offered = practice.offered()  # a settings read; writes nothing
     if fragment is None:
         fragment = PROVIDERS_FRAGMENT if section_only else SETTINGS_FRAGMENT
     registry: StepRegistry = request.app.state.setup_registry
@@ -263,14 +320,74 @@ def _render(
             "usage": usage_context(request, usage) if shows_usage else None,
             "usage_panel": panel_context(request) if shows_panel else None,
             # Testing tools (M2.17): shown only while the practice task is offered.
-            "practice": {
-                "offered": practice.offered(),  # a settings read; writes nothing
-                "url": PRACTICE_PATH,
-                "fields": PRACTICE_FIELDS,
-                "status": practice_status,  # a start just happened: focus moves there
-                "error": practice_error,  # a refused start: focus moves there
-                "selected": dict(practice_selected or {}),  # accepted values only
-                "oob": fragment == PROVIDERS_SAVED_FRAGMENT,  # swapped next to Providers
-            },
+            "practice": _practice_context(
+                request,
+                offered=offered,
+                status=practice_status,
+                error=practice_error,
+                selected=practice_selected,
+                note=practice_note,
+                refusal=practice_refusal,
+                oob=fragment == PROVIDERS_SAVED_FRAGMENT,
+            ),
         },
     )
+
+
+def _practice_context(
+    request: Request,
+    *,
+    offered: bool,
+    status: str | None = None,
+    error: str | None = None,
+    selected: Mapping[str, str] | None = None,
+    note: str | None = None,
+    refusal: Refusal | None = None,
+    oob: bool = False,
+) -> dict[str, Any]:
+    """The ``practice`` template value: everything the Testing tools section shows. Blocking."""
+    return {
+        "offered": offered,
+        "url": PRACTICE_PATH,
+        "refresh_url": TESTING_TOOLS_PATH,
+        "refresh_on": TESTING_TOOLS_TRIGGER,
+        "fields": PRACTICE_FIELDS,
+        "status": status,  # a start just happened: focus moves there
+        "error": error,  # a refused start: focus moves there
+        "selected": dict(selected or {}),  # accepted values only
+        "oob": oob,  # swapped next to Providers
+        **_practice_budget(request, offered, refusal, selected or {}),
+        "note": note,  # past a confirmed budget warning (M2.24)
+    }
+
+
+def _practice_budget(
+    request: Request, offered: bool, refusal: Refusal | None, selected: Mapping[str, str]
+) -> dict[str, Any]:
+    """The budget gate's part of Testing tools (M2.24): whether the Start button is blocked
+    (whenever the fake service is at its blocking point; a read), the reason shown above the
+    button (the block, or why the gate refused a start it has no question about), and the
+    dialog for a start the gate has a question about. Blocking."""
+    gate: BudgetGate = request.app.state.budget_gate
+    block = refusal if isinstance(refusal, BlockedAction) else None
+    if block is None and offered:
+        block = gate.blocked(PRACTICE_SERVICE)
+    dialog = None
+    if refusal is not None and block is None:
+        dialog = dialog_context(
+            refusal,
+            dialog_id="practice-budget-dialog",
+            action=PRACTICE_PATH,
+            target=f"#{TESTING_TOOLS_ID}",
+            fields=selected,
+            return_focus=PRACTICE_START,
+        )
+    reason = None
+    if block is not None:
+        reason = reason_context(
+            block.message, reason_id=PRACTICE_REASON_ID, focus=refusal is not None
+        )
+    elif refusal is not None and dialog is None:
+        message = refusal_message(refusal)
+        reason = reason_context(message, reason_id=PRACTICE_REASON_ID, focus=True)
+    return {"blocked": block is not None, "dialog": dialog, "budget_reason": reason}
