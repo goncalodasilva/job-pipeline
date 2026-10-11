@@ -1,0 +1,174 @@
+{
+  "generator": "scripts/make_cv_fixtures.py",
+  "files": {
+    "single_column.pdf": {
+      "kind": "pdf",
+      "outcome": "text",
+      "about": "Two pages, one column.",
+      "marker_groups": [
+        [
+          "Alex Example",
+          "Operations Analyst - Lisbon, Portugal",
+          "alex@example.com",
+          "Experience",
+          "Example Widgets Ltd - Operations Analyst (2021 - 2024)",
+          "Cut invoice processing time by 35% across 4 warehouses.",
+          "Built weekly stock reports used by 12 store managers.",
+          "Sample Logistics SA - Junior Planner (2018 - 2021)",
+          "Planned 60 delivery routes a week with a team of 3.",
+          "Education",
+          "BSc in Industrial Management, Example University, 2018",
+          "Skills",
+          "SQL, Excel, Python, Portuguese, English"
+        ]
+      ]
+    },
+    "two_column.pdf": {
+      "kind": "pdf",
+      "outcome": "text",
+      "about": "A sidebar and a main column on shared baselines; each group is one column.",
+      "marker_groups": [
+        [
+          "Alex Example",
+          "Contact",
+          "alex@example.com",
+          "Skills",
+          "SQL and Python",
+          "Stock forecasting",
+          "Languages",
+          "Portuguese (native)",
+          "English (fluent)"
+        ],
+        [
+          "Profile",
+          "Operations analyst with six years in retail logistics.",
+          "Experience",
+          "Example Widgets Ltd, Operations Analyst, 2021 - 2024",
+          "Cut invoice processing time by 35% across 4 warehouses.",
+          "Sample Logistics SA, Junior Planner, 2018 - 2021",
+          "Planned 60 delivery routes a week with a team of 3.",
+          "Education",
+          "BSc in Industrial Management, Example University, 2018"
+        ]
+      ]
+    },
+    "table.pdf": {
+      "kind": "pdf",
+      "outcome": "text",
+      "about": "A ruled table with one string per cell; each table row is a group.",
+      "marker_groups": [
+        [
+          "Alex Example - Work history"
+        ],
+        [
+          "Role",
+          "Employer",
+          "Years"
+        ],
+        [
+          "Operations Analyst",
+          "Example Widgets Ltd",
+          "2021 - 2024"
+        ],
+        [
+          "Junior Planner",
+          "Sample Logistics SA",
+          "2018 - 2021"
+        ],
+        [
+          "Stock Intern",
+          "Fictional Foods Lda",
+          "2017 - 2018"
+        ],
+        [
+          "References available on request."
+        ]
+      ]
+    },
+    "with_tables.docx": {
+      "kind": "docx",
+      "outcome": "text",
+      "about": "Paragraphs and a table whose cell texts appear nowhere else.",
+      "marker_groups": [
+        [
+          "Alex Example",
+          "Operations Analyst - Lisbon, Portugal",
+          "Profile",
+          "Operations analyst with six years in retail logistics.",
+          "Skills: SQL, Excel, Python"
+        ],
+        [
+          "Employer",
+          "Role",
+          "Result"
+        ],
+        [
+          "Example Widgets Ltd",
+          "Operations Analyst",
+          "Invoice time down 35% in 4 warehouses"
+        ],
+        [
+          "Sample Logistics SA",
+          "Junior Planner",
+          "60 delivery routes planned each week"
+        ]
+      ]
+    },
+    "cv.txt": {
+      "kind": "text",
+      "outcome": "text",
+      "about": "UTF-8 plain text with accented letters.",
+      "marker_groups": [
+        [
+          "Alex Example",
+          "Operations Analyst - Évora, Portugal",
+          "alex@example.com",
+          "Experience",
+          "Example Widgets Ltd - Operations Analyst (2021 - 2024)",
+          "- Cut invoice processing time by 35% across 4 warehouses.",
+          "Sample Logistics SA - Junior Planner (2018 - 2021)",
+          "- Planned 60 delivery routes a week with a team of 3.",
+          "Education",
+          "BSc in Industrial Management, Example University, 2018",
+          "Languages: Português (native), English (fluent)"
+        ]
+      ]
+    },
+    "truncated.pdf": {
+      "kind": "pdf",
+      "outcome": "unreadable",
+      "about": "single_column.pdf cut in its page tree.",
+      "marker_groups": []
+    },
+    "encrypted.pdf": {
+      "kind": "pdf",
+      "outcome": "encrypted",
+      "about": "Needs a user password (40-bit RC4).",
+      "marker_groups": []
+    },
+    "image_only.pdf": {
+      "kind": "pdf",
+      "outcome": "no_text",
+      "about": "One page with an image and no text.",
+      "marker_groups": []
+    },
+    "empty_body.docx": {
+      "kind": "docx",
+      "outcome": "no_text",
+      "about": "A valid Word file with no text.",
+      "marker_groups": []
+    },
+    "oversized_entry.docx": {
+      "kind": "docx",
+      "outcome": "unreadable",
+      "about": "A readable Word file with one 64 MiB entry that compresses to kilobytes.",
+      "marker_groups": []
+    },
+    "not_word.zip": {
+      "kind": null,
+      "outcome": "unsupported",
+      "about": "A zip archive that is not a Word file.",
+      "marker_groups": []
+    }
+  }
+}

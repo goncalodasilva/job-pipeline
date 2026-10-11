@@ -194,6 +194,57 @@ class FetchRefused(AppError):
     message = "This address can't be fetched. Paste the job text instead."
 
 
+class UnsupportedDocumentType(AppError):
+    """The content is not a PDF, a Word file or plain text (decided by content, never by name)."""
+
+    kind = "UnsupportedDocumentType"
+    message = (
+        "This file type isn't supported. Upload a PDF or Word file, or paste the text instead."
+    )
+
+
+class UnreadableDocument(AppError):
+    """The document is damaged or can't be read. ``detail`` names an error type at most, never
+    the reader's own error text, which can quote the document."""
+
+    kind = "UnreadableDocument"
+    message = (
+        "This file couldn't be read. It may be damaged. Save it again, or paste the text instead."
+    )
+
+
+class EncryptedDocument(UnreadableDocument):
+    kind = "EncryptedDocument"
+    message = (
+        "This PDF is protected by a password. Save a copy without the password, "
+        "or paste the text instead."
+    )
+
+
+class NoTextFound(AppError):
+    """The document has nothing to read, as in a scan (no OCR; ADR-089 item 11)."""
+
+    kind = "NoTextFound"
+    message = "No text was found in this file. If it's a scan, paste the text instead."
+
+
+class ParseTimedOut(AppError):
+    kind = "ParseTimedOut"
+    message = "Reading this file took too long. Try again, or paste the text instead."
+
+
+class UploadTooLarge(AppError):
+    kind = "UploadTooLarge"
+    message = "This file is larger than 10 MB. Upload a smaller file, or paste the text instead."
+
+
+class UploadNotAccepted(AppError):
+    """The request isn't one file or a pasted text (two files, both, neither, or malformed)."""
+
+    kind = "UploadNotAccepted"
+    message = "Upload one file (PDF, Word or plain text), or paste the text instead."
+
+
 class SecretStoreUnavailable(AppError):
     """The system keychain can't be used. ``detail`` names the error type, never a value."""
 

@@ -1,0 +1,2 @@
+# Deliberate violation of contract "pypdf only in the PDF extractor (spec 2.3 rule 3)": another extract provider (not app.modules.extract.providers.pdf) imports pypdf (M3.1, ADR-089 item 2).
+import pypdf

@@ -34,6 +34,9 @@ HTTPX = "httpx only in the fetch module (spec 2.3 rule 3)"
 PROVIDER_SELECTION = "Providers are chosen only in wiring (spec 2.3 rule 7)"
 YAML = "yaml only in the prompt loader (spec 2.3 rule 3)"
 JSONSCHEMA = "jsonschema only in the AI executor (spec 2.3 rule 3)"
+# M3.1: text extraction wraps one library per format (ADR-089 item 2).
+PYPDF = "pypdf only in the PDF extractor (spec 2.3 rule 3)"
+DOCX = "docx only in the Word extractor (spec 2.3 rule 3)"
 
 EXPECTED_CONTRACTS = frozenset(
     {
@@ -48,6 +51,8 @@ EXPECTED_CONTRACTS = frozenset(
         PROVIDER_SELECTION,
         YAML,
         JSONSCHEMA,
+        PYPDF,
+        DOCX,
     }
 )
 
@@ -97,6 +102,28 @@ VIOLATION_CASES: dict[str, ViolationCase] = {
     "yaml_outside_prompt_loader": ViolationCase("app/services/_violation.py", YAML),
     # M1.12: schema validation lives only in the task executor (ADR-055).
     "jsonschema_outside_executor": ViolationCase("app/services/_violation.py", JSONSCHEMA),
+}
+
+
+# M3.1 (ADR-089 item 2): each parsing library is imported only by its adapter,
+# app/modules/extract/providers/pdf.py and app/modules/extract/providers/docx.py.
+PDF_VIOLATION_CASES: dict[str, ViolationCase] = {
+    "pypdf_outside_extract_providers": ViolationCase("app/services/_violation.py", PYPDF),
+    "pypdf_in_extract_module_outside_providers": ViolationCase(
+        "app/modules/extract/_violation.py", PYPDF
+    ),
+    "pypdf_in_other_extract_provider": ViolationCase(
+        "app/modules/extract/providers/_violation.py", PYPDF
+    ),
+}
+DOCX_VIOLATION_CASES: dict[str, ViolationCase] = {
+    "docx_outside_extract_providers": ViolationCase("app/services/_violation.py", DOCX),
+    "docx_in_extract_module_outside_providers": ViolationCase(
+        "app/modules/extract/_violation.py", DOCX
+    ),
+    "docx_in_other_extract_provider": ViolationCase(
+        "app/modules/extract/providers/_violation.py", DOCX
+    ),
 }
 
 
@@ -158,9 +185,7 @@ def _lint_copy_with(tmp_path: Path, files: dict[str, str]) -> tuple[int, str]:
     return result.returncode, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("case_id", sorted(VIOLATION_CASES))
-def test_ac_m0_6_violation_detected(case_id: str, tmp_path: Path) -> None:
-    case = VIOLATION_CASES[case_id]
+def _assert_violation_detected(case_id: str, case: ViolationCase, tmp_path: Path) -> None:
     source = (FIXTURES_DIR / f"{case_id}.py.txt").read_text(encoding="utf-8")
 
     returncode, output = _lint_copy_with(tmp_path, {case.destination: source})
@@ -168,6 +193,58 @@ def test_ac_m0_6_violation_detected(case_id: str, tmp_path: Path) -> None:
     assert returncode != 0, output
     assert case.contract in _contracts_with_status(output, "BROKEN"), output
     assert case.module in output, output
+
+
+@pytest.mark.parametrize("case_id", sorted(VIOLATION_CASES))
+def test_ac_m0_6_violation_detected(case_id: str, tmp_path: Path) -> None:
+    _assert_violation_detected(case_id, VIOLATION_CASES[case_id], tmp_path)
+
+
+@pytest.mark.parametrize("case_id", sorted(PDF_VIOLATION_CASES))
+def test_pdf_library_outside_adapter_fails(case_id: str, tmp_path: Path) -> None:
+    _assert_violation_detected(case_id, PDF_VIOLATION_CASES[case_id], tmp_path)
+
+
+@pytest.mark.parametrize("case_id", sorted(DOCX_VIOLATION_CASES))
+def test_docx_library_outside_adapter_fails(case_id: str, tmp_path: Path) -> None:
+    _assert_violation_detected(case_id, DOCX_VIOLATION_CASES[case_id], tmp_path)
+
+
+def test_parsing_libraries_allowed_inside_their_adapters(tmp_path: Path) -> None:
+    returncode, output = _lint_copy_with(
+        tmp_path,
+        {
+            "app/modules/extract/providers/pdf.py": "import pypdf\n",
+            "app/modules/extract/providers/docx.py": "import docx\n",
+        },
+    )
+
+    assert returncode == 0, output
+    assert _contracts_with_status(output, "KEPT") == EXPECTED_CONTRACTS, output
+
+
+def test_api_upload_reader_does_not_import_the_extract_module(tmp_path: Path) -> None:
+    """``read_upload`` lives in ``app/api`` and only reads bytes; sniffing and parsing are
+    reached through a service (spec 2.3 rule 5)."""
+    returncode, output = _lint_copy_with(
+        tmp_path, {"app/api/uploads.py": "import app.modules.extract\n"}
+    )
+
+    assert returncode != 0, output
+    assert API in _contracts_with_status(output, "BROKEN"), output
+
+
+def test_extract_module_does_not_import_web_frameworks(tmp_path: Path) -> None:
+    """The extract module takes bytes and paths, never a request (spec 2.3 rule 2)."""
+    module = REPO_ROOT / "app" / "modules" / "extract"
+    assert module.is_dir(), "app/modules/extract doesn't exist yet"
+
+    for source in module.rglob("*.py"):
+        text = source.read_text(encoding="utf-8")
+        for framework in ("fastapi", "starlette", "multipart"):
+            assert not re.search(rf"^\s*(import|from)\s+{framework}\b", text, re.MULTILINE), (
+                f"{source.relative_to(REPO_ROOT)} imports {framework}"
+            )
 
 
 def test_vendor_sdks_allowed_inside_their_provider_packages(tmp_path: Path) -> None:

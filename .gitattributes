@@ -3,3 +3,5 @@ tests/e2e/vendor/** -text
 app/static/vendor/** -text
 # Committed migrations are hash-checked (tests/integration/test_schema.py); never convert line endings.
 app/modules/storage/migrations/*.sql -text
+# The CV fixtures are compared byte for byte with their generator (tests/unit/test_cv_fixtures.py).
+tests/fixtures/cv/** -text
