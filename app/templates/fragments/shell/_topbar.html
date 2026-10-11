@@ -13,11 +13,19 @@
      #tasks-panel, so the panel element here stays and asks for nothing itself. Nothing of
      this is inherited by the buttons inside (hx-disinherit). app.js also opens and closes
      the panel, announces finished tasks once and keeps focus across a refresh. Without
-     scripts the button is not shown (CSS, html.js). #}
+     scripts the button is not shown (CSS, html.js).
+     #tasks-attention (M2.26) says how many failed or interrupted tasks haven't been looked
+     at: app.js fills it from the count's data-attention keys and the keys it remembers as
+     looked at (localStorage), using the sentences in its data attributes, and empties it
+     once the open panel shows those tasks. Being in the button, its words are part of the
+     button's name, which reads "Tasks: 1 running, 1 needs attention": the comma is real
+     text (#tasks-attention-gap, shown and hidden with the words) and shares .tasks-running
+     with the count, so on a narrow screen the two are hidden from sight together and stay
+     in the name. #}
   <div class="topbar-slot topbar-tasks" data-slot="tasks">
     <button type="button" id="tasks-toggle" class="tasks-toggle" aria-expanded="false" aria-controls="tasks-popover"
             hx-get="/tasks/indicator" hx-trigger="tasks:resync from:body, tasks:updated from:body"
-            hx-target="#tasks-count" hx-swap="outerHTML"><span class="tasks-word">Tasks: </span><span id="tasks-count" class="tasks-count">{{ tasks_count(request) }}</span></button>
+            hx-target="#tasks-count" hx-swap="outerHTML"><span class="tasks-word">Tasks: </span><span class="tasks-running">{% with indicator = tasks_indicator(request) %}{% with count = indicator.count, attention = indicator.attention %}{% include "fragments/tasks/_indicator.html" %}{% endwith %}{% endwith %}<span id="tasks-attention-gap" class="tasks-attention-gap" hidden>, </span></span><span id="tasks-attention" class="tasks-attention" data-one="1 needs attention" data-many="{n} need attention" hidden></span></button>
     {# A Tab stop while it holds no control (app.js), so its list can be scrolled by keyboard. #}
     <div id="tasks-popover" class="tasks-popover" role="group" aria-label="Tasks" tabindex="0" hidden
          hx-get="/tasks/panel" hx-trigger="tasks:resync from:body, tasks:updated from:body, tasks:refresh"

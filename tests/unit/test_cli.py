@@ -1285,3 +1285,97 @@ def test_cli_lock_held_while_serving_and_released_after_logging_closes(
     assert events[0] == "logging_closed", events
     assert "lock_released" in events
     assert not taken[0].held
+
+
+# --- M2.26: the demo offers the fake on its own folder only (user decision 2026-10-11) -------
+
+ALLOW_FAKES = "JOBPIPELINE_ALLOW_FAKE_PROVIDERS"
+
+
+def _cli_wiring(
+    argv: list[str], env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any]:
+    """The config and the wiring the CLI hands to the app."""
+    calls = capture_create_app_calls(monkeypatch)
+    run_main(["--no-browser", *argv], env, FakeLaunch())
+    assert len(calls) == 1
+    return calls[0][0], calls[0][1]["wiring"]
+
+
+def _offers_fake(wiring: Any) -> bool:
+    return "fake" in [choice.kind for choice in wiring.provider_choices()]
+
+
+def test_cli_demo_on_its_own_folder_offers_the_fake_without_the_variable(
+    tmp_path: Path, platform_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(ALLOW_FAKES, raising=False)
+    env = {"JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg")}
+
+    config, wiring = _cli_wiring(["--demo"], env, monkeypatch)
+
+    assert config.data_dir == platform_root / "data" / "jobpipeline-demo"
+    assert config.data_dir_source == "demo"
+    assert wiring.demo is True and wiring.demo_workspace is True
+    assert wiring.allow_fakes is True and _offers_fake(wiring)
+
+
+@pytest.mark.parametrize("how", ["flag", "variable"])
+def test_cli_demo_on_an_explicit_folder_does_not_offer_the_fake(
+    how: str, tmp_path: Path, platform_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--demo`` with ``--data-dir`` or ``JOBPIPELINE_DATA_DIR``: the folder is the user's,
+    so the fake needs the allow variable, as before."""
+    monkeypatch.delenv(ALLOW_FAKES, raising=False)
+    mine = tmp_path / "mine"
+    env = {"JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg")}
+    argv = ["--demo"]
+    if how == "flag":
+        argv += ["--data-dir", str(mine)]
+    else:
+        env["JOBPIPELINE_DATA_DIR"] = str(mine)
+
+    config, wiring = _cli_wiring(argv, env, monkeypatch)
+
+    assert config.demo is True and config.data_dir == mine
+    assert wiring.demo is True, "still a demo: the demo keychain and no environment secrets"
+    assert wiring.demo_workspace is False
+    assert wiring.allow_fakes is False and not _offers_fake(wiring)
+    assert not (platform_root / "data" / "jobpipeline-demo").exists()
+
+
+@pytest.mark.parametrize("value", ["", "0", "true", " 1"])
+def test_cli_demo_on_an_explicit_folder_needs_the_variable_to_be_exactly_one(
+    value: str, tmp_path: Path, platform_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = {"JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg"), ALLOW_FAKES: value}
+
+    _config, wiring = _cli_wiring(
+        ["--demo", "--data-dir", str(tmp_path / "mine")], env, monkeypatch
+    )
+
+    assert wiring.allow_fakes is False and not _offers_fake(wiring)
+
+
+def test_cli_demo_on_an_explicit_folder_with_the_variable_offers_the_fake_as_before(
+    tmp_path: Path, platform_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = {"JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg"), ALLOW_FAKES: "1"}
+
+    _config, wiring = _cli_wiring(
+        ["--demo", "--data-dir", str(tmp_path / "mine")], env, monkeypatch
+    )
+
+    assert wiring.allow_fakes is True and _offers_fake(wiring)
+    assert wiring.demo_workspace is False, "allowed by the variable, not by being the demo"
+
+
+def test_cli_without_demo_never_makes_a_demo_workspace(
+    env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(ALLOW_FAKES, raising=False)
+
+    _config, wiring = _cli_wiring([], env, monkeypatch)
+
+    assert wiring.demo_workspace is False
+    assert wiring.allow_fakes is False and not _offers_fake(wiring)

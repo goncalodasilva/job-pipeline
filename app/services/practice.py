@@ -1,11 +1,12 @@
 """The practice task: a fake-gated vehicle for the task runner, the usage meter and the tasks
 UI before the first real AI task (M2.17; ADR-076 item 2).
 
-Offered only while fakes are allowed and the saved provider is the fake. A start carries three
-values from fixed lists (no free text); a run is ``PRACTICE_STEPS`` steps of one fake call
-each, with a heartbeat and a cancel check before every step, counted on the ``fake`` usage
-service. The prompt is a fixed text plus the step numbers: nothing from the workspace reaches
-it, and its output is never shown to the user.
+Offered only while fakes are allowed (the allow variable, or the demo on its own folder;
+M2.26) and the saved provider is the fake. A start carries three values from fixed lists (no
+free text); a run is ``PRACTICE_STEPS`` steps of one fake call each, with a heartbeat and a
+cancel check before every step, counted on the ``fake`` usage service. The prompt is a fixed
+text plus the step numbers: nothing from the workspace reaches it, and its output is never
+shown to the user.
 """
 
 import asyncio

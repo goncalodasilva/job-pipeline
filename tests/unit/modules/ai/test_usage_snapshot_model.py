@@ -189,3 +189,45 @@ def test_ai_request_carries_on_usage_callback() -> None:
     snapshot = _fraction()
     request.on_usage(snapshot)
     assert reported == [snapshot]
+
+
+# --- the window is a short token (M2.26 review) ---------------------------------------------
+
+# The Claude provider's own window ids (``_USAGE_WINDOWS``) and the ones tests use.
+REAL_WINDOWS = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet", "month", "week"]
+NOT_A_WINDOW = [
+    "five hour",  # a space: free text, not an id
+    "month\n",
+    " month",
+    "month;DROP",
+    "a/b",
+    "<b>month</b>",
+    "Fictional provider text with a fictional name in it",
+    "m" * 65,  # longer than any id
+    "mês",
+]
+
+
+@pytest.mark.parametrize("window", [*REAL_WINDOWS, "a", "A.b:c-d_9", "m" * 64])
+def test_snapshot_window_is_a_short_token(window: str) -> None:
+    assert _requests(window=window).window == window
+    assert _fraction(window=window).window == window
+
+
+@pytest.mark.parametrize("window", NOT_A_WINDOW)
+def test_snapshot_window_refuses_anything_but_a_short_token(window: str) -> None:
+    """The window is the provider's own word and is stored: only ``[A-Za-z0-9_.:-]{1,64}``
+    gets past the boundary, so no provider text can ride along in it."""
+    with pytest.raises(ValueError) as refused:
+        _requests(window=window)
+    assert window not in str(refused.value), "the refused text is never repeated"
+    with pytest.raises(ValueError):
+        _fraction(window=window)
+
+
+def test_claude_provider_windows_are_all_valid_snapshot_windows() -> None:
+    from app.modules.ai.providers import claude_sdk
+
+    assert claude_sdk._USAGE_WINDOWS, "control: the provider knows its windows"
+    for window in claude_sdk._USAGE_WINDOWS:
+        assert _fraction(window=window).window == window

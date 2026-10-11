@@ -37,7 +37,9 @@ last two also trigger ``tasks:resync``, so whatever lists tasks refetches.
 queued and running tasks in words. Its ``HX-Trigger`` always fires ``tasks:finished`` with
 the recently finished tasks (``{"tasks": [{"key", "message", "age"}]}``: id and attempt, a
 fixed sentence from the type's label and the outcome, and the whole seconds since it
-finished), which the page announces once each.
+finished), which the page announces once each. The count element also carries, in
+``data-attention``, the ``<id>:<attempt>`` keys of the recent tasks that ended failed or
+interrupted (M2.26): the page counts those it hasn't shown in the open panel yet.
 
 Only an id of the safe shape (``is_task_id``) is looked up. Anything else, and any id that
 isn't a task, answers 404 with one fixed fragment that repeats nothing from the request. The
@@ -227,7 +229,9 @@ def tasks_panel(request: Request) -> HTMLResponse:
 def tasks_indicator(request: Request) -> HTMLResponse:
     indicator = _views(request).indicator()
     response = templates.TemplateResponse(
-        request, "fragments/tasks/_indicator.html", {"count": indicator.count}
+        request,
+        "fragments/tasks/_indicator.html",
+        {"count": indicator.count, "attention": indicator.attention},
     )
     finished = [
         {"key": task.key, "message": task.message, "age": task.age} for task in indicator.finished

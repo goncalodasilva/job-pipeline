@@ -54,6 +54,11 @@ def _refusal(row: TaskRow | None, attempt: int) -> CompletionOutcome:
     return CompletionOutcome.SUPERSEDED
 
 
+def _active_counts(rows: list[TaskRow]) -> tuple[int, int]:
+    running = sum(1 for row in rows if row.status == TaskStatus.RUNNING)
+    return running, len(rows) - running
+
+
 class TaskService:
     def __init__(
         self,
@@ -166,9 +171,13 @@ class TaskService:
     def active_counts(self) -> tuple[int, int]:
         """How many tasks are running and how many are queued, in that order."""
         with self._db.read() as conn:
-            rows = tasks_repo.list_active(conn)
-        running = sum(1 for row in rows if row.status == TaskStatus.RUNNING)
-        return running, len(rows) - running
+            return _active_counts(tasks_repo.list_active(conn))
+
+    def overview(self, limit: int) -> tuple[list[TaskRow], tuple[int, int]]:
+        """``recent(limit)`` and ``active_counts()`` from one snapshot, so the two agree."""
+        with self._db.read() as conn:
+            recent = tasks_repo.list_recent(conn, limit)
+            return recent, _active_counts(tasks_repo.list_active(conn))
 
     # --- when a workspace opens -----------------------------------------------------------
 

@@ -3,11 +3,21 @@
    inside the panel it is false, because the panel refetches all of its tasks at once.
    Status is in words, never color alone. The reason is a fixed message chosen by the
    server; nothing stored with the task is printed here. The buttons swap this element;
-   their answer sets `focus`, so the new status takes focus (never on a refresh). #}
-<div id="task-{{ task.id }}" class="task-item"{% if refresh %}
+   their answer sets `focus`, so the new status takes focus (never on a refresh).
+   The time (M2.26) is when the task ended, or was last queued or started: in words counted
+   from the app's clock, with the exact local time as its title and, because a title can't
+   be reached by keyboard or touch, as hidden text beside it. A running task's time is when
+   it started, which hidden text before it says. A stored time that can't be read shows
+   nothing. data-attention (the task's id
+   and attempt) marks a task that ended failed or interrupted, for the top bar's "needs
+   attention" count (app.js). #}
+<div id="task-{{ task.id }}" class="task-item"{% if task.attention %} data-attention="{{ task.attention }}"{% endif %}{% if refresh %}
      hx-get="/tasks/{{ task.id }}" hx-trigger="tasks:resync from:body, tasks:updated from:body" hx-swap="outerHTML"{% endif %}>
   <span id="task-{{ task.id }}-label" class="task-label">{{ task.label }}</span>
   <span id="task-{{ task.id }}-status" class="task-status"{% if focus %} data-autofocus="true"{% endif %}>{{ task.status }}</span>
+  {% if task.time %}
+  <span class="task-time">{% if task.time.started %}<span class="visually-hidden">started </span>{% endif %}<time id="task-{{ task.id }}-time" datetime="{{ task.time.iso }}" title="{{ task.time.exact }}">{{ task.time.ago }}</time><span class="visually-hidden"> ({{ task.time.exact }})</span></span>
+  {% endif %}
   {% if task.progress is not none %}
   <progress id="task-{{ task.id }}-progress" value="{{ task.progress }}" max="100" aria-label="{{ task.label }} progress">{{ task.progress }}%</progress>
   {% endif %}

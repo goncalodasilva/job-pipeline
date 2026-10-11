@@ -7,6 +7,7 @@ content in `AIRequest.user` is already delimited (spec 3.3).
 
 import logging
 import math
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -93,6 +94,7 @@ class CancelToken(Protocol):
 
 UsageUnit = Literal["requests", "fraction"]
 _USAGE_UNITS: Final = frozenset({"requests", "fraction"})
+_USAGE_WINDOW: Final = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 
 @dataclass(frozen=True)
@@ -107,7 +109,7 @@ class ProviderUsageSnapshot:
     """
 
     service: str  # the budget service id, e.g. "claude_subscription"
-    window: str  # the provider's window, e.g. "five_hour", "month"
+    window: str  # the provider's window id, e.g. "five_hour", "month": a short token
     unit: UsageUnit
     used: int | None
     limit: int | None
@@ -116,10 +118,11 @@ class ProviderUsageSnapshot:
     observed_at: datetime
 
     def __post_init__(self) -> None:
-        for name in ("service", "window"):
-            value = getattr(self, name)
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"A usage snapshot needs a {name}.")
+        if not isinstance(self.service, str) or not self.service.strip():
+            raise ValueError("A usage snapshot needs a service.")
+        # The provider's own word, and it is stored: an id, never free text.
+        if not isinstance(self.window, str) or not _USAGE_WINDOW.fullmatch(self.window):
+            raise ValueError("A usage snapshot needs a window: a short id.")
         if self.unit not in _USAGE_UNITS:
             raise ValueError("Unknown usage unit.")
         for name in ("used", "limit"):

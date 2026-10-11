@@ -40,6 +40,7 @@ from app.api.events import ShutdownSignal
 from app.config import (
     CliOptions,
     RuntimeConfig,
+    is_demo_workspace,
     opens_workspace_at_startup,
     owned_by_another_user,
     resolve_config,
@@ -207,7 +208,12 @@ def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) 
     try:
         # After logging is set up, so its fake-provider warning is kept; it registers the
         # environment secrets with the same redactor before anything can log them.
-        wiring = build_wiring(environ=environ, demo=config.demo, redactor=redactor)
+        wiring = build_wiring(
+            environ=environ,
+            demo=config.demo,
+            demo_workspace=is_demo_workspace(config),
+            redactor=redactor,
+        )
         _start(config, launcher, wiring, stop_polling, plan)
     except Exception as error:
         _log_start_failure(error, to_file=plan.open_at_startup)

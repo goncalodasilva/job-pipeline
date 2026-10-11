@@ -20,7 +20,9 @@ line.
 
 ``test_connection`` (M1.18; ADR-044 item 6, ADR-058) saves like ``save``, then awaits the saved
 provider's connection test with the Fast tier model and a timeout; the fake comes from the
-pasted text, which only picks its outcome (ADR-054). Blocking work runs in worker threads.
+pasted text, which only picks its outcome (ADR-054; in the demo nothing needs pasting and
+an empty field connects, which the factory decides: M2.26). Blocking work runs in worker
+threads.
 The test counts as one request on the service of the saved kind, never warned or blocked
 (ADR-076 item 3; M2.16), and its record is completed whatever the outcome.
 

@@ -1,8 +1,11 @@
 """Scripted AI provider for tests and demos (spec 4.2; ADR-044 item 2).
 
-Wiring offers it only when ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1``, labelled "Fake (testing
-only)". In the setup guide, fictional keywords in the pasted "key" choose how the connection
-test behaves (``outcome_for_key``). Content is returned as data; nothing is interpreted.
+Wiring offers it only when ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1`` or in the demo (``--demo``
+on the demo's own folder; M2.26), labelled "Fake (testing only)": a practice provider for
+testing and the demo. In the setup guide, fictional keywords in the pasted "key" choose how
+the connection test behaves (``outcome_for_key``); with no keyword the test is rejected like
+a bad key, except in the demo, where nothing needs pasting and it connects. Content is
+returned as data; nothing is interpreted.
 """
 
 import asyncio
@@ -83,12 +86,13 @@ class ScriptedResponse:
             raise ValueError("A scripted response needs data, raw_text or a failure.")
 
 
-def outcome_for_key(key: str | None) -> FakeOutcome:
-    """The outcome a pasted fictional key asks for; anything else is rejected like a bad key."""
+def outcome_for_key(key: str | None, *, otherwise: FakeOutcome = "auth") -> FakeOutcome:
+    """The outcome a pasted fictional key asks for; anything else (nothing pasted included)
+    is ``otherwise``: rejected like a bad key unless the caller says differently."""
     for keyword, outcome in _KEY_KEYWORDS:
         if key and keyword in key:
             return outcome
-    return "auth"
+    return otherwise
 
 
 def practice_responses(outcome: str, *, delay_seconds: float) -> tuple[ScriptedResponse, ...]:

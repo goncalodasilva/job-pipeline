@@ -276,8 +276,93 @@
   var tasksPopover = document.getElementById("tasks-popover");
   var tasksSlot = tasksToggle ? tasksToggle.parentElement : null;
   var TASKS_POLL_MS = 2000;
+  var TASKS_IDLE_POLLS = 30; // every 30th tick, a minute, an idle panel asks too
   var tasksTimer = null;
+  var tasksTicks = 0;
   var tasksPaused = false; // a request from the panel failed: no timed refetch until one works
+
+  // Lists of task keys ("<id>:<attempt>") kept in localStorage: keys only, never a message.
+  // Without storage, or when something else wrote there, the list is empty.
+  function storedKeys(name) {
+    try {
+      var stored = JSON.parse(window.localStorage.getItem(name) || "[]");
+      if (!Array.isArray(stored)) return [];
+      return stored.filter(function (key) { return typeof key === "string"; });
+    } catch (error) {
+      return [];
+    }
+  }
+
+  // `keys`, each once; stored when storage works, and returned.
+  function storeKeys(name, keys) {
+    var kept = keys.filter(function (key, index, all) { return all.indexOf(key) === index; });
+    try {
+      window.localStorage.setItem(name, JSON.stringify(kept));
+    } catch (error) { /* kept for this page only */ }
+    return kept;
+  }
+
+  // "1 needs attention" (M2.26): the closed button counts the failed or interrupted tasks
+  // that haven't been looked at. The server lists the recent ones as keys in the count's
+  // data-attention, and on each such task's row in the panel. Looking at a task is having
+  // its row in the open panel: the keys of the rows shown are remembered when the panel
+  // opens and after each time its content is replaced, so a panel that couldn't load its
+  // tasks marks nothing. The keys looked at are kept in localStorage (keys only; for this
+  // page only without storage), so the words stay away after a reload and go away in other
+  // tabs. Only keys the server still lists (in the count or in the panel) are kept: the
+  // list is exact and never longer than what the server lists. The sentences are in the
+  // template (spec 3.10).
+  var SEEN_KEY = "jobpipeline-tasks-seen";
+  var seenHere = [];
+  var tasksAttention = document.getElementById("tasks-attention");
+  var tasksAttentionGap = document.getElementById("tasks-attention-gap"); // ", " before it
+
+  function attentionKeys(element) {
+    var value = element ? element.getAttribute("data-attention") : null;
+    return value ? value.split(/\s+/).filter(Boolean) : [];
+  }
+
+  function listedKeys() {
+    return attentionKeys(document.getElementById("tasks-count"));
+  }
+
+  function shownKeys() {
+    var keys = [];
+    tasksPopover.querySelectorAll("[data-attention]").forEach(function (item) {
+      keys = keys.concat(attentionKeys(item));
+    });
+    return keys;
+  }
+
+  function seenKeys() {
+    return storedKeys(SEEN_KEY).concat(seenHere);
+  }
+
+  function lookAtTasks() {
+    var shown = shownKeys();
+    var known = seenKeys();
+    if (!shown.some(function (key) { return known.indexOf(key) < 0; })) return;
+    var listed = listedKeys().concat(shown);
+    seenHere = storeKeys(SEEN_KEY, known.concat(shown).filter(function (key) {
+      return listed.indexOf(key) >= 0;
+    }));
+  }
+
+  function showAttention() {
+    if (!tasksAttention || !tasksToggle || !tasksPopover) return;
+    if (!tasksPopover.hidden) lookAtTasks();
+    var seen = seenKeys();
+    var count = listedKeys().filter(function (key) { return seen.indexOf(key) < 0; }).length;
+    var words = "";
+    if (count === 1) words = tasksAttention.getAttribute("data-one") || "";
+    if (count > 1) {
+      words = (tasksAttention.getAttribute("data-many") || "").replace("{n}", String(count));
+    }
+    if (tasksAttention.textContent !== words) tasksAttention.textContent = words;
+    tasksAttention.hidden = !words;
+    if (tasksAttentionGap) tasksAttentionGap.hidden = !words;
+    tasksToggle.classList.toggle("has-attention", !!words); // narrow screens: CSS shows it alone
+  }
 
   function isTasksPanelFetch(event) {
     return !!tasksPopover && !!event.detail && event.detail.elt === tasksPopover;
@@ -301,11 +386,14 @@
   }
 
   // Progress is saved without an event, so the open panel asks again every two seconds while
-  // it shows a task that is queued or running (those have a progress bar). An idle or closed
-  // panel, a hidden tab and a panel whose last request failed ask nothing.
+  // it shows a task that is queued or running (those have a progress bar). An idle open
+  // panel asks once a minute, so "5 minutes ago" moves on. A closed panel, a hidden tab and
+  // a panel whose last request failed ask nothing.
   function pollTasksPanel() {
     if (tasksPaused || document.visibilityState === "hidden") return;
-    if (tasksPopover.querySelector("progress")) refreshTasksPanel();
+    tasksTicks += 1;
+    var minute = tasksTicks % TASKS_IDLE_POLLS === 0;
+    if (minute || tasksPopover.querySelector("progress")) refreshTasksPanel();
   }
 
   // A panel with no control in it is a Tab stop itself, so its list can be scrolled by
@@ -324,8 +412,10 @@
     tasksToggle.setAttribute("aria-expanded", open ? "true" : "false");
     window.clearInterval(tasksTimer);
     tasksTimer = null;
+    showAttention(); // the rows already in the panel are looked at; a refresh brings the rest
     if (!open) return;
     tasksPaused = false;
+    tasksTicks = 0;
     hideTasksError();
     syncTasksTabStop();
     refreshTasksPanel();
@@ -333,6 +423,14 @@
   }
 
   if (tasksToggle && tasksPopover && tasksSlot) {
+    showAttention();
+    // A new count from the server, and keys looked at in another tab.
+    document.body.addEventListener("htmx:afterSwap", function (event) {
+      if (event.target instanceof Element && event.target.id === "tasks-count") showAttention();
+    });
+    window.addEventListener("storage", function (event) {
+      if (event.key === SEEN_KEY) showAttention();
+    });
     tasksToggle.addEventListener("click", function () {
       setTasksOpen(tasksToggle.getAttribute("aria-expanded") !== "true");
     });
@@ -363,12 +461,20 @@
     // A refetched panel that says what the page already shows is not swapped in: replacing
     // a button loses a click or key press that is under way, and for a moment the new one
     // isn't wired up. What is compared is every id and the text; only the progress values
-    // may differ, and those are copied into the bars already on the page.
+    // and the relative times ("5 minutes ago") may differ, and those are copied into the
+    // elements already on the page. A task's data-attention key (its attempt: a retry that
+    // failed the same way is another task to look at) and a time's exact moment count too.
     function tasksSignature(panel) {
       var ids = [];
-      panel.querySelectorAll("[id]").forEach(function (element) { ids.push(element.id); });
+      panel.querySelectorAll("[id]").forEach(function (element) {
+        ids.push([
+          element.id,
+          element.getAttribute("data-attention") || "",
+          element.getAttribute("datetime") || ""
+        ].join("@"));
+      });
       var copy = panel.cloneNode(true);
-      copy.querySelectorAll("progress").forEach(function (bar) { bar.remove(); });
+      copy.querySelectorAll("progress, time").forEach(function (part) { part.remove(); });
       return ids.join(" ") + "|" + copy.textContent.replace(/\s+/g, " ").trim();
     }
     document.body.addEventListener("htmx:beforeSwap", function (event) {
@@ -386,6 +492,10 @@
         if (!same || !shown.contains(same)) return;
         same.setAttribute("value", bar.getAttribute("value") || "0");
         same.textContent = bar.textContent;
+      });
+      fresh.querySelectorAll("time[id]").forEach(function (time) {
+        var same = document.getElementById(time.id);
+        if (same && shown.contains(same)) same.textContent = time.textContent;
       });
       detail.shouldSwap = false;
     });
@@ -425,6 +535,7 @@
       if (window.htmx) window.htmx.process(event.target);
       syncTasksTabStop();
       restoreTasksFocus();
+      showAttention(); // the rows the open panel now shows have been looked at
     });
     document.body.addEventListener("htmx:afterSettle", restoreTasksFocus);
   }
@@ -445,22 +556,13 @@
   var announcedBaseline = false;
 
   function storedAnnounced() {
-    try {
-      var stored = JSON.parse(window.localStorage.getItem(ANNOUNCED_KEY) || "[]");
-      if (!Array.isArray(stored)) return [];
-      return stored.filter(function (key) { return typeof key === "string"; });
-    } catch (error) {
-      return []; // no storage, or something else wrote there
-    }
+    return storedKeys(ANNOUNCED_KEY);
   }
 
   function rememberAnnounced(known, keys) {
-    announcedHere = known.concat(keys).filter(function (key, index, all) {
+    announcedHere = storeKeys(ANNOUNCED_KEY, known.concat(keys).filter(function (key, index, all) {
       return all.indexOf(key) === index;
-    }).slice(-ANNOUNCED_MAX);
-    try {
-      window.localStorage.setItem(ANNOUNCED_KEY, JSON.stringify(announcedHere));
-    } catch (error) { /* kept for this page only */ }
+    }).slice(-ANNOUNCED_MAX));
   }
 
   document.body.addEventListener("tasks:finished", function (event) {

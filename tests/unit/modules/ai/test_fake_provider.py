@@ -186,6 +186,28 @@ def test_fake_key_without_keyword_is_rejected_as_auth(key: str | None) -> None:
     assert outcome_for_key(key) == "auth"
 
 
+@pytest.mark.parametrize(
+    "key",
+    [None, "", "   ", "fictional-unknown-key", "fake", "fake-connect"],
+    ids=["none", "empty", "blank", "unknown", "bare_fake", "partial_keyword"],
+)
+def test_fake_key_without_keyword_is_what_the_caller_says(key: str | None) -> None:
+    """M2.26: the demo's wiring asks for "connected" when nothing useful was pasted."""
+    assert outcome_for_key(key, otherwise="connected") == "connected"
+    assert outcome_for_key(key, otherwise="network") == "network"
+
+
+@pytest.mark.parametrize(
+    ("keyword", "expected"),
+    [("fake-auth-rejected", "auth"), ("fake-offline", "network"), ("fake-connected", "connected")],
+)
+def test_fake_key_keyword_wins_over_what_the_caller_says(
+    keyword: str, expected: FakeOutcome
+) -> None:
+    assert outcome_for_key(_fictional_key(keyword), otherwise="connected") == expected
+    assert outcome_for_key(_fictional_key(keyword), otherwise="usage_limit") == expected
+
+
 @pytest.mark.parametrize("outcome", list(FAILURES), ids=list(FAILURES))
 async def test_ac_m1_3_fake_key_outcome_shows_mapped_message(outcome: FakeOutcome) -> None:
     keyword = {

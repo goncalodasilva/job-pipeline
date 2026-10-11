@@ -2,8 +2,12 @@
 
 ``build_wiring`` builds the one secret store the app uses (keychain first, then the
 environment, every value registered with the log redactor; ADR-047), decides once whether
-fake providers may be chosen (``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` exactly ``"1"``; ADR-044
-item 2, ADR-054) and returns a ``Wiring``, the app's ``AIProviderFactory``.
+fake providers may be chosen (``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` exactly ``"1"``, or a demo
+run on the demo's own folder; ADR-044 item 2, ADR-054, ADR-077's M2.20 checkpoint update) and
+returns a ``Wiring``, the app's ``AIProviderFactory``. ``demo`` and ``demo_workspace`` come
+from the start-up configuration alone (the ``--demo`` flag, and the data folder being the one
+the app chose for the demo: ``app.config.is_demo_workspace``): no request, setting or file in
+the data folder can turn them on.
 
 Building reads nothing from the keychain (ADR-046). ``provider_health`` is configuration
 only: it never reads the keychain, runs the CLI or uses the network, so it can run when a
@@ -54,6 +58,7 @@ from app.modules.ai.providers.fake import (
     FAKE_THOROUGH_MODEL,
     PRACTICE_TASK,
     FakeAIProvider,
+    FakeOutcome,
     outcome_for_key,
     practice_responses,
 )
@@ -129,6 +134,7 @@ class Wiring:
         environment: EnvSecretStore,
         allow_fakes: bool,
         demo: bool,
+        demo_workspace: bool = False,
         clock: Clock | None = None,
     ) -> None:
         self.redactor = redactor
@@ -136,6 +142,8 @@ class Wiring:
         self._environment = environment
         self.allow_fakes = allow_fakes
         self.demo = demo
+        # A demo run on the demo's own folder: the fake is offered by itself there (M2.26).
+        self.demo_workspace = demo and demo_workspace
         # When providers observe usage (M2.2); the app's clock when ``create_app`` builds it.
         self.clock: Clock = clock if clock is not None else SystemClock()
         # Names only, computed once: the setup guide shows which variable is in use (M1.17).
@@ -181,14 +189,17 @@ class Wiring:
 
     def fake_for_key(self, key: str | None) -> FakeAIProvider:
         """The fake whose connection test follows the fictional keywords in ``key``. Only
-        the outcome is kept, never the key (ADR-054).
+        the outcome is kept, never the key (ADR-054). Without a keyword (nothing pasted
+        included) the test is rejected like a bad key, except in a demo workspace, where
+        there is nothing to paste and it connects (M2.26).
 
         Raises ``ValueError`` while fakes aren't allowed; routes check the chosen kind
         against ``provider_choices()`` first (M1.17).
         """
         if not self.allow_fakes:
             raise ValueError("Fake providers are not allowed.")
-        return FakeAIProvider(connection=outcome_for_key(key), app_mode=True)
+        otherwise: FakeOutcome = "connected" if self.demo_workspace else "auth"
+        return FakeAIProvider(connection=outcome_for_key(key, otherwise=otherwise), app_mode=True)
 
     def provider_health(self, settings: AIProviderSettings) -> ProviderHealth:
         """Configuration only: whether the kind is on offer, whether a CLI file is present,
@@ -241,8 +252,8 @@ class Wiring:
         """The task executor over ``provider``, with that provider's default model per tier;
         ``settings`` is read at run time. User prompt overrides live in
         ``<data>/prompts/overrides`` (nothing is created here). Over the fake, while fakes
-        are allowed, it also knows the practice task (M2.17). Raises ``ValueError`` for a
-        provider wiring doesn't know."""
+        are allowed (the allow variable, or a demo workspace), it also knows the practice
+        task (M2.17). Raises ``ValueError`` for a provider wiring doesn't know."""
         defaults = _DEFAULTS_BY_PROVIDER.get(provider.name)
         if defaults is None:
             raise ValueError("Unknown AI provider.")
@@ -282,12 +293,16 @@ def build_wiring(
     redactor: Redactor,
     keyring_backend: KeyringBackend | None = None,
     clock: Clock | None = None,
+    demo_workspace: bool = False,
 ) -> Wiring:
-    """Compose the secret store and read the allow flag (ADR-047, ADR-054).
+    """Compose the secret store and decide whether fakes are offered (ADR-047, ADR-054).
 
     Demo mode uses the ``jobpipeline-demo`` keychain service and an empty environment, so it
-    never picks up real credentials; the allow flag still comes from ``environ``. Environment
-    secrets are registered with ``redactor`` here; the keychain is not touched.
+    never picks up real credentials. ``demo_workspace`` (``is_demo_workspace(config)``: the
+    demo on the folder the app chose for it) offers the fake provider by itself, so practice
+    tasks work in the demo (M2.26). Everywhere else, a demo on a folder the user named
+    included, the allow flag in ``environ`` must be exactly ``"1"``. Environment secrets are
+    registered with ``redactor`` here; the keychain is not touched.
     """
     environment = EnvSecretStore({} if demo else environ)
     register_environment_secrets(environment, redactor)
@@ -295,15 +310,19 @@ def build_wiring(
         DEMO_SERVICE_NAME if demo else SERVICE_NAME, backend=keyring_backend
     )
     secrets = ChainedSecretStore(keychain, environment, redactor=redactor)
-    allow_fakes = environ.get(ALLOW_FAKES_VARIABLE) == "1"
-    if allow_fakes:
+    by_variable = environ.get(ALLOW_FAKES_VARIABLE) == "1"
+    in_demo = demo and demo_workspace
+    if by_variable:
         _log.warning("%s is set: fake AI providers are offered", ALLOW_FAKES_VARIABLE)
+    elif in_demo:
+        _log.info("Demo run: the fake AI provider is offered")
     return Wiring(
         redactor=redactor,
         secrets=secrets,
         environment=environment,
-        allow_fakes=allow_fakes,
+        allow_fakes=in_demo or by_variable,
         demo=demo,
+        demo_workspace=in_demo,
         clock=clock,
     )
 

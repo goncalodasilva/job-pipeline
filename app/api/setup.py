@@ -206,11 +206,14 @@ async def test_provider_connection(request: Request) -> Response:
     tester: ConnectionTester = request.app.state.connection_tester
     # Awaited here (ADR-044 item 6); the tester runs its blocking parts in worker threads.
     check = await tester.test(form)
+    # Rendering reads the settings: in a worker thread, like every answer of an async route.
     if check.errors:
-        response = _render_step(request, step, errors=check.errors, submitted=form)
+        response = await run_in_threadpool(
+            _render_step, request, step, errors=check.errors, submitted=form
+        )
         response.status_code = 422
         return response
-    response = _render_step(request, step, connection=check)
+    response = await run_in_threadpool(_render_step, request, step, connection=check)
     if is_htmx(request):
         response.headers["HX-Trigger"] = json.dumps({"announce": check.message})
     return response

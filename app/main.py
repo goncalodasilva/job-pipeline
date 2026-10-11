@@ -44,6 +44,7 @@ from app.config import (
     DATABASE_FILE,
     RuntimeConfig,
     data_dir_is_explicit,
+    is_demo_workspace,
     opens_workspace_at_startup,
     owned_by_another_user,
     refused_data_folders,
@@ -360,6 +361,7 @@ def _step_handlers(
         data_dir=workspace_folder,
         mark_done=mark_provider_done,
         is_done=lambda: onboarding.statuses.get(PROVIDER.id) == "done",
+        demo=wiring.demo_workspace,
     )
     handlers[PROVIDER.id] = provider
     app.state.connection_tester = provider  # POST /setup/provider/test (M1.18)
@@ -540,7 +542,11 @@ def create_app(
         wiring
         if wiring is not None
         else build_wiring(
-            environ=os.environ, demo=config.demo, redactor=Redactor(), clock=app_clock
+            environ=os.environ,
+            demo=config.demo,
+            demo_workspace=is_demo_workspace(config),
+            redactor=Redactor(),
+            clock=app_clock,
         )
     )
     open_now = opens_workspace_at_startup(config) if open_at_startup is None else open_at_startup
@@ -746,6 +752,7 @@ def create_app(
         ),
         label_for=_task_labels(handlers),
         clock=app_clock,
+        tz=app_tz,
     )
     if task_registry is None and app_wiring.allow_fakes:  # the default registry only
         handlers.register(
