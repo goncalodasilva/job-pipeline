@@ -2,8 +2,12 @@
 
 ``build_wiring`` builds the one secret store the app uses (keychain first, then the
 environment, every value registered with the log redactor; ADR-047), decides once whether
-fake providers may be chosen (``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` exactly ``"1"``; ADR-044
-item 2, ADR-054) and returns a ``Wiring``, the app's ``AIProviderFactory``.
+fake providers may be chosen (``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` exactly ``"1"``, or a demo
+run on the demo's own folder; ADR-044 item 2, ADR-054, ADR-077's M2.20 checkpoint update) and
+returns a ``Wiring``, the app's ``AIProviderFactory``. ``demo`` and ``demo_workspace`` come
+from the start-up configuration alone (the ``--demo`` flag, and the data folder being the one
+the app chose for the demo: ``app.config.is_demo_workspace``): no request, setting or file in
+the data folder can turn them on.
 
 Building reads nothing from the keychain (ADR-046). ``provider_health`` is configuration
 only: it never reads the keychain, runs the CLI or uses the network, so it can run when a
@@ -19,10 +23,12 @@ import shutil
 import stat
 import sys
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
+from app.domain.clock import Clock, SystemClock
 from app.domain.errors import ProviderNotInstalled
 from app.domain.redaction import Redactor
 from app.domain.settings import AIProviderSettings, ProviderKind, Tier, claude_auth_mode
@@ -40,6 +46,7 @@ from app.modules.ai.providers.claude_sdk import (
     CALL_FOLDER_PREFIX,
     CLAUDE_FAST_DEFAULT,
     CLAUDE_THOROUGH_DEFAULT,
+    DISCONNECT_TIMEOUT_SECONDS,
     SECRET_KEY_BY_MODE,
     ClaudeSdkProvider,
     bundled_cli_path,
@@ -49,10 +56,14 @@ from app.modules.ai.providers.claude_sdk import KNOWN_MODELS as CLAUDE_MODELS
 from app.modules.ai.providers.fake import (
     FAKE_FAST_MODEL,
     FAKE_THOROUGH_MODEL,
+    PRACTICE_TASK,
     FakeAIProvider,
+    FakeOutcome,
     outcome_for_key,
+    practice_responses,
 )
 from app.modules.ai.providers.fake import KNOWN_MODELS as FAKE_MODELS
+from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS, TaskSpec
 from app.modules.secrets import KNOWN_SECRET_KEYS
 from app.modules.secrets.providers.chained import ChainedSecretStore
 from app.modules.secrets.providers.env import EnvSecretStore
@@ -64,12 +75,30 @@ from app.modules.secrets.providers.keyring_store import (
 )
 from app.modules.secrets.providers.redacting import register_environment_secrets
 
-__all__ = ["AI_TEMP_FOLDER", "Wiring", "build_wiring", "clear_ai_temp"]
+__all__ = [
+    "AI_TEMP_FOLDER",
+    "PROVIDER_RUN_TIMEOUT",
+    "TASK_TIMEOUT_FLOOR",
+    "Wiring",
+    "build_wiring",
+    "clear_ai_temp",
+    "local_timezone",
+]
 
 ALLOW_FAKES_VARIABLE: Final = "JOBPIPELINE_ALLOW_FAKE_PROVIDERS"
 AI_TEMP_FOLDER: Final = ("tmp", "ai")  # under the data folder (ADR-057)
 PROMPTS_DIR: Final = Path(__file__).resolve().parent.parent / "prompts"
 OVERRIDES_FOLDER: Final = ("prompts", "overrides")
+# The overall limit on one provider run: M2.13 injects it into the Claude provider's
+# ``run``. Every task type's watchdog timeout must be longer (spec 5 M2 reliability rule 5),
+# so a slow but live run is never taken for a hung task; TASK_TIMEOUT_FLOOR adds the close.
+PROVIDER_RUN_TIMEOUT: Final = timedelta(minutes=5)
+# The shortest task-type timeout create_app accepts: a provider call may run for
+# PROVIDER_RUN_TIMEOUT and then spend up to DISCONNECT_TIMEOUT_SECONDS closing the client (the
+# CLI subprocess), plus a small margin, so the watchdog never interrupts a call still closing.
+TASK_TIMEOUT_FLOOR: Final = (
+    PROVIDER_RUN_TIMEOUT + timedelta(seconds=DISCONNECT_TIMEOUT_SECONDS) + timedelta(seconds=5)
+)
 
 _log = logging.getLogger(__name__)
 
@@ -105,12 +134,18 @@ class Wiring:
         environment: EnvSecretStore,
         allow_fakes: bool,
         demo: bool,
+        demo_workspace: bool = False,
+        clock: Clock | None = None,
     ) -> None:
         self.redactor = redactor
         self.secrets = secrets  # the only store injected anywhere (ADR-047)
         self._environment = environment
         self.allow_fakes = allow_fakes
         self.demo = demo
+        # A demo run on the demo's own folder: the fake is offered by itself there (M2.26).
+        self.demo_workspace = demo and demo_workspace
+        # When providers observe usage (M2.2); the app's clock when ``create_app`` builds it.
+        self.clock: Clock = clock if clock is not None else SystemClock()
         # Names only, computed once: the setup guide shows which variable is in use (M1.17).
         self._environment_keys = frozenset(
             key for key in KNOWN_SECRET_KEYS if environment.get(key) is not None
@@ -145,19 +180,26 @@ class Wiring:
         if mode is None:  # pragma: no cover - every other kind is a Claude kind
             raise ValueError("This AI provider isn't available.")
         return ClaudeSdkProvider(
-            secrets=self.secrets, mode=mode, temp_root=data_dir.joinpath(*AI_TEMP_FOLDER)
+            secrets=self.secrets,
+            mode=mode,
+            temp_root=data_dir.joinpath(*AI_TEMP_FOLDER),
+            clock=self.clock,
+            run_timeout=PROVIDER_RUN_TIMEOUT,
         )
 
     def fake_for_key(self, key: str | None) -> FakeAIProvider:
         """The fake whose connection test follows the fictional keywords in ``key``. Only
-        the outcome is kept, never the key (ADR-054).
+        the outcome is kept, never the key (ADR-054). Without a keyword (nothing pasted
+        included) the test is rejected like a bad key, except in a demo workspace, where
+        there is nothing to paste and it connects (M2.26).
 
         Raises ``ValueError`` while fakes aren't allowed; routes check the chosen kind
         against ``provider_choices()`` first (M1.17).
         """
         if not self.allow_fakes:
             raise ValueError("Fake providers are not allowed.")
-        return FakeAIProvider(connection=outcome_for_key(key), app_mode=True)
+        otherwise: FakeOutcome = "connected" if self.demo_workspace else "auth"
+        return FakeAIProvider(connection=outcome_for_key(key, otherwise=otherwise), app_mode=True)
 
     def provider_health(self, settings: AIProviderSettings) -> ProviderHealth:
         """Configuration only: whether the kind is on offer, whether a CLI file is present,
@@ -209,17 +251,36 @@ class Wiring:
     ) -> AITaskRunner:
         """The task executor over ``provider``, with that provider's default model per tier;
         ``settings`` is read at run time. User prompt overrides live in
-        ``<data>/prompts/overrides`` (nothing is created here). Raises ``ValueError`` for a
-        provider wiring doesn't know."""
+        ``<data>/prompts/overrides`` (nothing is created here). Over the fake, while fakes
+        are allowed (the allow variable, or a demo workspace), it also knows the practice
+        task (M2.17). Raises ``ValueError`` for a provider wiring doesn't know."""
         defaults = _DEFAULTS_BY_PROVIDER.get(provider.name)
         if defaults is None:
             raise ValueError("Unknown AI provider.")
         prompts = PromptLibrary(
             defaults_dir=PROMPTS_DIR, overrides_dir=data_dir.joinpath(*OVERRIDES_FOLDER)
         )
+        specs: Mapping[str, TaskSpec] = TASK_SPECS
+        if self._is_allowed_fake(provider):
+            specs = MappingProxyType({**TASK_SPECS, PRACTICE_SPEC.name: PRACTICE_SPEC})
         return TaskExecutor(
-            provider=provider, prompts=prompts, settings=settings, provider_defaults=defaults
+            provider=provider,
+            prompts=prompts,
+            settings=settings,
+            provider_defaults=defaults,
+            specs=specs,
         )
+
+    def script_practice(self, provider: AIProvider, *, outcome: str, delay_seconds: float) -> None:
+        """Script the fake for one practice run (M2.17): every call takes ``delay_seconds``
+        and ``outcome`` says how the run goes. Raises ``ValueError`` for any provider but
+        the fake, while fakes aren't allowed, or for an unknown outcome."""
+        if not isinstance(provider, FakeAIProvider) or not self._is_allowed_fake(provider):
+            raise ValueError("The practice task needs the fake provider.")
+        provider.script(PRACTICE_TASK, *practice_responses(outcome, delay_seconds=delay_seconds))
+
+    def _is_allowed_fake(self, provider: AIProvider) -> bool:
+        return self.allow_fakes and provider.name == FakeAIProvider.name
 
     def _offered(self) -> frozenset[ProviderKind]:
         return frozenset(choice.kind for choice in self.provider_choices())
@@ -231,12 +292,17 @@ def build_wiring(
     demo: bool,
     redactor: Redactor,
     keyring_backend: KeyringBackend | None = None,
+    clock: Clock | None = None,
+    demo_workspace: bool = False,
 ) -> Wiring:
-    """Compose the secret store and read the allow flag (ADR-047, ADR-054).
+    """Compose the secret store and decide whether fakes are offered (ADR-047, ADR-054).
 
     Demo mode uses the ``jobpipeline-demo`` keychain service and an empty environment, so it
-    never picks up real credentials; the allow flag still comes from ``environ``. Environment
-    secrets are registered with ``redactor`` here; the keychain is not touched.
+    never picks up real credentials. ``demo_workspace`` (``is_demo_workspace(config)``: the
+    demo on the folder the app chose for it) offers the fake provider by itself, so practice
+    tasks work in the demo (M2.26). Everywhere else, a demo on a folder the user named
+    included, the allow flag in ``environ`` must be exactly ``"1"``. Environment secrets are
+    registered with ``redactor`` here; the keychain is not touched.
     """
     environment = EnvSecretStore({} if demo else environ)
     register_environment_secrets(environment, redactor)
@@ -244,16 +310,58 @@ def build_wiring(
         DEMO_SERVICE_NAME if demo else SERVICE_NAME, backend=keyring_backend
     )
     secrets = ChainedSecretStore(keychain, environment, redactor=redactor)
-    allow_fakes = environ.get(ALLOW_FAKES_VARIABLE) == "1"
-    if allow_fakes:
+    by_variable = environ.get(ALLOW_FAKES_VARIABLE) == "1"
+    in_demo = demo and demo_workspace
+    if by_variable:
         _log.warning("%s is set: fake AI providers are offered", ALLOW_FAKES_VARIABLE)
+    elif in_demo:
+        _log.info("Demo run: the fake AI provider is offered")
     return Wiring(
         redactor=redactor,
         secrets=secrets,
         environment=environment,
-        allow_fakes=allow_fakes,
+        allow_fakes=in_demo or by_variable,
         demo=demo,
+        demo_workspace=in_demo,
+        clock=clock,
     )
+
+
+class _LocalTimezone(tzinfo):
+    """The computer's time zone with its daylight-saving rules, asked from the operating
+    system for each instant (no zone name to look up, no extra dependency). It reads zone
+    rules only, never the current time."""
+
+    def utcoffset(self, dt: datetime | None) -> timedelta | None:
+        return None if dt is None else _system_local(dt).utcoffset()
+
+    def dst(self, dt: datetime | None) -> timedelta | None:
+        return None  # not known apart from the offset; nothing here needs it
+
+    def tzname(self, dt: datetime | None) -> str | None:
+        return None if dt is None else _system_local(dt).tzname()
+
+    def fromutc(self, dt: datetime) -> datetime:
+        offset = dt.replace(tzinfo=UTC).astimezone().utcoffset()
+        if offset is None:  # pragma: no cover - an aware datetime always has an offset
+            raise ValueError("The local time zone has no offset.")
+        local = dt + offset
+        # The second pass through a repeated hour (clocks set back) is the ``fold``.
+        return local if self.utcoffset(local) == offset else local.replace(fold=1)
+
+    def __repr__(self) -> str:
+        return "local_timezone()"
+
+
+def _system_local(wall: datetime) -> datetime:
+    """A wall-clock time read as the system's local time (``fold`` picks a repeated hour)."""
+    return wall.replace(tzinfo=None).astimezone()
+
+
+def local_timezone() -> tzinfo:
+    """The time zone budget cycles use: the computer's own (ADR-076 item 8). ``create_app``
+    takes another one for tests."""
+    return _LocalTimezone()
 
 
 def clear_ai_temp(data_dir: Path) -> Path:

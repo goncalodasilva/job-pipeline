@@ -1157,3 +1157,225 @@ def test_cli_demo_builds_demo_wiring(
     wiring = calls[0][1]["wiring"]
     assert wiring.secrets.get("claude_code_oauth_token") is None, "demo ignores the environment"
     assert wiring.redactor.redact(FICTIONAL_ENV_TOKEN) == FICTIONAL_ENV_TOKEN
+
+
+# --- M2.4: the data-folder lock (ADR-072, ADR-076 item 9) ------------------------------------
+
+
+def _recording_lock(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> list[Any]:
+    """Wrap ``app.cli.lock_data_folder``: record each lock taken and when it is released."""
+    from app.modules.storage import lock_data_folder as real_lock
+
+    taken: list[Any] = []
+
+    def wrapper(folder: Path) -> Any:
+        lock = real_lock(folder)
+        real_release = lock.release
+
+        def release() -> None:
+            events.append("lock_released")
+            real_release()
+
+        lock.release = release  # type: ignore[method-assign]
+        taken.append(lock)
+        return lock
+
+    monkeypatch.setattr("app.cli.lock_data_folder", wrapper)
+    return taken
+
+
+def test_cli_data_dir_in_use_prints_one_line_without_path(
+    env: dict[str, str],
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.domain.errors import DataFolderInUse
+
+    def in_use(_folder: Path) -> None:
+        raise DataFolderInUse()
+
+    monkeypatch.setattr("app.cli.lock_data_folder", in_use)
+    fake = FakeLaunch()
+
+    code = exit_code(lambda: run_main(["--no-browser"], env, fake))
+
+    assert code == 1
+    err = capsys.readouterr().err
+    lines = [line for line in err.splitlines() if line.startswith("jobpipeline:")]
+    assert lines == [f"jobpipeline: {DataFolderInUse().user_message}"], err
+    assert str(data_dir) not in err and data_dir.name not in err
+    assert "Traceback" not in err
+    assert not (data_dir / "logs").exists(), "a second copy never logs into the folder"
+    assert fake.calls("serve") == []
+
+
+def test_cli_lock_unavailable_prints_create_failed_line(
+    env: dict[str, str],
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.domain.errors import DataFolderUnavailable
+
+    def unavailable(_folder: Path) -> None:
+        raise DataFolderUnavailable(detail="can't lock (OSError)")
+
+    monkeypatch.setattr("app.cli.lock_data_folder", unavailable)
+    fake = FakeLaunch()
+
+    code = exit_code(lambda: run_main(["--no-browser"], env, fake))
+
+    assert code == 1
+    err = capsys.readouterr().err
+    lines = [line for line in err.splitlines() if line.startswith("jobpipeline:")]
+    assert len(lines) == 1, err
+    assert "Couldn't create the data folder or its logs" in lines[0]
+    assert "Traceback" not in err
+    assert not (data_dir / "logs").exists()
+    assert fake.calls("serve") == []
+
+
+def test_cli_logging_setup_failure_releases_the_lock(
+    env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+    taken = _recording_lock(monkeypatch, events)
+
+    def broken_logging(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("fictional logging failure")
+
+    monkeypatch.setattr("app.cli.configure_logging", broken_logging)
+
+    with pytest.raises(RuntimeError):
+        run_main(["--no-browser"], env, FakeLaunch())
+
+    assert len(taken) == 1
+    assert not taken[0].held, "a failed logging set-up must not keep the folder locked"
+
+
+def test_cli_lock_held_while_serving_and_released_after_logging_closes(
+    env: dict[str, str], data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.logging_config import configure_logging as real_configure
+
+    events: list[str] = []
+    taken = _recording_lock(monkeypatch, events)
+
+    def recording_configure(*args: Any, **kwargs: Any) -> Any:
+        setup = real_configure(*args, **kwargs)
+        real_close = setup.close
+
+        def close() -> None:
+            events.append("logging_closed")
+            real_close()
+
+        setup.close = close  # type: ignore[method-assign]
+        return setup
+
+    monkeypatch.setattr("app.cli.configure_logging", recording_configure)
+    calls = capture_create_app_calls(monkeypatch)
+    held_while_serving: list[bool] = []
+    fake = FakeLaunch(on_serve=lambda _c: held_while_serving.append(taken[0].held))
+
+    run_main(["--no-browser"], env, fake)
+
+    assert held_while_serving == [True]
+    assert calls[0][1].get("data_folder_lock") is taken[0], "the app reuses the CLI's lock"
+    assert events[0] == "logging_closed", events
+    assert "lock_released" in events
+    assert not taken[0].held
+
+
+# --- M2.26: the demo offers the fake on its own folder only (user decision 2026-10-11) -------
+
+ALLOW_FAKES = "JOBPIPELINE_ALLOW_FAKE_PROVIDERS"
+
+
+def _cli_wiring(
+    argv: list[str], env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any]:
+    """The config and the wiring the CLI hands to the app."""
+    calls = capture_create_app_calls(monkeypatch)
+    run_main(["--no-browser", *argv], env, FakeLaunch())
+    assert len(calls) == 1
+    return calls[0][0], calls[0][1]["wiring"]
+
+
+def _offers_fake(wiring: Any) -> bool:
+    return "fake" in [choice.kind for choice in wiring.provider_choices()]
+
+
+def test_cli_demo_on_its_own_folder_offers_the_fake_without_the_variable(
+    tmp_path: Path, platform_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(ALLOW_FAKES, raising=False)
+    env = {"JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg")}
+
+    config, wiring = _cli_wiring(["--demo"], env, monkeypatch)
+
+    assert config.data_dir == platform_root / "data" / "jobpipeline-demo"
+    assert config.data_dir_source == "demo"
+    assert wiring.demo is True and wiring.demo_workspace is True
+    assert wiring.allow_fakes is True and _offers_fake(wiring)
+
+
+@pytest.mark.parametrize("how", ["flag", "variable"])
+def test_cli_demo_on_an_explicit_folder_does_not_offer_the_fake(
+    how: str, tmp_path: Path, platform_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--demo`` with ``--data-dir`` or ``JOBPIPELINE_DATA_DIR``: the folder is the user's,
+    so the fake needs the allow variable, as before."""
+    monkeypatch.delenv(ALLOW_FAKES, raising=False)
+    mine = tmp_path / "mine"
+    env = {"JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg")}
+    argv = ["--demo"]
+    if how == "flag":
+        argv += ["--data-dir", str(mine)]
+    else:
+        env["JOBPIPELINE_DATA_DIR"] = str(mine)
+
+    config, wiring = _cli_wiring(argv, env, monkeypatch)
+
+    assert config.demo is True and config.data_dir == mine
+    assert wiring.demo is True, "still a demo: the demo keychain and no environment secrets"
+    assert wiring.demo_workspace is False
+    assert wiring.allow_fakes is False and not _offers_fake(wiring)
+    assert not (platform_root / "data" / "jobpipeline-demo").exists()
+
+
+@pytest.mark.parametrize("value", ["", "0", "true", " 1"])
+def test_cli_demo_on_an_explicit_folder_needs_the_variable_to_be_exactly_one(
+    value: str, tmp_path: Path, platform_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = {"JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg"), ALLOW_FAKES: value}
+
+    _config, wiring = _cli_wiring(
+        ["--demo", "--data-dir", str(tmp_path / "mine")], env, monkeypatch
+    )
+
+    assert wiring.allow_fakes is False and not _offers_fake(wiring)
+
+
+def test_cli_demo_on_an_explicit_folder_with_the_variable_offers_the_fake_as_before(
+    tmp_path: Path, platform_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = {"JOBPIPELINE_CONFIG_DIR": str(tmp_path / "cfg"), ALLOW_FAKES: "1"}
+
+    _config, wiring = _cli_wiring(
+        ["--demo", "--data-dir", str(tmp_path / "mine")], env, monkeypatch
+    )
+
+    assert wiring.allow_fakes is True and _offers_fake(wiring)
+    assert wiring.demo_workspace is False, "allowed by the variable, not by being the demo"
+
+
+def test_cli_without_demo_never_makes_a_demo_workspace(
+    env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(ALLOW_FAKES, raising=False)
+
+    _config, wiring = _cli_wiring([], env, monkeypatch)
+
+    assert wiring.demo_workspace is False
+    assert wiring.allow_fakes is False and not _offers_fake(wiring)

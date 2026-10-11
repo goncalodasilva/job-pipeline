@@ -45,6 +45,7 @@ from app.services.settings import SettingsService, Versioned
 from app.wiring import Wiring, build_wiring
 from tests.fakes.clock import FrozenClock
 from tests.fakes.keyring_backends import CountingKeyring
+from tests.fakes.usage import CountingUsage
 
 START = datetime(2026, 1, 3, 9, 0, 0, tzinfo=UTC)
 TOKEN_KIND: Final = "claude_subscription_token"  # noqa: S105 - a provider kind, not a secret
@@ -163,6 +164,7 @@ def service(
         wiring if wiring is not None else factory(),
         environment_keys,
         refresh if refresh is not None else Refreshes(),
+        usage=CountingUsage(),
         probe_timeout=probe_timeout,
     )
 
@@ -636,7 +638,12 @@ def test_refresh_failure_still_saves(
         raise RuntimeError("fictional: no workspace")
 
     setup = ProviderSetupService(
-        settings, MemorySecretStore(), factory(), frozenset(), broken_refresh
+        settings,
+        MemorySecretStore(),
+        factory(),
+        frozenset(),
+        broken_refresh,
+        usage=CountingUsage(),
     )
     with caplog.at_level(logging.DEBUG):
         result = setup.save(TOKEN_KIND, FICTIONAL_TOKEN)

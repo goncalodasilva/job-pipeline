@@ -56,6 +56,7 @@ from app.modules.ai.providers.fake import (
 )
 from app.modules.ai.tasks import TaskSpec
 from tests.fakes.ai import NotCancelled, load_ai_fixture
+from tests.fakes.usage import RecordingMeter
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 FIXTURE_PROMPTS = REPO_ROOT / "tests" / "fixtures" / "prompts"
@@ -170,7 +171,9 @@ def _appended(first: AIRequest, second: AIRequest) -> str:
 async def test_valid_response_returns_data_with_prompt_id_version_model() -> None:
     provider = _scripted(TASK, "ok")
 
-    result = await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+    result = await _executor(provider).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
 
     assert isinstance(result, TaskResult)
     assert dict(result.data) == OK_DATA
@@ -214,7 +217,9 @@ async def test_result_reports_provider_model() -> None:
 
     provider = ReportsOtherModel()
 
-    result = await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+    result = await _executor(provider).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
 
     assert provider.inner.requests[0].model == FAKE_FAST_MODEL
     assert result.model == "example-model-2026-reported"
@@ -230,7 +235,9 @@ async def test_override_version_reaches_result(tmp_path: Path) -> None:
     provider = _scripted(TASK, "ok")
     library = PromptLibrary(FIXTURE_PROMPTS, overrides)
 
-    result = await _executor(provider, prompts=library).run_task(TASK, INPUTS, NotCancelled())
+    result = await _executor(provider, prompts=library).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
 
     assert result.prompt_version == "3+override"
     assert provider.requests[0].prompt_version == "3+override"
@@ -246,7 +253,9 @@ async def test_invalid_then_valid_retries_once_with_validation_error_appended() 
     valid = load_ai_fixture(TASK, "usage")
     provider = _scripted(TASK, invalid, valid)
 
-    result = await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+    result = await _executor(provider).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
 
     assert valid.data is not None
     assert dict(result.data) == dict(valid.data)
@@ -267,7 +276,7 @@ async def test_invalid_twice_raises_invalid_model_output() -> None:
     provider = _scripted(TASK, ScriptedResponse(data={"answer": [marker]}))
 
     with pytest.raises(InvalidModelOutput) as caught:
-        await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+        await _executor(provider).run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     assert len(provider.requests) == 2
     # The error's detail goes to logs: it must not carry the model's output text.
@@ -281,7 +290,9 @@ async def test_invalid_twice_raises_invalid_model_output() -> None:
 async def test_non_json_counts_as_invalid() -> None:
     provider = _scripted(TASK, "malformed", "ok")
 
-    result = await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+    result = await _executor(provider).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
 
     assert dict(result.data) == OK_DATA
     assert len(provider.requests) == 2
@@ -296,7 +307,7 @@ async def test_non_json_twice_raises_invalid_model_output() -> None:
     provider = _scripted(TASK, "malformed")
 
     with pytest.raises(InvalidModelOutput):
-        await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+        await _executor(provider).run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     assert len(provider.requests) == 2
 
@@ -309,7 +320,7 @@ async def test_correction_note_is_bounded_and_has_no_secret_like_content() -> No
         TASK, ScriptedResponse(data={"answer": [huge_value]}), load_ai_fixture(TASK, "ok")
     )
 
-    await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+    await _executor(provider).run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     first, second = provider.requests
     note = _appended(first, second)
@@ -329,7 +340,7 @@ async def test_correction_note_never_quotes_the_model_output() -> None:
     )
     executor = _executor(fake)
 
-    await executor.run_task(TASK, INPUTS, NotCancelled())
+    await executor.run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     assert marker not in fake.requests[1].user
 
@@ -344,7 +355,7 @@ async def test_correction_note_never_quotes_model_keys(tmp_path: Path) -> None:
     )
     executor = _executor(provider, prompts=_library_with_schema(tmp_path, schema))
 
-    await executor.run_task(TASK, INPUTS, NotCancelled())
+    await executor.run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     first, second = provider.requests
     note = _appended(first, second)
@@ -360,7 +371,7 @@ async def test_correction_note_lists_up_to_three_problems_within_bound(tmp_path:
     )
     executor = _executor(provider, prompts=_library_with_schema(tmp_path, schema))
 
-    result = await executor.run_task(TASK, INPUTS, NotCancelled())
+    result = await executor.run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     assert result.attempts == 2
     note = _appended(*provider.requests)
@@ -376,7 +387,7 @@ async def test_correction_note_lists_up_to_three_problems_within_bound(tmp_path:
     )
 
     with pytest.raises(InvalidModelOutput):
-        await long_executor.run_task(TASK, INPUTS, NotCancelled())
+        await long_executor.run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     long_note = _appended(*long_provider.requests)
     fixed_text = len(
@@ -411,7 +422,9 @@ async def test_validates_a_plain_copy_and_returns_read_only_data() -> None:
 
     provider = ReturnsMapping()
 
-    result = await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+    result = await _executor(provider).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
     provider.source["answer"] = "changed later"
 
     assert dict(result.data) == schema_ok
@@ -424,12 +437,14 @@ async def test_validates_a_plain_copy_and_returns_read_only_data() -> None:
 
 async def test_request_has_no_web_search_unless_task_allows() -> None:
     plain = _scripted(TASK, "ok")
-    await _executor(plain, specs=_specs()).run_task(TASK, INPUTS, NotCancelled())
+    await _executor(plain, specs=_specs()).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
     assert plain.requests[0].allow_web_search is False
 
     allowed = _scripted(TASK, "ok")
     await _executor(allowed, specs=_specs(allow_web_search=True)).run_task(
-        TASK, INPUTS, NotCancelled()
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
     )
     assert allowed.requests[0].allow_web_search is True
 
@@ -442,7 +457,9 @@ async def test_injection_fixture_is_delimited_and_does_not_change_request() -> N
     )
     provider = _scripted(TASK, "adversarial")
 
-    result = await _executor(provider).run_task(TASK, hostile, NotCancelled())
+    result = await _executor(provider).run_task(
+        TASK, hostile, NotCancelled(), meter=RecordingMeter()
+    )
 
     request = provider.requests[0]
     assert request.user.count("<untrusted_document") == 1
@@ -472,7 +489,7 @@ async def test_provider_errors_propagate_unchanged(outcome: FakeOutcome) -> None
     provider = _scripted(TASK, ScriptedResponse(failure=outcome))
 
     with pytest.raises(AppError) as caught:
-        await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+        await _executor(provider).run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     assert type(caught.value) is FAILURES[outcome]
     assert str(caught.value) == f"fake provider: {outcome}"
@@ -483,7 +500,7 @@ async def test_provider_error_on_retry_propagates_unchanged() -> None:
     provider = _scripted(TASK, "schema_invalid", ScriptedResponse(failure="network"))
 
     with pytest.raises(NetworkUnavailable):
-        await _executor(provider).run_task(TASK, INPUTS, NotCancelled())
+        await _executor(provider).run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     assert len(provider.requests) == 2
 
@@ -492,7 +509,7 @@ async def test_cancel_after_invalid_response_stops_before_retry() -> None:
     provider = CancelsAfterFirstCall(_scripted(TASK, "schema_invalid", "ok"))
 
     with pytest.raises(CallCancelled):
-        await _executor(provider).run_task(TASK, INPUTS, provider)
+        await _executor(provider).run_task(TASK, INPUTS, provider, meter=RecordingMeter())
 
     assert provider.calls == 1
 
@@ -510,7 +527,7 @@ async def test_cancelled_call_propagates_without_retry() -> None:
     provider.script(TASK, ScriptedResponse(data=OK_DATA, delay_seconds=1.0))
 
     with pytest.raises(CallCancelled):
-        await _executor(provider).run_task(TASK, INPUTS, token)
+        await _executor(provider).run_task(TASK, INPUTS, token, meter=RecordingMeter())
 
     assert len(provider.requests) == 1
 
@@ -527,7 +544,7 @@ async def test_unknown_task_raises_lookup_error() -> None:
     executor = _executor(provider, specs=_specs())
 
     with pytest.raises(LookupError):
-        await executor.run_task("not_a_known_task", {}, NotCancelled())
+        await executor.run_task("not_a_known_task", {}, NotCancelled(), meter=RecordingMeter())
 
     assert provider.requests == []
 
@@ -546,7 +563,9 @@ async def test_invalid_output_schema_is_prompt_error(tmp_path: Path) -> None:
     library = PromptLibrary(tmp_path / "prompts")
 
     with pytest.raises(PromptError):
-        await _executor(provider, prompts=library).run_task(TASK, INPUTS, NotCancelled())
+        await _executor(provider, prompts=library).run_task(
+            TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+        )
 
     assert provider.requests == []
 
@@ -558,7 +577,9 @@ async def test_task_uses_default_tier_from_prompt() -> None:
     provider = _scripted(TASK, "ok")
     settings = AIProviderSettings(tiers=TierMap(fast="example-fast-1", thorough="example-deep-1"))
 
-    await _executor(provider, settings=settings).run_task(TASK, INPUTS, NotCancelled())
+    await _executor(provider, settings=settings).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
 
     assert provider.requests[0].model == "example-fast-1"  # the fixture's default tier is fast
 
@@ -573,7 +594,7 @@ async def test_user_override_moves_task_to_other_tier(tmp_path: Path) -> None:
         provider, prompts=_renamed_library(tmp_path), settings=settings, specs=_specs(RENAMED_TASK)
     )
 
-    result = await executor.run_task(RENAMED_TASK, INPUTS, NotCancelled())
+    result = await executor.run_task(RENAMED_TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     assert provider.requests[0].model == "example-deep-1"
     assert result.model == "example-deep-1"
@@ -586,7 +607,7 @@ async def test_override_for_other_task_does_not_move_this_one(tmp_path: Path) ->
         provider, prompts=_renamed_library(tmp_path), settings=settings, specs=_specs(RENAMED_TASK)
     )
 
-    await executor.run_task(RENAMED_TASK, INPUTS, NotCancelled())
+    await executor.run_task(RENAMED_TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     assert provider.requests[0].model == FAKE_FAST_MODEL
 
@@ -595,7 +616,9 @@ async def test_tier_resolves_to_mapped_model() -> None:
     provider = _scripted(TASK, "ok")
     settings = AIProviderSettings(tiers=TierMap(fast="example-fast-2"))
 
-    result = await _executor(provider, settings=settings).run_task(TASK, INPUTS, NotCancelled())
+    result = await _executor(provider, settings=settings).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
 
     assert provider.requests[0].model == "example-fast-2"
     assert result.model == "example-fast-2"  # the fake reports the model it was asked for
@@ -605,7 +628,9 @@ async def test_unmapped_tier_uses_provider_default() -> None:
     provider = _scripted(TASK, "ok")
     settings = AIProviderSettings(tiers=TierMap(thorough="example-deep-2"))
 
-    await _executor(provider, settings=settings).run_task(TASK, INPUTS, NotCancelled())
+    await _executor(provider, settings=settings).run_task(
+        TASK, INPUTS, NotCancelled(), meter=RecordingMeter()
+    )
 
     assert provider.requests[0].model == FAKE_FAST_MODEL
 
@@ -621,9 +646,9 @@ async def test_settings_are_read_at_each_run() -> None:
         specs=_specs(),
     )
 
-    await executor.run_task(TASK, INPUTS, NotCancelled())
+    await executor.run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
     current[0] = AIProviderSettings(tiers=TierMap(fast="example-fast-3"))
-    await executor.run_task(TASK, INPUTS, NotCancelled())
+    await executor.run_task(TASK, INPUTS, NotCancelled(), meter=RecordingMeter())
 
     assert [request.model for request in provider.requests] == [FAKE_FAST_MODEL, "example-fast-3"]
 
@@ -634,7 +659,7 @@ CONFORMANCE = """\
 from collections.abc import Mapping
 
 from app.domain.settings import AIProviderSettings, Tier
-from app.modules.ai import AITaskRunner, TaskKind, TaskResult
+from app.modules.ai import AITaskRunner, TaskKind, TaskResult, UsageMeter
 from app.modules.ai.executor import TaskExecutor
 from app.modules.ai.prompts import PromptLibrary
 from app.modules.ai.providers.fake import FakeAIProvider
@@ -656,11 +681,11 @@ spec = TaskSpec("example_task", kind)
 specs: Mapping[str, TaskSpec] = {"example_task": spec}
 
 
-async def use(runner: AITaskRunner) -> str:
+async def use(runner: AITaskRunner, meter: UsageMeter) -> str:
     class Token:
         cancelled = False
 
-    result: TaskResult = await runner.run_task("example_task", {"x": 1}, Token())
+    result: TaskResult = await runner.run_task("example_task", {"x": 1}, Token(), meter=meter)
     return result.prompt_id + result.prompt_version + result.model
 """
 

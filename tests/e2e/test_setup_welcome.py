@@ -53,7 +53,7 @@ def test_welcome_desktop_keyboard_submit(running_app: RunningApp, browser: Brows
         expect(page.locator('[aria-current="step"]')).to_have_text("AI provider")
         expect(page).to_have_title(re.compile(r"^AI provider"))
         expect(page.locator("#step-heading")).to_be_focused()
-        expect(page.locator("#announcer")).to_have_text("Step 2 of 4: AI provider")
+        expect(page.locator("#announcer")).to_have_text("Step 2 of 5: AI provider")
         expect(page.locator("h1")).to_have_count(1)
 
     assert (running_app.data_dir / "app.db").is_file()

@@ -289,6 +289,15 @@ class Evidence:
             for name, value in response.headers.multi_items():
                 yield f"{where} header {name}", f"{name}: {value}"
 
+    def add_stream(self, label: str, headers: Mapping[str, Sequence[str]], frames: bytes) -> None:
+        """An event stream (``GET /events``, M2.18): its response headers and every byte it
+        sent. A stream never ends, so it can't be an httpx ``Response``; the test hands over
+        what its ASGI driver (``tests/asgi_stream.py``) collected."""
+        for name, values in headers.items():
+            for value in values:
+                self.texts.append((f"{label}: stream header {name}", f"{name}: {value}"))
+        self.blobs.append((f"{label}: stream frames", frames))
+
     def snapshot_files(self, label: str, *folders: Path) -> None:
         """The raw bytes of every file under ``folders`` right now."""
         seen: set[Path] = set()

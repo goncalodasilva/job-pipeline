@@ -26,6 +26,7 @@ NARROW = {"width": 360, "height": 740}
 STEPS = (
     ("welcome", "Welcome and data folder"),
     ("provider", "AI provider"),
+    ("web_search", "Web search"),
     ("preferences", "Job preferences"),
     ("done", "Done"),
 )

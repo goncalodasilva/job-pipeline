@@ -56,7 +56,7 @@ pytestmark = pytest.mark.integration
 
 WELCOME = "/setup/welcome"
 PROVIDER = "/setup/provider"
-NEXT_ANNOUNCEMENT = "Step 2 of 4: AI provider"
+NEXT_ANNOUNCEMENT = "Step 2 of 5: AI provider"
 DEMO_COMMAND = "uv run jobpipeline --demo"
 STEP_TITLES = [step.title for step in m1_registry().steps]
 
@@ -661,6 +661,24 @@ def test_htmx_config_swaps_422_and_keeps_other_errors(tmp_path: Path) -> None:
     for status in ("400", "403", "404", "500"):
         assert first_match(status).get("error") is True, status
     assert first_match("200").get("swap") is True
+
+
+def test_htmx_config_swaps_409(tmp_path: Path) -> None:
+    """A refused task retry answers 409 with the task's fragment, so it is swapped like a
+    422 and not treated as an error (M2.19)."""
+    with running(tmp_path, "default") as run:
+        page = run.client.get(WELCOME)
+    meta = only(
+        [e for e in outline(page.text) if e.tag == "meta" and e.attrs.get("name") == "htmx-config"],
+        "htmx-config meta",
+    )
+    handling = json.loads(str(meta.attrs.get("content")))["responseHandling"]
+    first = next(entry for entry in handling if re.search(str(entry["code"]), "409"))
+    assert first.get("swap") is True
+    assert first.get("error") is not True
+    for status in ("400", "401", "403", "404", "408", "410", "500"):
+        other = next(entry for entry in handling if re.search(str(entry["code"]), status))
+        assert other.get("error") is True, status
 
 
 # --- htmx: guide fragment, push URL, title and announcement ---------------------------------------

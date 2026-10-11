@@ -1,7 +1,13 @@
 {# Step 2a (M1.17). The credential field never carries a value: nothing pasted is shown back.
    Settings > Providers (M1.21) includes it too, with provider_context "settings" and its own
-   post URLs and swap target; there it shows no step heading, Continue or step status. #}
+   post URLs and swap target; there it shows no step heading, Continue or step status.
+   In the demo (form.demo, fixed at start-up; M2.26) the guide says which choice to make, the
+   practice provider is preselected while nothing is saved, and the form is marked
+   demo-provider: while that provider is chosen the stylesheet hides what it doesn't need
+   (the credential field with its hint, the environment-variable note and the sentence about
+   plan or credit). Browsers without :has() keep showing them. #}
 {% set in_settings = provider_context is defined and provider_context == "settings" %}
+{% set demo = form.get("demo") %}
 {% set post_url = provider_post_url if in_settings else "/setup/provider" %}
 {% set test_url = provider_test_url if in_settings else "/setup/provider/test" %}
 {% set swap_target = provider_target if in_settings else "#setup-guide" %}
@@ -39,14 +45,19 @@
 
 <p id="terms-note" class="terms-note">Anthropic's Agent SDK documentation asks developers who build products or services on the SDK to use API key authentication, not a Claude plan sign-in, unless Anthropic has approved it. Read it and decide which option fits you: <a href="{{ form.terms_url }}" rel="noopener noreferrer">Agent SDK overview</a>.</p>
 
-<form id="provider-form" class="step-form" method="post" action="{{ post_url }}"
+<form id="provider-form" class="step-form{% if demo %} demo-provider{% endif %}" method="post" action="{{ post_url }}"
       hx-post="{{ post_url }}" hx-target="{{ swap_target }}" hx-swap="outerHTML"
       hx-indicator="#provider-saving" hx-disabled-elt="#provider-form button" novalidate>
   {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
   {% if form_error %}
   <p id="form-error" class="field-error" role="alert"{% if focus_form_error %} data-autofocus{% endif %}>{{ form_error }}</p>
   {% endif %}
-  {% set checked_kind = form.kind if form.choices | selectattr("kind", "equalto", form.kind) | list else none %}
+  {# The demo preselects the practice provider until something is saved or chosen. #}
+  {% set shown_kind = form.kind if form.kind else ("fake" if demo else none) %}
+  {% set checked_kind = shown_kind if form.choices | selectattr("kind", "equalto", shown_kind) | list else none %}
+  {% if demo and not in_settings %}
+  <p id="demo-note" class="demo-note">You're in the demo. Choose the practice provider below; it needs no account or key.</p>
+  {% endif %}
   <fieldset class="choices"{% if kind_error %} aria-describedby="kind-error"{% endif %}>
     <legend>How do you want to connect to Claude?</legend>
     {% if kind_error %}
@@ -57,7 +68,7 @@
     <div class="choice">
       <input type="radio" id="kind-{{ choice.kind }}" name="kind" value="{{ choice.kind }}"
              aria-describedby="{% if kind_error %}kind-error {% endif %}kind-{{ choice.kind }}-help"
-             {% if form.kind == choice.kind %}checked{% endif %}
+             {% if shown_kind == choice.kind %}checked{% endif %}
              {% if focus_here %}data-autofocus{% endif %}>
       <label for="kind-{{ choice.kind }}">{{ choice.label }}</label>
       <p id="kind-{{ choice.kind }}-help" class="field-hint">
@@ -68,14 +79,14 @@
         {% elif choice.kind == "claude_api_key" %}
         Create a key in Claude Console, then paste it below. Requests use your Console account's API credit, separately from any Claude plan.
         {% else %}
-        For testing only: no real AI is used.
+        A practice provider for testing and the demo. It calls no AI service, so nothing it returns is real AI output.
         {% endif %}
       </p>
     </div>
     {% endfor %}
   </fieldset>
 
-  <div class="field">
+  <div class="field credential-field">
     <label for="credential">Token or API key</label>
     {% set described = [] %}
     {% if credential_error %}{% set _ = described.append("credential-error") %}{% endif %}
@@ -103,7 +114,7 @@
     No {{ noun }} saved yet.
     {% elif form.kind == "claude_existing_login" %}
     Using the Claude Code sign-in on this computer.
-    {% elif form.kind == "fake" %}
+    {% elif shown_kind == "fake" %}
     The fake provider needs no key.
     {% else %}
     Nothing chosen yet.
@@ -118,7 +129,7 @@
             hx-post="{{ test_url }}" hx-indicator="#provider-saving, #provider-testing">Test connection</button>
   </div>
   <p id="provider-saving" class="saving-note" role="status">Saving to your system keychain… If your computer asks to allow access, choose Allow.</p>
-  <p id="provider-testing" class="saving-note" role="status">Testing the connection… This sends one very small request, which uses a tiny amount of your plan or credit. This can take up to a minute.</p>
+  <p id="provider-testing" class="saving-note" role="status">Testing the connection… <span class="uses-credit">This sends one very small request, which uses a tiny amount of your plan or credit.</span> This can take up to a minute.</p>
 
   {% if result_text %}
   {# Announced through the page's live region (HX-Trigger), so no role or aria-live here. #}

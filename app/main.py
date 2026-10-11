@@ -15,6 +15,7 @@ import threading
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import timedelta, tzinfo
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -22,18 +23,28 @@ from starlette.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.errors import register_error_handlers
+from app.api.events import (
+    DEFAULT_EVENT_QUEUE_SIZE,
+    DEFAULT_KEEPALIVE_SECONDS,
+    ShutdownSignal,
+    TaskEvents,
+    register_events,
+)
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.api.settings import register_settings_pages
+from app.api.settings_usage import register_usage_settings
 from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
+from app.api.tasks import register_task_routes
 from app.api.templating import STATIC_DIR, STATIC_URL
 from app.config import (
     BOOTSTRAP_FILE,
     DATABASE_FILE,
     RuntimeConfig,
     data_dir_is_explicit,
+    is_demo_workspace,
     opens_workspace_at_startup,
     owned_by_another_user,
     refused_data_folders,
@@ -41,15 +52,24 @@ from app.config import (
 )
 from app.domain.clock import Clock, SystemClock
 from app.domain.errors import DataFolderNotYours, DataFolderUnavailable
+from app.domain.ids import IdFactory, UuidIdFactory
 from app.domain.redaction import Redactor
-from app.domain.settings import AI_PROVIDER
+from app.domain.settings import AI_PROVIDER, TASK_RUNNER, AIProviderSettings
+from app.domain.tasks import TaskChange, TaskStatus, TaskTypeSpec
 from app.modules.ai import ProviderHealth
-from app.modules.storage import MIGRATIONS_DIR, Database, apply_migrations
+from app.modules.storage import (
+    MIGRATIONS_DIR,
+    Database,
+    DataFolderLock,
+    apply_migrations,
+    lock_data_folder,
+)
 from app.onboarding.progress import SetupProgress
 from app.onboarding.registry import (
     DONE,
     PREFERENCES,
     PROVIDER,
+    WEB_SEARCH,
     WELCOME,
     StepHandler,
     StepRegistry,
@@ -61,16 +81,33 @@ from app.onboarding.steps import PendingStep
 from app.onboarding.steps.done import DoneStep
 from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
+from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
+from app.services.budget_gate import BudgetGate
 from app.services.health import HealthService
+from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
-from app.tasks import TaskRunner
-from app.wiring import Wiring, build_wiring, clear_ai_temp
+from app.services.task_views import TaskViews
+from app.services.tasks import TaskService
+from app.services.usage import UsageService
+from app.services.usage_panel import UsagePanel
+from app.services.usage_settings import UsageSettings
+from app.tasks import HandlerRegistry, TaskRunner
+from app.tasks.practice import practice_handler
+from app.wiring import (
+    TASK_TIMEOUT_FLOOR,
+    Wiring,
+    build_wiring,
+    clear_ai_temp,
+    local_timezone,
+)
 
 BACKUP_FOLDER = "backups"
 LOG_FOLDER = "logs"
+# Longer than one provider run plus its close, so a slow step is never taken for a hung task.
+PRACTICE_TIMEOUT = TASK_TIMEOUT_FLOOR + timedelta(minutes=1)
 
 
 @dataclass(frozen=True)
@@ -96,16 +133,44 @@ def open_workspace_folder(
     clock: Clock,
     attach_log_folder: Callable[[Path], None] | None = None,
     before_logging: Callable[[Database], None] | None = None,
+    lock: DataFolderLock | None = None,
 ) -> Workspace:
-    """Create the folder (0700, ADR-043), open and migrate its database, then log into it.
+    """Create the folder (0700, ADR-043), lock it, open and migrate its database, then log
+    into it.
 
     Blocking (mkdir, migrations, backups). Raises ``DataFolderNotYours`` for a folder owned by
-    another account and ``DataFolderUnavailable`` when it can't be created, opened or logged
-    into; a failed migration raises ``MigrationError``. ``before_logging`` runs on the migrated
+    another account, ``DataFolderInUse`` when another copy of the app holds its lock (ADR-072)
+    and ``DataFolderUnavailable`` when it can't be created, opened or logged into; a failed
+    migration raises ``MigrationError``. ``lock`` is one the caller already holds on ``folder``
+    (the CLI takes it before logging into the folder); it stays the caller's to release, and
+    one no longer held is refused with ``DataFolderUnavailable`` (POSIX). Without it the lock is
+    taken here, before anything is written into the folder, released if the open fails and
+    otherwise when the workspace's database closes. ``before_logging`` runs on the migrated
     database; whatever it raises closes the database and propagates. File logging is attached
     last, so a failed open leaves logging untouched and the user can choose another folder.
     """
     _prepare_folder(folder)
+    if lock is not None:
+        if not lock.held and os.name == "posix":
+            raise DataFolderUnavailable(detail="the given lock is not held")
+        return _open_locked(folder, migrations_dir, clock, attach_log_folder, before_logging)
+    own_lock = lock_data_folder(folder)
+    try:
+        workspace = _open_locked(folder, migrations_dir, clock, attach_log_folder, before_logging)
+    except BaseException:
+        own_lock.release()
+        raise
+    workspace.db.call_on_close(own_lock.release)
+    return workspace
+
+
+def _open_locked(
+    folder: Path,
+    migrations_dir: Path,
+    clock: Clock,
+    attach_log_folder: Callable[[Path], None] | None,
+    before_logging: Callable[[Database], None] | None,
+) -> Workspace:
     db = _open_database(folder)
     try:
         apply_migrations(db, migrations_dir, folder / BACKUP_FOLDER, clock)
@@ -172,13 +237,21 @@ def _prepare_workspace(
     onboarding: OnboardingState,
     registry: StepRegistry,
     clock: Clock,
+    ids: IdFactory,
 ) -> ProviderHealth:
-    """Run when a workspace opens, before logging moves into it: clear leftover AI call
-    folders, then check the provider (ADR-049, ADR-057)."""
+    """Run when a workspace opens, before logging moves into it and before its task service
+    is handed to the runner: clear leftover AI call folders, mark tasks a killed process left
+    running as interrupted (ADR-076 item 10), then check the provider (ADR-049, ADR-057)."""
     try:
         clear_ai_temp(folder)
     except OSError as error:
         raise DataFolderUnavailable(detail=f"can't prepare ({type(error).__name__})") from None
+    # Nothing listens yet: the workspace isn't published and the runner hasn't got it.
+    try:
+        TaskService(db, clock, ids, _task_listeners()).recover_interrupted()
+    except sqlite3.Error as error:
+        detail = f"can't recover tasks ({type(error).__name__})"
+        raise DataFolderUnavailable(detail=detail) from None
     return _check_provider(db, wiring=wiring, onboarding=onboarding, registry=registry, clock=clock)
 
 
@@ -196,6 +269,44 @@ def _check_provider(
     health = wiring.provider_health(settings)
     onboarding.refresh(_progress(registry, db, clock), provider_healthy=health.ok)
     return health
+
+
+def _task_listeners(
+    *listeners: Callable[[TaskChange], None],
+) -> Callable[[TaskChange], None]:
+    """One ``on_change`` that tells each listener in turn, on the committing thread."""
+
+    def on_change(change: TaskChange) -> None:
+        for listener in listeners:
+            listener(change)
+
+    return on_change
+
+
+def _attach_tasks(
+    runner: TaskRunner,
+    db: Database,
+    *,
+    clock: Clock,
+    ids: IdFactory,
+    publish: Callable[[TaskChange], None],
+) -> TaskService:
+    """Build the workspace's task service and hand it to the runner with the stored
+    ``TASK_RUNNER`` settings. Every committed change wakes the runner and then goes to
+    ``publish`` (the event streams; it only schedules, so nothing here waits). Blocking
+    (a settings read): runs in the thread opening the
+    workspace (step 1's worker thread, or the loop itself during the lifespan, before the app
+    serves requests); the hand-off itself is thread-safe."""
+
+    def wake_runner(change: TaskChange) -> None:
+        if change.status == TaskStatus.QUEUED:
+            runner.notify()
+        elif change.status == TaskStatus.RUNNING:  # a claim or a cancel request
+            runner.notify_cancel(change.id)
+
+    service = TaskService(db, clock, ids, _task_listeners(wake_runner, publish))
+    runner.attach(service, settings=SettingsService(db, clock).load(TASK_RUNNER).value)
+    return service
 
 
 def _step_handlers(
@@ -250,6 +361,7 @@ def _step_handlers(
         data_dir=workspace_folder,
         mark_done=mark_provider_done,
         is_done=lambda: onboarding.statuses.get(PROVIDER.id) == "done",
+        demo=wiring.demo_workspace,
     )
     handlers[PROVIDER.id] = provider
     app.state.connection_tester = provider  # POST /setup/provider/test (M1.18)
@@ -272,6 +384,19 @@ def _step_handlers(
         db = _current_db(app)
         return SettingsService(db, clock) if db is not None else None
 
+    def skip_web_search() -> None:
+        progress = _progress(registry, _current_db(app), clock)
+        if progress is None:  # pragma: no cover - the step checks for a workspace first
+            raise RuntimeError("no workspace is open")
+        progress.skip(WEB_SEARCH.id)
+        onboarding.refresh(progress)
+
+    if WEB_SEARCH.id in handlers:  # a registry passed to create_app (tests) may leave it out
+        handlers[WEB_SEARCH.id] = WebSearchStep(
+            app.state.usage_settings,
+            mark_done=mark_done(WEB_SEARCH.id),
+            skip=skip_web_search,
+        )
     handlers[PREFERENCES.id] = PreferencesStep(settings, mark_done=mark_done(PREFERENCES.id))
     handlers[DONE.id] = DoneStep(
         registry,
@@ -306,11 +431,73 @@ def _provider_setup(
                         wiring,
                         wiring.environment_keys(),
                         refresh_health,
+                        usage=app.state.usage,  # set whenever a workspace is open
                     )
                 )
             return built[0]
 
     return service
+
+
+def _open_usage(app: FastAPI) -> Callable[[], UsageService | None]:
+    """The open workspace's usage service, read from the app's state at call time; None
+    before a workspace is open."""
+    return lambda: getattr(app.state, "usage", None) if _current_db(app) else None
+
+
+def _usage_settings(app: FastAPI, *, wiring: Wiring, clock: Clock) -> UsageSettings:
+    """Settings > Usage budgets (M2.22): like the practice service, it reads the open
+    workspace through the app's state at call time."""
+
+    def settings() -> SettingsService | None:
+        db = _current_db(app)
+        return SettingsService(db, clock) if db is not None else None
+
+    return UsageSettings(
+        usage=_open_usage(app),
+        settings=settings,
+        allow_fakes=wiring.allow_fakes,
+    )
+
+
+def _practice(
+    app: FastAPI, *, wiring: Wiring, clock: Clock, registry: HandlerRegistry
+) -> PracticeService:
+    """The practice task's service (M2.17): it reads the open workspace through the app's
+    state at call time, so one instance serves the whole run of the app."""
+
+    def workspace() -> Workspace | None:
+        found: Workspace | None = getattr(app.state, "workspace", None)
+        return found
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db is not None else None
+
+    def data_dir() -> Path | None:
+        found = workspace()
+        return found.data_dir if found is not None else None
+
+    return PracticeService(
+        factory=wiring,
+        allow_fakes=wiring.allow_fakes,
+        script=wiring.script_practice,
+        registered=lambda: registry.get(PRACTICE) is not None,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None) if workspace() else None,
+        usage=lambda: getattr(app.state, "usage", None) if workspace() else None,
+        data_dir=data_dir,
+    )
+
+
+def _task_labels(registry: HandlerRegistry) -> Callable[[str], str | None]:
+    """The label of a registered task type; None for a type no handler is registered for."""
+
+    def label_for(task_type: str) -> str | None:
+        entry = registry.get(task_type)
+        return entry[0].label if entry is not None else None
+
+    return label_for
 
 
 def create_app(
@@ -322,22 +509,54 @@ def create_app(
     open_at_startup: bool | None = None,
     wiring: Wiring | None = None,
     setup_registry: StepRegistry | None = None,
+    event_keepalive_seconds: float = DEFAULT_KEEPALIVE_SECONDS,
+    event_queue_size: int = DEFAULT_EVENT_QUEUE_SIZE,
+    data_folder_lock: DataFolderLock | None = None,
+    task_registry: HandlerRegistry | None = None,
+    tz: tzinfo | None = None,
 ) -> FastAPI:
     """Build the app. ``open_at_startup`` (default: ``opens_workspace_at_startup(config)``)
     says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used.
     ``wiring`` (default: built from the process environment with a new redactor) builds the
     providers; the CLI passes the one whose redactor its logging uses. ``setup_registry``
     (default: ``m1_registry()``) lists the guide's steps; steps without a handler of their
-    own get a placeholder."""
+    own get a placeholder. ``event_keepalive_seconds`` is how often an idle ``GET /events``
+    stream sends a comment line (finite and greater than 0, else ``ValueError``).
+    ``event_queue_size`` is how many task-change frames one stream may have waiting before
+    the server ends it (at least 1, else ``ValueError``); ``app.state.task_events`` publishes
+    every committed task change to the open streams.
+    ``app.state.shutdown_signal`` is made here, not in the lifespan: the CLI sets it when a
+    stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1).
+    ``data_folder_lock`` is the lock the CLI already holds on ``config.data_dir``; the
+    lifespan's open reuses it instead of locking the folder again (ADR-072).
+    ``task_registry`` (default: the practice task while fakes are allowed, else empty;
+    either way ``app.state.task_registry``, refusing
+    timeouts not longer than ``TASK_TIMEOUT_FLOOR``, one provider run plus its close) maps
+    task types to their handlers; whenever a workspace opens, its task service
+    (``app.state.task_service``, None before) is handed to the runner, and its usage service
+    (``app.state.usage``, None before; one per workspace) counts provider calls in budget
+    cycles of ``tz`` (default: the computer's time zone; ADR-076 item 8)."""
     app_clock = clock if clock is not None else SystemClock()
+    app_tz = tz if tz is not None else local_timezone()
     app_wiring = (
         wiring
         if wiring is not None
-        else build_wiring(environ=os.environ, demo=config.demo, redactor=Redactor())
+        else build_wiring(
+            environ=os.environ,
+            demo=config.demo,
+            demo_workspace=is_demo_workspace(config),
+            redactor=Redactor(),
+            clock=app_clock,
+        )
     )
     open_now = opens_workspace_at_startup(config) if open_at_startup is None else open_at_startup
     open_lock = threading.Lock()
     closed = threading.Event()
+    app_ids = UuidIdFactory()
+    shutdown_signal = ShutdownSignal()
+    task_events = TaskEvents(shutdown_signal, queue_size=event_queue_size)  # ValueError: no bound
+    handlers = task_registry if task_registry is not None else HandlerRegistry()
+    handlers.require_min_timeout(TASK_TIMEOUT_FLOOR)  # ValueError for a too-short type
 
     def open_workspace(folder: Path) -> Workspace:
         """Open the data folder chosen in step 1 (see ``open_workspace_folder``).
@@ -369,6 +588,7 @@ def create_app(
                         onboarding=onboarding,
                         registry=registry,
                         clock=app_clock,
+                        ids=app_ids,
                     )
                 )
 
@@ -383,6 +603,20 @@ def create_app(
             except BaseException:
                 onboarding.refresh(None)  # no I/O: back to the no-workspace decision
                 raise
+            try:
+                task_service = _attach_tasks(
+                    app.state.runner,
+                    workspace.db,
+                    clock=app_clock,
+                    ids=app_ids,
+                    publish=task_events.publish,
+                )
+            except BaseException:
+                workspace.db.close()  # releases the folder lock, so the user can retry
+                onboarding.refresh(None)
+                raise
+            app.state.task_service = task_service
+            app.state.usage = UsageService(workspace.db, app_clock, app_ids, app_tz)
             app.state.provider_health = health[-1]
             app.state.workspace = workspace
             return workspace
@@ -414,6 +648,7 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         registry = setup_registry if setup_registry is not None else m1_registry()
         onboarding = OnboardingState(registry, _startup_inputs(config))
+        runner = TaskRunner(registry=handlers)
         workspace = None
         health: ProviderHealth | None = None
         if open_now:
@@ -427,6 +662,7 @@ def create_app(
                     onboarding=onboarding,
                     registry=registry,
                     clock=app_clock,
+                    ids=app_ids,
                 )
 
             workspace = open_workspace_folder(
@@ -435,9 +671,20 @@ def create_app(
                 clock=app_clock,
                 attach_log_folder=attach_log_folder,
                 before_logging=prepare,
+                lock=data_folder_lock,
             )
-        runner = TaskRunner()
         try:
+            task_service = (
+                _attach_tasks(
+                    runner,
+                    workspace.db,
+                    clock=app_clock,
+                    ids=app_ids,
+                    publish=task_events.publish,
+                )
+                if workspace is not None
+                else None
+            )
             await runner.start()
             app.state.provider_health = health  # None until a workspace opens
             app.state.setup_registry = registry
@@ -454,6 +701,12 @@ def create_app(
             app.state.open_workspace = open_workspace
             app.state.refresh_provider_health = refresh_provider_health
             app.state.runner = runner
+            app.state.task_service = task_service
+            app.state.usage = (
+                UsageService(workspace.db, app_clock, app_ids, app_tz)
+                if workspace is not None
+                else None
+            )
             app.state.health = HealthService(
                 lambda: _current_db(app), lambda: runner.status, __version__
             )
@@ -478,6 +731,36 @@ def create_app(
         openapi_url=None,
     )
     app.state.wiring = app_wiring
+    practice = _practice(app, wiring=app_wiring, clock=app_clock, registry=handlers)
+    app.state.practice = practice
+    # The budget check in front of a started action (M2.24): the open workspace's usage.
+    app.state.budget_gate = BudgetGate(_open_usage(app))
+    usage_settings = _usage_settings(app, wiring=app_wiring, clock=app_clock)
+    app.state.usage_settings = usage_settings
+    # The usage panel (M2.23) reads the open workspace's usage service at call time too.
+    app.state.usage_panel = UsagePanel(
+        _open_usage(app),
+        offered=usage_settings.offered,
+        label_for=_task_labels(handlers),
+        tz=app_tz,
+    )
+    app.state.task_views = TaskViews(
+        tasks=lambda: (
+            getattr(app.state, "task_service", None)
+            if getattr(app.state, "workspace", None)
+            else None
+        ),
+        label_for=_task_labels(handlers),
+        clock=app_clock,
+        tz=app_tz,
+    )
+    if task_registry is None and app_wiring.allow_fakes:  # the default registry only
+        handlers.register(
+            PRACTICE, TaskTypeSpec(PRACTICE_TIMEOUT, PRACTICE_LABEL), practice_handler(practice)
+        )
+    app.state.shutdown_signal = shutdown_signal
+    app.state.task_events = task_events
+    app.state.task_registry = handlers
     launch_token = generate_launch_token()
     app.state.launch_token = launch_token
     # Inside the security middleware: rejections come first and redirects keep its headers.
@@ -495,6 +778,14 @@ def create_app(
     app.include_router(health_router)
     register_pages(app)
     register_settings_pages(app)
+    register_usage_settings(app)
+    register_task_routes(app)
     register_setup_pages(app)
+    register_events(
+        app,
+        shutdown=shutdown_signal,
+        keepalive_seconds=event_keepalive_seconds,
+        task_events=task_events,
+    )
     app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="static")
     return app

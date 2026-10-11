@@ -30,10 +30,22 @@ done and the fake provider saved, so the guide opens at the job preferences step
 ``AppStart`` combines a state with ``allow_fakes=False`` for runs where
 ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS`` is unset (ADR-059).
 
+``demo=True`` (M2.26) starts ``--demo`` the way a user does: ``JOBPIPELINE_DATA_DIR`` is not
+set, so the app chooses its own demo folder, which lies under the test's temporary home (its
+path is computed with the app's own environment and refused outside the temporary folder,
+like a first run's). ``setup="complete"`` then seeds that folder as the demo's own guide
+leaves it (every step done, the fake saved, no ``config.toml``: the demo never writes one);
+``"fresh"`` writes nothing. Pass ``allow_fakes=False`` with it: the demo offers the fake by
+itself only on its own folder.
+
 Stopping is graceful first: SIGINT on POSIX, CTRL_BREAK_EVENT on Windows (the child runs in
 its own process group so the event reaches only it; it must share the test runner's console,
 so runners without a console fall back to a kill and fail loudly). The process is killed only
 if it does not exit within ``STOP_TIMEOUT_SECONDS``; the caller treats that as a failure.
+
+``kill()`` sends SIGKILL at once (POSIX only; ADR-061) to simulate a crash, and records the
+result as ``stop()`` does. ``start_app(..., restart=True)`` starts the app again on the existing
+data and config folders under ``tmp_path`` without writing anything to them first (M2.3).
 """
 
 import os
@@ -50,8 +62,10 @@ from typing import IO, Literal
 import httpx
 
 from app import __version__
-from app.config import APP_NAME, write_bootstrap
+from app.config import APP_NAME, DEMO_APP_NAME, write_bootstrap
+from app.onboarding.registry import m1_registry
 from tests.setup_harness import HARNESS_PROVIDER, complete_setup, seed_workspace
+from tests.waiting import wait_until
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOOPBACK = "127.0.0.1"
@@ -72,7 +86,11 @@ STOP_TIMEOUT_SECONDS = 10.0
 POLL_INTERVAL_SECONDS = 0.05
 REQUEST_TIMEOUT_SECONDS = 2.0
 OUTPUT_TAIL_CHARS = 4000
-ALLOWED_CLI_ARGS = frozenset({"--setup"})  # fixed flags only; never paths or user data
+# Fixed flags only; never paths or user data. ``--demo`` is not one of them: ``demo=True``
+# adds it and leaves ``JOBPIPELINE_DATA_DIR`` unset, as a real demo run has it (M2.26).
+ALLOWED_CLI_ARGS = frozenset({"--setup"})
+DEMO_FLAG = "--demo"
+DEMO_SETUP_STATES = ("complete", "fresh")
 OUTPUT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")  # a plain file-name stem, never a path
 
 SetupState = Literal["complete", "fresh", "first_run", "provider_step", "preferences_step"]
@@ -158,6 +176,8 @@ class RunningApp:
     process: subprocess.Popen[bytes]
     stdout_path: Path
     stderr_path: Path
+    # The environment the app was started with (never shown: it holds the caller's own).
+    env: dict[str, str] = field(default_factory=dict, repr=False)
     _streams: tuple[IO[bytes], ...] = field(default=(), repr=False)
     _stop_result: StopResult | None = field(default=None, repr=False)
 
@@ -172,6 +192,11 @@ class RunningApp:
     @property
     def log_dir(self) -> Path:
         return self.data_dir / "logs"
+
+    @property
+    def keyring_file(self) -> Path:
+        """The JSON file of the test keyring the app was pointed at."""
+        return Path(self.env[TEST_KEYRING_FILE_VARIABLE])
 
     def client(self) -> httpx.Client:
         """An HTTP client for this app: loopback base URL, no proxies from the environment."""
@@ -198,8 +223,29 @@ class RunningApp:
                     self.process.kill()
                     self.process.wait(timeout=STOP_TIMEOUT_SECONDS)
         finally:
-            for stream in self._streams:
-                stream.close()
+            self._close_streams()
+        return self._record(killed=killed)
+
+    def kill(self) -> StopResult:
+        """Kill at once with SIGKILL, as a crash would. Safe to call more than once; ``stop()``
+        afterwards returns the same result."""
+        if self._stop_result is not None:
+            return self._stop_result
+        killed = False
+        try:
+            if self.process.poll() is None:
+                killed = True
+                self.process.send_signal(signal.SIGKILL)
+                self.process.wait(timeout=STOP_TIMEOUT_SECONDS)
+        finally:
+            self._close_streams()
+        return self._record(killed=killed)
+
+    def _close_streams(self) -> None:
+        for stream in self._streams:
+            stream.close()
+
+    def _record(self, *, killed: bool) -> StopResult:
         self._stop_result = StopResult(returncode=self.process.returncode, killed=killed)
         return self._stop_result
 
@@ -229,23 +275,47 @@ def start_app(
     allow_fakes: bool = True,
     cli_args: tuple[str, ...] = (),
     output_name: str = "app",
+    restart: bool = False,
+    demo: bool = False,
 ) -> RunningApp:
     """Start the app on a free loopback port and wait until ``/health`` answers 200.
 
     ``allow_fakes=False`` starts it without ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``; ``cli_args``
     adds flags from ``ALLOWED_CLI_ARGS`` (such as ``--setup``) to the command line.
     ``output_name`` names the output files (``<name>-stdout.txt``, ``<name>-stderr.txt`` in
-    ``tmp_path``), so a restart on the same folders keeps the earlier run's output."""
+    ``tmp_path``), so a restart on the same folders keeps the earlier run's output.
+    ``restart=True`` reuses ``tmp_path``'s existing data and config folders as they are, writing
+    nothing to them first; ``setup`` must stay at its default then.
+    ``demo=True`` starts ``--demo`` on the app's own demo folder under the temporary home
+    (``JOBPIPELINE_DATA_DIR`` unset); ``setup`` is ``"complete"`` or ``"fresh"`` then."""
     if not OUTPUT_NAME.fullmatch(output_name):
         raise ValueError(f"unsupported output name {output_name!r}")
     if unknown := [arg for arg in cli_args if arg not in ALLOWED_CLI_ARGS]:
         raise ValueError(f"unsupported app flags {unknown!r}")
     if setup not in SETUP_STATES:
         raise ValueError(f"unknown setup state {setup!r}")
+    if demo and setup not in DEMO_SETUP_STATES:
+        raise ValueError(f"a demo starts {' or '.join(DEMO_SETUP_STATES)}, not {setup!r}")
     data_dir = tmp_path / "data"
     config_dir = tmp_path / "config"
+    explicit = setup != "first_run" and not demo
+    # Before anything is written: where a demo's folder is depends on this environment.
+    env = isolated_env(data_dir, config_dir, allow_fakes=allow_fakes, explicit_data_dir=explicit)
+    if demo:
+        data_dir = platform_default_data_dir(env, tmp_path, app_name=DEMO_APP_NAME)
+    if restart:
+        if setup != "complete":
+            raise ValueError("restart reuses the folders as they are; leave setup at its default")
+        if not (data_dir.is_dir() and config_dir.is_dir()):
+            raise ValueError("restart needs the data and config folders of an earlier start")
     config_dir.mkdir(parents=True, exist_ok=True)
-    if setup == "complete":
+    if restart:
+        pass  # nothing is written: the app starts on the folders exactly as they were left
+    elif demo and setup == "complete":
+        # As the demo's own guide leaves it: no settings file (the demo never writes one).
+        steps = [step.id for step in m1_registry().steps]
+        seed_workspace(data_dir, done=steps, provider=HARNESS_PROVIDER)
+    elif setup == "complete":
         complete_setup(data_dir, config_dir)
     elif setup == "provider_step":
         write_bootstrap(config_dir, data_dir=data_dir, version=__version__)
@@ -253,14 +323,13 @@ def start_app(
     elif setup == "preferences_step":
         write_bootstrap(config_dir, data_dir=data_dir, version=__version__)
         seed_workspace(data_dir, done=("welcome", "provider"), provider=HARNESS_PROVIDER)
-    explicit = setup != "first_run"
-    env = isolated_env(data_dir, config_dir, allow_fakes=allow_fakes, explicit_data_dir=explicit)
-    if not explicit:
+    if setup == "first_run":
         data_dir = platform_default_data_dir(env, tmp_path)
     port = free_loopback_port()
     stdout_path = tmp_path / f"{output_name}-stdout.txt"
     stderr_path = tmp_path / f"{output_name}-stderr.txt"
-    command = [sys.executable, "-m", "app", "--no-browser", "--port", str(port), *cli_args]
+    flags = [DEMO_FLAG, *cli_args] if demo else list(cli_args)
+    command = [sys.executable, "-m", "app", "--no-browser", "--port", str(port), *flags]
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -292,6 +361,7 @@ def start_app(
         process=process,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
+        env=env,
         _streams=(stdout, stderr),
     )
     try:
@@ -302,13 +372,16 @@ def start_app(
     return running
 
 
-def platform_default_data_dir(env: dict[str, str], tmp_path: Path) -> Path:
+def platform_default_data_dir(
+    env: dict[str, str], tmp_path: Path, *, app_name: str = APP_NAME
+) -> Path:
     """The default data folder the app will choose with ``env`` (``platformdirs``, run in a
-    child process so this process's environment is untouched). Refuses any folder outside
-    ``tmp_path``, so a first run never points at the real user folders."""
+    child process so this process's environment is untouched); ``app_name`` is the demo's
+    for a demo run. Refuses any folder outside ``tmp_path``, so a first run or a demo never
+    points at the real user folders."""
     script = "import sys, platformdirs; sys.stdout.write(platformdirs.user_data_dir(sys.argv[1]))"
     result = subprocess.run(  # noqa: S603 - fixed argv: this interpreter and a fixed script
-        [sys.executable, "-c", script, APP_NAME],
+        [sys.executable, "-c", script, app_name],
         env=env,
         capture_output=True,
         check=True,
@@ -321,29 +394,39 @@ def platform_default_data_dir(env: dict[str, str], tmp_path: Path) -> Path:
 
 
 def _wait_until_healthy(running: RunningApp) -> float:
-    deadline = running.start_time + READY_TIMEOUT_SECONDS
     last_problem = "no response yet"
+
+    def ready_time() -> float | None:
+        nonlocal last_problem
+        code = running.process.poll()
+        if code is not None:
+            raise AppDidNotStart(
+                f"the app exited with code {code} before /health answered\n{running.output_tail()}"
+            )
+        try:
+            response = client.get("/health")
+        except httpx.TransportError as error:
+            last_problem = f"{type(error).__name__}"
+            return None
+        if response.status_code == 200:
+            return time.monotonic()
+        last_problem = f"status {response.status_code}"
+        return None
+
     with running.client() as client:
-        while time.monotonic() < deadline:
-            code = running.process.poll()
-            if code is not None:
-                raise AppDidNotStart(
-                    f"the app exited with code {code} before /health answered\n"
-                    f"{running.output_tail()}"
-                )
-            try:
-                response = client.get("/health")
-            except httpx.TransportError as error:
-                last_problem = f"{type(error).__name__}"
-            else:
-                if response.status_code == 200:
-                    return time.monotonic()
-                last_problem = f"status {response.status_code}"
-            time.sleep(POLL_INTERVAL_SECONDS)
-    raise AppDidNotStart(
-        f"/health did not answer 200 within {READY_TIMEOUT_SECONDS} s ({last_problem})\n"
-        f"{running.output_tail()}"
-    )
+        try:
+            ready = wait_until(
+                ready_time,
+                timeout=READY_TIMEOUT_SECONDS,
+                interval=POLL_INTERVAL_SECONDS,
+                message="/health did not answer 200",
+            )
+        except AssertionError:
+            raise AppDidNotStart(
+                f"/health did not answer 200 within {READY_TIMEOUT_SECONDS} s ({last_problem})\n"
+                f"{running.output_tail()}"
+            ) from None
+    return ready
 
 
 def _send_graceful_stop(process: subprocess.Popen[bytes]) -> None:

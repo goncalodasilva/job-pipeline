@@ -3,7 +3,7 @@
 import os
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
@@ -32,6 +32,7 @@ class Database:
         self.path = path
         self._connection = connection
         self._lock = threading.RLock()
+        self._on_close: list[Callable[[], None]] = []
 
     @classmethod
     def open(cls, path: Path) -> "Database":
@@ -73,8 +74,40 @@ class Database:
                     self._connection.execute("ROLLBACK")
                 raise
 
+    @contextmanager
+    def read(self) -> Iterator[sqlite3.Connection]:
+        """For lookups: one consistent snapshot without the write lock, so another process
+        can still write. The connection refuses writes while it is open."""
+        with self._lock:
+            self._connection.execute("PRAGMA query_only = ON")
+            try:
+                self._connection.execute("BEGIN")
+                try:
+                    yield self._connection
+                    self._connection.execute("COMMIT")
+                except BaseException:
+                    if self._connection.in_transaction:
+                        self._connection.execute("ROLLBACK")
+                    raise
+            finally:
+                self._connection.execute("PRAGMA query_only = OFF")
+
+    def call_on_close(self, callback: Callable[[], None]) -> None:
+        """Run ``callback`` once, right after the connection closes (the data-folder lock)."""
+        self._on_close.append(callback)
+
     def close(self) -> None:
-        self._connection.close()
+        """Close once any transaction in another thread has ended: closing a connection
+        another thread is using can crash SQLite. Called inside the same thread's own
+        transaction it returns at once (the lock is re-entrant); that transaction's commit
+        then fails with ``sqlite3.ProgrammingError``."""
+        try:
+            with self._lock:
+                self._connection.close()
+        finally:
+            callbacks, self._on_close = self._on_close, []
+            for callback in callbacks:
+                callback()
 
     def __enter__(self) -> Self:
         return self

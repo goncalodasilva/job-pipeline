@@ -1,0 +1,18 @@
+{# The htmx answer to a budget form (M2.22): the service's block. After a save or a removal
+   the budgets' one version has changed (ADR-079), so the other forms' hidden version is
+   refreshed out of band; what is typed in them stays. Their status lines and the section's
+   notice are refreshed too: a save replaces stored budgets that couldn't be read. A refused
+   or stale form refreshes nothing. #}
+{% for item in usage.view.budgets %}
+{% if item.service == usage.target %}
+{% include "fragments/settings/_usage_budget.html" %}
+{% elif usage.changed %}
+<input type="hidden" id="budget-{{ item.service }}-version" name="version" value="{{ usage.view.budgets_version }}" hx-swap-oob="true">
+{% set status_oob = true %}
+{% include "fragments/settings/_usage_budget_status.html" %}
+{% endif %}
+{% endfor %}
+{% if usage.changed %}
+{% set notice_oob = true %}
+{% include "fragments/settings/_usage_notice.html" %}
+{% endif %}

@@ -175,6 +175,7 @@ class AIRequest:
     model: str                     # resolved from the task's tier (Fast or Thorough)
     allow_web_search: bool = False
     on_tool_use: Callable[[str], Awaitable[bool]] | None = None   # budget hook; False blocks
+    on_usage: Callable[[ProviderUsageSnapshot], None] | None = None   # provider-reported usage, during the call (ADR-078)
 
 @dataclass(frozen=True)
 class AIResponse:
@@ -185,6 +186,20 @@ class AIResponse:
 
 # Task-level functions live in app/modules/ai/tasks.py, one per AI task (see 3.6),
 # e.g. async def summarize_job(ctx: AITaskContext, job_text: str, prefs: Preferences) -> JobSummary
+```
+
+Added in M2 (ADR-078, ADR-080). `ProviderUsageSnapshot` (service, window, unit, used, limit, utilization, resets_at, observed_at) is validated when built. `UsageMeter` is implemented by the usage service (`ServiceUsageMeter`, `app/services/usage_meter.py`), never by a module. `run_task` requires `meter`, so a provider call can't run uncounted.
+
+```python
+# app/modules/ai/__init__.py (ADR-080)
+class UsageMeter(Protocol):
+    def reserve(self, *, tier: str, task_type: str, task_id: str | None, kind: UsageKind) -> str: ...
+    def complete(self, record_id: str, *, success: bool, tokens: TokenUsage | None) -> None: ...
+    def snapshot(self, snapshot: ProviderUsageSnapshot) -> None: ...
+
+class AITaskRunner(Protocol):
+    async def run_task(self, task: str, inputs: Mapping[str, object], cancel: CancelToken, *,
+                       meter: UsageMeter, tier: Tier | None = None, task_id: str | None = None) -> TaskResult: ...
 ```
 
 ```python
@@ -241,20 +256,26 @@ sequenceDiagram
   participant U as Usage budget
   participant A as AI module
   participant P as Provider
-  B->>R: POST action (launch token)
+  B->>R: POST action (launch token and origin)
   R->>S: validate input
-  S->>T: enqueue(type, target) (dedupe key)
-  T-->>B: fragment with task status
-  T->>U: check and reserve usage record
-  U-->>T: allowed, warn, or blocked
-  T->>A: task function (prompt, schema, tier)
+  R->>U: budget check before enqueue (BudgetGate, ADR-086)
+  U-->>R: start, warning to confirm, or blocked
+  R->>S: enqueue(type, target) when started (dedupe key)
+  S-->>R: task id (an active duplicate's id if one exists)
+  R-->>B: fragment with task status
+  T->>A: task function (prompt, schema, tier), once claimed
+  A->>U: reserve usage record before each provider call (ADR-080)
+  U-->>A: record, or BudgetBlocked
   A->>P: run(request)
   P-->>A: response
   A-->>T: validated data
+  A->>U: complete usage record
   T->>S: save draft + mark task succeeded (one transaction)
-  T-->>B: SSE "task-updated"
-  B->>R: fetch refreshed fragment
+  T-->>B: event stream "task-updated" (id, type, status)
+  B->>R: refetch fragments on tasks:updated
 ```
+
+The budget check runs in the route, before anything is queued, so a start that is blocked or waits for a confirmation queues nothing (ADR-086). The executor's reserve is the second check: it counts each provider call before the call and refuses it at the blocking point (ADR-080). Budgets are per service and count requests only (ADR-076 items 4 and 5); the rules are in 3.7.
 
 ### 2.6 Process model
 
@@ -304,12 +325,15 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 9. Secrets live only in the keychain (or the environment fallback). They MUST NOT be stored in the database, written to logs, returned by any endpoint, or included in exports. A logging filter redacts configured secret values and token-shaped strings.
 10. The app sends no telemetry.
 11. Every HTTP response, rejections included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so no other site can frame the app and trick a click (ADR-039).
-12. Only routes the server registers as pages (`register_pages`, `tags=[PAGE_TAG]`) and that dispatch actually picks may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Token-free GETs return only full HTML pages. Never add CORS headers, and never put the token in a URL or log (ADR-039).
+12. Only routes the server registers as pages (`register_pages`, `tags=[PAGE_TAG]`) and that dispatch actually picks may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Token-free GETs return only full HTML pages. The M2 routes aren't pages either, so each needs the token: `GET /events` (the live-update stream, `text/event-stream`, still side-effect free; ADR-077), `GET /tasks/panel`, `GET /tasks/indicator`, `GET /tasks/{id}`, `GET /settings/usage`, `GET /settings/testing-tools`, and the POST routes `/tasks/practice`, `/tasks/{id}/cancel`, `/tasks/{id}/retry`, `/settings/usage/budgets` and `/settings/usage/concurrency`, which also need the origin (rule 3). The browser's reader for `GET /events` sends the token as a header; there is no cookie and no token in a URL (ADR-076 item 1, ADR-077). Never add CORS headers, and never put the token in a URL or log (ADR-039).
 13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it.
+14. The data folder is locked while the app runs (ADR-072, ADR-076 item 9, M2.4). Before logging, the database, migrations or the AI temporary clean-up, the CLI and the app's start take `flock(LOCK_EX | LOCK_NB)` on `<data folder>/.lock`. The file is created with mode 0600 and refused unless it is a private regular file owned by the user with one link. A second copy gets `DataFolderInUse`, whose message names no path, and exits. The lock is POSIX only; where `fcntl` is missing it does nothing (ADR-061). The operating system releases it when the process exits or is killed.
 
 ### 2.10 Logging and diagnostics
 
 Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MiB; ADR-037). Prompt contents and personal data are not logged by default; a local debug setting can enable prompt logging and shows a warning while on. `GET /health` returns app version, database status and task runner status.
+
+Task, service, AI-module and event-stream loggers write constant format strings. Their arguments are ids, task type names, counts and exception type names, never provider output, error text, prompts or row content. `tasks.error` stores the error kind only, and each event frame carries an id, a type and a status only (ADR-088, ADR-077). The leak scans of AC-M1.4 cover tasks, usage rows, events and logs (spec 5, M2).
 
 ### 2.11 Errors
 
@@ -325,6 +349,19 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | `VersionConflict` | Repositories | "This item changed elsewhere. Reload to see the latest version." |
 | `FetchRefused` | Fetch | "This address can't be fetched. Paste the job text instead." |
 | `SecretStoreUnavailable` | Secrets (keychain store) | "Your system keychain isn't available. You can use an environment variable instead." (ADR-046) |
+| `DataFolderInUse` | Workspace open | "This folder is already open in another copy of the app. Close that copy first, or choose another folder." (ADR-072, ADR-076 item 9) |
+| `TaskNotRetryable` | Task service | "This task can't be retried. Only failed, cancelled or interrupted tasks can run again." (M2.7) |
+| `TaskFailed` | Task runner | "This task stopped because of an unexpected problem. Try again." (an unexpected exception in a handler; M2.8) |
+| `UnknownTaskType` | Task runner | "This task can't run in this version of the app." (M2.8) |
+| `TierCapReached` | Usage service | "The Thorough limit for <service> is reached. It resets on <date>; you can run this once on Fast." (a `BudgetBlocked` subclass; the Fast sentence is offered only when Fast is free, otherwise the message ends after the date; ADR-079, M2.24) |
+| `UsageLimitsUnreadable` | Usage service | "Your usage limits couldn't be read. Open Settings > Usage budgets and save them again." (ADR-079) |
+| `BudgetNoticeRefused` | Usage service | "This warning can't be confirmed now. Reload the page to see your current usage." (ADR-079) |
+| `PracticeNotOffered` | Practice service | "Practice tasks are only available while the fake provider is active." (M2.17) |
+| `BUDGET_MESSAGE` (a constant, never raised: the copy for a stored `BudgetBlocked` kind) | Returned by `message_for_kind` (`app/domain/errors.py`), used by task views | "A monthly usage limit was reached. Open Settings > Usage budgets to see when it resets." (a stored kind keeps no service, tier or date; M2.19) |
+
+Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
+
+Refusals of a start answer 409, for htmx and for a plain request, with the reason: a blocking point, a tier cap without a free Fast tier, or unreadable budgets (ADR-086). A warning that isn't confirmed answers 200 with the warning dialog for htmx, and 409 as text for a plain request (ADR-086). A stale version of a budget form, or of the guide's budget step, answers 409 with the reload prompt (`fragments/shell/_reload_prompt.html`, `role="alert"`): the form's own explanation, then a "Reload the page" link. In the usage budget forms the message is `VersionConflict`'s copy (ADR-081, ADR-087).
 
 `CallCancelled` (AI module) is not a user-facing error: a cancelled call ends quietly and the task shows as cancelled (ADR-054).
 
@@ -335,7 +372,7 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | Language | Python 3.11+ | Type hints everywhere |
 | Packaging | uv, `pyproject.toml`, `uv.lock` | Console script `jobpipeline` |
 | Web | FastAPI on Uvicorn, Jinja2 templates | Server-rendered pages and fragments |
-| Interactivity | htmx (vendored, pinned) with its SSE extension; SortableJS (vendored) for board drag-and-drop; small vanilla scripts for shortcuts and the command palette | No frontend build step |
+| Interactivity | htmx (vendored, pinned); live updates use a small fetch-based reader (no `EventSource`, no SSE extension; ADR-077); SortableJS (vendored) for board drag-and-drop; small vanilla scripts for shortcuts and the command palette | No frontend build step |
 | Database | SQLite via the standard library `sqlite3`, thin repositories, SQL migrations | No ORM |
 | AI | `claude-agent-sdk` (Python) | Behind the AI module |
 | Secrets | `keyring` | Env fallback |
@@ -348,6 +385,25 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 | Validation | `pydantic` v2 | Settings, AI schemas, DTOs |
 | Tests | `pytest`, `pytest-asyncio`, `hypothesis`, `pytest-cov`, Playwright for Python, axe-core injected through Playwright | 4 |
 | Quality | `ruff` (lint and format), `mypy`, `import-linter`, `pre-commit` with `gitleaks` | 4.5 |
+
+**Live updates (ADR-077, ADR-088).** There is no htmx SSE extension and no `sse-connect`. Pages that show task state set `data-events-url` (`{% set live_updates = true %}`); the setup guide doesn't, so it opens no stream. The reader in `app/static/js/app.js` sends `X-JP-Token` as a header on every attempt and never puts the token in a URL.
+
+The stream at `GET /events` (`text/event-stream`, `Cache-Control: no-store`) sends:
+
+- `event: resync` first, on every connection;
+- `event: task-updated` for each committed task change, with JSON `{"id", "type", "status"}` and no other field (a closed serializer);
+- `: keepalive` comments about every 15 seconds while idle.
+
+It ends when shutdown starts (the CLI sets the shutdown signal before uvicorn waits for open connections), and when its client stops reading (a bounded queue of 100 frames; the page then reconnects and resyncs). The reader reconnects with a backoff of 1, 2, 4, 8, 16 and then 30 seconds, and resyncs on every connect. A 403 shows the restart message and stops. A hidden tab closes its stream. Tabs of one browser share one stream through a Web Lock and a BroadcastChannel, both named `jobpipeline-task-events`; without them each visible tab reads its own.
+
+The reader turns `resync` and `task-updated` into the body events `tasks:resync` and `tasks:updated`, both with no detail. Listeners refetch and never read a status from an event, because events can arrive out of order. The other two body events come from HTTP answers, not from the stream:
+
+- `tasks:resync`: on every connect, and when a tab is shown again; the server also sends it in an `HX-Trigger` header after a cancel or retry;
+- `tasks:updated`: for each task change;
+- `usage:changed`: sent by a budget save or removal once the swap has settled (`HX-Trigger-After-Settle`);
+- `tasks:finished`: every `GET /tasks/indicator` answer sends it in an `HX-Trigger` header, with the detail `{"tasks": [{"key", "message", "age"}]}` (the key is the task id and attempt, and age is whole seconds since the task finished). The page announces each once in the live region, keeps its key in localStorage (`jobpipeline-tasks-announced`, the newest 50), and on the first answer of a page announces only tasks that ended in the last 10 seconds.
+
+Who refetches: the top-bar indicator and the tasks panel refetch on `tasks:resync` and `tasks:updated`; an open panel also asks every 2 seconds while it shows a task with a progress bar (queued or running), and once a minute when idle; each task row refetches on both events; the usage panel refetches on `usage:changed` and on `tasks:updated` (after a one-second delay); Testing tools refetches on `usage:changed`. A part that holds an open dialog doesn't refetch (ADR-086). A failed or interrupted task that the open panel hasn't shown yet counts on the closed Tasks button as "needs attention"; the keys seen are kept per browser origin in localStorage (`jobpipeline-tasks-seen`, ids and attempts only; ADR-088).
 
 New runtime dependencies require the user's approval and an ADR.
 
@@ -372,7 +428,7 @@ job-pipeline/
                     redacting.py, memory.py)
       fetch/        SSRF-guarded fetcher, HTML-to-text
     render/         CV and letter rendering (PDF, Word), country templates (planned, M6)
-    tasks/          runner, handlers registry, SSE broadcaster
+    tasks/          runner, handler registry, practice handler (the event publisher is api/events.py; ADR-077)
     templates/      Jinja2 pages and fragments
     static/         vendor/ (htmx and license only), js/, css/
     wiring.py       builds providers and services from settings (ADR-047, ADR-059)
@@ -401,6 +457,10 @@ job-pipeline/
     fixtures/       ai/, prompts/, import_violations/, migration_hashes.json
     conftest.py     pytest configuration, keyring guard, session fixtures
     running_app.py  subprocess fixture (smoke and e2e)
+    waiting.py      deadline-based waits (M2.3)
+    asgi_stream.py  ASGI driver for the event stream (ADR-077)
+    page_token.py   reads the launch token a page embeds (spec 2.9 rule 2)
+    leak_scan.py    secret and personal-data leak scanner (M1.23, M2.26)
     setup_harness.py  completed setup helper
   .claude/          agents, skills, rules, hooks, settings
   CLAUDE.md         Claude Code agent instructions
@@ -493,9 +553,21 @@ Prompt files live in `prompts/<task>/` as `prompt.md` (YAML front matter plus te
 - Prompts MUST NOT contain personal data, names or criteria; everything personal arrives through inputs.
 - Responses are parsed as JSON and validated against the schema; one automatic retry with the validation error appended, then `InvalidModelOutput`.
 
+The `practice` task (M2.17, ADR-076 item 2) is not in this table and not in `TASK_SPECS`: it is a fake-only vehicle for the task runner, offered only when fake providers are allowed and the fake is the saved provider. It never reaches a real model, produces no user-facing content and so cites no fact ids; this exemption is for that task alone.
+
 ### 3.7 Tiers and usage
 
-Settings map two tiers, Fast and Thorough, to models offered by the active AI provider. Each task has a default tier; users can move tasks between tiers. Usage budgets are optional, per provider, in units of requests (or tokens where the provider reports them), with optional per-tier caps. When a cap blocks a Thorough task, the app offers to run it once on Fast; it never switches silently. Details in M2.
+Settings map two tiers, Fast and Thorough, to models offered by the active AI provider. Each task has a default tier; users can move tasks between tiers. Usage budgets are optional, per service and in requests (ADR-076 items 4 and 5). Token counts are recorded and shown; token budgets are deferred. Each budget has an allowance, a first and a second warning, a blocking point (at most the allowance), a reset day and optional per-tier caps. When a cap blocks a Thorough task, the app offers to run it once on Fast; it never switches silently. As built in M2:
+
+- Services (ADR-079): `claude_subscription` (subscription token and existing sign-in together), `claude_api_key`, `web_search` and `fake` (only while fakes are allowed). Each has its own budget. The connection test counts one request on its provider's service, and is never warned or blocked (ADR-076 item 3).
+- Cycles (ADR-076 item 8): a cycle starts at local midnight on the reset day, in the computer's time zone. Reset days 29 to 31 move to the last day of a shorter month. A service without a budget is shown by calendar month and is never blocked.
+- Counting (ADR-079, ADR-080): a request is counted before it is made, in the same transaction as the block check, and completed afterwards whatever the outcome. An unfinished record still counts.
+- Effective count (ADR-078, ADR-079): the higher of the local count and a provider-reported count, when that count has the budget's unit (requests) and window (month), and its reset is absent or equal to the cycle end. The Claude plan's utilization is shown for information only and is never compared.
+- Warnings (ADR-076 item 7, ADR-086): each threshold is shown once per service and cycle, stored in `budget_notices`. The dialog says the number this request will reach ("This request will be number 10 of 40 this period"), because it counts the next request. The panel states the count used so far (ADR-085 item 1).
+- Blocks (ADR-079, ADR-086): at the blocking point the start is refused before anything is queued, and the executor's reserve refuses the call too. The action is shown disabled, with the reset date.
+- Unreadable budgets fail closed: nothing starts, and Settings shows a notice, never "No limit" (ADR-079, ADR-084).
+- Saving (ADR-081, ADR-083): all budgets share one version; an all-empty save is refused; Remove clears a budget at once. "Background tasks at once" is stored and applies at the next start (ADR-082).
+- Panel (ADR-085): each service shows its count against its allowance, its reset date, the unfinished calls, the local and provider counts with the one used, and a breakdown by tier and task.
 
 ### 3.8 Performance
 
@@ -528,12 +600,17 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 
 ### 4.2 Fakes and fixtures
 
-- `FakeAIProvider` (`app/modules/ai/providers/fake.py`): returns scripted responses keyed by task and fixture name, records every request for assertions, and simulates auth errors, usage limits, network failures, latency, invalid output and token usage. Selectable in the running app only when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` (spec 7.3; ADR-044, ADR-054).
+- `FakeAIProvider` (`app/modules/ai/providers/fake.py`): returns scripted responses keyed by task and fixture name, records every request for assertions, and simulates auth errors, usage limits, network failures, latency, invalid output and token usage. Selectable in the running app only when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` (spec 7.3; ADR-044, ADR-054), or on the demo folder under `--demo` (ADR-088).
 - `FakeSearchProvider`, `FrozenClock` (`tests/fakes/`), `SequentialIdFactory` (`tests/fakes/`).
 - Test keyring backends (`tests/fakes/keyring_backends.py`): an autouse fixture pins an in-memory backend for every test; a guard backend fails on any use outside test bodies (M1.2, ADR-046). `PYTHON_KEYRING_BACKEND` is pinned for the test session.
 - Replay transport (`tests/fakes/claude_transport.py`): runs the Claude Agent SDK's real protocol and parser against hand-written fixture frames instead of a process (M1.1, ADR-045).
 - `MemorySecretStore` (`app/modules/secrets/providers/memory.py`): an in-memory secret store used by contract and unit tests (ADR-044 item 2).
-- Secret leak scan tools (`tests/leak_scan.py`): detects saved credentials in responses, logs, database and files; used in integration tests (M1.23, ADR-070).
+- Secret leak scan tools (`tests/leak_scan.py`): detects saved credentials in responses, logs, database and files; used in integration tests (M1.23, ADR-070). It covers every table found in `sqlite_master`, the raw files of the data folder, log records before redaction, log files, console output, responses with their headers, and the event stream (M2.26, ADR-088).
+- Process kill and restart (M2.3, M2.21): `RunningApp.kill()` sends SIGKILL to the running app, and `start_app(restart=True)` starts it again on the same folders. `wait_until` (`tests/waiting.py`) polls against a deadline, never with a fixed sleep. Failure tests live in `tests/integration/failures/`.
+- ASGI stream driver (`tests/asgi_stream.py`, ADR-077): reads `GET /events` as raw ASGI. httpx's `ASGITransport` buffers the whole response, and Starlette's `TestClient` blocks on a stream that never ends.
+- Demo harness: `start_app(demo=True)` (`tests/running_app.py`) starts the app in demo mode, with the demo's folders redirected into a temporary home (checked on macOS only, M2.26). `tests/e2e/test_m2_demo.py` runs the real CLI with `--demo` the same way.
+- E2E seeding: a test may open a running app's temporary database from the test process to seed rows, such as usage records (ADR-085 item 5).
+- Axe: the e2e axe checks for the M2 screens run in light and dark, at desktop and phone sizes (M2.20, M2.22 to M2.25).
 - All test data is fictional. Real names, real CVs and real personal data MUST NOT be committed.
 
 ### 4.3 Coverage
@@ -658,7 +735,7 @@ flowchart LR
 - AI module core: provider protocol, prompt loader and renderer with the untrusted filter (3.3), JSON schema validation with one retry, tier resolution.
 - Claude provider built on the Agent SDK, supporting a subscription token (`claude setup-token`, passed as `CLAUDE_CODE_OAUTH_TOKEN` only to the SDK call's environment), an existing Claude Code sign-in, and an API key; isolation rules from 2.9; error mapping from 2.11; `test_connection` with one minimal request.
 - Fake AI provider, selectable when allowed (4.2).
-- Onboarding module (`app/onboarding/`): startup detection with the four cases in the detailed design; redirect middleware (303 for pages, `HX-Redirect` for htmx); step registry; steps 1 (welcome and data folder), 2 (AI provider), 5 (job preferences) and 6 (done). Steps 3 and 4 register in M2 and M3.
+- Onboarding module (`app/onboarding/`): startup detection with the four cases in the detailed design; redirect middleware (303 for pages, `HX-Redirect` for htmx); step registry; steps 1 (welcome and data folder), 2 (AI provider), 5 (job preferences) and 6 (done). Steps 3 and 4 register in M2 and M3 (step 3, web search, was delivered in M2.25; ADR-087).
 - Settings > Providers: change provider, replace key, test connection, map tiers.
 
 **Acceptance criteria:**
@@ -695,9 +772,9 @@ flowchart LR
   9. SQLite in WAL mode with a busy timeout and short transactions. The runner works on the event-loop thread, so its database calls go through `asyncio.to_thread` and nothing is awaited inside `Database.transaction()`: the transaction lock is per thread (ADR-038), so two coroutines interleaving inside one transaction would collide, and a blocking call would stall the loop.
   10. Failure tests for each of the above.
 - A migration adding the unique partial index on active `tasks.dedupe_key` (queued or running) and a `task_id` link from `usage_records` to `tasks` (deferred from M0, ADR-027).
-- Server-sent events endpoint and htmx SSE wiring; top-bar task indicator and tasks panel. The browser's `EventSource` can't send the `X-JP-Token` header, so decide how the stream is authorised (never with the token in the URL; ADR-039).
-- Usage service: optional budgets per provider (allowance, two warnings, blocking point, reset day), per-tier caps, provider-reported usage where available (the higher count wins), warning dialogs once per threshold per cycle, blocking with alternatives, budget hook for web search tool calls.
-- Setup step 3 (web search and optional budget); Settings > Usage budgets; usage breakdown by tier and task.
+- An event stream at `GET /events` (`text/event-stream`) and a fetch-based live-update reader (no htmx SSE extension, no `EventSource`; ADR-077); top-bar task indicator and tasks panel. The browser's `EventSource` can't send the `X-JP-Token` header, so the stream is authorised as every other route is and read with `fetch`; decided in ADR-077 (never with the token in the URL; ADR-039).
+- Usage service: optional budgets per service (ADR-076 item 4; allowance, two warnings, blocking point, reset day), per-tier caps, provider-reported usage where available (the higher count wins when unit and window match; ADR-078), warning dialogs once per threshold per cycle, blocking with alternatives, budget hook for web search tool calls (wired before M8; ADR-080).
+- Setup step 3 (web search and optional budget; ADR-087); Settings > Usage budgets; usage breakdown by tier and task (ADR-081 to ADR-086).
 
 **Acceptance criteria:**
 
@@ -715,6 +792,20 @@ flowchart LR
 **Test plan:** unit and Hypothesis tests for budget math and cycles; integration tests for the runner with the fake provider and injected exceptions; failure-injection tests with a real subprocess kill; e2e for the tasks panel, cancel and warning dialogs.
 
 **Exit checks:** full verification, critical coverage for the runner and usage modules.
+
+**Notes (decided during M2; the criteria above are unchanged):**
+
+- Scope moves (ADR-076 item 12): the notifications list and Today's list of skipped steps move to M5. The per-task tier list stays deferred to M3 (ADR-069). The design's `GET /api/tasks/{id}` and `GET /api/usage` are fragment routes (`/tasks/{id}`, `/settings/usage`), with JSON in M9. Wiring the web-search budget hook into the Claude provider stays before M8 (ADR-057); until then the provider refuses web-search requests (ADR-080).
+- Budgets are per service and count requests (ADR-076 items 4 and 5). Token budgets are not in M2.
+- Setup step 3 (web search, optional, with an optional budget and "Skip for now") is in (M2.25, ADR-087). The guide has five steps: welcome, AI provider, web search, job preferences, done. The step numbers in the M1 scope above are M1's own.
+- The practice task (fake-only, ADR-076 item 2) drives the runner, the tasks panel and the budget dialog until M3, when the first real task type arrives. `TASK_SPECS` stays empty until M3.
+- Settings > Usage budgets, the usage panel and the warning dialog with blocked actions are built as M2.22 to M2.24 describe (ADR-081 to ADR-086).
+- AC-M2.8 is proven with the fake provider's scripted snapshots (ADR-076 item 6). The Claude plan's utilization is information only.
+- AC-M2.9's panel check is proven with the panel (M2.20), as the M2.18 note says (ADR-077).
+- AC-M2.10: "provider" means a service (ADR-076 item 4).
+- AC-M1.4 is extended to tasks, usage rows, events and logs (M2.26, ADR-088). AC-M1.7 has a real skipped step from M2.25: web search (ADR-087).
+- Background tasks at once (1 to 3) applies at the next start (ADR-082).
+- Known limit: heartbeats come only from handler steps, and nothing in the AI module beats during a provider call. A task type's timeout must therefore cover its longest call until such a hook exists (M2.10).
 
 ### M3 — Fact bank and CV import
 
@@ -939,7 +1030,7 @@ Reviewers are triggered by what a change touches:
 | `/milestone-acceptance <M>` | You | Full verification, acceptance report and your manual checklist |
 | `add-ai-task` | Claude, when adding an AI task | Prompt file, schema, fixtures, tests, honesty requirements |
 | `add-provider` | Claude, when adding a provider | Interface conformance, capabilities, secrets, budgets, contract tests |
-| `htmx-ui` | Claude, when touching templates or routes | Fragment conventions, focus and announcements, SSE, shortcuts |
+| `htmx-ui` | Claude, when touching templates or routes | Fragment conventions, focus and announcements, live-update events, shortcuts |
 | `db-migration` | Claude, when changing the schema | Forward-only migrations, backups, schema-equality test |
 | `background-task` | Claude, when adding a task type | The ten reliability rules and their tests |
 | `onboarding-step` | Claude, when changing the setup guide | Step registry, detection, persistence, tests |
@@ -1045,7 +1136,7 @@ Start in the default (manual) mode until the workflow feels trustworthy, use pla
 | `JOBPIPELINE_CONFIG_DIR` | Config folder override for tests and manual checks. `config.toml` is parsed in demo mode too; demo mode ignores its `data_dir` and never writes it (ADR-025, ADR-044 item 4) | `user_config_dir("jobpipeline")` |
 | `JOBPIPELINE_PORT` | Port override (1–65535, invalid values are `ConfigError`) | 8000 |
 | `JOBPIPELINE_LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, case-insensitive) | `INFO` |
-| `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | Exactly `"1"` makes fake providers selectable in the running app (tests and demos only; ADR-054) | unset |
+| `JOBPIPELINE_ALLOW_FAKE_PROVIDERS` | Exactly `"1"` makes fake providers selectable in the running app (tests and demos only; ADR-054). `--demo` on the demo folder offers the fake and the practice task without it; with `--data-dir` or `JOBPIPELINE_DATA_DIR` the variable is still needed (ADR-088) | unset |
 | `JOBPIPELINE_LIVE_TESTS` | Exactly `"1"` enables live tests, which also need `-m live` (spec 4.1) | unset |
 | `JOBPIPELINE_LIVE_CLAUDE_OAUTH_TOKEN` | Claude subscription token for live tests only (never read from keychain, ADR-044 item 10) | unset |
 | `JOBPIPELINE_LIVE_ANTHROPIC_API_KEY` | Anthropic API key for live tests only (never read from keychain; test skips if unset, ADR-044 item 10) | unset |
@@ -1064,7 +1155,7 @@ All credential values are registered with the log redactor; the app never writes
 - **Draft / approved / frozen:** AI output starts as a draft, becomes approved by the user, and is frozen when sent.
 - **Angle:** a positioning chosen per application or role type.
 - **Tier:** Fast or Thorough, each mapped to a model.
-- **Budget, cycle:** an optional usage limit per provider that resets on a reset day.
+- **Budget, cycle:** an optional usage limit per service that resets on a reset day.
 - **Task:** a background unit of work with a dedupe key and a terminal state.
 - **Seen, snoozed:** inbox states replacing a "Later" button.
 - **Phase:** preparing, active or closed; every status belongs to one.

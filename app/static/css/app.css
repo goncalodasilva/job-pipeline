@@ -153,12 +153,179 @@ a {
   border-bottom: 1px solid var(--color-border);
 }
 
+/* The brand gives way first: it shortens with an ellipsis so the bar stays one row. */
 .topbar-brand {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
   font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .topbar-slot:empty {
   display: none;
+}
+
+/* Background tasks (M2.20): the indicator button sits at the end of the top bar; its panel
+   hangs under the bar, over the page, and scrolls by itself. Not modal. */
+.topbar {
+  position: relative; /* the tasks panel is placed against the bar, not the button */
+}
+
+.topbar-tasks {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.tasks-toggle {
+  display: none; /* it needs scripts: shown only when they run (html.js) */
+  align-items: center;
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--color-text);
+  white-space: pre; /* keeps the space after "Tasks:" */
+  background: var(--color-surface);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.js .tasks-toggle {
+  display: inline-flex;
+}
+
+.tasks-toggle[aria-expanded="true"] {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.tasks-count {
+  color: var(--color-text-muted);
+}
+
+.tasks-toggle[aria-expanded="true"] .tasks-count {
+  color: var(--color-text);
+}
+
+/* Failed or interrupted tasks not looked at yet (M2.26): words, set apart by weight. The
+   comma before them is real text beside the count, so the button's name reads "1 running,
+   1 needs attention" at every width. */
+.tasks-attention {
+  font-weight: 600;
+}
+
+/* The count and the comma: one piece of text. A line break in the markup is no line here
+   (the button keeps its spaces, see above); the comma keeps the space after it. */
+.tasks-running {
+  white-space: nowrap;
+}
+
+.tasks-attention-gap {
+  color: var(--color-text-muted);
+  white-space: pre;
+}
+
+.tasks-attention[hidden],
+.tasks-attention-gap[hidden] {
+  display: none;
+}
+
+.tasks-popover {
+  position: absolute;
+  top: 100%;
+  right: var(--space-2);
+  z-index: 50;
+  box-sizing: border-box;
+  width: min(24rem, calc(100% - 2 * var(--space-2)));
+  max-height: min(70vh, 32rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+  box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 20%);
+  overflow-wrap: anywhere;
+}
+
+.tasks-popover[hidden] {
+  display: none;
+}
+
+.tasks-popover:focus-visible {
+  outline-offset: -3px; /* inside its edge: the panel reaches the side of a phone screen */
+}
+
+.tasks-error {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2);
+}
+
+.tasks-popover .empty-state,
+.tasks-loading {
+  margin: 0;
+  padding: var(--space-2);
+  border: 0;
+  color: var(--color-text-muted);
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-list > li + li {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.task-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.task-label {
+  flex: 1 1 8rem;
+  font-weight: 600;
+}
+
+.task-status {
+  color: var(--color-text-muted);
+}
+
+.task-time {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.task-item progress {
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--color-accent);
+}
+
+.task-reason {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.task-result:empty {
+  display: none;
+}
+
+.task-item .button {
+  margin-left: auto;
 }
 
 .sidebar-toggle {
@@ -373,6 +540,28 @@ body.layout-guide {
   font-size: 1.25rem;
 }
 
+/* The guide's web search step (M2.25): the line saying what applies now stands apart from
+   the paragraphs above it; the budget fields are folded into a native disclosure. */
+.setup-step > .budget-status {
+  margin-block: var(--space-6) 0;
+  font-weight: 600;
+}
+
+.disclosure {
+  margin-bottom: var(--space-4);
+}
+
+.disclosure > summary {
+  min-height: var(--target-min);
+  padding-block: var(--space-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.disclosure > .field-hint {
+  margin-bottom: var(--space-4);
+}
+
 /* Settings (M1.21): one section per part, below the page heading. */
 .settings-section {
   max-width: 40rem;
@@ -382,6 +571,165 @@ body.layout-guide {
 
 .settings-section h2 {
   font-size: 1.25rem;
+}
+
+/* Settings > Usage budgets (M2.22): one block per service; the number fields sit side by
+   side where there is room and stack on phones. */
+.budget {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.budget h3 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.1rem;
+}
+
+.budget-status {
+  margin: 0;
+}
+
+/* The line saying a budget was saved or removed: text, not color alone. */
+.budget-done {
+  margin: var(--space-2) 0 0;
+  font-weight: 600;
+}
+
+#usage-budgets-notice .notice {
+  margin: var(--space-4) 0 0;
+}
+
+.budget .step-form {
+  margin-block: var(--space-4) 0;
+}
+
+.budget-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  column-gap: var(--space-4);
+  align-items: start;
+}
+
+.budget-fields .field {
+  min-width: 0;
+}
+
+/* Settings > the usage panel (M2.23): one block per service. The status is text; the bar
+   only repeats the count. */
+.usage-panel {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.usage-panel > h3 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.1rem;
+}
+
+.usage-service {
+  min-width: 0;
+  margin-top: var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+.usage-service h4 {
+  margin: 0 0 var(--space-1);
+  font-size: 1rem;
+}
+
+.usage-count,
+.usage-status,
+.usage-line,
+.usage-info p {
+  margin: var(--space-1) 0 0;
+}
+
+.usage-count,
+.usage-status {
+  font-weight: 600;
+}
+
+.usage-meter {
+  display: block;
+  width: min(100%, 20rem);
+  margin-top: var(--space-1);
+  accent-color: var(--color-accent);
+}
+
+.usage-info ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-6);
+}
+
+/* The table scrolls sideways inside this container, never the page (htmx-ui skill). It is
+   focusable, so the arrow keys scroll it; the outline sits inside its edge. */
+.usage-breakdown {
+  max-width: 100%;
+  margin-top: var(--space-3);
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.usage-breakdown:focus-visible {
+  outline-offset: -3px;
+}
+
+.usage-breakdown table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow-wrap: normal;
+}
+
+.usage-breakdown caption {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  color: var(--color-text-muted);
+}
+
+.usage-breakdown th,
+.usage-breakdown td {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.usage-breakdown td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-breakdown thead th:not(:first-child) {
+  text-align: right;
+}
+
+.usage-breakdown tfoot th,
+.usage-breakdown tfoot td {
+  font-weight: 600;
+}
+
+/* Narrow screens: the task names stay in view while the numbers scroll under them. A long
+   name wraps there, so the column never covers the numbers. The line above each name is a
+   shadow: a collapsed border doesn't travel with a sticky cell. */
+@media (max-width: 767.98px) {
+  .usage-breakdown tr > th:first-child {
+    position: sticky;
+    left: 0;
+    min-width: 7rem;
+    max-width: 9rem;
+    border-top: 0;
+    background: var(--color-surface);
+    box-shadow: inset 0 1px 0 var(--color-border);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+.reload-prompt {
+  margin-top: var(--space-3);
 }
 
 /* Settings' "Coming later" card: small, spaced like the sections above it. */
@@ -484,6 +832,65 @@ body.layout-guide {
 .button:disabled {
   cursor: progress;
   opacity: 0.7;
+}
+
+/* Disabled for a reason said next to it (a budget block): it stays reachable by keyboard. */
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* A link that sits among buttons (the dialog's "Change limits"). */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Why an action can't start (a budget block or cap), with a link to the budgets. */
+.blocked-action {
+  margin: 0;
+  font-weight: 600;
+}
+
+.blocked-action a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  font-weight: 400;
+}
+
+/* A modal question (the budget warning): opened by app.js with showModal(). */
+.modal {
+  width: min(32rem, calc(100vw - 2 * var(--space-4)));
+  max-width: none;
+  max-height: calc(100vh - 2 * var(--space-4)); /* for browsers without dvh */
+  max-height: calc(100dvh - 2 * var(--space-4));
+  padding: var(--space-4);
+  overflow: auto;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.modal::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.modal h2 {
+  margin: 0 0 var(--space-3);
+}
+
+.modal p {
+  margin: 0 0 var(--space-4);
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .button-primary {
@@ -645,6 +1052,25 @@ body.layout-guide {
   color: var(--color-text-muted);
 }
 
+/* The demo (M2.26): the guide says which provider to choose. Words, with a border that only
+   helps. */
+.demo-note {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+}
+
+/* The practice provider needs nothing pasted and uses no plan or credit: while it is chosen
+   in the demo, the credential field (with its label and hint), the environment-variable note
+   and that sentence of the testing note are not shown. A browser without :has() shows them. */
+.demo-provider:has(#kind-fake:checked) .credential-field,
+.demo-provider:has(#kind-fake:checked) .uses-credit,
+.demo-provider:has(#kind-fake:checked) ~ #env-fallback {
+  display: none;
+}
+
 .try-demo h3 {
   font-size: 1.1rem;
 }
@@ -687,12 +1113,46 @@ body.layout-guide {
     display: flex;
   }
 
+  .topbar {
+    padding-right: var(--space-2);
+    padding-left: var(--space-2);
+    gap: var(--space-2);
+  }
+
   main {
     padding: var(--space-4);
   }
 
   .empty-state {
     padding: var(--space-4);
+  }
+}
+
+/* Narrow screens: while tasks need attention, those words stand in for the count (and the
+   comma after it), so the bar stays one row whatever the count is; the count stays in the
+   button's name and is in the panel. */
+@media (max-width: 599.98px) {
+  .tasks-toggle.has-attention .tasks-running {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+/* Small phones: the count alone is the button's visible label; "Tasks:" stays in its name. */
+@media (max-width: 429.98px) {
+  .tasks-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
   }
 }
 
@@ -709,6 +1169,16 @@ body.layout-guide {
 
   .button-primary {
     border: 2px solid ButtonText;
+  }
+
+  /* The open state and the panel's edge without their colours or shadow. */
+  .tasks-toggle[aria-expanded="true"] {
+    border: 2px solid Highlight;
+  }
+
+  .tasks-popover {
+    border: 2px solid CanvasText;
+    box-shadow: none;
   }
 
   /* The setup guide's step list: the words "Done" and "Skipped" carry the state; the current

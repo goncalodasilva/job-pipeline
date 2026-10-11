@@ -7,11 +7,14 @@ guide. Key-shaped strings are built at runtime and are fictional.
 """
 
 import asyncio
+import dataclasses
 import json
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -183,6 +186,28 @@ def test_fake_key_without_keyword_is_rejected_as_auth(key: str | None) -> None:
     assert outcome_for_key(key) == "auth"
 
 
+@pytest.mark.parametrize(
+    "key",
+    [None, "", "   ", "fictional-unknown-key", "fake", "fake-connect"],
+    ids=["none", "empty", "blank", "unknown", "bare_fake", "partial_keyword"],
+)
+def test_fake_key_without_keyword_is_what_the_caller_says(key: str | None) -> None:
+    """M2.26: the demo's wiring asks for "connected" when nothing useful was pasted."""
+    assert outcome_for_key(key, otherwise="connected") == "connected"
+    assert outcome_for_key(key, otherwise="network") == "network"
+
+
+@pytest.mark.parametrize(
+    ("keyword", "expected"),
+    [("fake-auth-rejected", "auth"), ("fake-offline", "network"), ("fake-connected", "connected")],
+)
+def test_fake_key_keyword_wins_over_what_the_caller_says(
+    keyword: str, expected: FakeOutcome
+) -> None:
+    assert outcome_for_key(_fictional_key(keyword), otherwise="connected") == expected
+    assert outcome_for_key(_fictional_key(keyword), otherwise="usage_limit") == expected
+
+
 @pytest.mark.parametrize("outcome", list(FAILURES), ids=list(FAILURES))
 async def test_ac_m1_3_fake_key_outcome_shows_mapped_message(outcome: FakeOutcome) -> None:
     keyword = {
@@ -337,3 +362,97 @@ async def test_fake_app_mode_keeps_no_requests_and_answers_unscripted_with_plain
     await fake.run(make_request(task="_test_task"), NotCancelled())
 
     assert fake.requests == []
+
+
+# --- provider-reported usage (M2.2; groundwork for AC-M2.8) -------------------------------
+
+USAGE_OBSERVED = datetime(2026, 10, 9, 12, 0, tzinfo=UTC)
+
+
+def _fake_snapshot(used: int = 7) -> Any:
+    from app.modules.ai import ProviderUsageSnapshot
+
+    return ProviderUsageSnapshot(
+        service="fake",
+        window="month",
+        unit="requests",
+        used=used,
+        limit=100,
+        utilization=None,
+        resets_at=USAGE_OBSERVED + timedelta(days=20),
+        observed_at=USAGE_OBSERVED,
+    )
+
+
+async def test_fake_reports_scripted_snapshot() -> None:
+    snapshot = _fake_snapshot()
+    fake = FakeAIProvider()
+    fake.script(
+        TEST_TASK,
+        ScriptedResponse(data={"answer": "counted"}, usage_snapshots=(snapshot,)),
+    )
+    reported: list[Any] = []
+    request = dataclasses.replace(make_request(TEST_TASK), on_usage=reported.append)
+
+    response = await fake.run(request, NotCancelled())
+
+    assert reported == [snapshot]
+    assert dict(response.data) == {"answer": "counted"}
+
+
+async def test_fake_reports_each_scripted_snapshot_in_order() -> None:
+    first, second = _fake_snapshot(7), _fake_snapshot(8)
+    fake = FakeAIProvider()
+    fake.script(
+        TEST_TASK,
+        ScriptedResponse(data={"answer": "x"}, usage_snapshots=(first, second)),
+    )
+    reported: list[Any] = []
+    request = dataclasses.replace(make_request(TEST_TASK), on_usage=reported.append)
+
+    await fake.run(request, NotCancelled())
+
+    assert reported == [first, second]
+
+
+async def test_fake_reports_no_snapshot_unless_scripted() -> None:
+    fake = FakeAIProvider()
+    fake.script(TEST_TASK, ScriptedResponse(data={"answer": "x"}))
+    reported: list[Any] = []
+    request = dataclasses.replace(make_request(TEST_TASK), on_usage=reported.append)
+
+    await fake.run(request, NotCancelled())
+
+    assert reported == []
+
+
+async def test_fake_scripted_snapshot_without_on_usage_is_harmless() -> None:
+    fake = FakeAIProvider()
+    fake.script(
+        TEST_TASK,
+        ScriptedResponse(data={"answer": "x"}, usage_snapshots=(_fake_snapshot(),)),
+    )
+
+    response = await fake.run(make_request(TEST_TASK), NotCancelled())
+
+    assert dict(response.data) == {"answer": "x"}
+
+
+async def test_fake_raising_on_usage_keeps_the_result() -> None:
+    fake = FakeAIProvider()
+    fake.script(
+        TEST_TASK,
+        ScriptedResponse(data={"answer": "x"}, usage_snapshots=(_fake_snapshot(),)),
+    )
+    calls: list[Any] = []
+
+    def raising(snapshot: Any) -> None:
+        calls.append(snapshot)
+        raise RuntimeError("Fictional callback failure")
+
+    request = dataclasses.replace(make_request(TEST_TASK), on_usage=raising)
+
+    response = await fake.run(request, NotCancelled())
+
+    assert calls
+    assert dict(response.data) == {"answer": "x"}

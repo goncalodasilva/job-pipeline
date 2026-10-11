@@ -54,7 +54,6 @@ from app.modules.ai.providers.claude_sdk import (
     CLAUDE_THOROUGH_DEFAULT,
     MAX_TURNS,
     SECRET_KEY_BY_MODE,
-    WEB_SEARCH_TOOL,
     AuthMode,
     ClaudeSdkProvider,
     bundled_cli_path,
@@ -279,14 +278,93 @@ async def test_run_passes_no_tools_and_no_setting_sources(temp_root: Path, cli: 
     assert query.last.env["CLAUDE_CODE_OAUTH_TOKEN"] == FAKE_TOKEN
     assert query.last.env["ANTHROPIC_API_KEY"] == ""
 
-    # Web search is the only tool, and only when the request allows it.
+    # A request allowing web search is refused until searches are metered (ADR-080). The
+    # options such a call would get stay pinned in test_claude_sdk_options.py.
     searching = replaying(load_frames("success"))
-    await _provider(searching, temp_root, cli).run(
-        make_request(model=MODEL, allow_web_search=True), NotCancelled()
+    with pytest.raises(ProviderRequestRejected):
+        await _provider(searching, temp_root, cli).run(
+            make_request(model=MODEL, allow_web_search=True), NotCancelled()
+        )
+    assert searching.calls == []
+
+
+async def test_web_search_request_is_refused_before_anything_runs(
+    temp_root: Path, cli: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # ADR-080 (open item): the usage hook (on_tool_use) is not wired in this provider yet,
+    # so a real search would run uncounted. Refused first: no credential read, no CLI
+    # lookup, no call folder, no client, no usage report.
+    store = _store()
+    query = replaying(load_frames("rate_limit_five_hour"))
+    cli_lookups: list[None] = []
+    snapshots: list[Any] = []
+    hook_calls: list[str] = []
+
+    def find_cli() -> Path:
+        cli_lookups.append(None)
+        return cli
+
+    async def allow(tool: str) -> bool:
+        hook_calls.append(tool)
+        return True
+
+    provider = ClaudeSdkProvider(
+        secrets=store,
+        mode="subscription_token",
+        client_factory=query,
+        cli_path=find_cli,
+        environ={},
+        temp_root=temp_root,
     )
-    assert searching.last.options.tools == [WEB_SEARCH_TOOL]
-    assert searching.last.options.allowed_tools == [WEB_SEARCH_TOOL]
-    assert searching.last.options.setting_sources == []
+    request = make_request(
+        model=MODEL, allow_web_search=True, on_usage=snapshots.append, on_tool_use=allow
+    )
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(ProviderRequestRejected) as raised:
+        await provider.run(request, NotCancelled())
+
+    error = raised.value
+    assert type(error) is ProviderRequestRejected
+    assert str(error) == "web search not metered"  # a reason only: no path, no text
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    for name, text in _error_texts(error).items():
+        for value in (FAKE_TOKEN, str(temp_root), str(cli), request.system, request.user):
+            assert value not in text, (name, value)
+    assert store.reads == []
+    assert cli_lookups == []
+    assert query.calls == []
+    assert snapshots == []
+    assert hook_calls == []
+    assert list(temp_root.iterdir()) == []
+    assert caplog.text == ""
+
+    # Refused in every sign-in mode, and with a missing credential too (the refusal comes
+    # before the credential is looked at).
+    for mode in ("subscription_token", "api_key", "existing_login"):
+        empty = RecordingSecretStore()
+        unused = replaying(load_frames("success"))
+        with pytest.raises(ProviderRequestRejected):
+            await _provider(unused, temp_root, cli, secrets=empty, mode=mode).run(
+                make_request(model=MODEL, allow_web_search=True), NotCancelled()
+            )
+        assert empty.reads == []
+        assert unused.calls == []
+
+    # A cancelled call is still reported as cancelled.
+    with pytest.raises(CallCancelled):
+        await provider.run(request, Cancelled())
+
+    # The same provider still serves a request without web search.
+    plain = replaying(load_frames("success"))
+    response = await _provider(plain, temp_root, cli, secrets=store).run(
+        make_request(model=MODEL), NotCancelled()
+    )
+    assert dict(response.data) == {"answer": "ok"}
+    assert store.reads == [CLAUDE_CODE_OAUTH_TOKEN]
+    assert plain.last.options.tools == []
+    assert plain.last.options.allowed_tools == []
 
 
 # --- error mapping -----------------------------------------------------------------------

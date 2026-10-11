@@ -20,7 +20,11 @@ line.
 
 ``test_connection`` (M1.18; ADR-044 item 6, ADR-058) saves like ``save``, then awaits the saved
 provider's connection test with the Fast tier model and a timeout; the fake comes from the
-pasted text, which only picks its outcome (ADR-054). Blocking work runs in worker threads.
+pasted text, which only picks its outcome (ADR-054; in the demo nothing needs pasting and
+an empty field connects, which the factory decides: M2.26). Blocking work runs in worker
+threads.
+The test counts as one request on the service of the saved kind, never warned or blocked
+(ADR-076 item 3; M2.16), and its record is completed whatever the outcome.
 
 The credential never reaches a result, a log line (error type names only), the database or a
 repr. A credential pasted with the fake or the existing sign-in selected is ignored (ADR-054).
@@ -39,12 +43,15 @@ from typing import Final, Literal, TypeVar
 from app.domain.errors import AppError, NetworkUnavailable, VersionConflict
 from app.domain.settings import AI_PROVIDER, AIProviderSettings, ProviderKind, Tier, TierMap
 from app.domain.tiers import resolve_model
+from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import (
     AIProviderFactory,
     ConnectionFailure,
     ModelChoice,
     ProviderChoice,
     connection_failure,
+    reserve_uninterrupted,
+    settled,
 )
 from app.modules.secrets import (
     ANTHROPIC_API_KEY,
@@ -55,6 +62,7 @@ from app.modules.secrets import (
     SecretStore,
 )
 from app.services.settings import SettingsService, Versioned
+from app.services.usage import UsageService
 
 _log = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -191,9 +199,11 @@ class ProviderSetupService:
         environment_keys: frozenset[str],
         refresh_health: Callable[[], object],
         *,
+        usage: UsageService,
         probe_timeout: float = 5.0,
         connection_timeout: float = CONNECTION_TEST_TIMEOUT,
     ) -> None:
+        self._usage = usage
         self._settings = settings
         self._secrets = secrets
         self._factory = factory
@@ -300,6 +310,8 @@ class ProviderSetupService:
             return ProviderTestResult(ok=False, errors=saved.errors)
         loaded = await asyncio.to_thread(self._settings.load, AI_PROVIDER)
         current, version = loaded.value, loaded.version
+        counted: list[str] = []  # the usage record, once the request is counted
+        ok = False
         try:
             provider = (
                 self._factory.fake_for_key(credential or None)
@@ -307,9 +319,18 @@ class ProviderSetupService:
                 else self._factory.ai_provider(current, data_dir=data_dir)
             )
             model = self._factory.connection_model(current)
+            service = SERVICE_BY_PROVIDER_KIND[str(current.kind)]
+            # A cancel while reserving still closes the record that was written.
+            counted.append(
+                await reserve_uninterrupted(
+                    lambda: self._usage.reserve(service, tier="fast", skip_budget=True),
+                    lambda record_id: self._complete(record_id, success=False),
+                )
+            )
             outcome = await asyncio.wait_for(
                 provider.test_connection(model), self._connection_timeout
             )
+            ok = outcome.ok
         except TimeoutError:
             _log.warning("Connection test timed out.")
             return _failed(NetworkUnavailable().user_message, "timeout", version)
@@ -319,11 +340,22 @@ class ProviderSetupService:
         except Exception as error:  # its text may quote a credential: type only
             _log.warning("Connection test failed (%s).", type(error).__name__)
             return _failed(MSG_TEST_FAILED, "other", version)
+        finally:
+            # Also when this request is cancelled: the completion finishes first.
+            for record_id in counted:
+                await settled(self._complete(record_id, success=ok))
         if not outcome.ok:
             return _failed(outcome.message, outcome.failure, version)
         return ProviderTestResult(
             ok=True, message=outcome.message, model=outcome.model, version=version
         )
+
+    async def _complete(self, record_id: str, *, success: bool) -> None:
+        """An unfinished record still counts, so a failed completion is only logged."""
+        try:
+            await asyncio.to_thread(self._usage.complete, record_id, success=success, tokens=None)
+        except Exception as error:
+            _log.warning("A usage record couldn't be completed (%s).", type(error).__name__)
 
     def settings_version(self) -> int:
         """The AI provider setting's version (blocking: a database read)."""

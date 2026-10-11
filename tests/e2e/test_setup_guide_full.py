@@ -6,7 +6,8 @@ The per-step files (``test_setup_welcome.py``, ``test_setup_provider*.py``,
 through the guide. These tests start from a fresh app (``running_app`` with ``"fresh"``: an
 explicit data folder, no step done; fakes allowed; the file-backed test keyring) and walk every
 step in one browser session: Welcome, AI provider (the fake provider, whose fictional key
-keyword picks the connection outcome, ADR-054), Job preferences and Done, until the app opens.
+keyword picks the connection outcome, ADR-054), Web search (optional, M2.25: the walk chooses
+"Skip for now"), Job preferences and Done, until the app opens.
 
 - AC-M1.8: the walk by keyboard only at desktop size; at 390x844 (taps) without horizontal
   scroll; and axe on every step state of the walk (desktop and phone, light and dark).
@@ -19,7 +20,7 @@ keyword picks the connection outcome, ADR-054), Job preferences and Done, until 
 - AC-M1.7: after finishing, a restart with ``--setup`` reopens the guide at its first step with
   every value kept, the Done step lists each step's status, and "Back to the app" leaves.
 - ADR-053: after each htmx step swap focus is on the step heading, ``aria-current="step"``
-  moves and "Step N of 4: <title>" is announced.
+  moves and "Step N of 5: <title>" is announced.
 - ADR-066: a finished setup with a broken provider (the saved fake without
   ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``) shows the banner; by keyboard: skip link, banner link,
   provider step, "Back to the app"; at 390x844 (light) and 360x740 (dark) with axe and no
@@ -72,8 +73,11 @@ WELCOME_SUBMIT = 'button[name="action"][value="open"]'
 GO_TO_TODAY = 'button[name="then"][value="today"]'
 SKIP_LINK = "a.skip-link"
 CURRENT = '[aria-current="step"]'
-STEP_IDS = ("welcome", "provider", "preferences", "done")
-STEP_TITLES = ("Welcome and data folder", "AI provider", "Job preferences", "Done")
+SKIP_WEB_SEARCH = '#setup-step button[name="action"][value="skip"]'
+STEP_IDS = ("welcome", "provider", "web_search", "preferences", "done")
+STEP_TITLES = ("Welcome and data folder", "AI provider", "Web search", "Job preferences", "Done")
+# The required steps, which the walk finishes; it skips Web search, the optional one.
+REQUIRED_TITLES = ("Welcome and data folder", "AI provider", "Job preferences")
 NOT_CONNECTED = "Not connected: "
 OUTCOMES = (  # (fake key keyword, expected text or prefix, connected?)
     ("fake-auth-rejected", NOT_CONNECTED + ProviderAuthError().user_message, False),
@@ -113,15 +117,17 @@ def assert_on_step(page: Page, app: RunningApp, step_id: str, title: str) -> Non
     expect(page.locator("h1")).to_have_count(1)
 
 
-def assert_swapped_to(page: Page, app: RunningApp, step_id: str) -> None:
+def assert_swapped_to(page: Page, app: RunningApp, step_id: str, *, said: str = "") -> None:
     """After an htmx step swap (ADR-053): focus on the step heading, aria-current moved, and
-    "Step N of 4: <title>" announced in the live region."""
+    "Step N of 5: <title>" announced in the live region, after ``said`` when the step left
+    behind announces its outcome (web search: "Web search skipped.")."""
     position = STEP_IDS.index(step_id)
     title = STEP_TITLES[position]
     assert_on_step(page, app, step_id, title)
     expect(page.locator("#step-heading")).to_have_text(title)
     expect(page.locator("#step-heading")).to_be_focused()
-    expect(page.locator("#announcer")).to_have_text(f"Step {position + 1} of 4: {title}")
+    step = f"Step {position + 1} of 5: {title}"
+    expect(page.locator("#announcer")).to_have_text(f"{said} {step}" if said else step)
     expect(page.locator("#announcer")).to_have_attribute("aria-live", "polite")
     others = page.locator("ol.setup-steps > li:not([aria-current])")
     expect(others).to_have_count(len(STEP_TITLES) - 1)
@@ -148,12 +154,25 @@ def pointer_welcome(page: Page, app: RunningApp, *, tap: bool = False) -> None:
     expect(page.locator(CURRENT)).to_contain_text("AI provider")
 
 
-def pointer_provider_connected(page: Page, app: RunningApp, *, tap: bool = False) -> None:
+def pointer_provider_to_web_search(page: Page, app: RunningApp, *, tap: bool = False) -> None:
     pointer_test_connection(page, fake_key("fake-connected"), tap=tap)
     expect(page.locator("#connection-result")).to_contain_text("Connected")
     link = continue_link(page)
     link.tap() if tap else link.click()
+    expect(page).to_have_url(url(app, "/setup/web_search"))
+
+
+def pointer_skip_web_search(page: Page, app: RunningApp, *, tap: bool = False) -> None:
+    """Step 3 is optional: "Skip for now" moves on to job preferences."""
+    skip = page.locator(SKIP_WEB_SEARCH)
+    expect(skip).to_have_text("Skip for now")
+    skip.tap() if tap else skip.click()
     expect(page).to_have_url(url(app, "/setup/preferences"))
+
+
+def pointer_provider_connected(page: Page, app: RunningApp, *, tap: bool = False) -> None:
+    pointer_provider_to_web_search(page, app, tap=tap)
+    pointer_skip_web_search(page, app, tap=tap)
 
 
 def pointer_preferences(page: Page, app: RunningApp, *, tap: bool = False) -> None:
@@ -202,6 +221,11 @@ def step_status(page: Page, title: str) -> Locator:
 def expect_step_done(page: Page, title: str) -> None:
     expect(step_item(page, title)).to_have_count(1)
     expect(step_status(page, title)).to_have_text("· Done")
+
+
+def expect_web_search_skipped(page: Page) -> None:
+    expect(step_item(page, "Web search")).to_have_count(1)
+    expect(step_status(page, "Web search")).to_have_text("· Skipped")
 
 
 def next_output_name(app: RunningApp) -> str:
@@ -270,7 +294,13 @@ def test_ac_m1_8_guide_completes_keyboard_only_desktop(
         expect_step_done(page, "AI provider")
         tab_to_locator(page, continue_link(page))
         page.keyboard.press("Enter")
-        assert_swapped_to(page, app, "preferences")
+        assert_swapped_to(page, app, "web_search")
+
+        # Step 3: optional; "Skip for now" by keyboard moves on.
+        tab_to(page, SKIP_WEB_SEARCH)
+        page.keyboard.press("Enter")
+        assert_swapped_to(page, app, "preferences", said="Web search skipped.")
+        expect_web_search_skipped(page)
 
         # Step 5: every field by keyboard; Enter in the roles textarea is a new line.
         tab_to(page, ROLES)
@@ -295,9 +325,11 @@ def test_ac_m1_8_guide_completes_keyboard_only_desktop(
         page.keyboard.press("Enter")
         assert_swapped_to(page, app, "done")
 
-        # Step 6: every step done in text; "Go to Today" finishes and opens the app.
-        for title in STEP_TITLES[:3]:
+        # Step 6: every required step done, and the skipped one skipped, in text; "Go to
+        # Today" finishes and opens the app.
+        for title in REQUIRED_TITLES:
             expect_step_done(page, title)
+        expect_web_search_skipped(page)
         tab_to(page, GO_TO_TODAY)
         page.keyboard.press("Enter")
         expect(page).to_have_url(url(app, "/"))
@@ -329,14 +361,19 @@ def test_ac_m1_8_guide_completes_at_390x844(running_app: RunningApp, browser: Br
         expect(page.locator("#connection-result")).to_contain_text("Connected")
         assert_fits(page, "provider connected")
         continue_link(page).tap()
-        assert_swapped_to(page, app, "preferences")
+        assert_swapped_to(page, app, "web_search")
+        assert_fits(page, "web search")
+
+        pointer_skip_web_search(page, app, tap=True)
+        assert_swapped_to(page, app, "preferences", said="Web search skipped.")
         assert_fits(page, "preferences")
 
         pointer_preferences(page, app, tap=True)
         assert_swapped_to(page, app, "done")
         assert_fits(page, "done")
-        for title in STEP_TITLES[:3]:
+        for title in REQUIRED_TITLES:
             expect_step_done(page, title)
+        expect_web_search_skipped(page)
 
         page.locator(ADD_JOB).tap()
         expect(page).to_have_url(url(app, "/inbox"))
@@ -364,7 +401,12 @@ def test_ac_m1_8_axe_each_step(
         expect(page.locator("#connection-result")).to_contain_text(NOT_CONNECTED)
         assert_no_serious_violations(page)
 
-        pointer_provider_connected(page, app)
+        pointer_provider_to_web_search(page, app)
+        expect(page.locator(SKIP_WEB_SEARCH)).to_be_visible()
+        expect(page.locator("#step-heading")).to_be_focused()
+        assert_no_serious_violations(page)
+
+        pointer_skip_web_search(page, app)
         expect(page.locator(ROLES)).to_be_visible()
         assert_no_serious_violations(page)
 
@@ -412,7 +454,8 @@ def test_ac_m1_2_pages_redirect_to_guide_in_browser(
 
         # An htmx request from a guide page to an app route is sent to the current step too.
         open_app(page, app, "/setup/welcome")
-        page.evaluate("() => htmx.ajax('GET', '/inbox', {target: '#main', swap: 'none'})")
+        # Not awaited: the redirect navigates away, which would destroy the pending promise.
+        page.evaluate("() => { htmx.ajax('GET', '/inbox', {target: '#main', swap: 'none'}); }")
         expect(page).to_have_url(url(app, "/setup/provider"))
         expect(page.locator(CURRENT)).to_contain_text("AI provider")
 
@@ -450,8 +493,9 @@ def test_ac_m1_6_restart_mid_setup_resumes(running_app: RunningApp, browser: Bro
             # Every required step is done, the guide isn't finished: Done.
             open_app(page, third, "/")
             assert_on_step(page, third, "done", "Done")
-            for title in STEP_TITLES[:3]:
+            for title in REQUIRED_TITLES:
                 expect_step_done(page, title)
+            expect_web_search_skipped(page)
             open_app(page, third, "/setup/preferences")
             assert_preferences_kept(page)
             open_app(page, third, "/setup/provider")
@@ -481,7 +525,7 @@ def test_ac_m1_3_mapped_messages_shown_and_announced(
                 expect(result).to_contain_text(expected)
                 expect(result).to_have_class(re.compile(r"\bconnection-ok\b"))
                 expect(announcer).to_have_text(result.inner_text())
-                expect(continue_link(page)).to_have_attribute("href", "/setup/preferences")
+                expect(continue_link(page)).to_have_attribute("href", "/setup/web_search")
                 expect_step_done(page, "AI provider")
             else:
                 expect(result).to_have_text(expected)
@@ -512,8 +556,9 @@ def test_ac_m1_7_setup_flag_reopens_guide(running_app: RunningApp, browser: Brow
         assert_on_step(page, reopened, "welcome", "Welcome and data folder")
         back = page.get_by_role("button", name="Back to the app")
         expect(back).to_be_visible()
-        for title in STEP_TITLES:
+        for title in (*REQUIRED_TITLES, "Done"):
             expect_step_done(page, title)
+        expect_web_search_skipped(page)
 
         # Nothing was lost.
         open_app(page, reopened, "/setup/provider")
@@ -522,15 +567,24 @@ def test_ac_m1_7_setup_flag_reopens_guide(running_app: RunningApp, browser: Brow
         open_app(page, reopened, "/setup/preferences")
         assert_preferences_kept(page)
 
-        # Done lists every step with its status in words. M1 has no optional step, so
-        # none can be skipped through the interface; none reads "Skipped" or "Not done".
+        # Done lists every step with its status in words: the walk skipped Web search, the
+        # optional step (M2.25), so it reads "Skipped"; none reads "Not done".
         open_app(page, reopened, "/setup/done")
         rows = page.locator("ul.setup-summary > li")
         expect(rows).to_have_text(
-            [f"{title}: Done" for title in STEP_TITLES[:3]], use_inner_text=True
+            [
+                "Welcome and data folder: Done",
+                "AI provider: Done",
+                "Web search: Skipped",
+                "Job preferences: Done",
+            ],
+            use_inner_text=True,
         )
-        for title in STEP_TITLES[:3]:
+        for title in STEP_TITLES[:4]:
             expect(rows.get_by_role("link", name=title)).to_have_count(1)
+        expect(rows.get_by_role("link", name="Web search")).to_have_attribute(
+            "href", "/setup/web_search"
+        )
 
         # "Back to the app" ends the reopening for this run.
         back.click()
@@ -547,8 +601,9 @@ def test_ac_m1_7_setup_flag_reopens_guide(running_app: RunningApp, browser: Brow
 def test_focus_moves_to_step_heading_after_each_swap(
     running_app: RunningApp, browser: Browser
 ) -> None:
-    """Each step change is made with htmx: Welcome -> AI provider (submit), AI provider -> Job
-    preferences (the "Continue" link) and Job preferences -> Done (submit)."""
+    """Each step change is made with htmx: Welcome -> AI provider (submit), AI provider -> Web
+    search (the "Continue" link), Web search -> Job preferences ("Skip for now") and Job
+    preferences -> Done (submit)."""
     app = running_app
     with new_page(browser, DESKTOP) as page:
         open_app(page, app, "/")
@@ -558,8 +613,12 @@ def test_focus_moves_to_step_heading_after_each_swap(
         assert_swapped_to(page, app, "provider")
         expect_step_done(page, "Welcome and data folder")
 
-        pointer_provider_connected(page, app)
-        assert_swapped_to(page, app, "preferences")
+        pointer_provider_to_web_search(page, app)
+        assert_swapped_to(page, app, "web_search")
+
+        pointer_skip_web_search(page, app)
+        assert_swapped_to(page, app, "preferences", said="Web search skipped.")
+        expect_web_search_skipped(page)
 
         page.locator(ROLES).fill(ROLE_LINES[0])
         page.locator(COUNTRY).select_option("PT")

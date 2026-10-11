@@ -58,9 +58,11 @@ def test_settings_tier_mapping_keyboard(running_app: RunningApp, browser: Browse
         expect(page.get_by_label("Fast tier model")).to_have_count(1)
         expect(page.get_by_label("Thorough tier model")).to_have_count(1)
 
-        # Keyboard only: Tab to Fast, change it with the arrow key, Tab to Save, Enter.
+        # Keyboard only: Tab to Fast, change it by typing the option's name, Tab to Save,
+        # Enter. Type-ahead works on every platform; on macOS ArrowDown opens the popup
+        # instead of changing the value.
         tab_to(page, FAST_SELECT)
-        page.keyboard.press("ArrowDown")
+        page.keyboard.type("Fake thorough")
         expect(fast).to_have_value(FAKE_THOROUGH_MODEL)
         tab_to_locator(page, tiers.get_by_role("button", name=SAVE_TIERS))
         page.keyboard.press("Enter")

@@ -31,7 +31,7 @@ API_KEY_RADIO = "#kind-claude_api_key"
 SAVE = 'button[name="action"][value="save"]'
 REMOVE_TOKEN = "#remove-claude_subscription_token"  # noqa: S105 - a selector, not a secret
 KEEP_IT = 'button[name="keep"]'
-MAX_TABS = 40
+MAX_TABS = 120  # Settings has more than 40 tab stops since the usage budgets (M2.22)
 SMALL_PHONE = {"width": 360, "height": 740}  # the narrowest supported layout (360 px)
 
 

@@ -1,0 +1,13 @@
+{# The reload prompt for a save refused because the item changed elsewhere (VersionConflict;
+   spec 2.11 and 3.5). Reusable: set reload_id, reload_message, reload_detail (what it means
+   for the form it is in; may be empty) and reload_url before including it. A plain link, so
+   it works without scripts; a link to the page's own address without a #fragment loads it
+   again. An alert that takes focus after the swap, so it is read out and Tab goes on to its
+   link. #}
+<div id="{{ reload_id }}" class="notice reload-prompt" role="alert" tabindex="-1" data-autofocus>
+  <p>{{ reload_message }}</p>
+  {% if reload_detail %}
+  <p>{{ reload_detail }}</p>
+  {% endif %}
+  <p><a href="{{ reload_url }}">Reload the page</a></p>
+</div>

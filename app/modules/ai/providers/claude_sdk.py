@@ -22,6 +22,7 @@ import contextlib
 import dataclasses
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -31,6 +32,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
 
@@ -45,6 +47,7 @@ from claude_agent_sdk import (
     CLINotFoundError,
     Message,
     ProcessError,
+    RateLimitEvent,
     ResultError,
     ResultMessage,
 )
@@ -52,6 +55,7 @@ from claude_agent_sdk import (
 # Not re-exported by the SDK's top level (0.2.163).
 from claude_agent_sdk._errors import MessageParseError
 
+from app.domain.clock import Clock, SystemClock
 from app.domain.errors import (
     AppError,
     InvalidModelOutput,
@@ -70,8 +74,11 @@ from app.modules.ai import (
     CancelToken,
     ConnectionResult,
     ModelChoice,
+    ProviderUsageSnapshot,
     TokenUsage,
+    UsageCallback,
     connection_failure,
+    report_usage,
 )
 from app.modules.secrets import ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, SecretStore
 
@@ -82,7 +89,9 @@ AuthMode = ClaudeAuthMode
 # Structured output is delivered through a tool call inside the CLI, so one model turn
 # may not be enough; the exact bound is confirmed by the live check (M1.25, ADR-045).
 MAX_TURNS: Final = 2
-WEB_SEARCH_TOOL: Final = "WebSearch"
+# The SDK's own name for its web search. Providers translate SDK tool names to the hook name
+# ``app.modules.ai.WEB_SEARCH_TOOL`` ("web_search") before asking ``AIRequest.on_tool_use``.
+_SDK_WEB_SEARCH_TOOL: Final = "WebSearch"
 
 # Tier defaults as aliases, so they follow the current models (ADR-044 item 9).
 CLAUDE_FAST_DEFAULT: Final = "haiku"
@@ -186,7 +195,7 @@ def build_options(
         raise ValueError("Token and API-key modes need a private config folder; no other.")
     if config_dir is not None and not config_dir.is_absolute():
         raise ValueError("The config folder must be an absolute path.")
-    tools = [WEB_SEARCH_TOOL] if allow_web_search else []
+    tools = [_SDK_WEB_SEARCH_TOOL] if allow_web_search else []
     return ClaudeAgentOptions(
         tools=list(tools),
         allowed_tools=list(tools),
@@ -517,7 +526,9 @@ class ClaudeSdkProvider:
     user's sign-in lives); the folder is removed after the call. ``client_factory`` builds
     the SDK client (tests inject one with a replaying transport); ``cli_path`` finds the CLI
     at call time (a per-instance ``CliResolver`` by default). ``test_connection`` gives up
-    after ``connection_timeout`` seconds, CLI lookup included.
+    after ``connection_timeout`` seconds, CLI lookup included. Every call, ``run`` and the
+    connection test alike, gives up after ``run_timeout`` (no limit when ``None``; the
+    earlier of the two applies) with ``NetworkUnavailable``, closing the client first.
     """
 
     name: Final = "claude"
@@ -533,6 +544,8 @@ class ClaudeSdkProvider:
         environ: Mapping[str, str] | None = None,
         temp_root: Path | None = None,
         connection_timeout: float = CONNECTION_TIMEOUT_SECONDS,
+        clock: Clock | None = None,
+        run_timeout: timedelta | None = None,
     ) -> None:
         self._secrets = secrets
         self._mode: AuthMode = mode
@@ -542,6 +555,8 @@ class ClaudeSdkProvider:
         self._environ = environ
         self._temp_root = temp_root
         self._connection_timeout = connection_timeout
+        self._clock: Clock = clock if clock is not None else SystemClock()
+        self._run_timeout = None if run_timeout is None else run_timeout.total_seconds()
 
     async def test_connection(self, model: str) -> ConnectionResult:
         """One tiny single-turn, no-tool request with fixed texts (AC-M1.3).
@@ -572,7 +587,14 @@ class ClaudeSdkProvider:
     ) -> AIResponse:
         if cancel.cancelled:
             raise CallCancelled
+        # ADR-080 (open item): this provider does not call ``AIRequest.on_tool_use`` yet
+        # (ADR-076 item 12, due before M8), so a real web search would run uncounted.
+        # Refused before the credential, the CLI and any client are touched. Remove this
+        # refusal when the hook is wired.
+        if request.allow_web_search:
+            raise ProviderRequestRejected(detail="web search not metered")
         credential = self._credential()
+        timeout = _earliest(timeout, self._run_timeout)
         # asyncio.timeout ties the provider to asyncio, which the app runs on (uvicorn).
         deadline = None if timeout is None else asyncio.get_running_loop().time() + timeout
         try:
@@ -629,6 +651,7 @@ class ClaudeSdkProvider:
             stderr=_discard_stderr,
         )
         run = _RunState()
+        usage = _UsageReporter(_SERVICE_BY_MODE[self._mode], self._clock, request.on_usage)
         mapped: AppError | None = None
         cancelled = False
         client = self._client_factory(options)
@@ -636,11 +659,7 @@ class ClaudeSdkProvider:
             # The timeout ends before the client is closed, so closing is never cancelled.
             async with asyncio.timeout_at(deadline):
                 await client.connect(request.user)
-                async for message in client.receive_response():
-                    if cancel.cancelled:
-                        cancelled = True
-                        break
-                    run.observe(message)
+                cancelled = await _receive(client, run, usage, cancel)
         except TimeoutError:
             mapped = NetworkUnavailable(detail="timeout")
         except ClaudeSDKError as error:
@@ -656,6 +675,144 @@ class ClaudeSdkProvider:
         if mapped is not None:
             raise mapped
         return run.response(request.model)
+
+
+def _earliest(first: float | None, second: float | None) -> float | None:
+    """The shorter of two optional timeouts; ``None`` means no limit."""
+    if first is None:
+        return second
+    if second is None:
+        return first
+    return min(first, second)
+
+
+async def _receive(
+    client: ClaudeSDKClient, run: "_RunState", usage: "_UsageReporter", cancel: CancelToken
+) -> bool:
+    """Read the call's messages up to the result; True if cancelled on the way.
+
+    The SDK raises ``MessageParseError`` for a ``rate_limit_event`` frame it can't parse (no
+    ``status``), which ends ``receive_response()``. Usage frames never decide a call, so
+    such an error is dropped (its ``data`` holds the raw frame: never kept or logged) and
+    reading resumes with a new ``receive_response()`` on the same message stream. Any other
+    parse error propagates and is mapped.
+    """
+    while True:
+        try:
+            async for message in client.receive_response():
+                if cancel.cancelled:
+                    return True
+                run.observe(message)
+                if isinstance(message, RateLimitEvent):
+                    usage.observe(message)
+            return False
+        except MessageParseError as error:
+            if not _is_rate_limit_frame(error):
+                raise
+        # Outside the except block, so nothing below is chained to the dropped error. Only
+        # unparseable frames may be arriving, so the cancel is checked here too.
+        if cancel.cancelled:
+            return True
+
+
+def _is_rate_limit_frame(error: MessageParseError) -> bool:
+    data = error.data
+    return isinstance(data, dict) and data.get("type") == "rate_limit_event"
+
+
+# --- provider-reported usage (M2.2; ADR-076 item 6) ---------------------------------------
+
+# Token and existing sign-in use the subscription; API-key calls are billed to the key.
+_SERVICE_BY_MODE: Final[Mapping[AuthMode, str]] = {
+    "subscription_token": "claude_subscription",
+    "existing_login": "claude_subscription",
+    "api_key": "claude_api_key",
+}
+# The subscription windows the CLI reports; anything else (overage, newer windows) is
+# ignored until it is understood.
+_USAGE_WINDOWS: Final = frozenset({"five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"})
+# The CLI documents usage running past a window's cap; beyond this the value is implausible.
+_MAX_UTILIZATION: Final = 10.0
+# A reset further ahead than this is not a real window's.
+_MAX_RESET_AHEAD: Final = timedelta(days=31)
+
+
+class _UsageReporter:
+    """Turns well-formed rate-limit events into fraction snapshots for ``on_usage``."""
+
+    def __init__(self, service: str, clock: Clock, callback: UsageCallback | None) -> None:
+        self._service = service
+        self._clock = clock
+        self._callback = callback
+
+    def observe(self, event: RateLimitEvent) -> None:
+        """Never raises: usage reporting must not change the call's result."""
+        if self._callback is None:
+            return
+        try:
+            snapshot = _usage_snapshot(event, self._service, self._clock.now())
+        except Exception as error:  # an unforeseen frame shape is ignored
+            # The type name only: the error may quote the frame.
+            _LOG.warning("A usage frame could not be read (%s)", type(error).__name__)
+            return
+        if snapshot is not None:
+            report_usage(self._callback, snapshot)
+
+
+def _usage_snapshot(
+    event: RateLimitEvent, service: str, observed_at: datetime
+) -> ProviderUsageSnapshot | None:
+    """The snapshot an event stands for, or None if any field is missing or implausible.
+    Reads only the modelled fields, never ``raw``."""
+    info = event.rate_limit_info
+    window = info.rate_limit_type
+    utilization = info.utilization
+    if not isinstance(window, str) or window not in _USAGE_WINDOWS:
+        return None
+    fraction = _finite_number(utilization)
+    if fraction is None or not 0.0 <= fraction <= _MAX_UTILIZATION:
+        return None
+    fraction = min(fraction, 1.0)  # usage may run past a window's cap: shown as full
+    resets_at = _reset_time(info.resets_at, observed_at)
+    if resets_at is None:
+        return None
+    try:
+        return ProviderUsageSnapshot(
+            service=service,
+            window=window,
+            unit="fraction",
+            used=None,
+            limit=None,
+            utilization=fraction,
+            resets_at=resets_at,
+            observed_at=observed_at,
+        )
+    except ValueError:
+        return None
+
+
+def _reset_time(value: object, observed_at: datetime) -> datetime | None:
+    """A Unix timestamp after ``observed_at`` and within ``_MAX_RESET_AHEAD``, else None."""
+    timestamp = _finite_number(value)
+    if timestamp is None:
+        return None
+    earliest = observed_at.timestamp()
+    latest = (observed_at + _MAX_RESET_AHEAD).timestamp()
+    if not earliest < timestamp <= latest:
+        return None
+    return datetime.fromtimestamp(timestamp, UTC)
+
+
+def _finite_number(value: object) -> float | None:
+    """``value`` as a finite float, or None for a bool, non-number, NaN, infinity or an
+    integer too large for a float (JSON allows any size)."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 # --- test_connection (M1.14) --------------------------------------------------------------

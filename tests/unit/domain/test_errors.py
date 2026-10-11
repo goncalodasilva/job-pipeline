@@ -8,13 +8,23 @@ from app.domain import errors
 from app.domain.errors import (
     AppError,
     BudgetBlocked,
+    BudgetNoticeRefused,
+    ConfigError,
+    DataFolderInUse,
     FetchRefused,
     InvalidModelOutput,
     NetworkUnavailable,
+    PracticeNotOffered,
     ProviderAuthError,
     ProviderNotInstalled,
     ProviderRequestRejected,
+    SecretStoreUnavailable,
+    TaskFailed,
+    TaskNotRetryable,
+    TierCapReached,
+    UnknownTaskType,
     UsageLimitReached,
+    UsageLimitsUnreadable,
     VersionConflict,
 )
 
@@ -120,3 +130,139 @@ def test_reset_date_is_written_the_same_whatever_the_system_locale() -> None:
 
 def test_generic_app_error_makes_no_promise_it_cannot_keep() -> None:
     assert AppError().user_message == "Something went wrong. Try again."
+
+
+# Stored in tasks.error and mapped to messages by the tasks panel (M2.7, M2.19). Changing a
+# string here orphans rows already stored, so a class rename must keep its kind.
+PINNED_KINDS: dict[type[AppError], str] = {
+    ProviderNotInstalled: "ProviderNotInstalled",
+    ProviderAuthError: "ProviderAuthError",
+    UsageLimitReached: "UsageLimitReached",
+    ProviderRequestRejected: "ProviderRequestRejected",
+    BudgetBlocked: "BudgetBlocked",
+    NetworkUnavailable: "NetworkUnavailable",
+    InvalidModelOutput: "InvalidModelOutput",
+    VersionConflict: "VersionConflict",
+    FetchRefused: "FetchRefused",
+    SecretStoreUnavailable: "SecretStoreUnavailable",
+    DataFolderInUse: "DataFolderInUse",
+    TaskNotRetryable: "TaskNotRetryable",
+    TaskFailed: "TaskFailed",
+    UnknownTaskType: "UnknownTaskType",
+    TierCapReached: "TierCapReached",
+    UsageLimitsUnreadable: "UsageLimitsUnreadable",
+    BudgetNoticeRefused: "BudgetNoticeRefused",
+    PracticeNotOffered: "PracticeNotOffered",
+}
+
+
+@pytest.mark.parametrize(
+    ("cls", "expected"),
+    list(PINNED_KINDS.items()),
+    ids=[cls.__name__ for cls in PINNED_KINDS],
+)
+def test_error_kinds_are_pinned(cls: type[AppError], expected: str) -> None:
+    assert cls.kind == expected
+    # Explicit on the class itself, so renaming the class can't change the stored kind.
+    assert cls.__dict__["kind"] == expected
+
+
+# Shown in the tasks panel for tasks the runner ends itself (M2.8).
+RUNNER_MESSAGES: dict[type[AppError], str] = {
+    TaskFailed: "This task stopped because of an unexpected problem. Try again.",
+    UnknownTaskType: "This task can't run in this version of the app.",
+}
+
+
+@pytest.mark.parametrize(
+    ("cls", "expected"),
+    list(RUNNER_MESSAGES.items()),
+    ids=[cls.__name__ for cls in RUNNER_MESSAGES],
+)
+def test_runner_error_messages_are_plain_and_hide_detail(
+    cls: type[AppError], expected: str
+) -> None:
+    assert cls().user_message == expected
+    error = cls(detail="Fictional failure for Ada Example")
+    assert error.user_message == expected
+    assert "Ada Example" not in error.user_message
+
+
+def test_error_kind_defaults_to_the_class_name_and_is_not_inherited() -> None:
+    class FictionalFailure(NetworkUnavailable):
+        pass
+
+    assert AppError.kind == "AppError"
+    assert ConfigError.kind == "ConfigError"
+    assert FictionalFailure.kind == "FictionalFailure"
+    assert FictionalFailure().kind == "FictionalFailure"
+
+
+# --- usage budgets (M2.15) ----------------------------------------------------------
+
+
+def test_tier_cap_reached_on_thorough_offers_fast() -> None:
+    error = TierCapReached("Claude API key", "thorough", date(2026, 3, 15))
+
+    assert (error.service, error.tier, error.resets_on) == (
+        "Claude API key",
+        "thorough",
+        date(2026, 3, 15),
+    )
+    assert error.offer_fast is True
+    assert error.user_message == (
+        "The Thorough limit for Claude API key is reached. It resets on 15 March 2026; "
+        "you can run this once on Fast."
+    )
+
+
+def test_tier_cap_reached_on_fast_offers_nothing() -> None:
+    error = TierCapReached("Web search", "fast", date(2027, 2, 1))
+
+    assert error.offer_fast is False
+    assert error.user_message == (
+        "The Fast limit for Web search is reached. It resets on 1 February 2027."
+    )
+
+
+def test_tier_cap_reached_is_a_budget_block_and_hides_detail() -> None:
+    error = TierCapReached("Claude API key", "thorough", date(2026, 3, 15), detail="cap 3 of 3")
+
+    assert isinstance(error, BudgetBlocked)
+    assert "cap 3" not in error.user_message
+    assert str(error) == "cap 3 of 3"
+
+
+@pytest.mark.parametrize(
+    ("cls", "expected"),
+    [
+        (
+            UsageLimitsUnreadable,
+            "Your usage limits couldn't be read. "
+            "Open Settings > Usage budgets and save them again.",
+        ),
+        (
+            BudgetNoticeRefused,
+            "This warning can't be confirmed now. Reload the page to see your current usage.",
+        ),
+    ],
+    ids=["UsageLimitsUnreadable", "BudgetNoticeRefused"],
+)
+def test_usage_error_messages_are_plain_and_hide_detail(cls: type[AppError], expected: str) -> None:
+    assert cls().user_message == expected
+    error = cls(detail="Fictional detail for Ada Example")
+    assert error.user_message == expected
+    assert "Ada Example" not in error.user_message
+
+
+def test_format_day_time_writes_the_day_and_a_24_hour_time() -> None:
+    """The moment as given (the caller converts to the local zone first): the day as
+    ``format_day`` writes it, then hours and minutes, zero-padded."""
+    from datetime import UTC, datetime
+
+    from app.domain.errors import format_day_time
+
+    assert format_day_time(datetime(2026, 10, 10, 14, 5, 59, tzinfo=UTC)) == (
+        "10 October 2026, 14:05"
+    )
+    assert format_day_time(datetime(2026, 1, 3, 0, 0, tzinfo=UTC)) == "3 January 2026, 00:00"

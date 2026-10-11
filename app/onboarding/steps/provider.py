@@ -26,6 +26,10 @@ only once the step is done (so the step never offers Continue before it is).
 ``save_tiers`` (Settings only, M1.22) maps the Fast and Thorough tiers to models; like any
 other change to the settings, a saved map forgets the remembered "Connected" (and then asks
 for a new test).
+
+``demo`` (M2.26; wiring's ``demo_workspace``, decided at start-up) is passed on to the form:
+in the demo the practice provider is preselected while nothing is saved and needs nothing
+pasted, and the guide says so.
 """
 
 import asyncio
@@ -95,7 +99,9 @@ class ProviderStep:
         data_dir: Callable[[], Path | None],
         mark_done: Callable[[], None],
         is_done: Callable[[], bool] = lambda: False,
+        demo: bool = False,
     ) -> None:
+        self._demo = demo  # fixed at start-up; never from a request or a setting
         self._service = service
         self._data_dir = data_dir
         self._mark_done = mark_done  # blocking: marks the step done, refreshes the decision
@@ -108,6 +114,7 @@ class ProviderStep:
             "token_variable": TOKEN_VARIABLE,
             "api_key_variable": API_KEY_VARIABLE,
             "terms_url": TERMS_URL,
+            "demo": self._demo,
         }
         service = self._service()
         if service is None:

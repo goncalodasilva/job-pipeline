@@ -26,7 +26,13 @@ START = datetime(2026, 1, 3, 9, 0, 0, tzinfo=UTC)
 STAMP = "2026-01-03T09:00:00+00:00"
 
 EXPECTED_TABLES = {"schema_migrations", "settings", "setup_state", "tasks", "usage_records"}
-MUTABLE_TABLES = ("settings", "setup_state", "tasks", "usage_records")
+MUTABLE_TABLES = (
+    "settings",
+    "setup_state",
+    "tasks",
+    "usage_records",
+    "provider_usage_snapshots",
+)
 TASK_STATES = ("queued", "running", "succeeded", "failed", "cancelled", "interrupted")
 SETUP_STATES = ("pending", "done", "skipped")
 
@@ -120,8 +126,22 @@ def test_ac_m0_4_schema_fresh_equals_upgraded_step_by_step(tmp_path: Path) -> No
     assert stepped_versions == versions
 
 
-def test_0001_creates_expected_tables(db: Database) -> None:
-    conn = db.connection
+@pytest.fixture
+def db_at_0001(tmp_path: Path) -> Iterator[Database]:
+    # Later migrations add tables, columns and the dedupe index; this checks 0001 alone.
+    only_0001 = tmp_path / "migrations-0001"
+    only_0001.mkdir()
+    shutil.copy(MIGRATIONS_DIR / "0001_initial.sql", only_0001 / "0001_initial.sql")
+    database = Database.open(tmp_path / "data-0001" / "app.db")
+    try:
+        apply_migrations(database, only_0001, tmp_path / "backups-0001", FrozenClock(START))
+        yield database
+    finally:
+        database.close()
+
+
+def test_0001_creates_expected_tables(db_at_0001: Database) -> None:
+    conn = db_at_0001.connection
     assert set(_user_tables(conn)) == EXPECTED_TABLES
     assert 1 in recorded_versions(conn)
 
@@ -207,6 +227,7 @@ VALID_ROWS: dict[str, dict[str, object]] = {
         "id": "usage-0001",
         "provider": "fake",
         "task_type": "fictional_task",
+        "service": "fake",  # required on new rows since 0002
         "requested_at": STAMP,
         "created_at": STAMP,
         "updated_at": STAMP,

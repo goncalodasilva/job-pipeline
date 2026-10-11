@@ -1,0 +1,28 @@
+{# A budget question asked before an action starts (M2.24; AC-M2.7): a warning to confirm, or
+   a tier at its cap with one run on Fast on offer. Generic: `budget_dialog` comes from
+   app/api/budget_gate.py and says where the confirmed start posts (`action`, `target`) and
+   what it posts (`fields`: the action's own values and, for a warning, which one is
+   confirmed). The server decides from the usage service whether that confirmation counts.
+   app.js opens it as a modal after the swap (focus moves in and stays in; Esc is "Not now")
+   and, when it is closed without a start, removes it and gives focus to `return_focus`.
+   "Not now" has autofocus, so the dialog opens with focus on it: a doubled Enter on the
+   action confirms nothing. The confirming button still comes first and is the primary one.
+   While the confirmed start is on its way, Esc and "Not now" do nothing. "Change limits"
+   on the page that holds the budgets moves focus to that section's heading. #}
+<dialog id="{{ budget_dialog.id }}" class="modal" role="dialog" aria-modal="true"
+        aria-labelledby="{{ budget_dialog.id }}-heading" aria-describedby="{{ budget_dialog.id }}-description"
+        data-modal data-return-focus="{{ budget_dialog.return_focus }}">
+  <h2 id="{{ budget_dialog.id }}-heading">{{ budget_dialog.heading }}</h2>
+  <p id="{{ budget_dialog.id }}-description">{{ budget_dialog.description }}</p>
+  <div class="modal-actions">
+    <form method="post" action="{{ budget_dialog.action }}" hx-post="{{ budget_dialog.action }}"
+          hx-target="{{ budget_dialog.target }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+      {% for name, value in budget_dialog.fields.items() %}
+      <input type="hidden" name="{{ name }}" value="{{ value }}">
+      {% endfor %}
+      <button type="submit" class="button button-primary">{{ budget_dialog.confirm_label }}</button>
+    </form>
+    <button type="button" class="button" data-modal-close autofocus>Not now</button>
+    <a class="button" href="{{ budget_dialog.limits_url }}" data-section-link>Change limits</a>
+  </div>
+</dialog>

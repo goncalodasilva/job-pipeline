@@ -27,6 +27,7 @@ from app.services.provider_setup import (
 )
 from app.services.settings import SettingsService, Versioned
 from tests.fakes.clock import FrozenClock
+from tests.fakes.usage import CountingUsage
 from tests.unit.services.test_provider_test import START, Refreshes, ScriptedFactory
 
 API_KEY_KIND = "claude_api_key"
@@ -86,6 +87,7 @@ def service(settings: SettingsService) -> ProviderSetupService:
         ScriptedFactory(),  # type: ignore[arg-type]
         frozenset(),
         Refreshes(),
+        usage=CountingUsage(),
     )
 
 

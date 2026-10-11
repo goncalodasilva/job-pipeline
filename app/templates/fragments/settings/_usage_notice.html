@@ -1,0 +1,7 @@
+{# Settings > Usage budgets: the notice above the forms (M2.22). Always in the page, empty
+   while the stored budgets can be read, so a save can clear it out of band (`notice_oob`). #}
+<div id="usage-budgets-notice"{% if notice_oob %} hx-swap-oob="true"{% endif %}>
+  {% if usage.view.budgets_unreadable %}
+  <p class="notice">Your saved budgets couldn't be read, so AI actions are paused. Save a budget again to fix this; you'll need to re-enter the others.</p>
+  {% endif %}
+</div>

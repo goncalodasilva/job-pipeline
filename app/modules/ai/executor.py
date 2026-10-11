@@ -1,15 +1,19 @@
 """Runs AI tasks: prompt, tier, request, schema validation with one retry (spec 3.6; ADR-055).
 
+Every provider call is counted on the caller's ``UsageMeter`` (spec 3.7; M2.16): reserved
+before the call and completed after it, whatever the call did.
+
 The only module that imports jsonschema. Built in wiring and injected into services as an
 ``AITaskRunner``.
 """
 
+import asyncio
 import json
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
-from typing import Any, Final
+from typing import Any, Final, get_args
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError, relevance
@@ -20,11 +24,14 @@ from app.domain.tiers import resolve_model, resolve_tier
 from app.modules.ai import (
     AIProvider,
     AIRequest,
+    AIResponse,
     CallCancelled,
     CancelToken,
     TaskResult,
     TokenUsage,
+    UsageMeter,
 )
+from app.modules.ai.metering import CallMeter
 from app.modules.ai.prompts import PromptError, PromptLibrary, render_prompt
 from app.modules.ai.tasks import TASK_SPECS, TaskSpec
 
@@ -79,8 +86,17 @@ class TaskExecutor:
         self._specs = specs
 
     async def run_task(
-        self, task: str, inputs: Mapping[str, object], cancel: CancelToken
+        self,
+        task: str,
+        inputs: Mapping[str, object],
+        cancel: CancelToken,
+        *,
+        meter: UsageMeter,
+        tier: Tier | None = None,
+        task_id: str | None = None,
     ) -> TaskResult:
+        if tier is not None and tier not in get_args(Tier):
+            raise ValueError("Unknown tier.")
         spec = self._specs.get(task)
         if spec is None:
             raise LookupError(f"Unknown AI task {task!r}.")
@@ -92,7 +108,7 @@ class TaskExecutor:
         validator = Draft202012Validator(template.output_schema)
         rendered = render_prompt(template, inputs)
         settings = self._settings()
-        tier = resolve_tier(task, template.default_tier, settings)
+        run_tier = tier if tier is not None else resolve_tier(task, template.default_tier, settings)
         request = AIRequest(
             task=task,
             prompt_id=rendered.prompt_id,
@@ -100,16 +116,22 @@ class TaskExecutor:
             system=rendered.system,
             user=rendered.user,
             output_schema=template.output_schema,
-            model=resolve_model(tier, settings, self._provider_defaults),
+            model=resolve_model(run_tier, settings, self._provider_defaults),
             allow_web_search=spec.allow_web_search,
         )
-        attempts = [await self._attempt(request, validator, cancel)]
+        call = CallMeter(meter, tier=run_tier, task_type=task, task_id=task_id)
+        request = replace(
+            request,
+            on_usage=call.on_usage,
+            on_tool_use=call.on_tool_use if spec.allow_web_search else None,
+        )
+        attempts = [await self._attempt(request, validator, cancel, call)]
         if attempts[0].data is None:
             if cancel.cancelled:
                 raise CallCancelled
             note = _CORRECTION.format(problems=attempts[0].problems)
             retry = replace(request, user=f"{request.user}\n\n{note}")
-            attempts.append(await self._attempt(retry, validator, cancel))
+            attempts.append(await self._attempt(retry, validator, cancel, call))
         last = attempts[-1]
         if last.data is None:
             raise InvalidModelOutput(
@@ -120,29 +142,50 @@ class TaskExecutor:
             prompt_id=request.prompt_id,
             prompt_version=request.prompt_version,
             model=last.model,
-            tier=tier,
+            tier=run_tier,
             attempts=len(attempts),
             usage=tuple(attempt.usage for attempt in attempts if attempt.returned),
         )
 
     async def _attempt(
-        self, request: AIRequest, validator: Draft202012Validator, cancel: CancelToken
+        self,
+        request: AIRequest,
+        validator: Draft202012Validator,
+        cancel: CancelToken,
+        call: CallMeter,
     ) -> _Attempt:
+        """One counted provider call. A refused reservation raises before the provider is
+        called; after that the record is completed whatever happens, also when this asyncio
+        task is cancelled (the completion finishes before the cancellation goes on)."""
+        await call.reserve()
         try:
             response = await self._provider.run(request, cancel)
-        except InvalidModelOutput:
-            return _Attempt(None, request.model, None, returned=False, problems=_NOT_AN_OBJECT)
-        data = _plain_copy(response.data)
-        if data is None:
-            return _Attempt(
-                None, response.model, response.usage, returned=True, problems=_NOT_AN_OBJECT
-            )
-        problems = _problems(validator.iter_errors(data), _declared_names(validator.schema))
-        if problems:
-            return _Attempt(None, response.model, response.usage, returned=True, problems=problems)
+        except (Exception, asyncio.CancelledError) as error:
+            await call.finish(success=False, tokens=None)
+            if isinstance(error, InvalidModelOutput):
+                return _Attempt(None, request.model, None, returned=False, problems=_NOT_AN_OBJECT)
+            raise
+        try:
+            attempt = _checked(response, validator)
+        except Exception:  # the provider answered: the call stays counted, with its tokens
+            await call.finish(success=False, tokens=response.usage)
+            raise
+        await call.finish(success=attempt.data is not None, tokens=response.usage)
+        return attempt
+
+
+def _checked(response: AIResponse, validator: Draft202012Validator) -> _Attempt:
+    data = _plain_copy(response.data)
+    if data is None:
         return _Attempt(
-            MappingProxyType(data), response.model, response.usage, returned=True, problems=""
+            None, response.model, response.usage, returned=True, problems=_NOT_AN_OBJECT
         )
+    problems = _problems(validator.iter_errors(data), _declared_names(validator.schema))
+    if problems:
+        return _Attempt(None, response.model, response.usage, returned=True, problems=problems)
+    return _Attempt(
+        MappingProxyType(data), response.model, response.usage, returned=True, problems=""
+    )
 
 
 def _plain_copy(data: object) -> dict[str, Any] | None:

@@ -1,14 +1,17 @@
-{# Settings' main content (M1.21): the page heading, Providers, the way back into the setup
-   guide, then a small card for the parts that arrive later. #}
+{# Settings' main content (M1.21): the page heading, Providers, Testing tools (while offered),
+   the way back into the setup guide, Usage budgets (M2.22), then a small card for the parts
+   that arrive later. #}
 {# One focus target: a result, an error, a saved status, a confirmation or a saved tier map in
    Providers takes it instead. #}
-<h1 id="page-heading"{% if not (connection or errors or stayed or step_view or tiers_saved) %} data-autofocus{% endif %}>{{ area.name }}</h1>
+<h1 id="page-heading"{% if not (connection or errors or stayed or step_view or tiers_saved or practice.status or practice.error or usage.target) %} data-autofocus{% endif %}>{{ area.name }}</h1>
 {% include "fragments/settings/_providers.html" %}
+{% include "fragments/settings/_testing_tools.html" %}
 <section id="setup-guide-again" class="settings-section" aria-labelledby="setup-guide-heading">
   <h2 id="setup-guide-heading">Setup guide</h2>
   <p>Go through the setup steps again to check or change what you set up. Nothing is reset, and you can go back to the app at any step.</p>
   <p><a href="{{ guide_url }}">Re-run the setup guide</a></p>
 </section>
+{% include "fragments/settings/_usage.html" %}
 <section class="empty-state settings-later" aria-labelledby="later-heading">
   <h2 id="later-heading">Coming later</h2>
   <p>{{ area.explanation }}</p>

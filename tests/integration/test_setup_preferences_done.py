@@ -6,7 +6,7 @@ minimum salary (whole number, thousands separators allowed) with a currency from
 4217 list, and the CV country from a static ISO 3166-1 list (``app/domain/locales.py``). A
 valid submit saves ``JobPreferences`` (``JOB_PREFERENCES``), marks the step done, refreshes the
 cached decision and moves on to Done (303; htmx: the guide fragment, ``HX-Push-Url`` and the
-"Step 4 of 4: Done" announcement). A refused submit answers 422 with each error in
+"Step 5 of 5: Done" announcement). A refused submit answers 422 with each error in
 ``<p id="<field>-error" class="field-error">``, tied to its control(s) with
 ``aria-describedby`` and marked ``aria-invalid="true"``; the first invalid field gets
 ``data-autofocus``, the title starts with "Error: ", the submitted values are shown back and
@@ -69,7 +69,7 @@ pytestmark = pytest.mark.integration
 
 PREFERENCES_PATH = "/setup/preferences"
 DONE_PATH = "/setup/done"
-DONE_ANNOUNCEMENT = "Step 4 of 4: Done"
+DONE_ANNOUNCEMENT = "Step 5 of 5: Done"
 LIST_FIELDS = ("target_roles", "locations", "must_haves", "deal_breakers")
 SAMPLE_OPTIONAL = StepDefinition(
     "sample_optional", "Sample optional step", False, 45, "fragments/setup/_done.html"
@@ -721,7 +721,14 @@ def test_done_lists_configured_items(tmp_path: Path) -> None:
     elements = outline(response.text)
     assert required(elements, "step-heading").text == DONE.title
     rows = summary(response)
-    assert [href for href, _ in rows] == ["/setup/welcome", "/setup/provider", "/setup/preferences"]
+    assert [href for href, _ in rows] == [
+        "/setup/welcome",
+        "/setup/provider",
+        "/setup/web_search",
+        "/setup/preferences",
+    ]
+    web_search = rows.pop(2)  # the optional step (M2.25), not set up here
+    assert web_search == ("/setup/web_search", "Web search: Optional, not set up"), web_search
     for (href, text), step in zip(rows, (WELCOME, PROVIDER, PREFERENCES), strict=True):
         assert step.title in text, (href, text)
         assert status_word(text) == "Done", text

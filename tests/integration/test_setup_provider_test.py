@@ -81,6 +81,7 @@ pytestmark = pytest.mark.integration
 
 TEST_PATH = "/setup/provider/test"
 PREFERENCES = "/setup/preferences"
+WEB_SEARCH = "/setup/web_search"  # the step after the provider step (M2.25)
 NEXT_STEP_ANNOUNCE = " Next, test the connection."
 GENERIC_FAILURE = "The connection test didn't finish. Nothing was lost; try again."
 TESTING_NOTE = (
@@ -260,7 +261,7 @@ def test_ac_m1_3_fake_connected_shows_connected(
 
         elements = outline(response.text)
         links = continue_links(elements)
-        assert [link.attrs.get("href") for link in links] == [PREFERENCES]
+        assert [link.attrs.get("href") for link in links] == [WEB_SEARCH]
         assert "Done" in provider_item(elements).text, "the step list says the step is done"
 
         # A plain request gets the full page with the result, not a redirect.
@@ -527,43 +528,45 @@ def test_continue_link_only_after_connected(tmp_path: Path) -> None:
 
         connected = post_test(run, FAKE_KIND, FAKE_CONNECTED)
         links = continue_links(outline(connected.text))
-        assert [link.attrs.get("href") for link in links] == [PREFERENCES]
+        assert [link.attrs.get("href") for link in links] == [WEB_SEARCH]
 
         # Opening the step again in this run shows the last result and the way on; no test
         # runs on GET.
         for shown in (page(run), run.client.get(PROVIDER, headers=run.htmx())):
             elements = outline(shown.text)
             assert required(elements, "connection-result").text.startswith("Connected")
-            assert [a.attrs.get("href") for a in continue_links(elements)] == [PREFERENCES]
+            assert [a.attrs.get("href") for a in continue_links(elements)] == [WEB_SEARCH]
 
 
 def test_continue_is_an_htmx_step_change_announced(tmp_path: Path) -> None:
     """ "Continue" moves to the next step like a submit does (ADR-053): an htmx GET of the
     guide, the URL pushed, with the href as the fallback. The htmx GET answers the fragment
-    with the title, focus on the next heading and "Step 3 of 4: Job preferences" announced;
-    a plain GET announces nothing. Neither changes anything."""
+    with the title, focus on the next heading and "Step 3 of 5: Web search" announced (the
+    step the link leads to since M2.25); a plain GET announces nothing. Neither changes
+    anything."""
     with running(tmp_path) as run:
         connected = post_test(run, FAKE_KIND, FAKE_CONNECTED)
         link = only(continue_links(outline(connected.text)), "Continue")
-        assert link.attrs.get("href") == PREFERENCES
-        assert link.attrs.get("hx-get") == PREFERENCES
+        assert link.attrs.get("href") == WEB_SEARCH
+        assert link.attrs.get("hx-get") == WEB_SEARCH
         assert link.attrs.get("hx-target") == "#setup-guide"
         assert link.attrs.get("hx-swap") == "outerHTML"
         assert link.attrs.get("hx-push-url") == "true"
         before = live_statuses(run)
 
-        swapped = run.client.get(PREFERENCES, headers=run.htmx())
+        target = str(link.attrs.get("hx-get"))
+        swapped = run.client.get(target, headers=run.htmx())
         assert swapped.status_code == 200, (swapped.status_code, swapped.text[:300])
-        assert announced(swapped) == "Step 3 of 4: Job preferences"
+        assert announced(swapped) == "Step 3 of 5: Web search"
         assert "<html" not in swapped.text
-        assert "<title>Job preferences · Set up · Job Search Pipeline</title>" in swapped.text
+        assert "<title>Web search · Set up · Job Search Pipeline</title>" in swapped.text
         elements = outline(swapped.text)
         heading = required(elements, "step-heading")
-        assert heading.text == "Job preferences"
+        assert heading.text == "Web search"
         focused = [e.attrs.get("id") for e in elements if "data-autofocus" in e.attrs]
         assert focused == ["step-heading"], focused
 
-        plain = run.client.get(PREFERENCES)
+        plain = run.client.get(str(link.attrs.get("href")))
         assert plain.status_code == 200
         assert "<html" in plain.text
         assert "hx-trigger" not in plain.headers
@@ -745,7 +748,7 @@ def test_connected_is_forgotten_when_the_settings_change(
             assert by_id(elements, "connection-result") is None, change
             done = required(elements, "connection-done")
             assert done.text == "This step is done. You can test again at any time."
-            assert [a.attrs.get("href") for a in continue_links(elements)] == [PREFERENCES]
+            assert [a.attrs.get("href") for a in continue_links(elements)] == [WEB_SEARCH]
         assert live_statuses(run).get("provider") == "done", "marks stay (ADR-052)"
 
 
@@ -772,7 +775,7 @@ def test_done_step_from_an_earlier_run_offers_continue(tmp_path: Path) -> None:
         elements = outline(page(run).text)
     assert by_id(elements, "connection-result") is None
     assert required(elements, "connection-done").text.startswith("This step is done.")
-    assert [a.attrs.get("href") for a in continue_links(elements)] == [PREFERENCES]
+    assert [a.attrs.get("href") for a in continue_links(elements)] == [WEB_SEARCH]
 
 
 # --- M1.18 review: failures worded for the sign-in route ----------------------------------------

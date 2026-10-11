@@ -1,0 +1,15 @@
+{# The recent tasks, newest change first (M2.19). Expects `tasks` (TaskViews' panel list).
+   The panel refetches itself on the body's task events (ADR-077), so its tasks carry no
+   refresh wiring of their own. #}
+<div id="tasks-panel" class="tasks-panel"
+     hx-get="/tasks/panel" hx-trigger="tasks:resync from:body, tasks:updated from:body" hx-swap="outerHTML">
+  {% if tasks %}
+  <ul class="task-list">
+    {% for task in tasks %}
+    <li>{% with refresh = false, focus = false %}{% include "fragments/tasks/_task.html" %}{% endwith %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p id="tasks-empty" class="empty-state">No tasks yet. AI work you start shows up here.</p>
+  {% endif %}
+</div>

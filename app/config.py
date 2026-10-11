@@ -68,6 +68,14 @@ def data_dir_is_explicit(config: RuntimeConfig) -> bool:
     return config.data_dir_source in _EXPLICIT_SOURCES
 
 
+def is_demo_workspace(config: RuntimeConfig) -> bool:
+    """Whether this is ``--demo`` running on the folder the app chose for the demo. With
+    ``--data-dir`` or ``JOBPIPELINE_DATA_DIR`` the folder is the user's, whatever it holds,
+    so it is not (even when it names the demo folder itself). Decided from the start-up
+    configuration alone: wiring offers the fake provider by itself only here (M2.26)."""
+    return config.demo and config.data_dir_source == "demo"
+
+
 def refused_data_folders(config: RuntimeConfig) -> tuple[Path, ...]:
     """Folders step 1 never accepts as the data folder (ADR-049 item 3, ADR-060): the demo
     folder outside demo mode or the real default folder in demo mode, and the config folder

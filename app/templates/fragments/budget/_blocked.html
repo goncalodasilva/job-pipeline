@@ -1,0 +1,13 @@
+{# Why an action can't start (M2.24; AC-M2.7): the service is at its blocking point, a tier is
+   at its cap with nothing to offer, or the stored budgets can't be read. Generic:
+   `budget_blocked` comes from app/api/budget_gate.py (reason_context). It goes above the
+   action's button, which names `budget_blocked.id` in its aria-describedby. At the blocking
+   point the button also carries aria-disabled="true": it stays reachable by keyboard, so the
+   reason is read; app.js keeps it from doing anything and says the reason when it is
+   pressed, and the server refuses the start anyway. The link goes to the budgets; on the
+   page that holds them, app.js moves focus to that section's heading (data-section-link).
+   Rule: a page that shows a blocked action and can change budgets must refresh it on
+   `usage:changed` (the body event a saved or removed budget fires), with a GET that changes
+   nothing and moves no focus, and never while the refreshed part holds an open dialog.
+   Settings > Testing tools does (fragments/settings/_testing_tools.html). #}
+<p class="blocked-action"{% if budget_blocked.focus %} tabindex="-1" data-autofocus{% endif %}><span id="{{ budget_blocked.id }}">{{ budget_blocked.message }}</span> <a href="{{ budget_blocked.limits_url }}" data-section-link>{{ budget_blocked.link }}</a></p>

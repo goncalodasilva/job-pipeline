@@ -18,6 +18,7 @@ from starlette.templating import Jinja2Templates
 from app.api.security import TOKEN_HEADER
 from app.onboarding.registry import PROVIDER, StepRegistry
 from app.onboarding.startup import OnboardingState
+from app.services.task_views import NONE_RUNNING, TaskViews, TopBarView
 
 _APP_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = _APP_DIR / "templates"
@@ -46,15 +47,36 @@ templates = Jinja2Templates(env=_environment())
 def render(request: Request, *, page: str, fragment: str, ctx: dict[str, Any]) -> HTMLResponse:
     """Render ``fragment`` for htmx requests (``HX-Request: true``), else the full ``page``.
 
-    A history restore replaces the whole body, so it always gets the full page.
+    A history restore replaces the whole body, so it always gets the full page. Rendering a
+    full app page reads the tasks for the top bar (blocking): a sync route calls this directly,
+    an async route through ``run_in_threadpool``.
     """
-    headers = request.headers
-    if headers.get("HX-Request") == "true" and headers.get("HX-History-Restore-Request") != "true":
+    if renders_fragment(request):
         return templates.TemplateResponse(request, fragment, ctx)
     hx_headers = json.dumps({TOKEN_HEADER: request.app.state.launch_token})
-    return templates.TemplateResponse(
-        request, page, {**ctx, "hx_headers": hx_headers, "banners": _banners(request)}
+    shell = {
+        "hx_headers": hx_headers,
+        "banners": _banners(request),
+        "tasks_indicator": _tasks_indicator,
+    }
+    return templates.TemplateResponse(request, page, {**ctx, **shell})
+
+
+def renders_fragment(request: Request) -> bool:
+    """Whether ``render`` answers this request with the fragment (else the full page)."""
+    headers = request.headers
+    return (
+        headers.get("HX-Request") == "true" and headers.get("HX-History-Restore-Request") != "true"
     )
+
+
+def _tasks_indicator(request: Request) -> TopBarView:
+    """The top bar's count of running and queued tasks (M2.20) and the keys of the tasks
+    that may need attention (M2.26): one read of the tasks, made only when a page with the
+    app's top bar is rendered (the setup guide's never asks). Blocking, like ``render``
+    itself for a full page: async routes call ``render`` in a worker thread."""
+    views: TaskViews | None = getattr(request.app.state, "task_views", None)
+    return views.top_bar() if views is not None else TopBarView(NONE_RUNNING)
 
 
 def _banners(request: Request) -> list[dict[str, str]]:

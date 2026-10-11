@@ -10,10 +10,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="{{ static('css/app.css') }}">
   <script src="{{ static('vendor/htmx.min.js') }}" defer></script>
-  <script src="{{ static('vendor/htmx-ext-sse.js') }}" defer></script>
   <script src="{{ static('js/app.js') }}" defer></script>
 </head>
-<body hx-headers='{"X-JP-Token": "{{ launch_token }}"}' hx-ext="sse" sse-connect="/events">
+<body hx-headers='{"X-JP-Token": "{{ launch_token }}"}'{% if live_updates %} data-events-url="/events"{% endif %}>
   <a class="skip-link" href="#main">Skip to content</a>
   {% include "fragments/shell/_sidebar.html" %}
   <main id="main" tabindex="-1">{% block content %}{% endblock %}</main>
@@ -56,16 +55,16 @@ document.body.addEventListener("htmx:afterSettle", () => {
 });
 ```
 
-## Background task status through server-sent events
+## Background task status on tasks:resync
 
-Because `<body>` holds the SSE connection, any element inside it can refresh on a server event:
+`app.js` reads `/events` with fetch (no `EventSource`, no htmx SSE extension; ADR-077) and dispatches `tasks:resync` on `document.body` for each `resync` event. The server sends one first on every connection. Any element inside `<body>` can refresh on it:
 
 ```html
-<div id="task-{{ task.id }}" hx-get="/tasks/{{ task.id }}" hx-trigger="sse:task-updated"
+<div id="task-{{ task.id }}" hx-get="/tasks/{{ task.id }}" hx-trigger="tasks:resync from:body, tasks:updated from:body"
      hx-swap="outerHTML">{% include "fragments/tasks/_status.html" %}</div>
 ```
 
-On reconnect, the page re-fetches task fragments, so a missed event can't leave stale state.
+The GET carries the token from `<body hx-headers>` like any fragment request; the token is never in the URL. Each connection starts with a resync, so the task fragments re-fetch their state then. Reconnects and task-change events come with M2.18.
 
 ## Redirect from htmx requests
 

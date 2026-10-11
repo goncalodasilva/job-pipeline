@@ -1,7 +1,9 @@
 """The ``jobpipeline`` command (spec 7.1; ADR-024, 025, 030, 037, 039, 040).
 
-Start-up order matters: resolve the config, create the data folder, set up redacted logging
-and the exception hooks, build the app, check the port, then serve on 127.0.0.1 only. On a
+Start-up order matters: resolve the config, create the data folder, refuse one owned by another
+user, lock it (ADR-072; a folder in use exits 1 with one line naming no folder), set up redacted
+logging and the exception hooks, build the app, check the port, then serve on 127.0.0.1 only.
+The lock is released last, after logging closes. On a
 first run (no database yet and no folder named by a flag or the environment) nothing is
 created: logs are buffered in memory until step 1 opens the workspace (ADR-044 item 3), and a
 start-up failure points at the console instead of a log folder. The
@@ -27,20 +29,23 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
+from types import FrameType
+from typing import NoReturn, cast
 
 import uvicorn
 from fastapi import FastAPI
 
 from app import __version__
+from app.api.events import ShutdownSignal
 from app.config import (
     CliOptions,
     RuntimeConfig,
+    is_demo_workspace,
     opens_workspace_at_startup,
     owned_by_another_user,
     resolve_config,
 )
-from app.domain.errors import ConfigError
+from app.domain.errors import ConfigError, DataFolderInUse
 from app.domain.redaction import Redactor
 from app.logging_config import (
     LoggingSetup,
@@ -49,12 +54,14 @@ from app.logging_config import (
     install_sdk_record_reduction,
 )
 from app.main import LOG_FOLDER, create_app
+from app.modules.storage import DataFolderLock, lock_data_folder
 from app.wiring import Wiring, build_wiring
 
 HOST = "127.0.0.1"
 HEALTH_POLL_SECONDS = 0.25
 HEALTH_POLL_ATTEMPTS = 40  # about 10 seconds
 INTERRUPTED_EXIT = 130  # Ctrl+C before the server took over signal handling
+GRACEFUL_SHUTDOWN_SECONDS = 5  # how long uvicorn waits for connections once a stop is asked
 # The SDK's own CLI version check runs with the full environment; the app checks the version
 # itself, so the SDK's check is turned off for the process (ADR-058).
 SDK_SKIP_VERSION_CHECK = "CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"
@@ -99,10 +106,41 @@ def parse_cli_options(argv: Sequence[str] | None) -> CliOptions:
 
 
 def server_config(app: FastAPI, port: int) -> uvicorn.Config:
-    """Loopback only; our logging, not uvicorn's; no proxy headers or root path (ADR-039)."""
+    """Loopback only; our logging, not uvicorn's; no proxy headers or root path (ADR-039).
+
+    ``timeout_graceful_shutdown`` is only the backstop for a connection that outlives the stop
+    request; open event streams are ended earlier by ``signal_streams_on_exit`` (ADR-076).
+    """
     return uvicorn.Config(
-        app, host=HOST, port=port, proxy_headers=False, log_config=None, root_path=""
+        app,
+        host=HOST,
+        port=port,
+        proxy_headers=False,
+        log_config=None,
+        root_path="",
+        timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
     )
+
+
+def signal_streams_on_exit(server: uvicorn.Server, shutdown: ShutdownSignal) -> None:
+    """Make ``server``'s stop request end the app's event streams first (ADR-076 item 1).
+
+    uvicorn's graceful shutdown waits for open connections to finish, and an event stream never
+    does by itself. ``server.handle_exit`` is what uvicorn installs for SIGINT and SIGTERM, so
+    this wraps that one instance: ``shutdown`` is set, then uvicorn's own handler runs unchanged
+    (its second Ctrl+C still forces the exit). uvicorn's handler runs even if setting the signal
+    fails, so Ctrl+C can always stop the server; that error then propagates. Call it before
+    ``server.run()``.
+    """
+    uvicorn_handle_exit = server.handle_exit
+
+    def handle_exit(sig: int, frame: FrameType | None) -> None:
+        try:
+            shutdown.set()
+        finally:
+            uvicorn_handle_exit(sig, frame)
+
+    server.handle_exit = handle_exit  # type: ignore[method-assign]
 
 
 def default_launcher() -> Launcher:
@@ -140,6 +178,7 @@ class _StartPlan:
     open_at_startup: bool
     attach_log_folder: Callable[[Path], None] | None
     failed: str  # the one line printed when start-up fails
+    data_folder_lock: DataFolderLock | None = None  # held from before logging writes (ADR-072)
 
 
 def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) -> None:
@@ -150,9 +189,12 @@ def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) 
     install_sdk_record_reduction()
     redactor = Redactor()
     if opens_workspace_at_startup(config):
-        logging_setup = _log_to_data_folder(config, redactor)
+        logging_setup, lock = _log_to_data_folder(config, redactor)
         plan = _StartPlan(
-            True, None, f"The app couldn't start. Details are in {config.data_dir / LOG_FOLDER}."
+            True,
+            None,
+            f"The app couldn't start. Details are in {config.data_dir / LOG_FOLDER}.",
+            lock,
         )
     else:
         # First run: create nothing yet; step 1 opens the folder and the buffered records
@@ -166,7 +208,12 @@ def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) 
     try:
         # After logging is set up, so its fake-provider warning is kept; it registers the
         # environment secrets with the same redactor before anything can log them.
-        wiring = build_wiring(environ=environ, demo=config.demo, redactor=redactor)
+        wiring = build_wiring(
+            environ=environ,
+            demo=config.demo,
+            demo_workspace=is_demo_workspace(config),
+            redactor=redactor,
+        )
         _start(config, launcher, wiring, stop_polling, plan)
     except Exception as error:
         _log_start_failure(error, to_file=plan.open_at_startup)
@@ -175,6 +222,9 @@ def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) 
         stop_polling.set()
         restore_hooks()
         logging_setup.close()
+        if plan.data_folder_lock is not None:
+            # Last: only once nothing writes into the folder's logs can another copy take it.
+            plan.data_folder_lock.release()
 
 
 def _log_start_failure(error: Exception, *, to_file: bool) -> None:
@@ -189,8 +239,14 @@ def _log_start_failure(error: Exception, *, to_file: bool) -> None:
         _log.critical("Start-up failed (%s)", type(error).__name__)
 
 
-def _log_to_data_folder(config: RuntimeConfig, redactor: Redactor) -> LoggingSetup:
-    """Create the data folder (0700) and log into its ``logs`` folder from the start."""
+def _log_to_data_folder(
+    config: RuntimeConfig, redactor: Redactor
+) -> tuple[LoggingSetup, DataFolderLock]:
+    """Create the data folder (0700), lock it, and log into its ``logs`` folder from the start.
+
+    The lock is taken before logging writes anything, so a second copy of the app never writes
+    into the first copy's log file (ADR-072); it then exits with one line naming no folder.
+    """
     create_failed = (
         "Couldn't create the data folder or its logs. "
         "Check --data-dir, JOBPIPELINE_DATA_DIR or the settings file."
@@ -208,9 +264,18 @@ def _log_to_data_folder(config: RuntimeConfig, redactor: Redactor) -> LoggingSet
             "Choose a folder you own with --data-dir.",
         )
     try:
-        return configure_logging(config.data_dir / LOG_FOLDER, config.log_level, redactor)
-    except OSError:
+        lock = lock_data_folder(config.data_dir)
+    except DataFolderInUse as error:
+        _fail(1, error.user_message)
+    except ConfigError:
         _fail(1, create_failed)
+    try:
+        return configure_logging(config.data_dir / LOG_FOLDER, config.log_level, redactor), lock
+    except BaseException as error:
+        lock.release()
+        if isinstance(error, OSError):
+            _fail(1, create_failed)
+        raise
 
 
 def _start(
@@ -225,6 +290,7 @@ def _start(
         attach_log_folder=plan.attach_log_folder,
         open_at_startup=plan.open_at_startup,
         wiring=wiring,
+        data_folder_lock=plan.data_folder_lock,
     )
     wiring.redactor.register(app.state.launch_token)  # the redactor logging uses
     if not launcher.port_free(config.port):
@@ -301,6 +367,8 @@ def _port_free(port: int) -> bool:
 
 def _serve(config: uvicorn.Config) -> bool:
     server = uvicorn.Server(config)
+    app = cast(FastAPI, config.app)  # server_config always passes the app object
+    signal_streams_on_exit(server, app.state.shutdown_signal)
     server.run()
     return server.started
 

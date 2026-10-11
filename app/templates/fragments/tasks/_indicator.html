@@ -1,0 +1,7 @@
+{# The top bar's count of queued and running tasks, in words (M2.20). Expects `count` and
+   `attention`: the `<id>:<attempt>` keys of the recent tasks that ended failed or interrupted
+   (M2.26; ids and attempts only), from which app.js works out how many haven't been looked
+   at. The Tasks button fetches this on the body's task events and swaps it in place of the
+   last one. Nothing but the element is sent (no line break around it): it sits in a line
+   of text. -#}
+<span id="tasks-count" class="tasks-count"{% if attention %} data-attention="{{ attention | join(' ') }}"{% endif %}>{{ count }}</span>

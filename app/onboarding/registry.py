@@ -38,12 +38,20 @@ class StepResult:
     errors: Mapping[str, str] = field(default_factory=dict)  # field name -> plain message
     # Saved, but the step isn't finished: the guide stays on it and announces ``message``.
     stay: bool = False
+    # What happened, announced: alone when the guide stays on the step or shows a ``view``,
+    # before "Step N of M: <title>" when it moves on.
     message: str | None = None
     # Finished and leaving the guide: a local path from the handler's fixed table (M1.19).
     redirect: str | None = None
     # Nothing changed: show the step again in this state, such as a question to confirm a
     # removal (the provider step's ``confirm_remove``/``kept``, keyed by the kind).
     view: Mapping[str, str] | None = None
+    # Refused because what the form was made from changed elsewhere (``VersionConflict``):
+    # nothing was saved; the step shows again with a prompt to load it again (ADR-081).
+    conflict: bool = False
+    # Not ``ok``, yet what was sent is stored (only moving on failed): the step shows what is
+    # stored, with its current version, so sending it again isn't a conflict.
+    saved: bool = False
 
 
 # Submitted form fields; a field may repeat (lists such as target roles).
@@ -118,7 +126,10 @@ WELCOME = StepDefinition(
     "welcome", "Welcome and data folder", True, 10, "fragments/setup/_welcome.html"
 )
 PROVIDER = StepDefinition("provider", "AI provider", True, 20, "fragments/setup/_provider.html")
-# Orders 30 and 40 are kept for web search (M2) and CV import (M3).
+# Optional (M2.25): "Skip for now" is allowed. Order 40 is kept for CV import (M3).
+WEB_SEARCH = StepDefinition(
+    "web_search", "Web search", False, 30, "fragments/setup/_web_search.html"
+)
 PREFERENCES = StepDefinition(
     "preferences", "Job preferences", True, 50, "fragments/setup/_preferences.html"
 )
@@ -126,7 +137,7 @@ DONE = StepDefinition("done", "Done", False, 60, "fragments/setup/_done.html")
 
 
 def m1_registry() -> StepRegistry:
-    return StepRegistry((WELCOME, PROVIDER, PREFERENCES, DONE))
+    return StepRegistry((WELCOME, PROVIDER, WEB_SEARCH, PREFERENCES, DONE))
 
 
 def require_handlers(
