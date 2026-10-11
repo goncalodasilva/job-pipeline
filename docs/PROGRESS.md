@@ -1,6 +1,6 @@
 # Progress
 
-Current milestone: M2
+Current milestone: M3
 
 How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/run-milestone` (or `/next-task`, one at a time) works through them, and `docs-keeper` ticks each task with evidence. Scripts parse this format, so keep it: a `Current milestone:` line, `## M<n> — Title` headings, and tasks written as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, plus optional `Checkpoint:` and `Blocked:` lines (ADR-065).
 
@@ -197,7 +197,7 @@ Branch: `m1-setup-guide`. Decisions for this plan: ADR-044 (dependencies, fake p
 
 ## M2 — Task runner, live updates and usage budgets
 
-Status: planned
+Status: accepted (2026-10-11)
 
 Branch: `m2-task-runner`. Decisions for this plan: ADR-076 (stream authorisation, practice task, budget services and unit, provider-reported usage, cycles, data-folder lock, retry, scope moves). Security review on M2.1, M2.2, M2.4, M2.13, M2.16, M2.17, M2.18, M2.26; UX review on M2.20, M2.22–M2.25.
 
@@ -417,3 +417,4 @@ Status: not planned
 - 2026-10-11: M2.27 docs done, task not ticked: README, spec sections, the background-task, htmx-ui and onboarding-step skills, and the acceptance draft. `verify.sh full` PASS (3562 fast, 255 e2e, 97.80%); critical coverage `--milestone M2` PASS. Open: push the branch and record a green Ubuntu and macOS CI run. Left for the user: see the M2.27 Tests line.
 - 2026-10-11: the user walked the setup guide on a temporary folder after M2.25 and accepted step 3 for now; noted that 'Skip for now' and 'Continue' (with no budget) behave the same apart from the Done label, which may change later.
 - 2026-10-11: M2.27 done: the user pushed the branch; CI failures (test races in test_atomic_result.py and a stale looked-at key in app.js) fixed in 17b42d5 and 5816038; CI green on Ubuntu and macOS (run 38157190412). All 27 M2 tasks are done; acceptance waits for the user's manual checklist (docs/acceptance/M2.md). The user asked for less attention on usage budgets and a faster move to the core features.
+- 2026-10-11: M2 accepted by the user. Current milestone: M3. The user asked for less attention on usage budgets and a faster move to the core features; the open budget and demo polish items stay parked in docs/acceptance/M2.md.
