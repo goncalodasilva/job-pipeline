@@ -48,7 +48,7 @@ from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
 from app.api.setup_redirect import setup_step_path
 from app.api.templating import render, renders_fragment
-from app.api.usage_forms import UsageFormState, usage_context
+from app.api.usage_forms import UsageFormState, panel_context, usage_context
 from app.onboarding.registry import ConnectionCheck, Form, StepRegistry, StepResult
 from app.onboarding.steps.provider import ProviderStep
 from app.services.practice import PRACTICE_FIELDS, PracticeService
@@ -235,6 +235,8 @@ def _render(
     shows_usage = (
         usage is not None or fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
     )
+    # The usage panel (M2.23) comes with the whole section only, never with a form's answer.
+    shows_panel = fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
     form: dict[str, Any] = dict(handler.context())
     if submitted:
         echo_submitted(form, handler, submitted)
@@ -259,6 +261,7 @@ def _render(
             "provider_target": PROVIDERS_TARGET,
             "guide_url": setup_step_path(registry.first.id),  # re-run the setup guide
             "usage": usage_context(request, usage) if shows_usage else None,
+            "usage_panel": panel_context(request) if shows_panel else None,
             # Testing tools (M2.17): shown only while the practice task is offered.
             "practice": {
                 "offered": practice.offered(),  # a settings read; writes nothing

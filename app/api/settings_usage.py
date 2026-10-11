@@ -21,6 +21,12 @@ stays. A refused or stale form refreshes nothing and keeps the version it was se
 a tab that is behind is told to reload until it does.
 
 Every message is fixed copy with at most a service's display name and a count.
+
+``GET /settings/usage`` (M2.23; launch token; GET only; changes nothing) answers the usage
+panel alone, the same with or without ``HX-Request``. The panel fetches it again after a
+budget was saved or removed: that htmx answer fires ``usage:changed`` once it has settled
+(``HX-Trigger-After-Settle``), so the panel shows the new budget without a reload. It also
+fetches it again, debounced and silently, when a task changes (``tasks:updated``).
 """
 
 import json
@@ -33,13 +39,17 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.forms import first_value, is_htmx, read_form, whole_number
 from app.api.settings import SETTINGS_PATH, render_settings
+from app.api.templating import templates
 from app.api.usage_forms import (
     BUDGETS_PATH,
     CONCURRENCY,
     CONCURRENCY_PATH,
+    PANEL_PATH,
+    USAGE_CHANGED_EVENT,
     UsageFormState,
     entered_budget,
     expected_version,
+    panel_context,
     typed_budget,
     usage_settings,
 )
@@ -53,6 +63,7 @@ from app.services.usage_settings import (
 
 BUDGET_FRAGMENT = "fragments/settings/_usage_budget_answer.html"
 CONCURRENCY_FRAGMENT = "fragments/settings/_usage_concurrency.html"
+PANEL_FRAGMENT = "fragments/settings/_usage_panel.html"
 NOT_AVAILABLE = "This setting isn't available."
 REMOVE = "remove"
 CONCURRENCY_NAME = "Background tasks at once"
@@ -102,7 +113,14 @@ def _fields_to_change(count: int) -> str:
 
 
 def register_usage_settings(app: FastAPI) -> None:
-    """Add the routes directly to the app; neither is a page, so both need the token."""
+    """Add the routes directly to the app; none is a page, so all need the token."""
+    app.add_api_route(
+        PANEL_PATH,
+        usage_panel,
+        methods=["GET"],
+        response_class=HTMLResponse,
+        name="settings_usage_panel",
+    )
     app.add_api_route(
         BUDGETS_PATH,
         save_budget,
@@ -117,6 +135,13 @@ def register_usage_settings(app: FastAPI) -> None:
         response_class=HTMLResponse,
         name="settings_usage_concurrency",
     )
+
+
+def usage_panel(request: Request) -> HTMLResponse:
+    """The usage panel alone. A plain function: FastAPI runs it in its thread pool, so the
+    database reads never block the event loop."""
+    ctx = {"usage_panel": panel_context(request)}
+    return templates.TemplateResponse(request, PANEL_FRAGMENT, ctx)
 
 
 async def save_budget(request: Request) -> Response:
@@ -163,6 +188,7 @@ def _budget_answer(request: Request, form: Form) -> Response:
         state=UsageFormState(target=service, typed=typed),
         fragment=BUDGET_FRAGMENT,
         copy=_budget_copy(name, removing=removing),
+        then=USAGE_CHANGED_EVENT,  # the usage panel shows the budget: it fetches itself again
     )
 
 
@@ -192,9 +218,11 @@ def _answer(
     state: UsageFormState,
     fragment: str,
     copy: _Copy,
+    then: str = "",
 ) -> Response:
     """Run ``change`` with the form's version and answer for its outcome: the errors it
-    returns (422), a stale version (409), or done. Blocking."""
+    returns (422), a stale version (409), or done; ``then`` is an event the page fires once
+    a done answer has settled. Blocking."""
     kept = "" if version is None else str(version)
     try:
         if version is None:  # not a number: no page of this app sent it
@@ -218,7 +246,10 @@ def _answer(
     if not is_htmx(request):
         return RedirectResponse(SETTINGS_PATH, status_code=303)
     done = UsageFormState(target=state.target, changed=True, confirmed=copy.confirmed)
-    return _shown(request, done, fragment, announce=copy.announced)
+    response = _shown(request, done, fragment, announce=copy.announced)
+    if then:
+        response.headers["HX-Trigger-After-Settle"] = then
+    return response
 
 
 def _shown(

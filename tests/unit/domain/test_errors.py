@@ -253,3 +253,16 @@ def test_usage_error_messages_are_plain_and_hide_detail(cls: type[AppError], exp
     error = cls(detail="Fictional detail for Ada Example")
     assert error.user_message == expected
     assert "Ada Example" not in error.user_message
+
+
+def test_format_day_time_writes_the_day_and_a_24_hour_time() -> None:
+    """The moment as given (the caller converts to the local zone first): the day as
+    ``format_day`` writes it, then hours and minutes, zero-padded."""
+    from datetime import UTC, datetime
+
+    from app.domain.errors import format_day_time
+
+    assert format_day_time(datetime(2026, 10, 10, 14, 5, 59, tzinfo=UTC)) == (
+        "10 October 2026, 14:05"
+    )
+    assert format_day_time(datetime(2026, 1, 3, 0, 0, tzinfo=UTC)) == "3 January 2026, 00:00"

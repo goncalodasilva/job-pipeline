@@ -1124,3 +1124,139 @@ def test_status_reports_thresholds_shown_this_cycle(usage: Any, clock: FrozenClo
     assert usage.status(SERVICE).shown_thresholds == frozenset({"first"})
     clock.set(NEXT_CYCLE_AT)
     assert usage.status(SERVICE).shown_thresholds == frozenset()
+
+
+# --- M2.23 review: tier caps, information-only snapshots, one read for the panel ----------------
+
+
+def test_status_without_budget_or_caps_reports_no_tier_caps(usage: Any) -> None:
+    _reserve_n(usage, 2, tier="thorough")
+    assert usage.status(SERVICE).tier_caps == ()
+
+    _set_budget(usage, _budget())
+    assert usage.status(SERVICE).tier_caps == ()
+
+
+def test_status_reports_each_set_cap_with_its_tier_count(usage: Any) -> None:
+    from app.domain.budgets import TierUsage
+
+    _set_budget(usage, _budget(thorough_cap=3))
+    _reserve_n(usage, 4, tier="fast")
+    _reserve_n(usage, 2, tier="thorough")
+    _reserve_n(usage, 5, tier="thorough", service=OTHER_SERVICE)  # another service's own
+
+    assert usage.status(SERVICE).tier_caps == (TierUsage("thorough", 3, 2),)
+
+    _set_budget(usage, _budget(fast_cap=4, thorough_cap=3))
+    assert usage.status(SERVICE).tier_caps == (
+        TierUsage("fast", 4, 4),
+        TierUsage("thorough", 3, 2),
+    )
+
+    _set_budget(usage, _budget(fast_cap=9))
+    assert usage.status(SERVICE).tier_caps == (TierUsage("fast", 9, 4),)
+
+
+@pytest.mark.parametrize("used", [2, 3])
+def test_status_cap_reached_agrees_with_preflight_and_reserve(usage: Any, used: int) -> None:
+    """The status says a cap is reached exactly when the next request on that tier is
+    refused for it: one rule, not two."""
+    _set_budget(usage, _budget(thorough_cap=3))
+    _reserve_n(usage, used, tier="thorough")
+
+    (cap,) = usage.status(SERVICE).tier_caps
+    refused = isinstance(usage.preflight(SERVICE, tier="thorough"), CapBlocked)
+
+    assert (cap.count, cap.reached) == (used, used == 3)
+    assert refused is cap.reached
+    if cap.reached:
+        with pytest.raises(TierCapReached):
+            usage.reserve(SERVICE, tier="thorough", task_type=TASK_TYPE)
+    else:
+        usage.reserve(SERVICE, tier="thorough", task_type=TASK_TYPE)
+
+
+def test_tier_count_starts_again_in_the_next_cycle(usage: Any, clock: FrozenClock) -> None:
+    from app.domain.budgets import TierUsage
+
+    _set_budget(usage, _budget(thorough_cap=3))
+    _reserve_n(usage, 3, tier="thorough")
+    clock.set(NEXT_CYCLE_AT)
+
+    assert usage.status(SERVICE).tier_caps == (TierUsage("thorough", 3, 0),)
+
+
+def test_ac_m2_8_compared_snapshot_is_not_information_only(usage: Any) -> None:
+    """ADR-079: the one snapshot that is compared with the local count is not listed as
+    information; every other one is, whatever its unit or window."""
+    _set_budget(usage, _budget())
+    compared = _requests_snapshot(7)
+    week = _requests_snapshot(9, window="week")
+    fraction = _fraction_snapshot(0.25)
+    for snapshot in (compared, week, fraction):
+        assert usage.save_snapshot(snapshot)
+
+    status = usage.status(SERVICE)
+
+    assert status.provider_count == 7
+    assert compared in status.provider_snapshots
+    assert compared not in status.information_only
+    assert set(status.information_only) == {week, fraction}
+
+
+def test_information_only_drops_a_snapshot_whose_reset_has_passed(
+    usage: Any, clock: FrozenClock
+) -> None:
+    """A window that has reset says nothing about now: it is dropped once ``resets_at`` is
+    reached (the injected clock), while one without a reset time stays."""
+    fraction = _fraction_snapshot(0.25)  # resets three hours after START
+    week = _requests_snapshot(9, window="week")  # no reset time
+    usage.save_snapshot(fraction)
+    usage.save_snapshot(week)
+    assert fraction.resets_at is not None
+
+    clock.set(fraction.resets_at - timedelta(seconds=1))
+    assert set(usage.status(SERVICE).information_only) == {fraction, week}
+
+    clock.set(fraction.resets_at)
+    status = usage.status(SERVICE)
+    assert status.information_only == (week,)
+    assert fraction in status.provider_snapshots, "still stored; only no longer shown"
+
+
+def test_reports_read_status_and_breakdown_without_the_write_lock(
+    db: Database, usage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The usage panel's read: every service's status and breakdown from one read snapshot.
+    It never opens a write transaction and writes nothing."""
+    _set_budget(usage, _budget(thorough_cap=3))
+    _reserve_n(usage, 2, tier="thorough")
+    _reserve_n(usage, 1, service=OTHER_SERVICE)
+    usage.save_snapshot(_fraction_snapshot(0.25))
+    expected = [
+        (usage.status(service), usage.breakdown(service)) for service in (SERVICE, OTHER_SERVICE)
+    ]
+    before = _all_rows(db)
+    opened: list[str] = []
+    real_read = db.read
+
+    def no_write_lock() -> None:
+        raise AssertionError("a report never takes the write lock")
+
+    def counted_read() -> Any:
+        opened.append("read")
+        return real_read()
+
+    monkeypatch.setattr(db, "transaction", no_write_lock)
+    monkeypatch.setattr(db, "read", counted_read)
+
+    reports = usage.reports((SERVICE, OTHER_SERVICE))
+
+    assert [(report.status, report.breakdown) for report in reports] == expected
+    assert opened == ["read"], "one read snapshot for every service"
+    assert _all_rows(db) == before
+
+
+def test_reports_refuse_an_unknown_service(usage: Any) -> None:
+    with pytest.raises(ValueError):
+        usage.reports((SERVICE, "fictional_service"))

@@ -88,6 +88,7 @@ from app.services.setup_state import SetupStateService
 from app.services.task_views import TaskViews
 from app.services.tasks import TaskService
 from app.services.usage import UsageService
+from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
 from app.tasks.practice import practice_handler
@@ -420,6 +421,12 @@ def _provider_setup(
     return service
 
 
+def _open_usage(app: FastAPI) -> Callable[[], UsageService | None]:
+    """The open workspace's usage service, read from the app's state at call time; None
+    before a workspace is open."""
+    return lambda: getattr(app.state, "usage", None) if _current_db(app) else None
+
+
 def _usage_settings(app: FastAPI, *, wiring: Wiring, clock: Clock) -> UsageSettings:
     """Settings > Usage budgets (M2.22): like the practice service, it reads the open
     workspace through the app's state at call time."""
@@ -429,7 +436,7 @@ def _usage_settings(app: FastAPI, *, wiring: Wiring, clock: Clock) -> UsageSetti
         return SettingsService(db, clock) if db is not None else None
 
     return UsageSettings(
-        usage=lambda: getattr(app.state, "usage", None) if _current_db(app) else None,
+        usage=_open_usage(app),
         settings=settings,
         allow_fakes=wiring.allow_fakes,
     )
@@ -704,7 +711,15 @@ def create_app(
     app.state.wiring = app_wiring
     practice = _practice(app, wiring=app_wiring, clock=app_clock, registry=handlers)
     app.state.practice = practice
-    app.state.usage_settings = _usage_settings(app, wiring=app_wiring, clock=app_clock)
+    usage_settings = _usage_settings(app, wiring=app_wiring, clock=app_clock)
+    app.state.usage_settings = usage_settings
+    # The usage panel (M2.23) reads the open workspace's usage service at call time too.
+    app.state.usage_panel = UsagePanel(
+        _open_usage(app),
+        offered=usage_settings.offered,
+        label_for=_task_labels(handlers),
+        tz=app_tz,
+    )
     app.state.task_views = TaskViews(
         tasks=lambda: (
             getattr(app.state, "task_service", None)

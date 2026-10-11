@@ -7,7 +7,7 @@ on this connection or another one. Cycles are local (``tz``) and compared as UTC
 
 import logging
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, tzinfo
 
@@ -16,12 +16,15 @@ from pydantic import ValidationError
 from app.domain.budgets import (
     Blocked,
     Budget,
+    BudgetLevel,
     BudgetTier,
     CapBlocked,
     Cycle,
     Decision,
     EffectiveCount,
     ProviderCount,
+    TierUsage,
+    budget_level,
     cycle_bounds,
     effective_count,
     evaluate,
@@ -66,6 +69,7 @@ _THRESHOLDS: frozenset[str] = frozenset({"first", "second"})
 _BUDGET_WINDOW = "month"
 # The cycle a service without a budget is shown in: the calendar month.
 _DEFAULT_RESET_DAY = 1
+_TIERS: tuple[BudgetTier, ...] = ("fast", "thorough")
 
 BreakdownRow = usage_repo.BreakdownRow
 
@@ -82,6 +86,24 @@ class UsageStatus:
     shown_thresholds: frozenset[str]  # warnings already shown this cycle
     # The stored budgets can't be read: requests are refused until they are saved again.
     budgets_unreadable: bool
+    # The snapshots that aren't compared with the local count and whose window hasn't
+    # reset: information only (ADR-079).
+    information_only: tuple[ProviderUsageSnapshot, ...]
+    # Each cap that is set, with its tier's count this cycle (in the order Fast, Thorough).
+    tier_caps: tuple[TierUsage, ...]
+
+    @property
+    def level(self) -> BudgetLevel | None:
+        """How far the count that is used has come in the budget; None without a budget."""
+        return None if self.budget is None else budget_level(self.budget, self.effective.value)
+
+
+@dataclass(frozen=True)
+class UsageReport:
+    """One service's status and its breakdown for the same cycle, from one read."""
+
+    status: UsageStatus
+    breakdown: tuple[BreakdownRow, ...]
 
 
 @dataclass(frozen=True)
@@ -111,6 +133,7 @@ class _Counts:
     effective: EffectiveCount
     snapshots: tuple[ProviderUsageSnapshot, ...]
     shown: frozenset[str]
+    information_only: tuple[ProviderUsageSnapshot, ...]
 
 
 class UsageService:
@@ -231,10 +254,25 @@ class UsageService:
     def status(self, service: str) -> UsageStatus:
         service = check_service(service)
         with self._db.transaction() as conn:
-            counts = self._counts(conn, service, self._clock.now())
-            unfinished = usage_repo.count_unfinished(
-                conn, service, start=utc_text(counts.cycle.start), end=utc_text(counts.cycle.end)
-            )
+            return self._status(conn, service, self._clock.now())
+
+    def reports(self, services: Iterable[str]) -> tuple[UsageReport, ...]:
+        """Each service's status and breakdown at one moment, from one read snapshot (the
+        usage panel). It takes no write lock and writes nothing."""
+        checked = tuple(check_service(service) for service in services)
+        now = self._clock.now()
+        with self._db.read() as conn:
+            return tuple(self._report(conn, service, now) for service in checked)
+
+    def _report(self, conn: sqlite3.Connection, service: ServiceId, now: datetime) -> UsageReport:
+        status = self._status(conn, service, now)
+        return UsageReport(status, self._breakdown(conn, service, status.cycle))
+
+    def _status(self, conn: sqlite3.Connection, service: ServiceId, now: datetime) -> UsageStatus:
+        counts = self._counts(conn, service, now)
+        unfinished = usage_repo.count_unfinished(
+            conn, service, start=utc_text(counts.cycle.start), end=utc_text(counts.cycle.end)
+        )
         return UsageStatus(
             budget=counts.budget,
             cycle=counts.cycle,
@@ -245,6 +283,27 @@ class UsageService:
             provider_snapshots=counts.snapshots,
             shown_thresholds=counts.shown,
             budgets_unreadable=counts.unreadable,
+            information_only=counts.information_only,
+            tier_caps=self._tier_caps(conn, service, counts),
+        )
+
+    def _tier_caps(
+        self, conn: sqlite3.Connection, service: ServiceId, counts: _Counts
+    ) -> tuple[TierUsage, ...]:
+        """Each set cap with its tier's count: what ``_decide`` hands to ``evaluate``."""
+        if counts.budget is None:
+            return ()
+        return tuple(
+            TierUsage(tier, cap, self._tier_count(conn, service, counts.cycle, tier))
+            for tier in _TIERS
+            if (cap := counts.budget.cap_for(tier)) is not None
+        )
+
+    def _tier_count(
+        self, conn: sqlite3.Connection, service: ServiceId, cycle: Cycle, tier: BudgetTier
+    ) -> int:
+        return usage_repo.count_requests(
+            conn, service, start=utc_text(cycle.start), end=utc_text(cycle.end), tier=tier
         )
 
     def preflight(self, service: str, *, tier: str) -> Decision:
@@ -263,9 +322,14 @@ class UsageService:
         with self._db.transaction() as conn:
             if cycle is None:
                 cycle = self._cycle(self._budgets(conn).budgets.get(checked))
-            rows = usage_repo.breakdown(
-                conn, service, start=utc_text(cycle.start), end=utc_text(cycle.end)
-            )
+            return self._breakdown(conn, checked, cycle)
+
+    def _breakdown(
+        self, conn: sqlite3.Connection, service: ServiceId, cycle: Cycle
+    ) -> tuple[usage_repo.BreakdownRow, ...]:
+        rows = usage_repo.breakdown(
+            conn, service, start=utc_text(cycle.start), end=utc_text(cycle.end)
+        )
         return tuple(rows)
 
     # --- warnings ------------------------------------------------------------------------
@@ -340,20 +404,33 @@ class UsageService:
             for row in usage_repo.list_snapshots(conn, service)
             if (snapshot := snapshot_from_row(row)) is not None
         )
+        compared = tuple(s for s in snapshots if self._comparable(s, cycle))
         comparable = [
             ProviderCount(unit=s.unit, window=s.window, used=s.used)
-            for s in snapshots
-            if s.unit == "requests"
-            and s.window == _BUDGET_WINDOW
-            and s.used is not None
-            and cycle.start <= s.observed_at < cycle.end
-            and (s.resets_at is None or s.resets_at == cycle.end)  # instants, not wall time
+            for s in compared
+            if s.used is not None
         ]
         provider = max((c.used for c in comparable), default=None)
         effective = effective_count(local, comparable, budget_window=_BUDGET_WINDOW)
         shown = usage_repo.shown_thresholds(conn, service, cycle.start_date)
+        # A window that has reset says nothing about now: it is stored, no longer shown.
+        others = tuple(
+            s for s in snapshots if s not in compared and (s.resets_at is None or s.resets_at > now)
+        )
         return _Counts(
-            budget, stored.unreadable, cycle, local, provider, effective, snapshots, shown
+            budget, stored.unreadable, cycle, local, provider, effective, snapshots, shown, others
+        )
+
+    @staticmethod
+    def _comparable(snapshot: ProviderUsageSnapshot, cycle: Cycle) -> bool:
+        """A request count for the budget's window, observed in this cycle (ADR-079)."""
+        return (
+            snapshot.unit == "requests"
+            and snapshot.window == _BUDGET_WINDOW
+            and snapshot.used is not None
+            and cycle.start <= snapshot.observed_at < cycle.end
+            # Instants, not wall time.
+            and (snapshot.resets_at is None or snapshot.resets_at == cycle.end)
         )
 
     def _decide(
@@ -366,13 +443,7 @@ class UsageService:
             return evaluate(None, counts.effective.value, shown=frozenset(), cycle=counts.cycle)
         tier_count = None
         if counts.budget.cap_for(tier) is not None:
-            tier_count = usage_repo.count_requests(
-                conn,
-                service,
-                start=utc_text(counts.cycle.start),
-                end=utc_text(counts.cycle.end),
-                tier=tier,
-            )
+            tier_count = self._tier_count(conn, service, counts.cycle, tier)
         return evaluate(
             counts.budget,
             counts.effective.value,

@@ -9,7 +9,7 @@ message. It defaults to the class name; errors that get stored set it explicitly
 rename can't orphan stored rows.
 """
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, ClassVar
 
 # Fixed English month names, so the system locale never changes user-facing text (spec 3.10).
@@ -32,6 +32,13 @@ _MONTHS = (
 def format_day(day: date) -> str:
     """Write a date the way the interface shows it, e.g. "1 November 2026"."""
     return f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
+
+
+def format_day_time(moment: datetime) -> str:
+    """Write a moment the way the interface shows it, e.g. "10 October 2026, 14:05".
+
+    The moment is written as given: the caller converts it to the local zone first."""
+    return f"{format_day(moment.date())}, {moment.hour:02d}:{moment.minute:02d}"
 
 
 class AppError(Exception):

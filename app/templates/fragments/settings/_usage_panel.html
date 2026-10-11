@@ -1,0 +1,102 @@
+{# Settings > the usage panel (M2.23; AC-M2.6, AC-M2.8; ADR-076 items 5, 6; ADR-079): needs
+   `usage_panel` (its view, its own URL and the event it refreshes on). One block per service:
+   the count that is used, the status in words (the bar repeats it, never alone), the reset
+   date, the blocking point and tier caps, unfinished calls, both counts when the provider
+   reports one that can be compared, and requests and tokens by task type and tier in a table
+   that scrolls inside its own container. It only shows: the budget forms follow it. It
+   fetches itself again after a budget was saved or removed and, debounced, when a task
+   changes (never on tasks:resync, which every stream connection fires). A refresh is silent:
+   nothing in it takes focus or is announced, and its ids are stable, so htmx keeps focus on
+   a breakdown region across the swap. #}
+<section id="usage-panel" class="usage-panel" aria-labelledby="usage-panel-heading"
+         hx-get="{{ usage_panel.url }}" hx-trigger="{{ usage_panel.refresh_on }}" hx-swap="outerHTML">
+  <h3 id="usage-panel-heading">Usage so far</h3>
+  <p class="field-hint">Requests counted for each service in its current period. Failed and unfinished calls count too.</p>
+  {% for item in usage_panel.view.services %}
+  {% set prefix = "usage-" ~ item.service %}
+  <div id="{{ prefix }}" class="usage-service">
+    <h4 id="{{ prefix }}-heading">{{ item.name }}</h4>
+    <p id="{{ prefix }}-count" class="usage-count">{{ item.count_text }}</p>
+    {% if item.allowance is not none %}
+    <progress class="usage-meter" max="{{ item.allowance }}" value="{{ [item.count, item.allowance] | min }}" aria-labelledby="{{ prefix }}-heading {{ prefix }}-count"></progress>
+    <p id="{{ prefix }}-status" class="usage-status">{{ item.status }}</p>
+    {% if item.stopped %}
+    <p id="{{ prefix }}-stopped" class="usage-line">{{ item.stopped }}</p>
+    {% endif %}
+    {% if item.block_note %}
+    <p id="{{ prefix }}-block" class="usage-line">{{ item.block_note }}</p>
+    {% endif %}
+    {% for cap in item.caps %}
+    <p id="{{ prefix }}-cap-{{ cap.tier }}" class="usage-line">{{ cap.text }}</p>
+    {% endfor %}
+    <p id="{{ prefix }}-reset" class="usage-line">Resets on {{ item.reset }}.</p>
+    {% elif item.limit_note %}
+    <p class="usage-line">{{ item.limit_note }}</p>
+    {% endif %}
+    {% if item.unfinished %}
+    <p id="{{ prefix }}-unfinished" class="usage-line">{{ item.unfinished }}</p>
+    {% endif %}
+    {% if item.provider_count is not none %}
+    <p id="{{ prefix }}-local" class="usage-line">Counted on this computer: {{ item.local_count }}</p>
+    <p id="{{ prefix }}-provider" class="usage-line">Reported by the provider: {{ item.provider_count }}</p>
+    <p id="{{ prefix }}-used" class="usage-line">{{ item.used }}</p>
+    {% endif %}
+    {% if item.information %}
+    <div id="{{ prefix }}-info" class="usage-info">
+      <p>Your plan's own limits, as reported by the provider. Shown for information; your budget above counts requests only.</p>
+      <ul>
+        {% for line in item.information %}
+        <li>{{ line }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if item.rows %}
+    {% if item.table_note %}
+    <p id="{{ prefix }}-table-note" class="usage-line">{{ item.table_note }}</p>
+    {% endif %}
+    <div id="{{ prefix }}-breakdown" class="usage-breakdown" role="region" tabindex="0" aria-labelledby="{{ prefix }}-breakdown-caption">
+      <table>
+        <caption id="{{ prefix }}-breakdown-caption">{{ item.name }}: requests and tokens by task and tier, counted on this computer since {{ item.since }}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Task</th>
+            <th scope="col">Fast</th>
+            <th scope="col">Thorough</th>
+            <th scope="col">Total</th>
+            <th scope="col">Input tokens</th>
+            <th scope="col">Output tokens</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in item.rows %}
+          <tr>
+            <th scope="row">{{ row.label }}</th>
+            <td>{{ row.fast }}</td>
+            <td>{{ row.thorough }}</td>
+            <td>{{ row.total }}</td>
+            <td>{{ row.input_tokens }}</td>
+            <td>{{ row.output_tokens }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">{{ item.total.label }}</th>
+            <td>{{ item.total.fast }}</td>
+            <td>{{ item.total.thorough }}</td>
+            <td>{{ item.total.total }}</td>
+            <td>{{ item.total.input_tokens }}</td>
+            <td>{{ item.total.output_tokens }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% else %}
+    <p id="{{ prefix }}-breakdown-empty" class="usage-line">No requests since {{ item.since }}, so there is nothing to break down yet.</p>
+    {% endif %}
+  </div>
+  {% else %}
+  <p id="usage-panel-unavailable" class="usage-line">Usage isn't available yet.</p>
+  {% endfor %}
+</section>

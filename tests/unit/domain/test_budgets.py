@@ -48,7 +48,10 @@ from app.domain.budgets import (
     InvalidBudget,
     Note,
     ProviderCount,
+    TierUsage,
     Warn,
+    budget_level,
+    cap_reached,
     cycle_bounds,
     effective_count,
     evaluate,
@@ -500,3 +503,52 @@ def test_cap_never_changes_tier_by_itself(
 def test_cap_given_without_tier_count_is_an_error() -> None:
     with pytest.raises(ValueError):
         evaluate(budget(thorough_cap=3), 1, shown=frozenset(), cycle=CYCLE, tier="thorough")
+
+
+# --- budget_level (M2.23: the usage panel's status) ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("count", "level"),
+    [
+        (0, "within"),
+        (2, "within"),
+        (3, "first"),
+        (4, "first"),
+        (5, "second"),
+        (6, "second"),
+        (7, "limit"),
+        (8, "limit"),
+        (900, "limit"),
+    ],
+)
+def test_budget_level_is_the_highest_point_the_count_is_at(count: int, level: str) -> None:
+    """A point is reached once the count is at it (count >= point); the limit is the
+    blocking point, where ``evaluate`` blocks."""
+    limits = Budget(allowance=8, first_warning=3, second_warning=5, block_at=7, reset_day=15)
+    assert budget_level(limits, count) == level
+
+
+@pytest.mark.parametrize("count", [-1, True, 1.0, "1", None])
+def test_budget_level_rejects_a_count_that_is_not_a_non_negative_integer(count: Any) -> None:
+    with pytest.raises(ValueError):
+        budget_level(budget(), count)
+
+
+# --- tier caps (M2.23 review: the usage panel shows what ``evaluate`` refuses) ---------------
+
+
+@pytest.mark.parametrize(("tier_count", "reached"), [(0, False), (2, False), (3, True), (9, True)])
+def test_cap_reached_is_the_rule_evaluate_blocks_a_tier_with(
+    tier_count: int, reached: bool
+) -> None:
+    """One rule: a cap counts as reached exactly when the next request on the tier is
+    refused for it."""
+    capped = budget(thorough_cap=3)
+    decision = evaluate(
+        capped, 0, shown=frozenset(), cycle=CYCLE, tier="thorough", tier_count=tier_count
+    )
+
+    assert cap_reached(3, tier_count) is reached
+    assert isinstance(decision, CapBlocked) is reached
+    assert TierUsage("thorough", 3, tier_count).reached is reached

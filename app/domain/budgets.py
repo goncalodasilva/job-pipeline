@@ -278,6 +278,44 @@ class CapBlocked:
 Decision = Allow | Warn | Note | Blocked | CapBlocked
 
 
+def cap_reached(cap: int, tier_count: int) -> bool:
+    """Whether a tier with ``tier_count`` requests this cycle is at its cap: the next request
+    on it is refused. The one rule for it: ``evaluate`` blocks by it, the usage panel shows it."""
+    return tier_count >= cap
+
+
+@dataclass(frozen=True)
+class TierUsage:
+    """A tier's cap and the requests counted on that tier this cycle."""
+
+    tier: BudgetTier
+    cap: int
+    count: int
+
+    @property
+    def reached(self) -> bool:
+        return cap_reached(self.cap, self.count)
+
+
+# How far the count used so far has come: shown next to the count (the usage panel).
+BudgetLevel = Literal["within", "first", "second", "limit"]
+
+
+def budget_level(budget: Budget, count: int) -> BudgetLevel:
+    """The highest point ``count`` requests used this cycle have reached (count >= point).
+
+    "limit" is where ``evaluate`` blocks. A warning counts as reached once the count is at
+    it, one request after ``evaluate`` first warns about it (that check is on ``count + 1``).
+    """
+    if not _is_int(count) or count < 0:
+        raise ValueError("count must be a non-negative integer")
+    if count >= budget.block_at:
+        return "limit"
+    if count >= budget.second_warning:
+        return "second"
+    return "first" if count >= budget.first_warning else "within"
+
+
 def evaluate(
     budget: Budget | None,
     count: int,
@@ -304,7 +342,7 @@ def evaluate(
     if tier is not None and cap is not None:
         if tier_count is None or not _is_int(tier_count) or tier_count < 0:
             raise ValueError("a capped tier needs a non-negative tier_count")
-        if tier_count >= cap:
+        if cap_reached(cap, tier_count):
             return CapBlocked(tier=tier, offer_fast=tier == "thorough", reset_date=reset)
     after = count + 1
     reached: Threshold | None = None

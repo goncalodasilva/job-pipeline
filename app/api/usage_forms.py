@@ -15,6 +15,7 @@ from fastapi import Request
 from app.api.forms import first_value, whole_number
 from app.domain.errors import VersionConflict
 from app.onboarding.registry import Form
+from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import (
     BUDGET_FIELDS,
     CONCURRENCY_CHOICES,
@@ -24,6 +25,13 @@ from app.services.usage_settings import (
 
 BUDGETS_PATH = "/settings/usage/budgets"
 CONCURRENCY_PATH = "/settings/usage/concurrency"
+PANEL_PATH = "/settings/usage"  # the usage panel alone (M2.23)
+# Fired after a budget was saved or removed, so the usage panel fetches itself again.
+USAGE_CHANGED_EVENT = "usage:changed"
+# The panel's trigger: at once after a budget change; a task change (a provider call may have
+# been counted) after a second without another one, so a burst of task events is one fetch
+# and the last one is never dropped. Not tasks:resync: every stream connection fires it.
+PANEL_TRIGGER = f"{USAGE_CHANGED_EVENT} from:body, tasks:updated from:body delay:1s"
 CONCURRENCY = "concurrency"  # ``UsageFormState.target`` for the concurrency form
 _NOTHING: Mapping[str, str] = MappingProxyType({})
 
@@ -47,6 +55,12 @@ class UsageFormState:
 def usage_settings(request: Request) -> UsageSettings:
     service: UsageSettings = request.app.state.usage_settings
     return service
+
+
+def panel_context(request: Request) -> dict[str, Any]:
+    """The ``usage_panel`` template value (M2.23). A read: writes nothing. Blocking."""
+    panel: UsagePanel = request.app.state.usage_panel
+    return {"view": panel.view(), "url": PANEL_PATH, "refresh_on": PANEL_TRIGGER}
 
 
 def usage_context(request: Request, state: UsageFormState | None) -> dict[str, Any]:

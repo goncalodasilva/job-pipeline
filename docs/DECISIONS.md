@@ -802,3 +802,14 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Decision: when the stored budgets are unreadable, the section shows a notice and never "No limit". Saving a budget clears the notice. The fail-closed behaviour of ADR-079 is unchanged.
 - Consequences: the Settings page reads the usage budgets and shows the notice. A test covers the notice (tests/integration/test_settings_usage_budgets.py).
 
+## ADR-085 — Usage panel states use and next-request warnings apart; panel refresh rules (2026-10-11)
+
+- Context: M2.23 adds a usage panel above the Settings > Usage budgets forms. The panel and the M2.24 warning dialog both show budget levels, and they count requests differently. The panel also shows a blocking point and tier caps, and it needs rules for provider figures and for when it refetches.
+- Decision:
+  1. The panel states what has been used: its status comes from the count against each threshold (`budget_level`). Preflight and the warning dialog (M2.24) state what the next request will reach: the count plus one. Both block at a count at or above the blocking point, so "Blocking point reached" and a blocked action always agree. The warnings differ by one request on purpose.
+  2. The panel shows the blocking point when it differs from the allowance, and each set tier cap with its count, using the same cap rule as `evaluate` (`cap_reached`).
+  3. Provider figures that are not compared with the budget are listed as information only, with the time they were observed. Figures whose reset time has passed are dropped.
+  4. The panel refetches itself on `usage:changed` and on `tasks:updated`, debounced with `delay:1s`. An htmx budget save or removal sends `usage:changed` with `HX-Trigger-After-Settle`. It does not refetch on `tasks:resync`, and it updates silently (no live region).
+  5. The e2e tests for the panel seed usage rows by opening the running app's temporary database from the test process. Reads already used this database; seeding from the test process is new.
+- Consequences: M2.24's dialog copy must name the count after the request, never "you have used". The panel and the dialog share the blocking rule but not the warning level. Any later panel or dialog that shows budget levels follows item 1.
+
