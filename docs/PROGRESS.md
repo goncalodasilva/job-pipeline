@@ -90,7 +90,7 @@ Branch: `m0-foundation`. Decisions for this plan: ADR-022 to ADR-043 (dependenci
 
 ## M1 — Secrets, AI provider and the setup guide
 
-Status: planned
+Status: accepted (2026-10-11)
 
 Branch: `m1-setup-guide`. Decisions for this plan: ADR-044 (dependencies, fake placement, deferred workspace, `--setup`, secrets precedence, live-test credentials). Security review on M1.2, M1.3, M1.5, M1.13, M1.14, M1.15, M1.17, M1.23; UX review on M1.16–M1.22.
 
@@ -418,3 +418,5 @@ Status: not planned
 - 2026-10-11: the user walked the setup guide on a temporary folder after M2.25 and accepted step 3 for now; noted that 'Skip for now' and 'Continue' (with no budget) behave the same apart from the Done label, which may change later.
 - 2026-10-11: M2.27 done: the user pushed the branch; CI failures (test races in test_atomic_result.py and a stale looked-at key in app.js) fixed in 17b42d5 and 5816038; CI green on Ubuntu and macOS (run 38157190412). All 27 M2 tasks are done; acceptance waits for the user's manual checklist (docs/acceptance/M2.md). The user asked for less attention on usage budgets and a faster move to the core features.
 - 2026-10-11: M2 accepted by the user. Current milestone: M3. The user asked for less attention on usage budgets and a faster move to the core features; the open budget and demo polish items stay parked in docs/acceptance/M2.md.
+
+- 2026-10-11: M1 accepted by the user ("consider m1 as done") without the live check in docs/live-check-m1.md being reported; AC-M1.9 (live, opt-in) and the ADR-045 questions stay unverified with real credentials until the user runs it.

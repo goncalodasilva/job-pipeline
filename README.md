@@ -2,7 +2,7 @@
 
 A local, open-source web app for running a job search: collect postings, see honestly how well you fit, position yourself for each role with a growing bank of your own facts, draft tailored CVs and cover letters, track every application on a board, and prepare for interviews. You always submit applications yourself.
 
-**Status:** M0 is accepted. M1 (setup guide and Claude connection) and M2 (background tasks and usage budgets) are built but not yet accepted. Most job-search features arrive from M3 on. See `docs/PROGRESS.md`.
+**Status:** M0, M1 (setup guide and Claude connection) and M2 (background tasks and usage budgets) are accepted. Most job-search features arrive from M3 on. See `docs/PROGRESS.md`.
 
 ## How it works
 
