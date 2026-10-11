@@ -10,6 +10,7 @@ copy shown next to a field.
 Reads write nothing. Everything here blocks (database).
 """
 
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -35,6 +36,9 @@ CONCURRENCY_FIELD = "max_concurrent"
 CONCURRENCY_CHOICES: tuple[int, ...] = (1, 2, 3)  # the range ``TaskRunnerSettings`` accepts
 FAKE_SERVICE = "fake"
 
+# ASCII digits only, short enough to be stored and shown as typed.
+_DIGITS = re.compile(r"-?[0-9]{1,12}")
+
 _WHOLE_NUMBER = "Enter a whole number, 1 or more."
 _NO_NUMBER = "Enter a number."
 _NOT_DIGITS = "Enter a whole number, 1 or more, using digits only (for example 1000)."
@@ -56,6 +60,15 @@ _ORDERING: Mapping[str, tuple[str, str]] = {
         "Enter a number no higher than the monthly allowance ({limit}).",
     ),
 }
+
+
+def whole_number(text: str) -> int | str | None:
+    """What a number field holds: the whole number, None when nothing was typed, or the text
+    as typed when it isn't a whole number (the rule that refuses it lives in the domain)."""
+    typed = text.strip()
+    if not typed:
+        return None
+    return int(typed) if _DIGITS.fullmatch(typed) else text
 
 
 class UsageSettingUnavailable(LookupError):
@@ -111,6 +124,10 @@ class UsageSettings:
         self._usage = usage
         self._settings = settings
         self._allow_fakes = allow_fakes
+
+    def available(self) -> bool:
+        """Whether a workspace is open, so budgets can be read and saved."""
+        return self._usage() is not None
 
     def offered(self) -> tuple[ServiceId, ...]:
         """The services a budget can be set for, in display order (ADR-076 item 4)."""

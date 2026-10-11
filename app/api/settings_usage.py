@@ -37,7 +37,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from app.api.forms import first_value, is_htmx, read_form, whole_number
+from app.api.forms import is_htmx, read_form
 from app.api.settings import SETTINGS_PATH, render_settings
 from app.api.templating import templates
 from app.api.usage_forms import (
@@ -54,11 +54,13 @@ from app.api.usage_forms import (
     usage_settings,
 )
 from app.domain.errors import VersionConflict
+from app.onboarding.forms import first_value
 from app.onboarding.registry import Form
 from app.services.usage_settings import (
     CONCURRENCY_FIELD,
     UsageSettings,
     UsageSettingUnavailable,
+    whole_number,
 )
 
 BUDGET_FRAGMENT = "fragments/settings/_usage_budget_answer.html"

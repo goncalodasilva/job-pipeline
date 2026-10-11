@@ -2,8 +2,8 @@
 
 The registry holds the step definitions (id, title, required, order, template) in order,
 refuses ambiguous definitions, and feeds start-up detection through ``infos()``. M1 registers
-steps 1, 2, 5 and 6 of the detailed design; orders 30 and 40 stay free for web search (M2)
-and CV import (M3). Step behaviour is a structural ``StepHandler`` protocol.
+steps 1, 2, 3, 5 and 6 of the detailed design (step 3, web search, since M2.25); order 40
+stays free for CV import (M3). Step behaviour is a structural ``StepHandler`` protocol.
 """
 
 import dataclasses
@@ -25,6 +25,7 @@ from app.onboarding.registry import (
     PREFERENCES,
     PROVIDER,
     RESERVED_STEP_IDS,
+    WEB_SEARCH,
     WELCOME,
     StepDefinition,
     StepRegistry,
@@ -131,16 +132,17 @@ def test_definitions_are_frozen() -> None:
 # --- the M1 registry ---------------------------------------------------------------
 
 
-def test_m1_registers_steps_1_2_5_6() -> None:
+def test_m1_registers_steps_1_2_3_5_6() -> None:
     registry = m1_registry()
 
     assert [(s.id, s.order, s.required) for s in registry.steps] == [
         ("welcome", 10, True),
         ("provider", 20, True),
+        ("web_search", 30, False),
         ("preferences", 50, True),
         ("done", 60, False),
     ]
-    assert registry.steps == (WELCOME, PROVIDER, PREFERENCES, DONE)
+    assert registry.steps == (WELCOME, PROVIDER, WEB_SEARCH, PREFERENCES, DONE)
     assert WELCOME.title == "Welcome and data folder"
     assert PROVIDER.title == "AI provider"
     assert PREFERENCES.title == "Job preferences"
@@ -151,13 +153,14 @@ def test_m1_registers_steps_1_2_5_6() -> None:
         assert definition.template.startswith("fragments/setup/")
         assert definition.template.endswith(".html")
     ids = {s.id for s in registry.steps}
-    assert "web_search" not in ids
+    assert "web_search" in ids
     assert "import_cv" not in ids
     assert registry.steps[-1].id == "done"
     assert registry.first is WELCOME
     assert registry.infos() == (
         StepInfo("welcome", True),
         StepInfo("provider", True),
+        StepInfo("web_search", False),
         StepInfo("preferences", True),
         StepInfo("done", False),
     )

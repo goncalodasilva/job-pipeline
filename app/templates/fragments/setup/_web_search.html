@@ -1,0 +1,68 @@
+{# Step 3 (M2.25): what web search is, and the optional budget for it. Most people pass
+   through, so the step is three paragraphs, one status line (what applies now) and two
+   buttons; the hint and the budget fields sit in a <details>, open only when there is
+   something in them to see: a stored budget, stored budgets that can't be read, an error or
+   a stale version. Closed fields are still sent, empty, so "Continue" then means done with
+   no limit. The fields are the ones Settings > Usage budgets shows (M2.22), for the Web
+   search service only: the form names no service, the step decides it. Values come from the
+   stored budget, or from a refused or stale submit (autoescaped), which also keeps the
+   version it was sent with (ADR-081). Focus: the heading; after a refused save the first
+   refused field; after a stale version the reload prompt. #}
+{% set form_error = errors.get("form") %}
+{% set field_names = form.get("fields", []) %}
+{% set first_invalid = field_names | select("in", errors) | first | default("") %}
+{% set stale = conflict is defined and conflict %}
+{% set unreadable = form.get("budgets_unreadable") %}
+{% set allowance_set = form.get("allowance_set") %}
+<h2 id="step-heading"{% if not (errors or stale) %} data-autofocus{% endif %}>Web search</h2>
+{# True with any provider: the fake one and the demo included (ADR-057). #}
+<p>Some features will look things up on the web for you, such as facts about a company you're applying to. Searches go through the AI provider you connected in the previous step; with Claude, that is Claude's built-in web search.</p>
+<p>A search runs only when you ask for something that needs one. The app never searches on its own or in the background.</p>
+<p>Nothing in this version searches the web yet, so there's nothing you need to do here today. You can set a budget now so it's ready, continue without one, or choose Skip for now; a skipped step stays marked on the last page so you can find it again.</p>
+
+{% if not form.get("workspace_open") %}
+{% if form_error %}
+<p id="form-error" class="field-error" role="alert" data-autofocus>{{ form_error }}</p>
+{% endif %}
+<div class="notice">
+  <p>Finish step 1 first, so the app knows where to keep your data. <a href="/setup/welcome">Go to step 1</a>.</p>
+</div>
+{% else %}
+
+{# Unreadable stored budgets are never called "no limit" (ADR-084). #}
+<p id="web-search-budget-status" class="budget-status">{% if unreadable %}Not known: the saved budgets couldn't be read. Saving a budget here replaces them.{% elif allowance_set %}Now: a budget of {{ allowance_set }} requests per month.{% else %}Now: no limit on web searches.{% endif %}</p>
+{% if stale %}
+{% set reload_id = "web-search-conflict" %}
+{% set reload_message = form.get("conflict_message") %}
+{% set reload_detail = "What you typed here isn't saved." %}
+{% set reload_url = "/setup/web_search" %}
+{% include "fragments/shell/_reload_prompt.html" %}
+{% endif %}
+
+<form id="web-search-form" class="step-form" method="post" action="/setup/web_search"
+      hx-post="/setup/web_search" hx-target="#setup-guide" hx-swap="outerHTML"
+      hx-disabled-elt="#web-search-form button" aria-label="Web search budget" novalidate>
+  {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
+  {% if form_error %}
+  <p id="form-error" class="field-error" role="alert"{% if not first_invalid %} data-autofocus{% endif %}>{{ form_error }}</p>
+  {% endif %}
+  <input type="hidden" name="version" value="{{ form.get('version', '') }}">
+  <details id="web-search-budget" class="disclosure"{% if errors or stale or allowance_set or unreadable %} open{% endif %}>
+    <summary>Set a monthly budget (optional)</summary>
+    {# An emptied form never removes a stored budget (ADR-083), so the hint never says it
+       does; with unreadable budgets it says nothing about what empty fields mean. #}
+    <p id="web-search-budget-hint" class="field-hint">A budget is a number of web searches per month. You're warned twice on the way, and at the blocking point the app stops searching until the reset day. A budget you fill in is saved when you continue.{% if unreadable %}{% elif allowance_set %} Emptying the fields doesn't remove your budget; remove it in Settings &gt; Usage budgets.{% else %} To go on without a budget, leave every field empty.{% endif %} Skip for now saves nothing.</p>
+    {% set budget_prefix = "web-search" %}
+    {% set budget_field_names = field_names %}
+    {% set budget_values = form %}
+    {% set budget_errors = errors %}
+    {% set budget_focus = first_invalid %}
+    {% include "fragments/settings/_usage_budget_fields.html" %}
+  </details>
+  <div class="form-actions">
+    {# Continue stays first, so Enter in a field saves what is filled in; it never skips. #}
+    <button type="submit" class="button button-primary" name="action" value="save">Continue</button>
+    <button type="submit" class="button" name="action" value="skip">Skip for now</button>
+  </div>
+</form>
+{% endif %}

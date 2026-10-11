@@ -75,7 +75,7 @@ def assert_layout(page: Page, viewport: dict[str, int]) -> None:
 def test_provider_test_connection_messages(
     running_app: RunningApp, browser: Browser, viewport: dict[str, int]
 ) -> None:
-    preferences = f"{running_app.base_url}/setup/preferences"
+    web_search = f"{running_app.base_url}/setup/web_search"
     with new_page(browser, viewport) as page:
         open_app(page, running_app, "/setup/provider")
         expect(connection_button(page)).to_be_visible()
@@ -113,11 +113,11 @@ def test_provider_test_connection_messages(
         assert_layout(page, viewport)
 
         go_on = page.get_by_role("link", name="Continue")
-        expect(go_on).to_have_attribute("href", "/setup/preferences")
+        expect(go_on).to_have_attribute("href", "/setup/web_search")
         tab_to_locator(page, go_on)
         page.keyboard.press("Enter")
-        expect(page).to_have_url(preferences)
-        expect(page.locator('[aria-current="step"]')).to_contain_text("Job preferences")
+        expect(page).to_have_url(web_search)
+        expect(page.locator('[aria-current="step"]')).to_contain_text("Web search")
 
     for key in (failing, connected):
         for log_file in running_app.log_files():

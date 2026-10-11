@@ -511,6 +511,28 @@ body.layout-guide {
   font-size: 1.25rem;
 }
 
+/* The guide's web search step (M2.25): the line saying what applies now stands apart from
+   the paragraphs above it; the budget fields are folded into a native disclosure. */
+.setup-step > .budget-status {
+  margin-block: var(--space-6) 0;
+  font-weight: 600;
+}
+
+.disclosure {
+  margin-bottom: var(--space-4);
+}
+
+.disclosure > summary {
+  min-height: var(--target-min);
+  padding-block: var(--space-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.disclosure > .field-hint {
+  margin-bottom: var(--space-4);
+}
+
 /* Settings (M1.21): one section per part, below the page heading. */
 .settings-section {
   max-width: 40rem;

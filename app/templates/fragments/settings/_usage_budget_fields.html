@@ -1,0 +1,43 @@
+{# The fields of one service's request budget (M2.22), shared by Settings > Usage budgets and
+   the guide's web search step (M2.25). Set before including it: budget_prefix (starts every
+   id, so two forms never share one; "-field-" keeps a field's id from spelling a model id
+   such as the fake's), budget_field_names (in form order), budget_values (what each field
+   holds: the stored budget or what was typed, autoescaped), budget_errors (message per
+   refused field) and budget_focus (the field that takes focus, or ""). #}
+{% set labels = {
+  "allowance": "Monthly allowance (requests)",
+  "first_warning": "First warning at (requests)",
+  "second_warning": "Second warning at (requests)",
+  "block_at": "Blocking point (requests)",
+  "reset_day": "Reset day of the month",
+  "fast_cap": "Fast tier cap (optional)",
+  "thorough_cap": "Thorough tier cap (optional)",
+} %}
+{% set hints = {
+  "block_at": "The app stops using this service here until the reset day.",
+  "reset_day": "Days 29 to 31 move to the last day of shorter months.",
+  "fast_cap": "Leave empty for no cap.",
+  "thorough_cap": "Leave empty for no cap.",
+} %}
+<div class="budget-fields">
+  {% for name in budget_field_names %}
+  {% set field_id = budget_prefix ~ "-field-" ~ name %}
+  {% set error = budget_errors.get(name) %}
+  {% set hint = hints.get(name) %}
+  {% set described = ([field_id ~ "-error"] if error else []) + ([field_id ~ "-note"] if hint else []) %}
+  <div class="field">
+    <label for="{{ field_id }}">{{ labels[name] }}</label>
+    <input type="text" inputmode="numeric" autocomplete="off" id="{{ field_id }}" name="{{ name }}"
+           value="{{ budget_values.get(name, "") }}"
+           {% if described %}aria-describedby="{{ described | join(" ") }}"{% endif %}
+           {% if error %}aria-invalid="true"{% endif %}
+           {% if name == budget_focus %}data-autofocus{% endif %}>
+    {% if hint %}
+    <p id="{{ field_id }}-note" class="field-hint">{{ hint }}</p>
+    {% endif %}
+    {% if error %}
+    <p id="{{ field_id }}-error" class="field-error">{{ error }}</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>

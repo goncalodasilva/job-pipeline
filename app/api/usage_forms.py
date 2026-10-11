@@ -12,8 +12,8 @@ from typing import Any
 
 from fastapi import Request
 
-from app.api.forms import first_value, whole_number
 from app.domain.errors import VersionConflict
+from app.onboarding.forms import first_value
 from app.onboarding.registry import Form
 from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import (
@@ -21,6 +21,7 @@ from app.services.usage_settings import (
     CONCURRENCY_CHOICES,
     CONCURRENCY_FIELD,
     UsageSettings,
+    whole_number,
 )
 
 BUDGETS_PATH = "/settings/usage/budgets"

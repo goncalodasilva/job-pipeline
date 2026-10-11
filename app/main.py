@@ -68,6 +68,7 @@ from app.onboarding.registry import (
     DONE,
     PREFERENCES,
     PROVIDER,
+    WEB_SEARCH,
     WELCOME,
     StepHandler,
     StepRegistry,
@@ -79,6 +80,7 @@ from app.onboarding.steps import PendingStep
 from app.onboarding.steps.done import DoneStep
 from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
+from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.budget_gate import BudgetGate
 from app.services.health import HealthService
@@ -380,6 +382,19 @@ def _step_handlers(
         db = _current_db(app)
         return SettingsService(db, clock) if db is not None else None
 
+    def skip_web_search() -> None:
+        progress = _progress(registry, _current_db(app), clock)
+        if progress is None:  # pragma: no cover - the step checks for a workspace first
+            raise RuntimeError("no workspace is open")
+        progress.skip(WEB_SEARCH.id)
+        onboarding.refresh(progress)
+
+    if WEB_SEARCH.id in handlers:  # a registry passed to create_app (tests) may leave it out
+        handlers[WEB_SEARCH.id] = WebSearchStep(
+            app.state.usage_settings,
+            mark_done=mark_done(WEB_SEARCH.id),
+            skip=skip_web_search,
+        )
     handlers[PREFERENCES.id] = PreferencesStep(settings, mark_done=mark_done(PREFERENCES.id))
     handlers[DONE.id] = DoneStep(
         registry,

@@ -826,3 +826,17 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   7. The warning names the blocking point when it differs from the allowance, and says when the next request is the last one before it.
 - Consequences: a warning is shown once per cycle, and again after the reset. Spec 2.5's diagram, spec 2.11 and the htmx-ui skill's modal pattern need updating in M2.27. Removing `UsageService.acknowledge` and its tests needs the user's approval. How actions that make several requests are checked is open and must be decided before M3 (see the M2.24 Evidence line).
 
+## ADR-087 — Setup step 3 web search: optional budget, skip and the guide's test changes (2026-10-11)
+
+- Context: M2.25 adds step 3 (`web_search`, optional) to the setup guide, with an optional web-search budget and "Skip for now" (deferred in ADR-064). The guide's shape changes, so existing M1 tests and the "Step N of 5" strings change too.
+- Decision:
+  1. [user, 2026-10-11] Continuing with every budget field empty marks the step done with no limit. "Skip for now" marks it skipped, shown as "Skipped" on Done. An emptied form never removes a stored budget (ADR-083); the guide then announces that the budget was kept.
+  2. [user, 2026-10-11] Existing M1 tests were updated to the guide's new shape, with the same strictness: the provider step's Continue link goes to `/setup/web_search`, the Done list has a Web search row, and the guide shell's `STEPS` has five entries. The test names are in the M2.25 Evidence line.
+  3. Pre-approved under ADR-076 item 13 and done: the registry test is renamed `test_m1_registers_steps_1_2_3_5_6` and expects `web_search` at order 30; the "Step N of 5" strings in five files; the M1 full-guide walk passes through the step.
+  4. `m1_registry` is not renamed, although ADR-076 item 13 said it would be: 14 test modules and the harness import it. Only the registry test was renamed.
+  5. The budget fields sit in a closed `<details>` ("Set a monthly budget (optional)"). It opens on errors, a stale version, a stored budget or unreadable budgets. The primary button is "Continue".
+  6. The step says that nothing in this version searches the web yet (ADR-057; the Claude provider refuses web search until searches are counted).
+  7. A stale budget version answers 409 with the reload prompt pointing at `/setup/web_search`. If the budget saves but the step can't be marked done, the form says the budget was saved and the retry succeeds.
+  8. The step announces its outcome before the next step's announcement: "Web search budget saved.", "Web search skipped.", or "Your web search budget of N requests was kept."
+- Consequences: the guide has five steps. Two test changes made during review are for the user's confirmation: `test_continue_is_an_htmx_step_change_announced` now follows the link it checks and expects "Step 3 of 5: Web search"; `assert_swapped_to` in tests/e2e/test_setup_guide_full.py takes `said=`, and the three swaps after Skip expect "Web search skipped. Step 4 of 5: Job preferences". Spec 2.13, the onboarding-step skill and the `app/main.py` docstring may still describe a four-step guide (M2.27). Open questions for the user are listed in the M2.25 Evidence line.
+

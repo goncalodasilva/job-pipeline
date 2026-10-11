@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{% if errors %}Error: {% endif %}{{ step.title }} · Set up{% endblock %}
+{% block title %}{% if errors or conflict %}Error: {% endif %}{{ step.title }} · Set up{% endblock %}
 {% block body_attrs %} class="layout-guide"{% endblock %}
 {# The guide runs before there is a workspace, so it doesn't set live_updates. #}
 {# The guide is where banners lead, so it doesn't repeat them. #}
