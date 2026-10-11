@@ -510,6 +510,44 @@ def test_a_refetched_panel_that_differs_only_in_the_attempt_is_swapped_in(
         expect_attention(page, None)
 
 
+def test_stale_key_goes_when_the_panel_is_refreshed_before_the_count(
+    running_app: RunningApp, browser: Browser
+) -> None:
+    """The same refetch as above with the count's answer held back until the panel's row is
+    swapped in (the order a slow machine can produce): while the count still lists the first
+    attempt both keys are kept, and once it lists only the second the first one goes."""
+    with settings_page(browser, running_app, DESKTOP) as page:
+        fail_one(page)
+        (first,) = listed_keys(page)
+        open_panel(page)
+        wait_seen_store(page, [first])
+        task_id = first.removesuffix(":1")
+        second = f"{task_id}:2"
+        row = page.locator(f"#task-{task_id}")
+        held: list[Route] = []
+
+        def as_second_attempt(route: Route) -> None:
+            response = route.fetch()
+            route.fulfill(response=response, body=response.text().replace(first, second))
+
+        def hold(route: Route) -> None:
+            held.append(route)
+
+        page.route(f"**{PANEL_URL}", as_second_attempt)
+        page.route(f"**{INDICATOR_URL}", hold)
+        refetch_panel(page)
+        expect(row).to_have_attribute("data-attention", second)  # the panel came first
+        wait_until(lambda: len(held) >= 1, timeout=DEADLINE_S, message="the count was asked")
+        expect(count(page)).to_have_attribute("data-attention", first)
+        wait_seen_store(page, [first, second])
+
+        for route in held:
+            as_second_attempt(route)
+        expect(count(page)).to_have_attribute("data-attention", second)
+        wait_seen_store(page, [second])
+        expect_attention(page, None)
+
+
 # --- the relative time on an open panel (M2.26 review) -------------------------------------------
 
 

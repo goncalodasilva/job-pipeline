@@ -232,6 +232,26 @@ class CancelBeforeComplete:
         return getattr(self._service, name)
 
 
+class CountingCancelReads:
+    """Wraps the service and counts the cancel-flag reads that have returned. The runner
+    reads the flag once when it starts a handler (a cancel asked for before the start); a
+    test that sets the flag behind the runner's back waits for that read first, or a late
+    read would see the flag and cancel the handler from outside."""
+
+    def __init__(self, service: Any) -> None:
+        self._service = service
+        self.cancel_reads = 0
+
+    def cancel_requested(self, task_id: str, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return self._service.cancel_requested(task_id, *args, **kwargs)
+        finally:
+            self.cancel_reads += 1
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._service, name)
+
+
 class Harness:
     """A real ``TaskService`` with a ``FrozenClock`` the test can move; ``on_change`` records
     changes, wakes the runner for queued tasks and tells it about running ones."""
@@ -439,7 +459,7 @@ async def test_result_rolled_back_when_cancelled_meanwhile(db: Database, how: st
     writer = DraftWriter()
     if how == "flag_from_another_process":
         handler = Completing(writer, gated=True)
-        h = Harness(db, {DRAFTING: handler})
+        h = Harness(db, {DRAFTING: handler}, wrap=CountingCancelReads)
     else:
         handler = Completing(writer)
         h = Harness(db, {DRAFTING: handler}, wrap=CancelBeforeComplete)
@@ -448,6 +468,9 @@ async def test_result_rolled_back_when_cancelled_meanwhile(db: Database, how: st
     try:
         if how == "flag_from_another_process":
             await asyncio.wait_for(handler.at_gate.wait(), DEADLINE_S)
+            await _wait_until(
+                lambda: h.runner_service.cancel_reads >= 1, "the runner's first cancel read"
+            )
             await asyncio.to_thread(_flag_in_database, db, task_id)  # no on_change
             handler.gate.set()
         await h.changes.wait_status(task_id, "cancelled")

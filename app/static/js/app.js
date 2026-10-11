@@ -341,11 +341,16 @@
   function lookAtTasks() {
     var shown = shownKeys();
     var known = seenKeys();
-    if (!shown.some(function (key) { return known.indexOf(key) < 0; })) return;
     var listed = listedKeys().concat(shown);
-    seenHere = storeKeys(SEEN_KEY, known.concat(shown).filter(function (key) {
-      return listed.indexOf(key) >= 0;
-    }));
+    var kept = known.concat(shown).filter(function (key, index, all) {
+      return listed.indexOf(key) >= 0 && all.indexOf(key) === index;
+    });
+    // Also when nothing new is shown: a key the server stopped listing goes, whichever of
+    // the count and the panel was refreshed first. Nothing is written when nothing changes.
+    var same = kept.every(function (key) { return known.indexOf(key) >= 0; }) &&
+      known.every(function (key) { return kept.indexOf(key) >= 0; });
+    if (same) return;
+    seenHere = storeKeys(SEEN_KEY, kept);
   }
 
   function showAttention() {
