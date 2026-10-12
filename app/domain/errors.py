@@ -245,6 +245,50 @@ class UploadNotAccepted(AppError):
     message = "Upload one file (PDF, Word or plain text), or paste the text instead."
 
 
+class CvTextTooLong(AppError):
+    """The CV's text is longer than one import takes. It is refused whole, never cut."""
+
+    kind = "CvTextTooLong"
+    message = (
+        "This CV has too much text to import in one go. Paste the part that matters most instead."
+    )
+
+
+class NothingExtracted(AppError):
+    """The AI answered, but listed nothing from the CV."""
+
+    kind = "NothingExtracted"
+    message = "Nothing could be listed from this CV. Try again, or paste the text instead."
+
+
+class CvImportNotFound(AppError):
+    """The id names no uploaded CV: never stored, or removed (also while its task ran)."""
+
+    kind = "CvImportNotFound"
+    message = "This uploaded CV wasn't found. It may have been removed. Upload it again."
+
+
+class CvImportBusy(AppError):
+    """The upload can't be removed while its task is queued or running."""
+
+    kind = "CvImportBusy"
+    message = "This CV is being read. Cancel the task or wait for it to finish, then remove it."
+
+
+class CvImportAlreadyDone(AppError):
+    """The upload was already imported; its drafts are made once."""
+
+    kind = "CvImportAlreadyDone"
+    message = "This CV was already imported. Its drafts are in your fact bank."
+
+
+class ProviderNotConfigured(AppError):
+    """No usable AI provider is saved, so nothing that needs one can start."""
+
+    kind = "ProviderNotConfigured"
+    message = "No AI provider is connected. Connect one in Settings > Providers, then try again."
+
+
 class SecretStoreUnavailable(AppError):
     """The system keychain can't be used. ``detail`` names the error type, never a value."""
 

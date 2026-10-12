@@ -10,28 +10,47 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import PlainTextResponse
 
-from app.domain.errors import AppError, UploadNotAccepted, UploadTooLarge
+from app.domain.errors import (
+    AppError,
+    CvTextTooLong,
+    NoTextFound,
+    ParseTimedOut,
+    UnreadableDocument,
+    UnsupportedDocumentType,
+    UploadNotAccepted,
+    UploadTooLarge,
+)
 
 INVALID_REQUEST = "This request isn't valid."
+# A document that can't be taken (``EncryptedDocument`` is an ``UnreadableDocument``): 400.
+DOCUMENT_ERRORS: tuple[type[AppError], ...] = (
+    UnsupportedDocumentType,
+    UnreadableDocument,
+    NoTextFound,
+    ParseTimedOut,
+    UploadNotAccepted,
+    CvTextTooLong,
+)
 
 
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, _invalid_request)
     app.add_exception_handler(UploadTooLarge, _upload_too_large)
-    app.add_exception_handler(UploadNotAccepted, _upload_not_accepted)
+    for error in DOCUMENT_ERRORS:
+        app.add_exception_handler(error, _document_refused)
 
 
 async def _invalid_request(request: Request, exc: Exception) -> PlainTextResponse:
     return PlainTextResponse(INVALID_REQUEST, status_code=400)
 
 
-# The two upload handlers are a backstop: form routes catch these errors themselves and render
-# the message inside the form.
+# The upload and document handlers are a backstop: form routes catch these errors themselves
+# and render the message inside the form.
 async def _upload_too_large(request: Request, exc: Exception) -> PlainTextResponse:
     return PlainTextResponse(_user_message(exc), status_code=413)
 
 
-async def _upload_not_accepted(request: Request, exc: Exception) -> PlainTextResponse:
+async def _document_refused(request: Request, exc: Exception) -> PlainTextResponse:
     return PlainTextResponse(_user_message(exc), status_code=400)
 
 

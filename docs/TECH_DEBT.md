@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status as of 2026-10-12 (M0 to M3.3 and the M2 and M1 acceptance reports).
+Status as of 2026-10-12 (M0 to M3.4 and the M2 and M1 acceptance reports).
 
 ## What belongs here
 
@@ -35,6 +35,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-010 | No erase path for fact text. Versions and events are append-only, facts cannot be deleted ("discarded" is the only removal), and removing a CV import keeps its drafts' text. Backups keep copies. | M3.2; ADR-090 item 3 and Consequences; M3.2 Left (a) | high: personal CV text cannot be removed from the app or its backups | A later migration and a design decision before any "delete my data" promise. M9 at the latest. |
 | TD-011 | Soft-deleted capture notes and closed refine sessions keep their text. No purge runs. | M3.2; ADR-090 item 10; M3.2 Left (e) | high: personal text stays after the user deletes it | Same migration and decision as TD-010. |
 | TD-012 | Snapshot privacy rule: snapshots are left out of diagnostics and exports unless the user opts in. `observed_at` shows when the user works. No exports or diagnostics exist yet, so the rule is not enforced. | ADR-078 Consequences | low: no export path yet | When exports (M6) or diagnostics (M9) are built. |
+| TD-150 | The CV text, contact details included, is sent to the chosen AI provider. The import form does not say so yet. | M3.4 Left (d) | medium: personal data leaves the machine with no note in the app | M3.5: the import form must say where the text goes. |
+| TD-151 | Debug prompt logging, when it is built, would write whole CVs to the logs. No such logging exists today. | M3.4 | medium: whole personal documents would reach the logs | Before any prompt logging is built: keep CV text out of it, with a test. |
 
 ## 3. Schema and storage
 
@@ -71,6 +73,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-141 | `display_skill` drops zero-width joiners, which changes some Persian and Indic spellings. | M3.3 | low: some skill names display with the wrong spelling | Keep joiners in display text, with a test. |
 | TD-142 | `fts_query` keeps format characters, such as a zero-width space, inside a term. | M3.3 | low: an invisible character can stop a match | Decide and fix with a test. |
 | TD-143 | Service reads through `Database.read()` must not run inside an open write transaction on the same `Database`. Nothing enforces this. | M3.3 | medium: a caller that breaks the rule gets no warning | Enforce it, or document it at the database module. |
+| TD-152 | Removing an import keeps its draft roles, so they stay in the library. This is TD-015 seen from the remove route. | M3.4; TD-015 | medium: orphan draft roles after a remove | Decide the cleanup rule with TD-015 and TD-131. |
 
 ## 4. Extraction and uploads
 
@@ -78,8 +81,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | --- | --- | --- | --- | --- |
 | TD-028 | Word headers, footers and text boxes are not extracted. Their content is silently missing from drafts. | M3.1 Left (d) | medium: CV content is dropped with no message | M3.4 decision: extract them, or tell the user. |
 | TD-029 | Extracted text may keep C1 control characters and bidi override characters. | M3.1 Evidence | medium: misleading display and prompt text from untrusted files | M3.4: strip before storage or before prompts. Security and prompt review. |
-| TD-030 | `extract_text` and `sniff_type` block. They must run in a worker thread, which M3.4 has to wire. | M3.1 Left (d) | medium: they stall the event loop if called directly | M3.4. |
-| TD-031 | The parser child has no memory limit. If the app is killed hard, an orphaned child lives until its CPU limit ends it. | M3.1 Evidence | medium: a hostile file can use a lot of memory for a while | M3.4: address-space limit or a dedicated worker. |
+| TD-031 | The parser child has no memory limit. If the app is killed hard, an orphaned child lives until its CPU limit ends it. | M3.1 Evidence; retargeted from M3.4 (not done there) | medium: a hostile file can use a lot of memory for a while | Milestone not yet decided; decide with the user. Options: an address-space limit or a dedicated worker. |
 | TD-032 | `read_upload` subclasses Starlette's semi-public `MultiPartParser`, and `app/api` imports `python_multipart` directly. No import contract covers that import. | M3.1 Evidence | medium: a Starlette upgrade can break uploads; the import sits outside the provider rule | Re-check on each Starlette upgrade. Decide whether a contract is needed. |
 | TD-033 | No read timeout on slow upload bodies, and about three copies of the body are held in memory. | M3.1 Evidence | medium: a slow client holds a request and memory | M3.4 or M9 release hardening. |
 | TD-034 | Each parser spawn re-imports the app (about 0.6 s), and that counts against the parse timeout. A dedicated `python -m` worker would avoid it. | M3.1 Left (d) | low: slower parses of large files | M3.4 or later. |
@@ -91,16 +93,22 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-040 | Word entry limits (16 MiB per entry, 32 MiB total) are looser than a CV needs. | M3.1 Evidence | low: bounds are wider than needed | When touched. |
 | TD-041 | PDFs with bytes before `%PDF-` are refused. | M3.1 Evidence | low: some valid files are refused | Decide in M3.4. |
 | TD-042 | Pasted text with a stray control character is refused as unsupported, not cleaned. | M3.1 Left (d) | low: friction for the user | M3.4 decision. |
+| TD-153 | Uploading the same CV again creates a second set of drafts. Duplicates are not detected until M3.7's near-duplicate suggestions. | M3.4 | medium: duplicate facts in the library | M3.7. |
+| TD-154 | No disk quota and no cap on concurrent uploads. Each upload stays under `imports/` until it is removed. | M3.4 | medium: a client or a script can fill the data folder | Decide a limit with the user. |
+| TD-155 | A hand-edited `cv_imports` row with a stored name that is not generated leaves its file unmanaged. No sweep or remove touches it. | M3.4 | low: only a manual database edit causes it | Accept, or handle it with a test. |
+| TD-156 | `app.modules.extract` is not provider-free, so services cannot import it. `sniff_type` and `extract_text` are injected from `app/main.py`. | M3.4; ADR-092 item 7 | low: more wiring than a direct import | Revisit if the extract module gets a provider-free interface. |
+| TD-157 | `ExtractText` is an alias that loses the kind's type. | M3.4 | low: weaker type checking at the injected seam | When touched. |
+| TD-158 | Kept uploads can be listed through `CvImportService.imports()`, but no screen lists them yet. | M3.4; ADR-092 Consequences | medium: a kept upload has no way to be started or removed from the UI | M3.5 screen, with Start and Remove. |
 
 ## 5. AI provider and tasks
 
 | ID | Item | Origin | Impact | When / fix |
 | --- | --- | --- | --- | --- |
 | TD-043 | The honesty sentence lives in the prompt file, not in code like the untrusted notice. A user prompt override can remove it. | M1.12 follow-up; ADR-056 | high: the honesty rule (golden rule 1, spec 3.1) should not depend on text an override can change | Before the first generation task (M6). Needs your approval, since it changes honesty wording. |
-| TD-044 | Fake-provider output for real task types must carry provider and model `fake` and show a visible label. The rule is planned but not built. | ADR-088 Consequences; ADR-089 item 8 | high: fake drafts could be taken for real AI output | M3.4 and M3.5, in the plan. Must be in place before any real output is stored. |
+| TD-044 | Fake-provider output for real task types must carry provider and model `fake` and show a visible label. The stored provider and model are in place (M3.4, ADR-092 item 10). The visible label is not built. | ADR-088 Consequences; ADR-089 item 8; ADR-092 item 10 | high: fake drafts could be taken for real AI output | M3.5 shows the label. It must be in place before any fake draft is shown. |
 | TD-045 | Lists of untrusted documents (several postings or web results) are not supported. They need a typed sequence with one wrapped block per item. | ADR-055 (Deferred) | medium: needed before a task reads several documents | With the first task that needs a list (M6 or M8). |
 | TD-046 | The Claude provider refuses web-search requests until the usage hook is wired. | ADR-080 update (2026-10-11); ADR-057; ADR-076 item 12 | medium: web search is unavailable. Removing the refusal before the hook exists would let searches go uncounted | Before M8. Remove the refusal in the same change that wires the hook. |
-| TD-047 | Heartbeats come only from handler steps. Nothing beats during a provider call, so a task type's timeout must cover its longest call. | Spec section 5 (M2 notes); M2.10 Evidence | medium: a long call can be marked interrupted by the watchdog | Before M3.4 sets its timeouts (`extract_cv` is a long Thorough call). Or add a heartbeat hook. |
+| TD-047 | Heartbeats come only from handler steps. Nothing beats during a provider call, so a task type's timeout must cover its longest call. | Spec section 5 (M2 notes); M2.10 Evidence; M3.4 | medium: a long call can be marked interrupted by the watchdog | M3.4 set `extract_cv`'s timeout (a long Thorough call) with no heartbeat during the call (TD-175). Or add a heartbeat hook. |
 | TD-048 | The SDK waits about 5 s after closing stdin before it stops a CLI that ignores it. A cancel of such a call takes about 5 s. A shorter cancel needs private SDK APIs. | M2.13 Evidence | low: slow cancel in a rare case | Re-check on SDK upgrades. |
 | TD-049 | A rate-limit frame whose `rate_limit_info` is not a dict raises `TypeError`. The call then ends as `NetworkUnavailable`. | ADR-078 known gap | low: wrong error type; nothing leaks | When touched. |
 | TD-050 | `FakeAIProvider.tool_calls` grows without bound in app mode, because a test pins that it is kept. | M2.16 Left (c) | low: memory in a testing-only path | When that test changes. |
@@ -109,6 +117,18 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-053 | The result link on a task row is an empty placeholder. Practice tasks store `practice:5` as `result_ref`, and no results table exists until M3. | M2.19 notes; M2.17 Evidence | low: nothing to open yet | M3 results work. |
 | TD-054 | The Claude provider reads the credential on the event loop before its first worker thread. ADR-063 says a separate task would track it, but none is recorded. (status unclear) | ADR-063 follow-up | low: a short block of the loop | Confirm whether a task exists. Otherwise fix when touched. |
 | TD-144 | `create_drafts_in` raises a raw `sqlite3.IntegrityError` for an unknown `cv_import_id`. M3.4 must handle "import removed while the task finishes". | M3.3 Left | medium: a raw database error could reach the task runner | M3.4: map it to a domain error and test it. |
+| TD-159 | A claim planted in the CV itself, for example in hidden text, becomes an unflagged draft because it is "in the CV". Drafts stay drafts, but "Confirm all from this import" would confirm it. | M3.4 Left (c); ADR-092 item 4 | high: an unsupported claim can be confirmed in one step | M3.5 shows the quote beside each draft. Decide with the user whether the batch confirm needs a quote review. |
+| TD-160 | The word-level check flags any rewording by the model, and PDF quirks beyond the normaliser can flag faithful quotes. Real PDFs have not been measured. | M3.4 Left (a); ADR-092 item 4 | medium: too many flags reduce trust in the flags | Measure on real CVs in the live run (TD-175), then decide the rule. |
+| TD-161 | The employer and title lookup in the CV is case-sensitive. An upper-case section header can flag a correct role. | M3.4; ADR-092 item 4 | low: false flags | Make the lookup case-insensitive, with a test. |
+| TD-162 | The schema caps units at 200. A very long CV could lose units past the cap with no message. | M3.4; ADR-092 item 6 | medium: lost content with no warning | Check on a long CV in the live run (TD-175). Then decide: refuse, or warn. |
+| TD-163 | A null end date means both "current" and "not stated", so the two cannot be told apart. | M3.4; ADR-092 item 5 | low: a role may show as current | Decide whether "not stated" needs its own value. |
+| TD-164 | A role that no unit names is dropped and not stored. | M3.4; ADR-092 item 5 | low: a role from the CV can be missing from the library | Decide whether roles without units are stored. |
+| TD-165 | `EXTRACT_CV_TIER` duplicates the default tier written in the prompt. The two can diverge once per-task tiers arrive. | M3.4 | low: a tier change in one place only | M9, with the per-task tier list (ADR-089 item 9). |
+| TD-166 | The start check and the enqueue run in separate transactions. A task enqueued after the import changed fails cleanly, but the start is not atomic. | M3.4 | low: a rare late failure | Accept, or merge the two when the gate changes (see TD-058). |
+| TD-167 | A `FactInputInvalid` raised inside the completing write fails the whole import with a generic message. No test covers it. | M3.4 | medium: a bad draft ends the import with an unhelpful message | Add a test and map the message. |
+| TD-168 | Model text is stored without removing format or bidi characters. | M3.4; TD-029 | medium: misleading text in drafts | Strip before storage, with a test (see TD-029). |
+| TD-169 | With the fake provider, any CV produces the fictional "Alex Example" drafts. | M3.4 Left (e) | medium: drafts can be taken for the user's facts until the label is shown | M3.5 shows the Practice data label (TD-044). |
+| TD-170 | Import ids are checked with `is_task_id`, the task-id check. | M3.4 | low: a change to task ids would change import ids too | Give import ids their own check. |
 
 ## 6. Usage and budgets
 
@@ -126,6 +146,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-064 | Web-search budget questions are open: whether web search has tiers at all; a "who pays" sentence (needs the provider's billing confirmed); deriving warnings and the blocking point from one number; showing the budget on Done. | M2.25 Left (3) | low: product and copy decisions | Decide with the user before M8. |
 | TD-065 | Usage panel display issues: the breakdown's sideways scroll resets on refresh; a month count from an earlier cycle without a reset time stays in the list; a steady event stream delays the refresh until one quiet second. | M2.23 Known limits | low: small display issues | When the panel is next changed. |
 | TD-066 | Testing tools does not refresh when a practice run reaches the blocking point. A refresh drops the "Practice task started." line. "Change limits" closes the dialog during an in-flight Continue. | M2.24 Known limits | low: stale panel until a reload | When the panel is next changed. |
+| TD-171 | Retry from the task panel re-runs the call without the budget gate, so no warning dialog appears. Hard blocks still apply. A one-off Fast run that is retried stays on Fast. This is the first paid task with this gap. | M3.4 Left (b) | medium: a paid call can run without the warning the user saw before | Decision needed from the user: route Retry through the gate, or accept. Record the answer in a new ADR. |
 
 ## 7. Setup guide and UI
 
@@ -178,6 +199,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-145 | `# pragma: no cover` marks the unreachable conflict branch in `facts.py::_save`. | M3.3 | low: a branch hidden from coverage | Test the branch, or justify the pragma. |
 | TD-146 | The docstring of `tests/integration/test_fact_service.py` still shows the removed `create(..., source=)` parameter. | M3.3 | low: a misleading example | Fix the docstring. |
 | TD-147 | The fake-CLI subprocess tests (`test_claude_fake_cli.py`, `test_claude_cancel_subprocess.py`) can stall the full suite under heavy machine load. One orphaned fake-CLI process was left behind. Both pass when run alone. | M3.3 Left | medium: full runs can hang and leave processes behind | Investigate the stall. Changing a timeout in these tests needs your approval. |
+| TD-172 | The kill tests do not cover a kill during the parser child. | M3.4 | low: a kill at that point is untested | Add a kill test during the parse. |
+| TD-173 | Each import test spawns parser children and starts the app. The fast suite now takes about 5 minutes. | M3.4 Evidence | medium: every run is slow | Decide how to run the slow import tests. A separate marker changes the test gates and needs your approval. |
 
 ## 9. Tooling and docs
 
@@ -194,6 +217,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-114 | `m1_registry` was not renamed. Fourteen test modules import it. | ADR-087 item 4 | low: the name does not match its content | When the next registry test changes. |
 | TD-148 | Spec 2.11 has no rows for the four fact errors: `FactNotFound`, `FactTransitionRefused`, `SkillAliasTaken` and `FactInputInvalid`. | M3.3 Left | medium: spec and code disagree on error copy | M3.10. |
 | TD-149 | The four fact errors have no HTTP mapping yet, so no page can show a friendly message for them. | M3.3 Left | medium: a route would have no copy for these errors | M3.5 and M3.6. |
+| TD-174 | Spec 2.11 has no rows for the six new M3.4 errors: `CvTextTooLong`, `NothingExtracted`, `CvImportNotFound`, `CvImportBusy`, `CvImportAlreadyDone` and `ProviderNotConfigured`. | M3.4; ADR-092 Consequences | medium: spec and code disagree on error copy | M3.10. |
 
 ## 10. Platform
 
@@ -216,6 +240,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-124 | The M2 manual checklist is unticked: budget screens in light and dark at 390 and 360 px; the tasks panel; crash recovery with kill -9; the step 3 walk; demo from scratch. You accepted M2 without ticking it. | `docs/acceptance/M2.md` Manual checklist | medium: visual and UX checks are not recorded | You walk the checklist and record the results. |
 | TD-125 | The M1 manual checklist is unticked: the spec exit check with your own token (and an API key if you have one), and a visual check of Settings > Providers and the reopened guide in light, dark and phone width. | `docs/acceptance/M1.md` Manual checklist | medium: the exit check is not recorded | You walk it. |
 | TD-126 | The M2.22 security review ran one test from outside the repository, without `tests/conftest.py`: no in-memory keyring and no credential scrubbing. The app may have read the real keychain entry or credential variables. Nothing was stored or printed. | M2.22 Evidence; M2 acceptance | medium: a possible read of real credentials, not recorded as settled | Decide whether to repeat the run from inside the repository. |
+| TD-175 | The `extract_cv` schema and prompt are verified only against the fake and `jsonschema`. Not yet verified: structured-output support for if/then/else, anyOf and pattern; `MAX_TURNS = 2`; the output size near 60,000 characters; how often real PDFs get flagged; no heartbeat during the call (TD-047). | M3.4 Left (a) | high: a schema the real service rejects would fail every import | Run one opt-in live check with a fictional CV before M3 acceptance. |
 
 ## Checked and closed (not listed)
 
@@ -229,3 +254,4 @@ So that nobody re-opens them by mistake:
 - The M2.20 top-bar e2e test: stabilised by `assert_one_row` (commit c8c5a42).
 - The stream cap and the opt-in `data-events-url`: built in M2.18.
 - The "Keychain couldn't be read" copy for the environment fallback: built in M1.17.
+- Extraction running in a worker thread (TD-030, the M3.1 item): M3.4 runs it through the service.

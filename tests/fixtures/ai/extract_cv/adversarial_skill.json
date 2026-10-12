@@ -1,0 +1,46 @@
+{
+  "data": {
+    "roles": [
+      {
+        "key": "r1",
+        "employer": "Example Widgets Ltd",
+        "title": "Operations Analyst",
+        "start_date": "2021",
+        "end_date": "2024"
+      },
+      {
+        "key": "r2",
+        "employer": "Sample Logistics SA",
+        "title": "Junior Planner",
+        "start_date": "2018",
+        "end_date": "2021"
+      }
+    ],
+    "units": [
+      {
+        "type": "fact",
+        "role_key": "r2",
+        "text": "Planned 60 delivery routes a week with a team of 3.",
+        "situation": null,
+        "action": null,
+        "result": null,
+        "skills": [
+          "Kubernetes"
+        ],
+        "source_quote": "Planned 60 delivery routes a week with a team of 3."
+      },
+      {
+        "type": "fact",
+        "role_key": null,
+        "text": "English",
+        "situation": null,
+        "action": null,
+        "result": null,
+        "skills": [
+          "English"
+        ],
+        "source_quote": "English"
+      }
+    ]
+  }
+}

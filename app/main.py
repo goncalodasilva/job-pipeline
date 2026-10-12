@@ -30,6 +30,7 @@ from app.api.events import (
     TaskEvents,
     register_events,
 )
+from app.api.facts_import import register_fact_import_routes
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
@@ -57,6 +58,7 @@ from app.domain.redaction import Redactor
 from app.domain.settings import AI_PROVIDER, TASK_RUNNER, AIProviderSettings
 from app.domain.tasks import TaskChange, TaskStatus, TaskTypeSpec
 from app.modules.ai import ProviderHealth
+from app.modules.extract import extract_text, sniff_type
 from app.modules.storage import (
     MIGRATIONS_DIR,
     Database,
@@ -84,6 +86,13 @@ from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.budget_gate import BudgetGate
+from app.services.cv_import import (
+    EXTRACT_CV,
+    EXTRACT_CV_LABEL,
+    PARSE_TIMEOUT_SECONDS,
+    CvImportService,
+    sweep_orphan_imports,
+)
 from app.services.health import HealthService
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
@@ -95,6 +104,7 @@ from app.services.usage import UsageService
 from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
+from app.tasks.cv_import import cv_import_handler
 from app.tasks.practice import practice_handler
 from app.wiring import (
     TASK_TIMEOUT_FLOOR,
@@ -108,6 +118,11 @@ BACKUP_FOLDER = "backups"
 LOG_FOLDER = "logs"
 # Longer than one provider run plus its close, so a slow step is never taken for a hung task.
 PRACTICE_TIMEOUT = TASK_TIMEOUT_FLOOR + timedelta(minutes=1)
+# One Thorough call and its close, plus the task's one read of the stored file (the upload
+# route made the other), with twice its parse timeout as margin between beats.
+CV_IMPORT_TIMEOUT = (
+    TASK_TIMEOUT_FLOOR + timedelta(seconds=2 * PARSE_TIMEOUT_SECONDS) + timedelta(minutes=1)
+)
 
 
 @dataclass(frozen=True)
@@ -241,7 +256,9 @@ def _prepare_workspace(
 ) -> ProviderHealth:
     """Run when a workspace opens, before logging moves into it and before its task service
     is handed to the runner: clear leftover AI call folders, mark tasks a killed process left
-    running as interrupted (ADR-076 item 10), then check the provider (ADR-049, ADR-057)."""
+    running as interrupted (ADR-076 item 10), remove stored CV files no import names (M3.4:
+    the folder lock is held, the database is migrated and no upload can be stored yet), then
+    check the provider (ADR-049, ADR-057)."""
     try:
         clear_ai_temp(folder)
     except OSError as error:
@@ -251,6 +268,11 @@ def _prepare_workspace(
         TaskService(db, clock, ids, _task_listeners()).recover_interrupted()
     except sqlite3.Error as error:
         detail = f"can't recover tasks ({type(error).__name__})"
+        raise DataFolderUnavailable(detail=detail) from None
+    try:
+        sweep_orphan_imports(folder, db)
+    except sqlite3.Error as error:
+        detail = f"can't list imports ({type(error).__name__})"
         raise DataFolderUnavailable(detail=detail) from None
     return _check_provider(db, wiring=wiring, onboarding=onboarding, registry=registry, clock=clock)
 
@@ -490,6 +512,31 @@ def _practice(
     )
 
 
+def _cv_import(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> CvImportService:
+    """The CV import service (M3.4): like the practice service, it reads the open workspace
+    through the app's state at call time."""
+
+    def workspace() -> Workspace | None:
+        found: Workspace | None = getattr(app.state, "workspace", None)
+        return found
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db is not None else None
+
+    return CvImportService(
+        factory=wiring,
+        sniff_type=sniff_type,
+        extract_text=extract_text,
+        clock=clock,
+        ids=ids,
+        workspace=workspace,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None) if workspace() else None,
+        usage=_open_usage(app),
+    )
+
+
 def _task_labels(registry: HandlerRegistry) -> Callable[[str], str | None]:
     """The label of a registered task type; None for a type no handler is registered for."""
 
@@ -529,8 +576,8 @@ def create_app(
     stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1).
     ``data_folder_lock`` is the lock the CLI already holds on ``config.data_dir``; the
     lifespan's open reuses it instead of locking the folder again (ADR-072).
-    ``task_registry`` (default: the practice task while fakes are allowed, else empty;
-    either way ``app.state.task_registry``, refusing
+    ``task_registry`` (default: the CV import task, and the practice task while fakes are
+    allowed; either way ``app.state.task_registry``, refusing
     timeouts not longer than ``TASK_TIMEOUT_FLOOR``, one provider run plus its close) maps
     task types to their handlers; whenever a workspace opens, its task service
     (``app.state.task_service``, None before) is handed to the runner, and its usage service
@@ -758,6 +805,14 @@ def create_app(
         handlers.register(
             PRACTICE, TaskTypeSpec(PRACTICE_TIMEOUT, PRACTICE_LABEL), practice_handler(practice)
         )
+    cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.cv_import = cv_import
+    if task_registry is None:  # a real task type: with or without fakes
+        handlers.register(
+            EXTRACT_CV,
+            TaskTypeSpec(CV_IMPORT_TIMEOUT, EXTRACT_CV_LABEL),
+            cv_import_handler(cv_import),
+        )
     app.state.shutdown_signal = shutdown_signal
     app.state.task_events = task_events
     app.state.task_registry = handlers
@@ -780,6 +835,7 @@ def create_app(
     register_settings_pages(app)
     register_usage_settings(app)
     register_task_routes(app)
+    register_fact_import_routes(app)
     register_setup_pages(app)
     register_events(
         app,

@@ -1,0 +1,59 @@
+{
+  "data": {
+    "roles": [
+      {
+        "key": "r1",
+        "employer": "Example Widgets Ltd",
+        "title": "Operations Analyst",
+        "start_date": "2021",
+        "end_date": "2024"
+      },
+      {
+        "key": "r2",
+        "employer": "Sample Logistics SA",
+        "title": "Junior Planner",
+        "start_date": "2018",
+        "end_date": "2021"
+      },
+      {
+        "key": "r3",
+        "employer": "Imaginary Aerospace Corp",
+        "title": "Operations Lead",
+        "start_date": "2019",
+        "end_date": "2020"
+      }
+    ],
+    "units": [
+      {
+        "type": "fact",
+        "role_key": "r2",
+        "text": "Planned 60 delivery routes a week with a team of 3.",
+        "situation": null,
+        "action": null,
+        "result": null,
+        "skills": [],
+        "source_quote": "Planned 60 delivery routes a week with a team of 3."
+      },
+      {
+        "type": "fact",
+        "role_key": "r3",
+        "text": "Cut invoice processing time by 85% across 14 warehouses at Imaginary Aerospace Corp.",
+        "situation": null,
+        "action": null,
+        "result": null,
+        "skills": [],
+        "source_quote": "Cut invoice processing time by 35% across 4 warehouses."
+      },
+      {
+        "type": "fact",
+        "role_key": "r3",
+        "text": "Cut invoice processing time by 35% across 4 warehouses.",
+        "situation": null,
+        "action": null,
+        "result": null,
+        "skills": [],
+        "source_quote": "Cut invoice processing time by 35% across 4 warehouses."
+      }
+    ]
+  }
+}

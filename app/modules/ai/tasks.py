@@ -21,5 +21,10 @@ class TaskSpec:
 # are allowed. It generates no user-facing content and cites no facts.
 PRACTICE_SPEC: Final = TaskSpec("practice", kind="summary")
 
-# Real tasks arrive with their features (extract_cv in M3 and so on).
-TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({})
+# Real tasks arrive with their features. Each has a row in spec 3.6 and a folder in prompts/
+# (tests/unit/modules/ai/test_task_library.py keeps the three in step).
+_SPECS: Final = (
+    # M3.4: lists what a CV states; every item is stored as a draft (AC-M3.1).
+    TaskSpec("extract_cv", kind="extraction"),
+)
+TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})
