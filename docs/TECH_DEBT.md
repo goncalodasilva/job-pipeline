@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status as of 2026-10-11 (M0 to M3.2 and the M2 and M1 acceptance reports).
+Status as of 2026-10-12 (M0 to M3.3 and the M2 and M1 acceptance reports).
 
 ## What belongs here
 
@@ -40,21 +40,37 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 
 | ID | Item | Origin | Impact | When / fix |
 | --- | --- | --- | --- | --- |
-| TD-013 | Date CHECKs on `facts` accept impossible dates such as 2026-02-30. The domain date validator is not written yet. | M3.2; ADR-090 Consequences | medium: bad dates can be stored by any path that skips the domain | M3.3: validate in the domain before any write. |
-| TD-014 | Alias collisions for skills (JSON `aliases`) and JSON `tags` cannot be enforced in SQL. The service has to check them. | M3.2; ADR-090 item 9 | medium: duplicate skills can slip in through another path | M3.3: service check with tests. |
-| TD-015 | `roles` has no `cv_import_id`. Removing an import leaves its draft roles behind as orphans. | M3.2 Left (c) | medium: orphan draft roles in the library | M3.3, or a new migration when roles are cleaned up. |
+| TD-013 | Date CHECKs on `facts` accept impossible dates such as 2026-02-30. The domain now refuses impossible months and days (M3.3), but the database CHECKs still accept them. | M3.2; ADR-090 Consequences; M3.3 | medium: only a path that skips the domain can store bad dates | Tighten the CHECKs in a later migration. Committed migrations are never edited. |
+| TD-014 | Alias collisions for skills (JSON `aliases`) cannot be enforced in SQL. The service checks them (M3.3). The service does not check JSON `tags`. (status unclear: whether tags need a check) | M3.2; ADR-090 item 9; M3.3 | low: a duplicate can enter only through a path that skips the service | Decide whether tags need a check, and record it in a new ADR if so. |
+| TD-015 | `roles` has no `cv_import_id`. Removing an import leaves its draft roles behind as orphans. | M3.2 Left (c) | medium: orphan draft roles in the library | Not done in M3.3 (see TD-131). Needs a new migration or a cleanup rule. |
 | TD-016 | `cv_imports` has no failure reason, file size or `failed` state. The failure text comes from the task row instead. | M3.2 Left (b) | low: the task row carries the reason | When the failed-import view needs more (M3.5). |
 | TD-017 | No `source_quote` column. The CV quote of an imported unit is stored in `original_answer`. | M3.2 Left (d); ADR-090 item 8 | low: a misnamed field is easy to misuse | Add the column in a later migration when M3.4 needs it. |
 | TD-018 | `needs_check` is a flag with no reason stored. | M3.2 Left (d) | low: the reason exists only in the check output | M3.8. |
 | TD-019 | `refine_sessions` has no link to the accepted version. | M3.2 (design) | low: weaker trail from a refinement to the saved version | M3.8. |
 | TD-020 | `cv_imports.task_id` and `refine_sessions.task_id` are not indexed. | M3.2 | low: slower lookups as data grows | When the lookup code needs it (M3.4). |
-| TD-021 | The FTS5 index has no stemming, so "manage" does not match "managed". | M3.2 | low: search recall | Decide in M3.3 or later. |
-| TD-022 | Duplicate inserts on the three guarded tables fail with the guard's message, not "UNIQUE constraint failed". | M3.2; ADR-090 Consequences | low: the service must match error types, not text | M3.3. |
+| TD-021 | The FTS5 index has no stemming, so "manage" does not match "managed". | M3.2 | low: search recall | Decide with the user (see TD-127). |
 | TD-023 | `word_diff` yields whitespace-only segments. The M3.6 diff must hide or label them. | M3.2 | low: display only | M3.6. |
 | TD-024 | `fact_events` has no sequence column. History is ordered by `created_at, rowid`. | M3.2; ADR-090 item 3 | low: ties within one timestamp rely on rowid | When history order matters more (M3.6). |
 | TD-025 | `budget_notices.cycle_start` has a format-only CHECK that accepts 2026-02-30. The only writer builds real dates. | M2.5 (ADR-078 update) | low: the only writer is correct | Tighten with a later migration. Committed migrations are never edited. |
 | TD-026 | One shared SQLite connection, with an RLock so threads take turns. | ADR-038 | low: no contention reported | Revisit with per-thread connections if contention appears. |
 | TD-027 | `Database` has no read-only open for test helpers. | M2.26 Known limits | low: helpers open the app database for writing | When a test helper needs it. |
+| TD-127 | Search matches whole words only. There is no prefix matching and no stemming: "forecast" does not find "forecasting", and "manage" does not find "managed" (see TD-021). | M3.3 Left (a) | medium: library search misses common word forms | Decide the matching rule with the user. The library search box arrives in M3.5. |
+| TD-128 | The search tokenizer drops punctuation, so "C++" and "c#" match any "c". | M3.3 | low: wrong hits for short technical skill names | Decide how symbol-only names are indexed. |
+| TD-129 | Skill aliases are not in the search index. Searching an alias finds nothing; only canonical names are matched. | M3.3 | low: a common alternative spelling does not find its facts | Decide together with TD-127. |
+| TD-130 | `start_date` after `end_date` is accepted for roles and facts. | M3.3 | medium: a timeline can show a role that ends before it starts | Add the check in the domain. A database CHECK needs a later migration. |
+| TD-131 | Draft roles are orphaned when their drafts are discarded or merged away. They stay listed by `RoleService.list`. | M3.3 Left (e); TD-015 | medium: unused roles clutter the library | Decide the cleanup rule. Link roles to their import (TD-015). |
+| TD-132 | No role edit or rename. A role's title or employer cannot be changed once it exists. | M3.3 | low: a wrong role name stays until a screen can change it | Decide when role editing arrives. |
+| TD-133 | Draft roles are not matched against existing roles with the same employer and title. A new import can add a duplicate role. | M3.3 Left (e) | low: duplicate roles in the library | Decide whether the near-duplicate check (M3.7) covers roles. |
+| TD-134 | `resolve_skills` reads the whole skill list again for each draft, inside the import transaction. | M3.3 Left | low: slower imports with many skills | Read the list once per import, when the import path is next changed (M3.4). |
+| TD-135 | `LibraryQuery.page_size` has no upper bound. A blank `role_id` or `skill_id` filter is used as a literal value, not ignored. | M3.3 Left | low: unbounded page size; blank filters are literal text | Cap the page size and decide how blank filters behave, with the library route (M3.5). |
+| TD-136 | The library makes three small reads per item: the view, its skills and its origin. | M3.3 Left | low: slower library pages as the bank grows | Batch the reads when the library is slow (M3.5). |
+| TD-137 | `confirm_import` with an empty mapping returns `()` without an error. | M3.3 Left | low: a caller gets no signal that nothing happened | Decide whether an empty mapping is refused. |
+| TD-138 | A stale flagged draft in a batch raises `VersionConflict` for the whole batch. The rule is decided (ADR-091 item 3), but no test pins it. | M3.3; ADR-091 item 3 | low: a future change could alter the rule unnoticed | Add a test that pins the rule. |
+| TD-139 | Two merges that settle on identical wording can be undone in either order. After one undo, the other undo may be refused. | M3.3 Left | low: a refused undo in a rare case | Decide the undo rule with the user. |
+| TD-140 | Undoing a merge into a target that has since been discarded appends a version to a discarded fact. | M3.3 | low: an odd version on a fact that is no longer active | Decide whether such an undo is refused. |
+| TD-141 | `display_skill` drops zero-width joiners, which changes some Persian and Indic spellings. | M3.3 | low: some skill names display with the wrong spelling | Keep joiners in display text, with a test. |
+| TD-142 | `fts_query` keeps format characters, such as a zero-width space, inside a term. | M3.3 | low: an invisible character can stop a match | Decide and fix with a test. |
+| TD-143 | Service reads through `Database.read()` must not run inside an open write transaction on the same `Database`. Nothing enforces this. | M3.3 | medium: a caller that breaks the rule gets no warning | Enforce it, or document it at the database module. |
 
 ## 4. Extraction and uploads
 
@@ -92,6 +108,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-052 | Bursts of task events larger than a stream's queue end healthy streams, which then reconnect and resync. Coalescing is not built. | M2.18 Evidence (not done) | low: extra reconnects during bursts | When bursts are seen in use. |
 | TD-053 | The result link on a task row is an empty placeholder. Practice tasks store `practice:5` as `result_ref`, and no results table exists until M3. | M2.19 notes; M2.17 Evidence | low: nothing to open yet | M3 results work. |
 | TD-054 | The Claude provider reads the credential on the event loop before its first worker thread. ADR-063 says a separate task would track it, but none is recorded. (status unclear) | ADR-063 follow-up | low: a short block of the loop | Confirm whether a task exists. Otherwise fix when touched. |
+| TD-144 | `create_drafts_in` raises a raw `sqlite3.IntegrityError` for an unknown `cv_import_id`. M3.4 must handle "import removed while the task finishes". | M3.3 Left | medium: a raw database error could reach the task runner | M3.4: map it to a domain error and test it. |
 
 ## 6. Usage and budgets
 
@@ -158,6 +175,9 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-103 | `SdkRecordFilter` is added to pytest's shared caplog handler and is not removed at teardown. | M1.23 Left | low: test-order effects | When touched. |
 | TD-104 | The real-subprocess fake-CLI stderr variant is not covered. A Windows-only skip would be needed, which needs your approval. The stderr path is covered through the replay transport. | M1.23 Left | low: a narrow gap | Needs your approval. Likely stays while Windows is suspended. |
 | TD-105 | Test changes await your confirmation: the M2.18 paused clocks and 120 s checks in `test_events_reader.py`; the M2.23 to M2.25 changes (the Continue press in the warning test, the `finish` helper, the step 3 expectations). Two M2.23 e2e tests were written after the code they check. | M2.18; M2.23 to M2.25 Evidence; M2 acceptance Test changes | low: tests may not prove what they seem to | Confirm each change with the user. |
+| TD-145 | `# pragma: no cover` marks the unreachable conflict branch in `facts.py::_save`. | M3.3 | low: a branch hidden from coverage | Test the branch, or justify the pragma. |
+| TD-146 | The docstring of `tests/integration/test_fact_service.py` still shows the removed `create(..., source=)` parameter. | M3.3 | low: a misleading example | Fix the docstring. |
+| TD-147 | The fake-CLI subprocess tests (`test_claude_fake_cli.py`, `test_claude_cancel_subprocess.py`) can stall the full suite under heavy machine load. One orphaned fake-CLI process was left behind. Both pass when run alone. | M3.3 Left | medium: full runs can hang and leave processes behind | Investigate the stall. Changing a timeout in these tests needs your approval. |
 
 ## 9. Tooling and docs
 
@@ -172,6 +192,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-112 | AC-M2.10 says "provider" where ADR-076 item 4 says "service". | M2.27 Left (2) | low: wording | Next spec pass. |
 | TD-113 | Stale pointers: ADR-064 has no pointer to ADR-087. ADR-041 names `app/render.py`, which ADR-044 corrects to `app/api/templating.render`. | M2.27 Left (2); ADR-044 docs note | low: misleading references | Add the pointers in a new ADR or the next docs pass. Old ADRs are not rewritten. |
 | TD-114 | `m1_registry` was not renamed. Fourteen test modules import it. | ADR-087 item 4 | low: the name does not match its content | When the next registry test changes. |
+| TD-148 | Spec 2.11 has no rows for the four fact errors: `FactNotFound`, `FactTransitionRefused`, `SkillAliasTaken` and `FactInputInvalid`. | M3.3 Left | medium: spec and code disagree on error copy | M3.10. |
+| TD-149 | The four fact errors have no HTTP mapping yet, so no page can show a friendly message for them. | M3.3 Left | medium: a route would have no copy for these errors | M3.5 and M3.6. |
 
 ## 10. Platform
 

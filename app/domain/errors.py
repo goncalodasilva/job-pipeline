@@ -293,6 +293,47 @@ class StepNotSkippable(AppError):
     message = "This step is needed, so it can't be skipped."
 
 
+class FactNotFound(AppError):
+    """The id names no fact, role or skill."""
+
+    kind = "FactNotFound"
+    message = "This item wasn't found. Reload the page and try again."
+
+
+class FactTransitionRefused(AppError):
+    """A status change the fact lifecycle doesn't allow (spec 3.2)."""
+
+    kind = "FactTransitionRefused"
+    message = (
+        "This can't be done to this fact in its current state. Reload to see the latest version."
+    )
+
+
+class FactInputInvalid(AppError):
+    """What the user typed can't be saved. ``field`` names the form field it belongs to and
+    ``message`` says what to change; without one it reads as the class message, which is also
+    what a stored kind maps back to."""
+
+    kind = "FactInputInvalid"
+    message = "This can't be saved as it is. Check what you typed and try again."
+
+    def __init__(
+        self, field: str = "", message: str | None = None, *, detail: str | None = None
+    ) -> None:
+        self.field = field
+        self._message = message
+        super().__init__(detail=detail)
+
+    @property
+    def user_message(self) -> str:
+        return self._message if self._message is not None else self.message
+
+
+class SkillAliasTaken(AppError):
+    kind = "SkillAliasTaken"
+    message = "Another skill already uses this name. Choose a different name."
+
+
 BUDGET_MESSAGE = (
     "A monthly usage limit was reached. Open Settings > Usage budgets to see when it resets."
 )

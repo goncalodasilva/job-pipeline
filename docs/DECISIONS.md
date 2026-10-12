@@ -895,3 +895,16 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   12. The lifecycle adds Discarded→Draft (undo) to the design diagram, per the plan.
   13. Text line endings are normalised (`clean_part`) before comparing and storing.
 - Consequences: there is no erase path for fact text yet. One would need a later migration that drops the append-only triggers and keeps the `facts` row so numbers are not reused. M3.3 must assign `number` inside the write transaction, must not match on UNIQUE message text for the three guarded tables, and must make merge undo append a version.
+
+## ADR-091 — Needs-check is kept until the user confirms the draft; provenance through edits and merges (M3.3) (2026-10-11)
+
+- Context: code review of M3.3 found that a trivial edit or a merge removed the `needs_check` flag and the AI or fake label from a draft. That breaks golden rule 1 and ADR-089 items 5 and 8. The user was asked and chose "Keep until confirmed".
+- Decision: the user chose "Keep until confirmed" on 2026-10-11. The M3.3 implementation follows these rules:
+  1. A plain edit of a draft carries `needs_check` from its previous current version.
+  2. Confirming one draft (confirm, or edit then confirm) is the user's own check. `FactView.needs_check` is true only for a draft whose current version is flagged. Version rows are append-only and may keep the flag.
+  3. "Confirm all from this import" (`confirm_import`) skips flagged drafts and returns only what it confirmed. Each flagged draft needs an individual confirm. A stale listed draft still raises `VersionConflict` for the whole batch.
+  4. A merge into a flagged draft target leaves the target flagged, whatever wording is settled on.
+  5. A merge whose settled wording is taken as it stands from the target or the draft copies that version's provider, model, prompt id and version (the target's when both match). Wording the user wrote carries none.
+  6. `FactView.origin_provider` and `FactView.origin_model` come from the fact's earliest AI-made version, so the "Practice data (fake provider)" label survives edits and confirmation.
+  7. Merge undo compares wording, not version ids. It appends a `merge_undo` version that copies the earlier version's provenance. It keeps merge-added skills if the user saved the details after the merge.
+- Consequences: M3.5 must show that flagged drafts were skipped by the batch button and offer the individual confirm. The re-check-on-edit option (re-running the mechanical check against the CV text) was not chosen. It could be revisited in M3.8, when `app/domain/honesty.py` exists. Open items from this task are in `docs/TECH_DEBT.md` (TD-127 to TD-149).
