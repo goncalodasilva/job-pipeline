@@ -7,7 +7,7 @@ they return only the main-content fragment, which needs the token.
 
 Until each area is built, its page is a placeholder with an empty state (ADR-029). Settings
 has a page of its own (``app/api/settings.py``, M1.21), with a small empty state for its parts
-still to come.
+still to come, and so has the Fact bank (``app/api/facts.py``, M3.5).
 """
 
 from collections.abc import Callable
@@ -61,6 +61,7 @@ AREAS: tuple[Area, ...] = (
         "Fact bank",
         "The facts you confirm about your experience will live here. Every CV and letter "
         "is written only from them.",
+        placeholder=False,
     ),
     Area(
         "companies",

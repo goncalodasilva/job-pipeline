@@ -428,6 +428,29 @@ class FactService:
         """Edit a draft and confirm it in one step."""
         return self._edit(fact_id, data, expected_version, confirm=True)
 
+    def reword_and_confirm(
+        self, fact_id: str, wording: Mapping[str, str], *, expected_version: int
+    ) -> FactView:
+        """A draft's inline form: the parts ``wording`` names (``text``, ``situation``,
+        ``action``, ``result``) replace the draft's, and it is confirmed. Its other parts,
+        type, role, skills, tags and dates stay; unchanged wording adds no version. The
+        version check covers the read made here: a draft that changed in between is stale."""
+        current = self.get(fact_id)
+        content = current.content
+        data = FactInput(
+            type=current.type,
+            text=wording.get("text", content.text),
+            situation=wording.get("situation", content.situation),
+            action=wording.get("action", content.action),
+            result=wording.get("result", content.result),
+            role_id=current.role_id,
+            skills=current.skills,
+            tags=current.tags,
+            start_date=current.start_date,
+            end_date=current.end_date,
+        )
+        return self.edit_and_confirm(fact_id, data, expected_version=expected_version)
+
     def set_privacy(self, fact_id: str, privacy: Privacy, *, expected_version: int) -> FactView:
         wanted = Privacy(privacy).value
         now = self._now()

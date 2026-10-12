@@ -207,6 +207,87 @@
     if (from.querySelector("dialog[data-modal][open]")) event.preventDefault();
   });
 
+  // A part of the page where the user edits in place ([data-keep-edits]: the Fact bank's
+  // drafts, M3.5) and that fetches itself again when its content changed elsewhere is never
+  // replaced while the user is at work in it: an inline form is open (<details open>), focus
+  // is inside, or something in it would be lost for good ([data-holds-refresh]: the Undo of a
+  // discarded draft, which the refreshed list no longer has). Typing is never lost to a
+  // refresh. The refresh is dropped, both before
+  // it is asked for and, when work began while the answer was on its way, before it is
+  // swapped in; the part's own note ([data-stale-note], its words are in the template) is
+  // shown and said once instead. Answers to the forms inside target their own block, so
+  // they are never held back.
+  function keepsEdits(region, requester) {
+    if (!(region instanceof Element) || region !== requester) return false;
+    if (!region.hasAttribute("data-keep-edits")) return false;
+    var active = document.activeElement;
+    return region.querySelector("details[open], [data-holds-refresh]") !== null ||
+      (active instanceof Element && active !== region && region.contains(active));
+  }
+  function showStaleNote(region) {
+    var note = region.querySelector("[data-stale-note]");
+    if (!note || !note.hidden) return;
+    note.hidden = false;
+    announce(note.textContent.replace(/\s+/g, " ").trim());
+  }
+  document.body.addEventListener("htmx:beforeRequest", function (event) {
+    var detail = event.detail || {};
+    if (!keepsEdits(detail.target, detail.elt)) return;
+    event.preventDefault();
+    showStaleNote(detail.target);
+  });
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    var detail = event.detail || {};
+    var requester = detail.requestConfig ? detail.requestConfig.elt : null;
+    if (!detail.shouldSwap || !keepsEdits(detail.target, requester)) return;
+    detail.shouldSwap = false;
+    showStaleNote(detail.target);
+  });
+
+  // A form that confirms several drafts together ([data-skips-open-edits]: the Fact bank's
+  // "Confirm all from this import") never confirms one the user is rewording. Each of its
+  // fields that would confirm a draft names that draft's block (data-confirms); when the
+  // block's inline form is open with wording that differs from the saved one, the field is
+  // left out of the request, so the server leaves that draft as it is.
+  function editedInPlace(block) {
+    if (!block) return false;
+    var fields = block.querySelectorAll("details[open] textarea");
+    for (var i = 0; i < fields.length; i += 1) {
+      var saved = fields[i].getAttribute("data-saved");
+      if (fields[i].value !== (saved === null ? fields[i].defaultValue : saved)) return true;
+    }
+    return false;
+  }
+  document.body.addEventListener("htmx:configRequest", function (event) {
+    var detail = event.detail || {};
+    var form = detail.elt;
+    if (!(form instanceof Element) || !form.hasAttribute("data-skips-open-edits")) return;
+    form.querySelectorAll("input[data-confirms]").forEach(function (input) {
+      if (!editedInPlace(document.getElementById(input.getAttribute("data-confirms")))) return;
+      if (detail.formData && typeof detail.formData.delete === "function") {
+        detail.formData.delete(input.name);
+      }
+      if (detail.parameters) delete detail.parameters[input.name];
+    });
+  });
+
+  // A refused upload answers 400 or 413, which htmx treats as an error and doesn't show. A
+  // part of the page that shows its own refusals ([data-shows-refusals]: the CV import
+  // section) gets such an answer swapped in when it is HTML with something in it, so the
+  // reason appears with the form; an empty or plain-text refusal (the server's backstop)
+  // stays an error and the section stays as it is.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    var detail = event.detail || {};
+    var xhr = detail.xhr;
+    var target = detail.target;
+    if (!xhr || (xhr.status !== 400 && xhr.status !== 413)) return;
+    if (!(target instanceof Element) || !target.hasAttribute("data-shows-refusals")) return;
+    var type = (xhr.getResponseHeader("content-type") || "").toLowerCase();
+    if (type.indexOf("text/html") !== 0 || !(xhr.responseText || "").trim()) return;
+    detail.shouldSwap = true;
+    detail.isError = false;
+  });
+
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Tab") return;
     var dialog = openModal();
@@ -554,6 +635,9 @@
   // are remembered, and only a task that finished in the last 10 seconds is said (it may have
   // ended while the browser was going from one page to the next). "age" is the server's
   // count of whole seconds since the task finished.
+  // A page that shows a failure's reason itself says so in its own words: an element with
+  // data-announce-instead-of (the server's sentence) and data-announce-instead (what to say
+  // in its place; both written by the server) swaps the one for the other.
   var ANNOUNCED_KEY = "jobpipeline-tasks-announced";
   var ANNOUNCED_MAX = 50;
   var ANNOUNCE_RECENT_S = 10;
@@ -568,6 +652,16 @@
     announcedHere = storeKeys(ANNOUNCED_KEY, known.concat(keys).filter(function (key, index, all) {
       return all.indexOf(key) === index;
     }).slice(-ANNOUNCED_MAX));
+  }
+
+  function pageWords(message) {
+    var own = document.querySelectorAll("[data-announce-instead-of][data-announce-instead]");
+    for (var i = 0; i < own.length; i += 1) {
+      if (own[i].getAttribute("data-announce-instead-of") === message) {
+        return own[i].getAttribute("data-announce-instead") || message;
+      }
+    }
+    return message;
   }
 
   document.body.addEventListener("tasks:finished", function (event) {
@@ -585,7 +679,7 @@
     var said = fresh.filter(function (task) {
       return !first || (typeof task.age === "number" && task.age <= ANNOUNCE_RECENT_S);
     });
-    if (said.length) announce(said.map(function (task) { return task.message; }).join(" "));
+    if (said.length) announce(said.map(function (task) { return pageWords(task.message); }).join(" "));
   });
 
   // Live updates (ADR-076 item 1, ADR-077): the server streams events at the URL in

@@ -27,6 +27,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-007 | No `script-src 'self'` Content-Security-Policy. The policy only sets frame-ancestors. | ADR-077 (out of scope) | low: wider hardening idea | Decide in a later security pass. |
 | TD-008 | The snapshot `window` field accepts any string of the form `[A-Za-z0-9_.:-]{1,64}`. An allow-list per provider would close this. | ADR-088 item 6; M2.26 Known limits | low: Claude windows come from a fixed list, but a future provider could store odd text | When the next provider is added. |
 | TD-009 | `ANTHROPIC_AUTH_TOKEN` is blanked for SDK calls but is not registered with the redactor. The decision on registering it was left open. (status unclear: no decision found) | ADR-047 follow-up; M1.23 | low: the value could reach a log only if a library echoes it | Decide and record in a new ADR. |
+| TD-176 | Fact ids are not shape-checked before use in element ids and URLs. Import ids are checked; fact ids are not. | M3.5 | low: a malformed id reaches element ids and URLs unchecked | Add a fact-id shape check with a test. |
 
 ## 2. Privacy and stored data
 
@@ -74,6 +75,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-142 | `fts_query` keeps format characters, such as a zero-width space, inside a term. | M3.3 | low: an invisible character can stop a match | Decide and fix with a test. |
 | TD-143 | Service reads through `Database.read()` must not run inside an open write transaction on the same `Database`. Nothing enforces this. | M3.3 | medium: a caller that breaks the rule gets no warning | Enforce it, or document it at the database module. |
 | TD-152 | Removing an import keeps its draft roles, so they stay in the library. This is TD-015 seen from the remove route. | M3.4; TD-015 | medium: orphan draft roles after a remove | Decide the cleanup rule with TD-015 and TD-131. |
+| TD-177 | Drafts and library views read with N+1 queries, and each draft action re-reads every draft. | M3.5 review | low: slower pages and actions as the bank grows | Batch the reads and read only what an action touches. Same work as TD-136. |
+| TD-178 | `tasks_repo.get_latest` has no index on `dedupe_key` beyond the partial active one. | M3.5 | low: the latest-task lookup slows as the task table grows | Add the index in a later migration when the lookup is slow. Committed migrations are never edited. |
 
 ## 4. Extraction and uploads
 
@@ -98,7 +101,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-155 | A hand-edited `cv_imports` row with a stored name that is not generated leaves its file unmanaged. No sweep or remove touches it. | M3.4 | low: only a manual database edit causes it | Accept, or handle it with a test. |
 | TD-156 | `app.modules.extract` is not provider-free, so services cannot import it. `sniff_type` and `extract_text` are injected from `app/main.py`. | M3.4; ADR-092 item 7 | low: more wiring than a direct import | Revisit if the extract module gets a provider-free interface. |
 | TD-157 | `ExtractText` is an alias that loses the kind's type. | M3.4 | low: weaker type checking at the injected seam | When touched. |
-| TD-158 | Kept uploads can be listed through `CvImportService.imports()`, but no screen lists them yet. | M3.4; ADR-092 Consequences | medium: a kept upload has no way to be started or removed from the UI | M3.5 screen, with Start and Remove. |
+| TD-179 | Other routes (`setup.py`, `settings_usage.py` and the draft actions) still answer an oversized form with an empty HTML 413. ADR-092 item 11 covers only the import routes. | M3.5 review | low: no message for an oversized form on those routes | Give these routes the plain-text 413 with a test. |
+| TD-180 | "File and text together" is recognised by a detail constant on `UploadNotAccepted`, not by its own error. | M3.5 | low: a change to the constant changes which message shows | Give it its own error when the upload code is next changed. |
 
 ## 5. AI provider and tasks
 
@@ -147,6 +151,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-065 | Usage panel display issues: the breakdown's sideways scroll resets on refresh; a month count from an earlier cycle without a reset time stays in the list; a steady event stream delays the refresh until one quiet second. | M2.23 Known limits | low: small display issues | When the panel is next changed. |
 | TD-066 | Testing tools does not refresh when a practice run reaches the blocking point. A refresh drops the "Practice task started." line. "Change limits" closes the dialog during an in-flight Continue. | M2.24 Known limits | low: stale panel until a reload | When the panel is next changed. |
 | TD-171 | Retry from the task panel re-runs the call without the budget gate, so no warning dialog appears. Hard blocks still apply. A one-off Fast run that is retried stays on Fast. This is the first paid task with this gap. | M3.4 Left (b) | medium: a paid call can run without the warning the user saw before | Decision needed from the user: route Retry through the gate, or accept. Record the answer in a new ADR. |
+| TD-181 | The Import button is not blocked at a known budget block. The block shows only after the upload is kept and the start is refused. | M3.5 | low: the user uploads before seeing the block | Pre-block the button, as the M2.24 blocked actions are. |
 
 ## 7. Setup guide and UI
 
@@ -173,6 +178,20 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-085 | Desktop sidebar collapse, sticky sidebar and density toggle are not built. (status unclear: recorded at M0, not re-checked) | M0 acceptance follow-ups; ADR-042 | low: UI polish | Decide in M9 polish. |
 | TD-086 | Budget UX ideas not built: collapsing each service's form (34 tab stops on Settings), moving the usage section, thousands separators, threshold marks on the meter, `<meter>` instead of `<progress>`. The user asked for less attention to budgets, so these are low priority. | M2.22; M2.23 | low: UX ideas | Decide in M9 polish, or on request. |
 | TD-087 | The Anthropic terms link on the provider step points to a URL that is in the code, but no approval of the URL or the wording is recorded. (status unclear) | ADR-044 item 14; M1.17 | low: an unapproved link and copy | Confirm the URL and wording with the user. |
+| TD-182 | A running import can be cancelled only from the Tasks panel, not from the import section. | M3.5 Left (e) | low: no cancel where the import is shown | Decide whether the section needs its own Cancel. |
+| TD-183 | The Fact bank sidebar link shows no drafts count. The design has one; it is not in the M3.5 criteria. | M3.5 Left (f) | low: no sign of waiting drafts from other pages | Decide when the shell counts are next changed. |
+| TD-184 | Draft cards are tall: 40 drafts take about 9,000 px on a phone. | M3.5 UX review | low: long scrolling on a phone | A compact layout is open. Decide with the UX reviewer. |
+| TD-185 | A skill-only fact shows its text and the same skill chip, so the same word appears twice. | M3.5 UX review | low: repeated text on a card | Hide one of them. |
+| TD-186 | The stale note sits at the top of the drafts region, away from the drafts the user may be editing. | M3.5 | low: the note can be missed | Decide where it goes with the UX reviewer. |
+| TD-187 | The `InvalidModelOutput` failure copy is jargon ("expected shape"). | M3.5 UX review | low: confusing message after a failed import | Write plain copy and review it with the user. |
+| TD-188 | A 409 on a single draft replaces its block with only the reload prompt, so the draft is not shown until the page reloads. | M3.5 | low: the draft is hidden until reload | Keep the block and add the prompt. |
+| TD-189 | A plain (no-script) 409 or 404 on a draft action gives a text page. | M3.5 | low: plain text instead of the page | Decide the no-script path with TD-077. |
+| TD-190 | Plain form posts can't send the launch token, so the no-script paths of the draft actions are reached only by tests. | M3.5; ADR-093 item 1 | low: the no-script paths are untested in a browser | Decide the no-script path with TD-077. |
+| TD-191 | After a batch confirms every draft, the group's empty list stays until reload. The empty state is not axe-scanned. | M3.5 | low: an empty state that is not checked for accessibility | Refresh the group after a batch, and scan the state. |
+| TD-192 | "Confirm all" skips a draft that is being reworded, but the result sentence does not say so. | M3.5; ADR-093 item 4 | low: the user may not know a draft was skipped | Add it to the sentence, with a test. |
+| TD-193 | The status filter always sends `status=confirmed` in pushed URLs. | M3.5 | low: the address does not match the filter on screen | Send the filter the user chose. |
+| TD-194 | A dropped region refresh also drops the out-of-band tab count. | M3.5 | low: the Drafts count can be stale until reload | Keep the count in the refresh. |
+| TD-195 | A discarded draft can't be restored after leaving the page, because Undo lasts only on the page. | M3.5 Left (c); ADR-093 Consequences | medium: the user cannot undo a discard after leaving the page | M3.6 adds a restore path. |
 
 ## 8. Tests and CI
 
@@ -201,6 +220,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-147 | The fake-CLI subprocess tests (`test_claude_fake_cli.py`, `test_claude_cancel_subprocess.py`) can stall the full suite under heavy machine load. One orphaned fake-CLI process was left behind. Both pass when run alone. | M3.3 Left | medium: full runs can hang and leave processes behind | Investigate the stall. Changing a timeout in these tests needs your approval. |
 | TD-172 | The kill tests do not cover a kill during the parser child. | M3.4 | low: a kill at that point is untested | Add a kill test during the parse. |
 | TD-173 | Each import test spawns parser children and starts the app. The fast suite now takes about 5 minutes. | M3.4 Evidence | medium: every run is slow | Decide how to run the slow import tests. A separate marker changes the test gates and needs your approval. |
+| TD-196 | The `data-shows-refusals` non-empty-body guard and the announce-replacement attributes in `app/static/js/app.js` have no direct test. | M3.5 | low: a change to either could pass the suite | Add direct tests. |
 
 ## 9. Tooling and docs
 
@@ -218,6 +238,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-148 | Spec 2.11 has no rows for the four fact errors: `FactNotFound`, `FactTransitionRefused`, `SkillAliasTaken` and `FactInputInvalid`. | M3.3 Left | medium: spec and code disagree on error copy | M3.10. |
 | TD-149 | The four fact errors have no HTTP mapping yet, so no page can show a friendly message for them. | M3.3 Left | medium: a route would have no copy for these errors | M3.5 and M3.6. |
 | TD-174 | Spec 2.11 has no rows for the six new M3.4 errors: `CvTextTooLong`, `NothingExtracted`, `CvImportNotFound`, `CvImportBusy`, `CvImportAlreadyDone` and `ProviderNotConfigured`. | M3.4; ADR-092 Consequences | medium: spec and code disagree on error copy | M3.10. |
+| TD-197 | `app/api/facts.py` imports the `Form` type from `app.onboarding.registry`. | M3.5 | low: an API module depends on onboarding code for a type | Move the type to a neutral place when it is next touched. |
+| TD-198 | Spec 2.9 rules 11 and 12 and spec 2.10 wait for their lines: no-store on every non-static response, and access logs without query strings (ADR-093). | ADR-093 Consequences | medium: spec and code disagree | M3.10. |
 
 ## 10. Platform
 
@@ -241,6 +263,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-125 | The M1 manual checklist is unticked: the spec exit check with your own token (and an API key if you have one), and a visual check of Settings > Providers and the reopened guide in light, dark and phone width. | `docs/acceptance/M1.md` Manual checklist | medium: the exit check is not recorded | You walk it. |
 | TD-126 | The M2.22 security review ran one test from outside the repository, without `tests/conftest.py`: no in-memory keyring and no credential scrubbing. The app may have read the real keychain entry or credential variables. Nothing was stored or printed. | M2.22 Evidence; M2 acceptance | medium: a possible read of real credentials, not recorded as settled | Decide whether to repeat the run from inside the repository. |
 | TD-175 | The `extract_cv` schema and prompt are verified only against the fake and `jsonschema`. Not yet verified: structured-output support for if/then/else, anyOf and pattern; `MAX_TURNS = 2`; the output size near 60,000 characters; how often real PDFs get flagged; no heartbeat during the call (TD-047). | M3.4 Left (a) | high: a schema the real service rejects would fail every import | Run one opt-in live check with a fictional CV before M3 acceptance. |
+| TD-199 | The budget dialog on the Fact bank page is tested through routes but not walked in a browser. | M3.5 Left (g) | medium: the paid-call warning on this page is not seen in a browser | Walk it in a browser at the checkpoint or before M3 acceptance. |
 
 ## Checked and closed (not listed)
 

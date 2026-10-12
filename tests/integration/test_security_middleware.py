@@ -645,3 +645,44 @@ def test_page_responses_are_never_cached(harness: Harness) -> None:
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_fragment_action_and_api_responses_are_never_cached(harness: Harness) -> None:
+    """Fragments and answers hold the user's own text, so no cache may keep them either."""
+    served = {
+        "fragment": harness.client.get(
+            "/fragments/demo", headers={TOKEN_HEADER: harness.token, "HX-Request": "true"}
+        ),
+        "action": harness.client.post("/actions/demo", headers=harness.headers()),
+        "api": harness.client.get("/api/demo", headers={TOKEN_HEADER: harness.token}),
+        "health": harness.client.get("/health"),
+        "not found": harness.client.get("/no-such-route", headers={TOKEN_HEADER: harness.token}),
+    }
+    for name, response in served.items():
+        assert response.status_code in (200, 404), (name, response.status_code)
+        assert response.headers.get_list("cache-control") == ["no-store"], name
+    assert harness.hits["fragment"] == harness.hits["action"] == harness.hits["api"] == 1
+
+
+def test_rejections_are_never_cached(harness: Harness) -> None:
+    rejected = {
+        "bad host": harness.client.get(PAGE_PATH, headers={"host": "evil.example"}),
+        "no token": harness.client.get("/fragments/demo"),
+        "other origin": harness.client.post(
+            "/actions/demo", headers=harness.headers(origin="http://evil.example")
+        ),
+    }
+    for name, response in rejected.items():
+        assert response.status_code in (400, 403), (name, response.status_code)
+        assert response.headers.get_list("cache-control") == ["no-store"], name
+    assert not harness.hits
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_static_files_are_not_marked_no_store(harness: Harness, method: str) -> None:
+    """Static files hold nothing of the user's and may be cached."""
+    response = harness.client.request(method, STATIC_PATH)
+
+    assert response.status_code == 200
+    assert "no-store" not in response.headers.get("cache-control", "")
+    assert response.headers["x-content-type-options"] == "nosniff", "the other headers stay"

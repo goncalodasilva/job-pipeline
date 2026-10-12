@@ -16,13 +16,19 @@ _DEFAULT_STATUSES = (FactStatus.CONFIRMED,)
 _STATUS_UNKNOWN = "Choose a status from the list."
 
 
+def checked_status(status: str) -> FactStatus:
+    """The status a filter names. Raises ``FactInputInvalid`` (field ``status``) for a value
+    that isn't one."""
+    try:
+        return FactStatus(status)
+    except ValueError:
+        raise FactInputInvalid("status", _STATUS_UNKNOWN) from None
+
+
 def _statuses(status: FactStatus | None) -> tuple[FactStatus, ...]:
     if status is None:
         return _DEFAULT_STATUSES
-    try:
-        return (FactStatus(status),)
-    except ValueError:
-        raise FactInputInvalid("status", _STATUS_UNKNOWN) from None
+    return (checked_status(status),)
 
 
 @dataclass(frozen=True)

@@ -30,6 +30,7 @@ from app.api.events import (
     TaskEvents,
     register_events,
 )
+from app.api.facts import register_fact_pages
 from app.api.facts_import import register_fact_import_routes
 from app.api.health import router as health_router
 from app.api.pages import register_pages
@@ -91,14 +92,20 @@ from app.services.cv_import import (
     EXTRACT_CV_LABEL,
     PARSE_TIMEOUT_SECONDS,
     CvImportService,
+    import_target,
     sweep_orphan_imports,
 )
+from app.services.fact_library import FactLibrary
+from app.services.fact_views import FactBank, FactViews
+from app.services.facts import FactService
 from app.services.health import HealthService
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
+from app.services.roles import RoleService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
-from app.services.task_views import TaskViews
+from app.services.skills import SkillService
+from app.services.task_views import TaskView, TaskViews, failed_message
 from app.services.tasks import TaskService
 from app.services.usage import UsageService
 from app.services.usage_panel import UsagePanel
@@ -537,6 +544,43 @@ def _cv_import(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) ->
     )
 
 
+def _publish_fact_services(
+    app: FastAPI, db: Database | None, *, clock: Clock, ids: IdFactory
+) -> None:
+    """The fact bank's services over the open workspace's database (M3.5), on the app's
+    state for the routes; None while no workspace is open. Called just before the workspace
+    itself is published."""
+    app.state.facts = FactService(db, clock, ids) if db is not None else None
+    app.state.fact_library = FactLibrary(db) if db is not None else None
+    app.state.roles = RoleService(db, clock, ids) if db is not None else None
+    app.state.skills = SkillService(db, clock, ids) if db is not None else None
+
+
+def _fact_views(app: FastAPI, *, cv_import: CvImportService, tz: tzinfo) -> FactViews:
+    """What the Fact bank page shows (M3.5): like the other view services, it reads the open
+    workspace through the app's state at call time."""
+
+    def bank() -> FactBank | None:
+        db = _current_db(app)
+        if db is None:
+            return None
+        state = app.state
+        return FactBank(db, state.facts, state.fact_library, state.roles, state.skills)
+
+    def latest_task(import_id: str) -> TaskView | None:
+        views: TaskViews = app.state.task_views
+        return views.latest_for(EXTRACT_CV, import_target(import_id))
+
+    return FactViews(
+        bank=bank,
+        imports=cv_import.imports,
+        latest_task=latest_task,
+        provider_kind=cv_import.saved_provider_kind,
+        import_failed_said=failed_message(EXTRACT_CV_LABEL),
+        tz=tz,
+    )
+
+
 def _task_labels(registry: HandlerRegistry) -> Callable[[str], str | None]:
     """The label of a registered task type; None for a type no handler is registered for."""
 
@@ -665,6 +709,7 @@ def create_app(
             app.state.task_service = task_service
             app.state.usage = UsageService(workspace.db, app_clock, app_ids, app_tz)
             app.state.provider_health = health[-1]
+            _publish_fact_services(app, workspace.db, clock=app_clock, ids=app_ids)
             app.state.workspace = workspace
             return workspace
 
@@ -744,6 +789,12 @@ def create_app(
                 clock=app_clock,
                 wiring=app_wiring,
             )
+            _publish_fact_services(
+                app,
+                workspace.db if workspace is not None else None,
+                clock=app_clock,
+                ids=app_ids,
+            )
             app.state.workspace = workspace
             app.state.open_workspace = open_workspace
             app.state.refresh_provider_health = refresh_provider_health
@@ -807,6 +858,7 @@ def create_app(
         )
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
+    app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
     if task_registry is None:  # a real task type: with or without fakes
         handlers.register(
             EXTRACT_CV,
@@ -836,6 +888,7 @@ def create_app(
     register_usage_settings(app)
     register_task_routes(app)
     register_fact_import_routes(app)
+    register_fact_pages(app)
     register_setup_pages(app)
     register_events(
         app,

@@ -1,0 +1,9 @@
+{# A draft action refused with 409 (htmx): the draft changed elsewhere or isn't a draft any
+   more. The reload prompt takes the place of the block, whose forms hold a version that no
+   longer works. Needs `fact_id`, `conflict` and `reload_url`. #}
+<div id="fact-{{ fact_id }}" class="fact-card draft" role="listitem">
+  {% set reload_id = "fact-" ~ fact_id ~ "-conflict" %}
+  {% set reload_message = conflict %}
+  {% set reload_detail = "" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+</div>

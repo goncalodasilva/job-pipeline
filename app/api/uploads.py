@@ -28,6 +28,9 @@ _MAX_FILE_PARTS: Final = 2
 _MAX_FIELD_PARTS: Final = 8
 # The parser decodes field values with the charset the client names; only UTF-8 is taken.
 _CHARSETS: Final = (b"utf-8", b"utf8")
+# The detail of the refusal when one file and a pasted text came together: a page can then
+# say "choose one" (the user sees the error's message or the page's words, never a detail).
+BOTH_GIVEN: Final = "a file and a text"
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,8 @@ async def _chosen(form: FormData) -> Upload:
                 texts.append(value)
         elif value.filename or value.size:  # a browser's empty file input is no file
             files.append((name, value))
+    if len(files) == 1 and len(texts) == 1:
+        raise UploadNotAccepted(detail=BOTH_GIVEN)
     if len(files) + len(texts) != 1:
         raise UploadNotAccepted(detail="expected one file or a text")
     if texts:

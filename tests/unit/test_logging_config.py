@@ -300,7 +300,39 @@ def test_ac_m0_5_uvicorn_access_log_redacted(
     records = read_log_records(log_dir)
     access_records = [r for r in records if r["logger"] == "uvicorn.access"]
     assert len(access_records) == 1
-    assert f"/setup/callback?token={REDACTED}" in str(access_records[0]["message"])
+    # The query string is cut from access records whole (ADR-093), so the secret isn't even
+    # there to redact; method, path and status stay.
+    message = str(access_records[0]["message"])
+    assert '"GET /setup/callback HTTP/1.1" 200' in message
+    assert "?" not in message
+    assert "token" not in message
+
+
+def test_uvicorn_access_log_drops_the_query_string(
+    make_logging: Callable[..., LoggingSetup], log_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    make_logging("INFO")
+    access = logging.getLogger("uvicorn.access")
+
+    access.info(
+        '%s - "%s %s HTTP/%s" %d',
+        "127.0.0.1:50123",
+        "GET",
+        "/facts?tab=library&q=fictional-search-words",
+        "1.1",
+        200,
+    )
+    access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:50123", "GET", "/health", "1.1", 200)
+    logging.getLogger("uvicorn.error").info("kept as written: %s", "/facts?tab=library")
+
+    text = read_log_text(log_dir)
+    assert "fictional-search-words" not in text
+    assert "fictional-search-words" not in capsys.readouterr().err
+    messages = [str(r["message"]) for r in read_log_records(log_dir)]
+    assert any('"GET /facts HTTP/1.1" 200' in m for m in messages)
+    assert any('"GET /health HTTP/1.1" 200' in m for m in messages)
+    # Only access records are cut; other loggers' text is left to redaction.
+    assert any("/facts?tab=library" in m for m in messages)
 
 
 # --- handlers, levels and lifecycle ----------------------------------------------------------

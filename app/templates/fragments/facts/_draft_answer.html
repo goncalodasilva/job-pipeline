@@ -1,0 +1,17 @@
+{# The answer to a draft action (htmx): the fact's block, then, out of band, the Drafts
+   tab's link and the "Skip to drafts" link with the new count, and the heading and the batch
+   form of the fact's group as they are now (`tab` and `group` are none for a refused form:
+   nothing changed; the group of drafts no kept upload made has no batch form). #}
+{% include "fragments/facts/_draft.html" %}
+{% if tab %}
+{% with oob = true %}
+{% include "fragments/facts/_tab_link.html" %}
+{% with count = tab.count %}{% include "fragments/facts/_skip_link.html" %}{% endwith %}
+{% endwith %}
+{% endif %}
+{% if group %}
+{% with oob = true, said = none, conflict = none %}
+{% include "fragments/facts/_group_heading.html" %}
+{% if group.id %}{% include "fragments/facts/_draft_batch.html" %}{% endif %}
+{% endwith %}
+{% endif %}

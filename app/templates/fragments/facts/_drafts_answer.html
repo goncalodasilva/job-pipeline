@@ -1,0 +1,7 @@
+{# The answer to GET /facts/drafts: the drafts, then the Drafts tab's link and the "Skip to
+   drafts" link out of band, so their count follows an import that finished. #}
+{% include "fragments/facts/_drafts.html" %}
+{% with oob = true %}
+{% include "fragments/facts/_tab_link.html" %}
+{% with count = tab.count %}{% include "fragments/facts/_skip_link.html" %}{% endwith %}
+{% endwith %}

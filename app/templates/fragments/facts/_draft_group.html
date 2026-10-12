@@ -1,0 +1,17 @@
+{# The drafts one import made (or, with no id, those no kept upload made: no batch then).
+   Needs `group` (a DraftGroup) and `edits`. After the drafts comes "Confirm all from this
+   import" (see _draft_batch.html), which is where its result is shown. #}
+{% set group_id = ("draft-group-" ~ group.id) if group.id else "drafts-other" %}
+<section id="{{ group_id }}" class="draft-group" aria-labelledby="{{ group_id }}-heading">
+  {% with oob = false %}{% include "fragments/facts/_group_heading.html" %}{% endwith %}
+  <div class="fact-list" role="list">
+    {% for item in group.items %}
+    {% with mode = "draft", edit = edits.get(item.id) %}
+    {% include "fragments/facts/_draft.html" %}
+    {% endwith %}
+    {% endfor %}
+  </div>
+  {% if group.id %}
+  {% with oob = false, said = none, conflict = none %}{% include "fragments/facts/_draft_batch.html" %}{% endwith %}
+  {% endif %}
+</section>

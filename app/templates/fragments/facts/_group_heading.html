@@ -1,0 +1,4 @@
+{# A draft group's heading: the upload's label and how many drafts it still has. Needs `group`
+   (a DraftGroup) and `oob`: true in an answer that changed that number. #}
+{% set group_id = ("draft-group-" ~ group.id) if group.id else "drafts-other" %}
+<h3 id="{{ group_id }}-heading"{% if oob %} hx-swap-oob="true"{% endif %}>{{ group.heading }}</h3>

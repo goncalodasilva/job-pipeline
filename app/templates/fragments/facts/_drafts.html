@@ -1,0 +1,25 @@
+{# The drafts to review (M3.5; AC-M3.1), grouped by the import that made them. Needs `drafts`
+   (a DraftsView) and `edits` (a refused inline form per fact id, or {}).
+   The region fetches itself again only on the body's "facts:drafts-changed" event: the kept
+   uploads' list sends the stamp below with each of its own refreshes, and the server fires
+   the event when an import finished or was removed since these drafts were built
+   (app/api/facts_import.py). So finished imports show up without a reload, and nothing is
+   replaced on other task events. app.js never lets that refresh replace the region while the
+   user is at work in it (data-keep-edits: an inline form is open, focus is inside, or a
+   discarded draft still offers Undo, which a refresh would take away); it shows the note
+   below instead, which says how to see the new drafts. Nothing of this is
+   inherited by the forms inside (hx-disinherit). #}
+<div id="fact-drafts" class="fact-drafts" data-keep-edits
+     hx-get="/facts/drafts" hx-trigger="facts:drafts-changed from:body" hx-swap="outerHTML" hx-disinherit="*">
+  <input type="hidden" id="fact-drafts-stamp" name="drafts_seen" value="{{ drafts.stamp }}">
+  <p id="fact-drafts-stale" class="notice" data-stale-note hidden>New drafts are ready. Finish what you're editing, then <a href="/facts?tab=drafts">reload the page</a> to see them.</p>
+  {% if not drafts.groups %}
+  <p class="drafts-none">No drafts to review.</p>
+  <p class="field-hint">Import your CV above and what it states is listed here for you to check.</p>
+  {% endif %}
+  {% for group in drafts.groups %}
+  {% with reload_url = "/facts?tab=drafts" %}
+  {% include "fragments/facts/_draft_group.html" %}
+  {% endwith %}
+  {% endfor %}
+</div>

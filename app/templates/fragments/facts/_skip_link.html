@@ -1,0 +1,4 @@
+{# "Skip to drafts (N)" under the import heading: past the form and the uploads to the drafts.
+   Needs `count` and `oob`: true in an answer that changed the number of drafts. The wrapper
+   is always there (hidden with no drafts), so such an answer can replace it. #}
+<p id="cv-import-skip" class="skip-drafts"{% if oob %} hx-swap-oob="true"{% endif %}{% if not count %} hidden{% endif %}>{% if count %}<a href="#fact-drafts">Skip to drafts ({{ count }})</a>{% endif %}</p>

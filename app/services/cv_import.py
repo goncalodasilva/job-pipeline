@@ -456,6 +456,11 @@ class CvImportService:
             for item in listed
         )
 
+    def saved_provider_kind(self) -> str | None:
+        """The kind of the saved provider, or None when none is saved. Reads only."""
+        settings = self._settings()
+        return settings.kind if settings is not None else None
+
     # --- for the task handler -------------------------------------------------------------------
 
     async def run(self, ctx: ImportContext) -> ResultWriter:

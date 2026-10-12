@@ -59,6 +59,14 @@ _ORIGIN = (
     "SELECT provider, model FROM fact_versions WHERE fact_id = ? AND provider IS NOT NULL "
     "ORDER BY created_at, rowid LIMIT 1"
 )
+# The CV line (or the user's own answer) a fact was first made from: the earliest version
+# that keeps one, whatever was reworded since.
+_SOURCE_QUOTE = (
+    "SELECT original_answer FROM fact_versions WHERE fact_id = ? "
+    "AND original_answer IS NOT NULL ORDER BY created_at, rowid LIMIT 1"
+)
+_COUNT_BY_STATUS = "SELECT status, count(*) FROM facts GROUP BY status"
+_IDS_WITH_STATUS = "SELECT id FROM facts WHERE status = ? ORDER BY number"
 _SKILL_IDS = "SELECT skill_id FROM fact_skills WHERE fact_id = ?"
 _SKILL_NAMES = (
     "SELECT s.name FROM fact_skills AS fs JOIN skills AS s ON s.id = fs.skill_id "
@@ -363,6 +371,22 @@ def origin(conn: sqlite3.Connection, fact_id: str) -> tuple[str, str | None] | N
     user wrote every version."""
     row = conn.execute(_ORIGIN, (fact_id,)).fetchone()
     return None if row is None else (row[0], row[1])
+
+
+def source_quote(conn: sqlite3.Connection, fact_id: str) -> str | None:
+    """The ``original_answer`` of the fact's earliest version that has one, else None."""
+    row = conn.execute(_SOURCE_QUOTE, (fact_id,)).fetchone()
+    return None if row is None else str(row[0])
+
+
+def count_by_status(conn: sqlite3.Connection) -> dict[str, int]:
+    """How many facts have each status; a status no fact has is left out."""
+    return {str(row[0]): int(row[1]) for row in conn.execute(_COUNT_BY_STATUS).fetchall()}
+
+
+def ids_with_status(conn: sqlite3.Connection, status: str) -> list[str]:
+    """The ids of the facts with this status, in the order they were made."""
+    return [str(row[0]) for row in conn.execute(_IDS_WITH_STATUS, (status,)).fetchall()]
 
 
 def skill_ids(conn: sqlite3.Connection, fact_id: str) -> frozenset[str]:

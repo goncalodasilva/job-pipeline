@@ -128,6 +128,30 @@ def test_ac_m0_5_launch_token_not_in_log_files(running_app: RunningApp) -> None:
         )
 
 
+def test_query_strings_never_reach_the_log_files(running_app: RunningApp) -> None:
+    """Spec 2.10: what the user types in a GET form (a Library search) is in the address,
+    so access records keep the path only (ADR-093)."""
+    marker = "fictionalsearchmarker0123"
+    with running_app.client() as client:
+        page = client.get(f"/facts?tab=library&q={marker}")
+        assert page.status_code in (200, 303), (page.status_code, page.text[:200])
+
+    result = running_app.stop()
+    assert result.returncode == 0 and not result.killed, running_app.output_tail()
+    files = running_app.log_files()
+    assert files, f"no log files in {running_app.log_dir}"
+    for path in files:
+        assert marker not in path.read_text(encoding="utf-8", errors="replace"), path.name
+    for text in (running_app.stdout_text(), running_app.stderr_text()):
+        assert marker not in text
+    access = [
+        str(record["message"])
+        for record in _log_records(files)
+        if record.get("logger") == "uvicorn.access"
+    ]
+    assert any('"GET /facts HTTP/' in line for line in access), access
+
+
 @pytest.mark.parametrize("running_app", ["fresh"], indirect=True)
 def test_fresh_app_redirects_root_to_guide(running_app: RunningApp) -> None:
     """AC-M1.2 end to end: with nothing set up, ``/`` sends the browser to the guide."""

@@ -1083,6 +1083,275 @@ a.button {
   border-radius: var(--radius);
 }
 
+/* Fact bank (M3.5): tabs as plain links, the Library's filters and results, the CV import
+   section and the drafts to review. Status, privacy and "practice data" are words in a
+   badge, never colour alone; long words from a CV wrap instead of widening the page. */
+.tabs ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: 0 0 var(--space-2);
+  list-style: none;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+
+.tabs a:hover {
+  background: var(--color-accent-soft);
+}
+
+.tabs a[aria-current="page"] {
+  font-weight: 700;
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.facts-section {
+  max-width: 48rem;
+  margin-top: var(--space-6);
+  overflow-wrap: anywhere;
+}
+
+.facts-section h2,
+.facts-later h2 {
+  margin-top: 0;
+  font-size: 1.25rem;
+}
+
+.facts-section h3 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.1rem;
+}
+
+.empty-state.facts-later {
+  margin-top: var(--space-6);
+}
+
+.library-filters {
+  margin-block: var(--space-4);
+}
+
+.filter-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  column-gap: var(--space-4);
+  align-items: start;
+}
+
+.filter-fields .field {
+  min-width: 0;
+}
+
+.library-count,
+.library-none,
+.drafts-none {
+  margin: var(--space-4) 0;
+  font-weight: 600;
+}
+
+.library-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.fact-list {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.fact-card {
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.fact-card > :first-child {
+  margin-top: 0;
+}
+
+.fact-card > :last-child {
+  margin-bottom: 0;
+}
+
+.badges,
+.skill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.badge,
+.skill-list li {
+  padding: 0 var(--space-2);
+  font-size: 0.875rem;
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+}
+
+.badge {
+  font-weight: 600;
+}
+
+.badge-practice {
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning-border);
+}
+
+.fact-wording p,
+.fact-meta {
+  margin: 0 0 var(--space-2);
+}
+
+.fact-meta {
+  color: var(--color-text-muted);
+}
+
+.story-parts {
+  margin: 0 0 var(--space-2);
+}
+
+.story-parts dt {
+  font-weight: 600;
+}
+
+.story-parts dd {
+  margin: 0 0 var(--space-2);
+}
+
+/* The CV line a draft came from, beside its wording: labelled in words. */
+.cv-quote {
+  margin: var(--space-3) 0;
+  padding-left: var(--space-3);
+  border-left: 4px solid var(--color-border);
+}
+
+.cv-quote figcaption {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.cv-quote blockquote {
+  margin: var(--space-1) 0 0;
+  white-space: pre-line;
+}
+
+.needs-check {
+  margin: var(--space-3) 0;
+}
+
+.draft-group {
+  margin-top: var(--space-6);
+}
+
+.draft-batch {
+  margin-top: var(--space-3);
+}
+
+.draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* Edit sits in the row with Confirm and Discard; opened, it takes a row of its own, so the
+   inline form has the block's full width. */
+.draft-edit[open] {
+  flex: 1 0 100%;
+}
+
+.skip-drafts {
+  margin: 0 0 var(--space-3);
+}
+
+.draft-edit > summary {
+  display: inline-flex;
+  align-items: center;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.draft-edit-form {
+  margin-top: var(--space-3);
+}
+
+/* What an action did, said in the block it changed: words, not colour alone. */
+.fact-result {
+  margin: var(--space-3) 0;
+  font-weight: 600;
+}
+
+.fact-drafts > .notice {
+  margin-bottom: var(--space-4);
+}
+
+.cv-import-list {
+  margin-top: var(--space-4);
+}
+
+.upload-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.upload-label {
+  flex: 1 1 12rem;
+  font-weight: 600;
+}
+
+.upload-note {
+  flex: 1 1 12rem;
+  color: var(--color-text-muted);
+}
+
+.upload-task {
+  flex: 1 1 100%;
+}
+
+.upload-task .task-label {
+  flex: 0 1 auto;
+  font-weight: 400;
+}
+
 /* Phone and narrow windows: the sidebar collapses behind the top-bar toggle. */
 @media (max-width: 767.98px) {
   body {
