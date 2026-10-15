@@ -202,6 +202,22 @@ def import_drafts(
     return list(bank.facts.create_drafts(origin, drafts, roles=roles))
 
 
+def seed_page_ids(facts: Any) -> dict[str, str]:
+    """One fictional typed fact and one fictional draft, made through ``facts`` (a
+    ``FactService``, such as the running app's own): the id each fact page's address needs,
+    by the name of its path parameter (``/facts/{fact_id}/edit``, ``/facts/{draft_id}/merge``)."""
+    from app.services.facts import DraftInput, DraftOrigin, FactInput
+
+    assert facts is not None, "a workspace is open"
+    own = facts.create(FactInput(text="Planned 60 delivery routes a week with a team of 3."))
+    line = "Ran the quarterly stocktake"
+    (draft,) = facts.create_drafts(
+        DraftOrigin(source="cv_import", provider=PROVIDER, model=MODEL),
+        [DraftInput(text=line, original_answer=f"CV line: {line}")],
+    )
+    return {"fact_id": own.id, "draft_id": draft.id}
+
+
 # --- failure injection -----------------------------------------------------------
 
 

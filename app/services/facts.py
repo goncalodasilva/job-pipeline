@@ -31,7 +31,7 @@ from app.domain.facts import (
     next_version,
 )
 from app.domain.ids import IdFactory
-from app.domain.partial_dates import checked_partial_date
+from app.domain.partial_dates import END_BEFORE_START, checked_partial_date, ends_before_start
 from app.modules.storage import Database, facts_repo, roles_repo
 from app.services.roles import checked_role, insert_role
 from app.services.skills import resolve_skills
@@ -41,15 +41,28 @@ SOURCE_MERGE = "merge"
 SOURCE_MERGE_UNDO = "merge_undo"
 
 _CONTENT_NEEDED = "Write the fact before saving."
+_STORY_NEEDED = "Fill in at least one of situation, action or result."
+_MERGE_WORDING_NEEDED = "Write the wording before merging."
 _ROLE_UNKNOWN = "This role wasn't found. Choose another role."
 _ROLE_KEY_UNKNOWN = "A draft names a role that wasn't given."
 _TYPE_UNKNOWN = "Choose fact or story."
+_PRIVACY_UNKNOWN = "Choose one of the privacy options."
+
+
+@dataclass(frozen=True)
+class NewRole:
+    """A role typed into the editor: stored, confirmed, with the save that names it."""
+
+    employer: str
+    title: str
 
 
 @dataclass(frozen=True)
 class FactInput:
     """What the editor posts: the fact's whole editable state. A skill or tag left out is
-    removed from the fact."""
+    removed from the fact. ``new_role`` is stored in the same transaction and wins over
+    ``role_id``. ``privacy`` is a ``Privacy`` value; None leaves it as it is (normal for a
+    new fact)."""
 
     type: FactType = FactType.FACT
     text: str | None = None
@@ -61,6 +74,8 @@ class FactInput:
     tags: tuple[str, ...] = ()
     start_date: str | None = None
     end_date: str | None = None
+    privacy: str | None = None
+    new_role: NewRole | None = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +166,24 @@ class VersionView:
 
 
 @dataclass(frozen=True)
+class EventView:
+    """One thing that happened to a fact. ``detail`` holds ids and fixed words only."""
+
+    type: str
+    detail: Mapping[str, object]
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class _Extras:
+    """What a save carries besides wording and details, as checked: the privacy choice (None
+    leaves it) and a new role's fields from ``checked_role`` (None when none was typed)."""
+
+    privacy: str | None
+    new_role: tuple[str, str, str | None, str | None] | None
+
+
+@dataclass(frozen=True)
 class _Details:
     """What lives on the fact row besides status and privacy, as stored (ADR-090 item 4)."""
 
@@ -192,14 +225,31 @@ def _content_of(version: facts_repo.StoredVersion) -> FactContent:
 
 
 def _checked_content(
-    text: str | None, situation: str | None, action: str | None, result: str | None
+    text: str | None,
+    situation: str | None,
+    action: str | None,
+    result: str | None,
+    *,
+    needed: str = _CONTENT_NEEDED,
 ) -> FactContent:
+    """The wording as stored. Blank wording is refused with ``needed``, always on ``text``:
+    a form without that field ties the message to its first wording field."""
     content = FactContent(
         clean_part(text), clean_part(situation), clean_part(action), clean_part(result)
     )
     if not any(content.normalized()):
-        raise FactInputInvalid("text", _CONTENT_NEEDED)
+        raise FactInputInvalid("text", needed)
     return content
+
+
+def _needed(type: object) -> str:
+    """What a blank item of this type is told: a story is asked for one of its parts."""
+    return _STORY_NEEDED if type == FactType.STORY.value else _CONTENT_NEEDED
+
+
+def _refuse_reversed_dates(details: _Details) -> None:
+    if ends_before_start(details.start_date, details.end_date):
+        raise FactInputInvalid("end_date", END_BEFORE_START)
 
 
 def _tags(tags: Iterable[str]) -> str:
@@ -228,10 +278,25 @@ def _checked_details(
     )
 
 
-def _checked_input(data: FactInput) -> tuple[FactContent, _Details]:
-    content = _checked_content(data.text, data.situation, data.action, data.result)
+def _checked_privacy(privacy: str | None) -> str | None:
+    if privacy is None:
+        return None
+    try:
+        return Privacy(privacy).value
+    except ValueError:
+        raise FactInputInvalid("privacy", _PRIVACY_UNKNOWN) from None
+
+
+def _checked_input(data: FactInput) -> tuple[FactContent, _Details, _Extras]:
+    """The editor's form as stored, checked before anything is written. Whether the end is
+    before the start is the caller's check: an edit asks only when it changes the dates."""
+    content = _checked_content(
+        data.text, data.situation, data.action, data.result, needed=_needed(data.type)
+    )
     details = _checked_details(data.type, data.role_id, data.tags, data.start_date, data.end_date)
-    return content, details
+    role = data.new_role
+    new_role = None if role is None else checked_role(role.employer, role.title, None, None)
+    return content, details, _Extras(_checked_privacy(data.privacy), new_role)
 
 
 def _state(row: facts_repo.StoredFact) -> _State:
@@ -338,6 +403,22 @@ def _require_role(conn: sqlite3.Connection, role_id: str | None) -> None:
         raise FactInputInvalid("role_id", _ROLE_UNKNOWN)
 
 
+def _merge_to_undo(
+    conn: sqlite3.Connection, draft: facts_repo.StoredFact, target: facts_repo.StoredFact
+) -> tuple[facts_repo.StoredMerge, dict[str, facts_repo.StoredVersion]] | None:
+    """The merge of ``draft`` into ``target`` and the target's versions by id, while the
+    target still reads as that merge left it; else None. Wording is compared, not version
+    ids: undoing a later merge leaves a new version that reads as this merge left it."""
+    merge = facts_repo.latest_merge(conn, target.id, draft.id)
+    versions = {row.id: row for row in facts_repo.list_versions(conn, target.id)}
+    merged = None if merge is None else versions.get(merge.fact_version_id or "")
+    if merge is None or merged is None:
+        return None
+    if _content_of(merged).normalized() != _content_of(target.current).normalized():
+        return None
+    return merge, versions
+
+
 class FactService:
     def __init__(self, db: Database, clock: Clock, ids: IdFactory) -> None:
         self._db = db
@@ -357,14 +438,42 @@ class FactService:
                 raise FactNotFound(detail=f"fact {fact_id} not found")
             return tuple(_version_view(row) for row in facts_repo.list_versions(conn, fact_id))
 
+    def events(self, fact_id: str) -> tuple[EventView, ...]:
+        """Everything that happened to a fact, oldest first (ties in insertion order)."""
+        with self._db.read() as conn:
+            if facts_repo.get_fact(conn, fact_id) is None:
+                raise FactNotFound(detail=f"fact {fact_id} not found")
+            return tuple(
+                EventView(
+                    row.type,
+                    json.loads(row.detail) if row.detail else {},
+                    datetime.fromisoformat(row.created_at),
+                )
+                for row in facts_repo.list_events(conn, fact_id)
+            )
+
+    def can_undo_merge(self, draft_id: str) -> bool:
+        """Whether ``undo_merge`` would take this draft's merge back now: it was closed by
+        a merge and its target still reads as the merge left it. Reads only."""
+        with self._db.read() as conn:
+            draft = facts_repo.get_fact(conn, draft_id)
+            if draft is None:
+                raise FactNotFound(detail=f"fact {draft_id} not found")
+            if draft.status != FactStatus.DISCARDED or draft.merged_into_fact_id is None:
+                return False
+            target = facts_repo.get_fact(conn, draft.merged_into_fact_id)
+            return target is not None and _merge_to_undo(conn, draft, target) is not None
+
     # --- creating -----------------------------------------------------------------
 
     def create(self, data: FactInput) -> FactView:
-        """Add a fact the user typed: confirmed at once (ADR-089 item 11)."""
-        content, details = _checked_input(data)
+        """Add a fact the user typed: confirmed at once (ADR-089 item 11), with its new
+        role, skills and privacy choice in the one transaction."""
+        content, details, extras = _checked_input(data)
+        _refuse_reversed_dates(details)
         now = self._now()
         with self._db.transaction() as conn:
-            _require_role(conn, details.role_id)
+            details = self._with_role(conn, details, extras, now)
             fact_id = self._insert(
                 conn,
                 _Wording(content, SOURCE_MANUAL),
@@ -372,6 +481,7 @@ class FactService:
                 FactStatus.CONFIRMED,
                 data.skills,
                 now,
+                privacy=extras.privacy or Privacy.NORMAL.value,
             )
             self._confirm_role(conn, details.role_id, now)
             return fact_view(conn, fact_id)
@@ -419,9 +529,11 @@ class FactService:
     # --- editing ------------------------------------------------------------------
 
     def edit(self, fact_id: str, data: FactInput, *, expected_version: int) -> FactView:
-        """Save the editor's form. Changed wording adds a version (event ``edited``); changed
-        type, role, skills, tags or dates add ``details_changed``; an identical edit writes
-        nothing. A discarded fact can't be edited."""
+        """Save the editor's form in one transaction. Changed wording adds a version (event
+        ``edited``); changed type, role, skills, tags or dates add ``details_changed``; a
+        changed privacy choice adds ``privacy_changed``; an identical edit writes nothing.
+        A discarded fact can't be edited. An end date before the start is refused when the
+        save changes either date."""
         return self._edit(fact_id, data, expected_version, confirm=False)
 
     def edit_and_confirm(self, fact_id: str, data: FactInput, *, expected_version: int) -> FactView:
@@ -530,7 +642,13 @@ class FactService:
         wording the user wrote carries none. Returns the target."""
         if draft_id == target_id:
             raise FactTransitionRefused(detail=f"fact {draft_id} can't be merged into itself")
-        settled = _checked_content(content.text, content.situation, content.action, content.result)
+        settled = _checked_content(
+            content.text,
+            content.situation,
+            content.action,
+            content.result,
+            needed=_MERGE_WORDING_NEEDED,
+        )
         now = self._now()
         with self._db.transaction() as conn:
             draft = _load(conn, draft_id, expected_draft_version)
@@ -589,17 +707,10 @@ class FactService:
             if draft.status != FactStatus.DISCARDED or draft.merged_into_fact_id is None:
                 raise FactTransitionRefused(detail=f"fact {draft_id} wasn't closed by a merge")
             target = _load(conn, draft.merged_into_fact_id, expected_target_version)
-            merge = facts_repo.latest_merge(conn, target.id, draft.id)
-            versions = {row.id: row for row in facts_repo.list_versions(conn, target.id)}
-            merged = None if merge is None else versions.get(merge.fact_version_id or "")
-            # Wording is compared, not version ids: undoing a later merge leaves a new
-            # version that reads as this merge left the target.
-            if (
-                merge is None
-                or merged is None
-                or _content_of(merged).normalized() != _content_of(target.current).normalized()
-            ):
+            found = _merge_to_undo(conn, draft, target)
+            if found is None:
                 raise FactTransitionRefused(detail=f"fact {target.id} was reworded after the merge")
+            merge, versions = found
             detail = json.loads(merge.detail or "{}")
             before = versions[detail["previous_version_id"]]
             version_id = self._ids.new()
@@ -640,9 +751,23 @@ class FactService:
     ) -> tuple[DraftInput, FactContent, _Details]:
         if draft.role_key is not None and draft.role_key not in role_fields:
             raise FactInputInvalid("role_key", _ROLE_KEY_UNKNOWN)
-        content = _checked_content(draft.text, draft.situation, draft.action, draft.result)
+        content = _checked_content(
+            draft.text, draft.situation, draft.action, draft.result, needed=_needed(draft.type)
+        )
         details = _checked_details(draft.type, None, draft.tags, draft.start_date, draft.end_date)
         return draft, content, details
+
+    def _with_role(
+        self, conn: sqlite3.Connection, details: _Details, extras: _Extras, now: str
+    ) -> _Details:
+        """The details with the role the save names: a typed one is stored here, confirmed
+        (the user wrote it), and wins; a picked one must exist."""
+        if extras.new_role is None:
+            _require_role(conn, details.role_id)
+            return details
+        role_id = self._ids.new()
+        insert_role(conn, role_id, extras.new_role, RoleStatus.CONFIRMED, now)
+        return replace(details, role_id=role_id)
 
     def _insert(
         self,
@@ -652,6 +777,8 @@ class FactService:
         status: FactStatus,
         skills: Iterable[str],
         now: str,
+        *,
+        privacy: str = Privacy.NORMAL.value,
     ) -> str:
         """A fact, its first version, its skill links and its ``created`` event."""
         fact_id, version_id = self._ids.new(), self._ids.new()
@@ -665,6 +792,7 @@ class FactService:
             current_version_id=version_id,
             cv_import_id=origin.cv_import_id,
             now=now,
+            privacy=privacy,
             **asdict(details),
         )
         content = wording.content
@@ -804,7 +932,7 @@ class FactService:
     def _edit(
         self, fact_id: str, data: FactInput, expected_version: int, *, confirm: bool
     ) -> FactView:
-        content, details = _checked_input(data)
+        content, details, extras = _checked_input(data)
         now = self._now()
         with self._db.transaction() as conn:
             row = _load(conn, fact_id, expected_version)
@@ -813,8 +941,21 @@ class FactService:
             )
             if not editable:
                 raise FactTransitionRefused(detail=f"fact {fact_id} is {row.status}: no edit")
-            _require_role(conn, details.role_id)
-            self._apply_edit(conn, row, content, details, data.skills, now, confirm=confirm)
+            # Dates the save leaves as they are stored are not this save's to refuse: a
+            # draft's inline form sends them back unseen (an import may store them reversed).
+            if (details.start_date, details.end_date) != (row.start_date, row.end_date):
+                _refuse_reversed_dates(details)
+            details = self._with_role(conn, details, extras, now)
+            self._apply_edit(
+                conn,
+                row,
+                content,
+                details,
+                data.skills,
+                now,
+                confirm=confirm,
+                privacy=extras.privacy,
+            )
             return fact_view(conn, fact_id)
 
     def _apply_edit(
@@ -827,6 +968,7 @@ class FactService:
         now: str,
         *,
         confirm: bool,
+        privacy: str | None = None,
     ) -> None:
         before = _state(row)
         reworded = next_version(row.current.version, _content_of(row.current), content)
@@ -840,15 +982,22 @@ class FactService:
         after = replace(before, current_version_id=version_id, **asdict(details))
         skills_changed = self._set_skills(conn, row.id, skills, now)
         details_changed = skills_changed or after != replace(before, current_version_id=version_id)
+        # Privacy is its own event, never a details change.
+        privacy_changed = privacy is not None and privacy != before.privacy
+        if privacy is not None:
+            after = replace(after, privacy=privacy)
         if confirm:
             after = replace(after, status=FactStatus.CONFIRMED.value)
-        if reworded is None and not details_changed and not confirm:
+        if reworded is None and not details_changed and not privacy_changed and not confirm:
             return
         _save(conn, row, after, now)
         if reworded is not None:
             self._event(conn, row.id, "edited", version_id, now)
         if details_changed:
             self._event(conn, row.id, "details_changed", version_id, now)
+        if privacy_changed:
+            detail = {"from": before.privacy, "to": after.privacy}
+            self._event(conn, row.id, "privacy_changed", version_id, now, detail)
         if confirm:
             self._event(conn, row.id, "confirmed", version_id, now)
         if after.status == FactStatus.CONFIRMED:

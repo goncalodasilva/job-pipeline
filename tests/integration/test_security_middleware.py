@@ -21,6 +21,7 @@ from starlette.websockets import WebSocketDisconnect
 from app.api.security import PAGE_TAG, TOKEN_HEADER
 from app.config import RuntimeConfig
 from app.main import create_app
+from tests.fact_bank import seed_page_ids
 from tests.fakes.clock import FrozenClock
 from tests.setup_harness import complete_setup
 
@@ -613,9 +614,12 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
         if isinstance(route, APIRoute) and PAGE_TAG in route.tags
     ]
     assert pages, "the app must register at least the root page"
-    # Fill path parameters with a value the page accepts (a registered setup step).
+    # Fill path parameters with a value the page accepts (a registered setup step; for the
+    # fact pages, a fictional typed fact and a fictional draft made by the app's own service).
     known_params = {"step_id": "welcome"}
+    visited: dict[str, str] = {}
     with TestClient(app, base_url=f"http://{HOST}") as client:
+        known_params.update(seed_page_ids(app.state.facts))
         for route in pages:
             path = route.path
             for name in route.param_convertors:
@@ -625,6 +629,224 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
             response = client.get(path)
             assert response.status_code == 200, route.path
             assert response.headers["content-type"].startswith("text/html"), route.path
+            visited[route.path] = path
+    assert visited["/facts/{fact_id}/edit"] == f"/facts/{known_params['fact_id']}/edit"
+    assert visited["/facts/{draft_id}/merge"] == f"/facts/{known_params['draft_id']}/merge"
+
+
+# --- the fact pages' addresses (M3.6): one safe segment, nothing else exempted ----------------
+
+
+class _Untouchable:
+    """Stands in for a service that must not be reached."""
+
+    def __getattr__(self, name: str) -> Any:
+        raise AssertionError(f"looked up {name} for an id of another shape")
+
+
+def test_fact_pages_need_token_with_hx_request(tmp_path: Path) -> None:
+    app = _create(tmp_path)
+    with TestClient(app, base_url=f"http://{HOST}") as client:
+        ids = seed_page_ids(app.state.facts)
+        token = {TOKEN_HEADER: app.state.launch_token}
+        for path in (f"/facts/{ids['fact_id']}/edit", f"/facts/{ids['draft_id']}/merge"):
+            for method in ("GET", "HEAD"):
+                assert client.request(method, path).status_code == 200, (method, path)
+                bare = client.request(method, path, headers={"HX-Request": "true"})
+                assert bare.status_code == 403, (method, path)
+            fragment = client.get(path, headers={"HX-Request": "true", **token})
+            assert fragment.status_code == 200, path
+            assert "<html" not in fragment.text, path
+
+
+def test_fact_page_routes_exempt_no_other_path(tmp_path: Path) -> None:
+    """Only ``/facts/<one segment>/edit`` and ``/merge`` load without the token: not a longer
+    address ending the same way, not the routes beside them, not a POST to the same path."""
+    app = _create(tmp_path)
+    with TestClient(app, base_url=f"http://{HOST}", follow_redirects=False) as client:
+        ids = seed_page_ids(app.state.facts)
+        fact, draft = ids["fact_id"], ids["draft_id"]
+        token = {TOKEN_HEADER: app.state.launch_token}
+        not_pages = [
+            "/facts/a/b/edit",
+            "/facts/a/b/merge",
+            f"/facts/{fact}/x/edit",
+            f"/facts/x/{fact}/edit",
+            f"/facts/{draft}/x/merge",
+            f"/facts/a%2F{fact}/edit",
+            f"/facts/{fact}/edit/",
+            f"/facts/{draft}/merge/",
+            f"/facts/{fact}/edit/history",
+            f"/facts/{fact}/history",
+            "/facts/x/history",
+            f"/facts/{fact}/archive",
+            f"/facts/{fact}/restore",
+            f"/facts/{draft}/undo-merge",
+            "/facts//edit",
+        ]
+        for path in not_pages:
+            for method in ("GET", "HEAD"):
+                bare = client.request(method, path)
+                assert bare.status_code == 403, (method, path, bare.status_code)
+            _assert_safe_body(client.get(path), app.state.launch_token)
+            with_token = client.get(path, headers=token)
+            # With the token the request is dispatched; only the history fragment is a GET.
+            expected = (200,) if path == f"/facts/{fact}/history" else (307, 404, 405)
+            assert with_token.status_code in expected, (path, with_token.status_code)
+        for path in (f"/facts/{fact}/edit", f"/facts/{draft}/merge", "/facts/a/b/edit"):
+            for headers in ({}, {"origin": ORIGIN}, token, {"HX-Request": "true"}):
+                posted = client.post(path, data={"version": "1"}, headers=headers)
+                assert posted.status_code == 403, (path, headers.keys(), posted.status_code)
+        for path in (f"/facts/{fact}/edit", f"/facts/{fact}/archive"):
+            assert client.options(path).status_code == 403, path
+        # As observed: an address that ends in a newline is not exempt either.
+        for path in (f"/facts/{fact}/history%0A", f"/facts/{fact}/archive%0A"):
+            assert client.get(path).status_code == 403, path
+
+
+@pytest.mark.parametrize("page", ["edit", "merge"])
+@pytest.mark.parametrize(
+    "bad_id",
+    ["a.b", "a%20b", "..%2E", "%2E%2E", "a;b", "a%00b", "id%0A", "caf%C3%A9", "x" * 65],
+    ids=["dot", "space", "dots", "dot-dot", "semicolon", "nul", "newline", "non-ascii", "long"],
+)
+def test_fact_page_id_of_another_shape_is_404_before_any_lookup(
+    tmp_path: Path, page: str, bad_id: str
+) -> None:
+    app = _create(tmp_path)
+    with TestClient(app, base_url=f"http://{HOST}") as client:
+        unknown = client.get(f"/facts/no-such-fact/{page}")
+        assert unknown.status_code == 404
+        app.state.fact_editor = app.state.fact_merge = app.state.fact_history = _Untouchable()
+        app.state.facts = _Untouchable()
+
+        for headers in ({}, {TOKEN_HEADER: app.state.launch_token, "HX-Request": "true"}):
+            response = client.get(f"/facts/{bad_id}/{page}", headers=headers)
+            # The page is reached (its route matches one segment) and answers the fixed text.
+            assert response.status_code == 404, response.status_code
+            assert response.text == unknown.text
+            assert response.headers["content-type"].startswith("text/plain")
+        bare = client.get(f"/facts/{bad_id}/{page}", headers={"HX-Request": "true"})
+        assert bare.status_code == 403
+
+
+# As sent in an address, and as a form or query value.
+ODD_IDS = [
+    ("a.b", "a.b"),
+    ("a%20b", "a b"),
+    ("%2E%2E", ".."),
+    ("a/b", "a/b"),
+    ("id%0A", "id\n"),
+    ("caf%C3%A9", "café"),
+    ("x" * 65, "x" * 65),
+]
+ODD_ID_NAMES = ["dot", "space", "dot-dot", "slash", "newline", "non-ascii", "long"]
+FACT_POSTS = ("edit", "archive", "restore", "merge", "undo-merge")
+DRAFT_POSTS = ("confirm", "discard", "undo-discard", "confirm-edited")
+POSTED = {
+    "version": "1",
+    "draft_version": "1",
+    "target_version": "1",
+    "target": "no-such-fact",
+    "wording": "target",
+    "type": "fact",
+    "text": "Fictional wording.",
+}
+
+
+def _no_services(app: FastAPI) -> None:
+    app.state.fact_editor = app.state.fact_merge = app.state.fact_history = _Untouchable()
+    app.state.facts = app.state.fact_views = _Untouchable()
+
+
+# What the router itself answers when no route matches, or only one for another method (a
+# POST to a page's address): fixed as well.
+NO_ROUTE = {404: '{"detail":"Not Found"}', 405: '{"detail":"Method Not Allowed"}'}
+
+
+def _assert_fixed_404(
+    response: Any, unknown: Any, sent: tuple[str, ...], where: object, *, routed: bool = True
+) -> None:
+    """The unknown fact's own answer; with ``routed`` false, the router's (no handler ran)."""
+    if routed:
+        assert response.status_code == 404, (where, response.status_code)
+        assert response.text == unknown.text, where
+        assert response.headers["content-type"].startswith("text/plain"), where
+    else:
+        expected = 405 if where in ("edit", "merge") else 404
+        assert response.status_code == expected, (where, response.status_code)
+        assert response.text == NO_ROUTE[expected], where
+    for text in sent:
+        assert text not in response.text, where
+
+
+@pytest.mark.parametrize(("in_path", "raw"), ODD_IDS, ids=ODD_ID_NAMES)
+def test_fact_action_id_of_another_shape_is_404_before_any_service(
+    tmp_path: Path, in_path: str, raw: str
+) -> None:
+    """The history fragment and every POST that names a fact in its address (the editor's, the
+    merge screen's and the draft actions) answer an id that isn't of the safe shape as they
+    answer an unknown fact, without reaching a service. As observed, an id with a newline in
+    it matches none of these routes (their ``{fact_id:path}`` stops at a newline), so the
+    router answers its own fixed 404 (405 where only the page's GET matches): no handler
+    runs at all."""
+    app = _create(tmp_path)
+    with TestClient(app, base_url=f"http://{HOST}", follow_redirects=False) as client:
+        token = {TOKEN_HEADER: app.state.launch_token}
+        posting = {**token, "origin": ORIGIN}
+        unknown = client.get("/facts/no-such-fact/history", headers=token)
+        assert unknown.status_code == 404
+        _no_services(app)
+        routed = "\n" not in raw
+
+        for hx in ({}, {"HX-Request": "true"}):
+            history = client.get(f"/facts/{in_path}/history", headers={**token, **hx})
+            _assert_fixed_404(history, unknown, (in_path, raw), "history", routed=routed)
+            for action in FACT_POSTS + DRAFT_POSTS:
+                path = f"/facts/{in_path}/{action}"
+                posted = client.post(path, data=POSTED, headers={**posting, **hx})
+                _assert_fixed_404(posted, unknown, (in_path, raw), action, routed=routed)
+                assert client.post(path, data=POSTED, headers=hx).status_code == 403, action
+
+
+@pytest.mark.parametrize(("in_path", "raw"), ODD_IDS, ids=ODD_ID_NAMES)
+def test_merge_post_target_of_another_shape_is_404_before_any_service(
+    tmp_path: Path, in_path: str, raw: str
+) -> None:
+    app = _create(tmp_path)
+    with TestClient(app, base_url=f"http://{HOST}", follow_redirects=False) as client:
+        token = {TOKEN_HEADER: app.state.launch_token}
+        unknown = client.get("/facts/no-such-fact/history", headers=token)
+        _no_services(app)
+
+        for hx in ({}, {"HX-Request": "true"}):
+            posted = client.post(
+                "/facts/some-draft/merge",
+                data={**POSTED, "target": raw},
+                headers={**token, "origin": ORIGIN, **hx},
+            )
+            _assert_fixed_404(posted, unknown, (raw,), hx)
+
+
+@pytest.mark.parametrize(("in_path", "raw"), ODD_IDS, ids=ODD_ID_NAMES)
+def test_merge_page_target_of_another_shape_is_an_unknown_one(
+    tmp_path: Path, in_path: str, raw: str
+) -> None:
+    """``?target=`` of another shape: the search, with the note an unknown target gets, and
+    nothing of the request."""
+    app = _create(tmp_path)
+    with TestClient(app, base_url=f"http://{HOST}") as client:
+        draft = seed_page_ids(app.state.facts)["draft_id"]
+        path = f"/facts/{draft}/merge"
+        unknown = client.get(path, params={"target": "no-such-fact"})
+        plain = client.get(path)
+        assert unknown.status_code == plain.status_code == 200
+        assert unknown.text != plain.text, "an unknown target has its note"
+
+        response = client.get(path, params={"target": raw})
+
+        assert response.status_code == 200
+        assert response.text == unknown.text, "word for word the page made without it"
 
 
 def test_included_routers_hold_no_page_routes(tmp_path: Path) -> None:

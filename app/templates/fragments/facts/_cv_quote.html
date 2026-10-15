@@ -1,0 +1,8 @@
+{# The CV line a draft was first made from, wherever the draft is reviewed or edited. The
+   quote of a draft that needs a check is what the AI said the CV holds, which nothing
+   confirmed: its caption says so, never "From your CV". Needs `item` (a FactItem with a
+   quote). AI-made or from the CV: always escaped. #}
+<figure class="cv-quote">
+  <figcaption>{% if item.needs_check %}What the AI quoted (not checked against your CV){% else %}From your CV{% endif %}</figcaption>
+  <blockquote>{{ item.quote }}</blockquote>
+</figure>

@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% set live_updates = true %}
+{% block title %}{% if refused %}Error: {% endif %}Merge with another fact · {{ area.name }}{% endblock %}
+{% block content %}{% include "fragments/facts/_merge.html" %}{% endblock %}

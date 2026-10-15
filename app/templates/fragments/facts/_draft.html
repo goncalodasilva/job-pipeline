@@ -11,6 +11,8 @@
    `edit` is a refused inline form ({typed, field, message}) or none: the form is shown open
    with what was typed, the message tied to its field and that field focused (422); each
    field then also carries the saved wording (data-saved), so app.js can tell it was changed.
+   Under the actions, links to the full editor ("Edit details": role, skills, tags, dates
+   and privacy), the history and the merge screen (M3.6), each described by the wording.
    The quote, the wording and the role are AI-made or come from the CV: always escaped. #}
 {% set block = "fact-" ~ item.id %}
 {% set is_draft = mode in ("draft", "restored") %}
@@ -20,10 +22,7 @@
   {% endwith %}
   {% if is_draft %}
   {% if item.quote %}
-  <figure class="cv-quote">
-    <figcaption>{% if item.needs_check %}What the AI quoted (not checked against your CV){% else %}From your CV{% endif %}</figcaption>
-    <blockquote>{{ item.quote }}</blockquote>
-  </figure>
+  {% include "fragments/facts/_cv_quote.html" %}
   {% endif %}
   {% if item.needs_check %}
   {% with note_id = block ~ "-check" %}{% include "fragments/facts/_needs_check.html" %}{% endwith %}
@@ -62,6 +61,11 @@
       </form>
     </details>
   </div>
+  <p class="fact-links">
+    <a href="/facts/{{ item.id }}/edit" aria-describedby="wording-{{ item.id }}">Edit details</a>
+    <a href="/facts/{{ item.id }}/edit#fact-history" aria-describedby="wording-{{ item.id }}">History</a>
+    <a href="/facts/{{ item.id }}/merge" aria-describedby="wording-{{ item.id }}">Merge with…</a>
+  </p>
   {% elif mode == "discarded" %}
   <p id="{{ block }}-status" class="fact-result">Discarded. It won't be used. Undo is available until you leave this page.</p>
   <form method="post" action="/facts/{{ item.id }}/undo-discard" hx-post="/facts/{{ item.id }}/undo-discard"

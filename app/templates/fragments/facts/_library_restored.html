@@ -1,0 +1,11 @@
+{# The answer to "Restore draft" outside the Drafts tab (htmx): the card says where the draft
+   is now and takes focus. In the Library's Discarded filter the card is a list item and the
+   Drafts tab's link gets its new count out of band (`tab`); on the draft's own page there
+   is neither (`tab` is none). Needs `item` (a FactItem) and `tab`. #}
+<div id="fact-{{ item.id }}" class="fact-card"{% if tab %} role="listitem"{% endif %}>
+  {% include "fragments/facts/_fact_body.html" %}
+  <p id="fact-{{ item.id }}-status" class="fact-result" tabindex="-1" data-autofocus>Restored. It's back in <a href="/facts?tab=drafts#fact-{{ item.id }}">Drafts to review</a>.</p>
+</div>
+{% if tab %}
+{% with oob = true %}{% include "fragments/facts/_tab_link.html" %}{% endwith %}
+{% endif %}

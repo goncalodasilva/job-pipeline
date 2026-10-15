@@ -27,6 +27,7 @@
 {% else %}
 <section class="facts-section" aria-labelledby="library-heading">
   <h2 id="library-heading">Library</h2>
+  <p class="fact-links"><a class="button" href="/facts/new">Add a fact</a> <a class="button" href="/facts/new?type=story">Add a story</a></p>
   {% include "fragments/facts/_library_filters.html" %}
   {% include "fragments/facts/_library_results.html" %}
 </section>

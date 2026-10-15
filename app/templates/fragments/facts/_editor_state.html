@@ -1,0 +1,31 @@
+{# Archive or restore, under the editor (M3.6): a form of its own that sends the version and
+   no wording, and is replaced by its answer. Needs `editor` (an EditorView, or none with a
+   `conflict`), `state_said` (what the last press did, or none), `conflict` and `reload_url`.
+   After either press the line that says what happened takes focus, never the other button:
+   a second Enter must not undo it. A draft has neither button (its page says where it is
+   confirmed or discarded). #}
+<div id="fact-editor-state" class="editor-state">
+  {% if conflict %}
+  {% set reload_id = "fact-editor-conflict" %}
+  {% set reload_message = conflict %}
+  {% set reload_detail = "" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% elif editor.status == "confirmed" %}
+  {% if state_said %}
+  <p id="fact-editor-state-status" class="fact-result" tabindex="-1" data-autofocus>{{ state_said }}</p>
+  {% endif %}
+  <form method="post" action="/facts/{{ editor.fact_id }}/archive" hx-post="/facts/{{ editor.fact_id }}/archive"
+        hx-target="#fact-editor-state" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="version" value="{{ editor.version }}">
+    <button type="submit" class="button" aria-describedby="fact-editor-archive-hint">Archive</button>
+  </form>
+  <p id="fact-editor-archive-hint" class="field-hint">An archived fact is kept but left out of new CVs and letters. You can restore it at any time.</p>
+  {% elif editor.status == "archived" %}
+  <p id="fact-editor-state-status" class="fact-result"{% if state_said %} tabindex="-1" data-autofocus{% endif %}>{% if state_said %}{{ state_said }} {% endif %}This fact is archived: it is left out of new CVs and letters.</p>
+  <form method="post" action="/facts/{{ editor.fact_id }}/restore" hx-post="/facts/{{ editor.fact_id }}/restore"
+        hx-target="#fact-editor-state" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="version" value="{{ editor.version }}">
+    <button type="submit" class="button" aria-describedby="fact-editor-state-status">Restore</button>
+  </form>
+  {% endif %}
+</div>

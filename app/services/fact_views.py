@@ -48,6 +48,7 @@ MSG_CONFIRMED: Final = "Fact confirmed."
 MSG_EDITED: Final = "Fact saved and confirmed."
 MSG_DISCARDED: Final = "Draft discarded."
 MSG_RESTORED: Final = "Draft restored."
+PRACTICE_BADGE: Final = "Practice data (fake provider)"
 
 _MAX_QUERY_CHARS: Final = 200
 _MAX_ID_CHARS: Final = 64
@@ -115,6 +116,8 @@ class EditField:
     name: str
     label: str
     value: str
+    hint: str = ""
+    """What to write there, in a line (the full editor's story parts)."""
 
 
 @dataclass(frozen=True)
@@ -137,6 +140,8 @@ class FactItem:
     """The CV line the fact was first made from (Drafts tab only)."""
     import_id: str | None
     fields: tuple[EditField, ...]
+    merged: bool = False
+    """A draft a merge closed: its way back is "Undo merge", never "Restore draft"."""
 
 
 @dataclass(frozen=True)
@@ -253,11 +258,11 @@ def batch_hint(count: int) -> str | None:
     return f"Confirms the {count} drafts in this import that need no check. {left}"
 
 
-def _role_label(role: RoleView) -> str:
+def role_label(role: RoleView) -> str:
     return ", ".join(part for part in (role.title, role.employer) if part)
 
 
-def _edit_fields(view: FactView) -> tuple[EditField, ...]:
+def edit_fields(view: FactView) -> tuple[EditField, ...]:
     """A fact is reworded as one text, a story by its parts; a part that has words is always
     there, so nothing the draft says is out of reach."""
     content = view.content
@@ -275,8 +280,8 @@ def _edit_fields(view: FactView) -> tuple[EditField, ...]:
     )
 
 
-def _item(view: FactView, roles: Mapping[str, str], quote: str | None = None) -> FactItem:
-    fields = _edit_fields(view)
+def fact_item(view: FactView, roles: Mapping[str, str], quote: str | None = None) -> FactItem:
+    fields = edit_fields(view)
     return FactItem(
         id=view.id,
         version=view.version,
@@ -294,12 +299,13 @@ def _item(view: FactView, roles: Mapping[str, str], quote: str | None = None) ->
         quote=quote,
         import_id=view.cv_import_id,
         fields=fields,
+        merged=view.merged_into_fact_id is not None,
     )
 
 
 def _upload_label(item: ImportSummary, tz: tzinfo, *, seconds: bool = False) -> str:
     kind = _KIND_LABELS.get(item.kind, "CV")
-    moment = _local(item.created_at, tz)
+    moment = local_time(item.created_at, tz)
     time = format_day_time(moment) + (f":{moment.second:02d}" if seconds else "")
     return f"{kind} added {time}"
 
@@ -315,7 +321,7 @@ def _heading(label: str, count: int) -> str:
     return f"{label} \u00b7 {drafts_phrase(count)}"
 
 
-def _local(moment: datetime, tz: tzinfo) -> datetime:
+def local_time(moment: datetime, tz: tzinfo) -> datetime:
     return moment.astimezone(tz) if moment.utcoffset() is not None else moment
 
 
@@ -334,6 +340,19 @@ def _query(params: LibraryParams, page: int) -> str:
         ("page", str(page) if page > 1 else ""),
     ]
     return urlencode([(name, value) for name, value in fields if value])
+
+
+def open_bank(bank: Callable[[], FactBank | None]) -> FactBank:
+    """The open workspace's fact services."""
+    found = bank()
+    if found is None:  # setup sends every request to the guide until one is open
+        raise RuntimeError("no workspace is open")
+    return found
+
+
+def role_labels(bank: FactBank) -> dict[str, str]:
+    """Every role's label by id."""
+    return {role.id: role_label(role) for role in bank.roles.list()}
 
 
 class FactViews:
@@ -360,10 +379,7 @@ class FactViews:
         self._tz = tz
 
     def _open(self) -> FactBank:
-        bank = self._bank()
-        if bank is None:  # setup sends every request to the guide until one is open
-            raise RuntimeError("no workspace is open")
-        return bank
+        return open_bank(self._bank)
 
     def _kept(self) -> list[ImportSummary]:
         return [item for item in self._imports() if is_task_id(item.id)]
@@ -401,7 +417,7 @@ class FactViews:
         ``status_error`` with no results; a page past the last one is the first."""
         bank = self._open()
         roles = bank.roles.list()
-        labels = {role.id: _role_label(role) for role in roles}
+        labels = {role.id: role_label(role) for role in roles}
         skills = bank.skills.list()
         form = LibraryView(
             q=params.q,
@@ -467,7 +483,7 @@ class FactViews:
             empty, announce = "none", MSG_NO_FACTS
         return replace(
             form,
-            items=tuple(_item(view, roles) for view in found.items),
+            items=tuple(fact_item(view, roles) for view in found.items),
             total=found.total,
             count_text=count_text,
             announce=announce,
@@ -480,16 +496,15 @@ class FactViews:
 
     # --- drafts ---------------------------------------------------------------------------------
 
-    def _role_labels(self, bank: FactBank) -> dict[str, str]:
-        return {role.id: _role_label(role) for role in bank.roles.list()}
-
     def draft(self, fact_id: str) -> FactItem:
         """One fact as the Drafts tab shows it, whatever its status now. Raises
         ``FactNotFound``."""
         bank = self._open()
-        roles = self._role_labels(bank)
+        roles = role_labels(bank)
         with bank.db.read() as conn:
-            return _item(fact_view(conn, fact_id), roles, facts_repo.source_quote(conn, fact_id))
+            return fact_item(
+                fact_view(conn, fact_id), roles, facts_repo.source_quote(conn, fact_id)
+            )
 
     def drafts(self) -> DraftsView:
         """Every draft, grouped by the import that made it (newest import first, then the
@@ -505,11 +520,11 @@ class FactViews:
         its drafts are not."""
         bank = self._open()
         kept = self._kept()
-        roles = self._role_labels(bank)
+        roles = role_labels(bank)
         with bank.db.read() as conn:
             ids = facts_repo.ids_with_status(conn, FactStatus.DRAFT.value)
             items = [
-                _item(fact_view(conn, fact_id), roles, facts_repo.source_quote(conn, fact_id))
+                fact_item(fact_view(conn, fact_id), roles, facts_repo.source_quote(conn, fact_id))
                 for fact_id in ids
             ]
         labels = _upload_labels(kept, self._tz)

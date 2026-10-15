@@ -1,0 +1,105 @@
+{# The editor's form (M3.6). Needs `editor` (an EditorView) and `conflict`. It posts to its
+   own address and, with htmx, replaces the page's content. The type is fixed: it is sent
+   along but only read for a new item. A story's parts each say in a line what to write
+   there. A refused field is marked, described by its message and takes focus. After a stale save the form stays so the typing can be copied, without
+   its Save button. #}
+{% macro error_for(name) %}{% if editor.error_field == name %}<p id="editor-{{ name }}-error" class="field-error">{{ editor.error_message }}</p>{% endif %}{% endmacro %}
+{% macro invalid(name, described="") %}{% if editor.error_field == name %} aria-invalid="true" aria-describedby="{{ (described ~ " ") if described }}editor-{{ name }}-error" data-autofocus{% elif described %} aria-describedby="{{ described }}"{% endif %}{% endmacro %}
+<form id="fact-editor" class="fact-editor" method="post" action="{{ editor.action }}"
+      hx-post="{{ editor.action }}" hx-target="#fact-editor-page" hx-swap="outerHTML"
+      hx-disabled-elt="find button" novalidate>
+  <input type="hidden" name="type" value="{{ editor.kind }}">
+  {% if editor.version is not none %}
+  <input type="hidden" id="fact-editor-version" name="version" value="{{ editor.version }}">
+  {% endif %}
+  {% for field in editor.fields %}
+  <div class="field">
+    <label for="editor-{{ field.name }}">{{ field.label }}</label>
+    <textarea id="editor-{{ field.name }}" name="{{ field.name }}" rows="4"{{ invalid(field.name, ("editor-" ~ field.name ~ "-hint") if field.hint else "") }}>{{ field.value }}</textarea>
+    {% if field.hint %}
+    <p id="editor-{{ field.name }}-hint" class="field-hint">{{ field.hint }}</p>
+    {% endif %}
+    {{ error_for(field.name) }}
+  </div>
+  {% endfor %}
+  <div class="field">
+    <label for="editor-role_id">Role</label>
+    <select id="editor-role_id" name="role_id"{{ invalid("role_id") }}>
+      <option value="">No role</option>
+      {% for option in editor.roles %}
+      <option value="{{ option.value }}"{% if option.value == editor.role_id %} selected{% endif %}>{{ option.label }}</option>
+      {% endfor %}
+    </select>
+    {{ error_for("role_id") }}
+  </div>
+  <fieldset class="choices">
+    <legend>Or add a new role</legend>
+    <p class="field-hint">Fill these in only for a role that isn't in the list. It is used instead of the one chosen above.</p>
+    <div class="editor-pair">
+      <div class="field">
+        <label for="editor-new_role_employer">Employer</label>
+        <input type="text" id="editor-new_role_employer" name="new_role_employer" value="{{ editor.new_role_employer }}" autocomplete="off"{{ invalid("new_role_employer") }}>
+        {{ error_for("new_role_employer") }}
+      </div>
+      <div class="field">
+        <label for="editor-new_role_title">Job title</label>
+        <input type="text" id="editor-new_role_title" name="new_role_title" value="{{ editor.new_role_title }}" autocomplete="off"{{ invalid("new_role_title") }}>
+        {{ error_for("new_role_title") }}
+      </div>
+    </div>
+  </fieldset>
+  {% if editor.skills %}
+  <fieldset class="choices">
+    <legend>Skills</legend>
+    <div class="editor-ticks">
+      {% for skill in editor.skills %}
+      <div class="choice">
+        <input type="checkbox" id="editor-skill-{{ loop.index }}" name="skills" value="{{ skill.name }}"{% if skill.checked %} checked{% endif %}>
+        <label for="editor-skill-{{ loop.index }}">{{ skill.name }}</label>
+      </div>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endif %}
+  <div class="field">
+    <label for="editor-new_skills">Add skills</label>
+    <input type="text" id="editor-new_skills" name="new_skills" value="{{ editor.new_skills }}" autocomplete="off"{{ invalid("new_skills", "editor-new_skills-hint") }}>
+    <p id="editor-new_skills-hint" class="field-hint">Separate skills with commas.</p>
+    {{ error_for("new_skills") }}
+  </div>
+  <div class="field">
+    <label for="editor-tags">Tags</label>
+    <input type="text" id="editor-tags" name="tags" value="{{ editor.tags }}" autocomplete="off"{{ invalid("tags", "editor-tags-hint") }}>
+    <p id="editor-tags-hint" class="field-hint">Separate tags with commas.</p>
+    {{ error_for("tags") }}
+  </div>
+  <div class="editor-pair">
+    <div class="field">
+      <label for="editor-start_date">Start date</label>
+      <input type="text" id="editor-start_date" name="start_date" value="{{ editor.start_date }}" autocomplete="off"{{ invalid("start_date", "editor-dates-hint") }}>
+      {{ error_for("start_date") }}
+    </div>
+    <div class="field">
+      <label for="editor-end_date">End date</label>
+      <input type="text" id="editor-end_date" name="end_date" value="{{ editor.end_date }}" autocomplete="off"{{ invalid("end_date", "editor-dates-hint") }}>
+      {{ error_for("end_date") }}
+    </div>
+  </div>
+  <p id="editor-dates-hint" class="field-hint editor-hint">A year (2024), a month (2024-03) or a full date (2024-03-15). Leave empty if it doesn't apply.</p>
+  <fieldset class="choices">
+    <legend>Privacy</legend>
+    {{ error_for("privacy") }}
+    {% for choice in editor.privacy %}
+    <div class="choice">
+      <input type="radio" id="editor-privacy-{{ choice.value }}" name="privacy" value="{{ choice.value }}"{% if choice.checked %} checked{% endif %}{% if editor.error_field == "privacy" %} aria-invalid="true" aria-describedby="editor-privacy-error editor-privacy-{{ choice.value }}-help"{% if choice.checked %} data-autofocus{% endif %}{% else %} aria-describedby="editor-privacy-{{ choice.value }}-help"{% endif %}>
+      <label for="editor-privacy-{{ choice.value }}">{{ choice.label }}</label>
+      <p id="editor-privacy-{{ choice.value }}-help" class="field-hint">{{ choice.help }}</p>
+    </div>
+    {% endfor %}
+  </fieldset>
+  {% if not conflict %}
+  <div class="form-actions">
+    <button type="submit" class="button button-primary">Save</button>
+  </div>
+  {% endif %}
+</form>

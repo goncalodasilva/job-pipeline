@@ -15,7 +15,7 @@ _NEXT_NUMBER = "SELECT coalesce(max(number), 0) + 1 FROM facts"
 _INSERT_FACT = (
     "INSERT INTO facts (id, number, type, status, role_id, privacy, tags, start_date, "
     "end_date, current_version_id, merged_into_fact_id, cv_import_id, created_at, updated_at, "
-    "version) VALUES (?, ?, ?, ?, ?, 'normal', ?, ?, ?, ?, NULL, ?, ?, ?, 1)"
+    "version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 1)"
 )
 _SELECT_FACT = (
     "SELECT f.id, f.number, f.type, f.status, f.role_id, f.privacy, f.tags, f.start_date, "
@@ -44,6 +44,11 @@ _LIST_VERSIONS = (
 _INSERT_EVENT = (
     "INSERT INTO fact_events (id, fact_id, type, fact_version_id, detail, created_at) "
     "VALUES (?, ?, ?, ?, ?, ?)"
+)
+# ADR-090 item 3: oldest first, by time and then by insertion.
+_LIST_EVENTS = (
+    "SELECT id, type, detail, created_at FROM fact_events WHERE fact_id = ? "
+    "ORDER BY created_at, rowid"
 )
 _LATEST_MERGE = (
     "SELECT id, fact_version_id, detail FROM fact_events WHERE fact_id = ? AND type = 'merged' "
@@ -155,6 +160,14 @@ class StoredMerge:
     detail: str | None
 
 
+@dataclass(frozen=True)
+class StoredEvent:
+    id: str
+    type: str
+    detail: str | None  # a JSON object of ids and fixed words, or NULL
+    created_at: str
+
+
 def _version(row: Sequence[Any]) -> StoredVersion:
     (
         version_id,
@@ -248,6 +261,7 @@ def insert_fact(
     current_version_id: str,
     cv_import_id: str | None,
     now: str,
+    privacy: str = "normal",
 ) -> None:
     """Store a fact that points at a version the same transaction must still insert (the
     key is checked at commit)."""
@@ -259,6 +273,7 @@ def insert_fact(
             type,
             status,
             role_id,
+            privacy,
             tags,
             start_date,
             end_date,
@@ -353,6 +368,11 @@ def insert_event(
     now: str,
 ) -> None:
     conn.execute(_INSERT_EVENT, (event_id, fact_id, type, fact_version_id, detail, now))
+
+
+def list_events(conn: sqlite3.Connection, fact_id: str) -> list[StoredEvent]:
+    """A fact's events, oldest first."""
+    return [StoredEvent(*row) for row in conn.execute(_LIST_EVENTS, (fact_id,)).fetchall()]
 
 
 def latest_merge(conn: sqlite3.Connection, target_id: str, draft_id: str) -> StoredMerge | None:

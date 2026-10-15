@@ -22,11 +22,16 @@ link, the "Skip to drafts" link, and its group's heading and batch form. The bat
 own wrapper only (``#draft-group-<import id>-batch``: the result, which takes focus, and the
 form as it is now) and removes, out of band, the blocks of the drafts it confirmed: every other
 block on the page is left as it is, so a discarded draft keeps its Undo and an open inline form
-its typing. A plain request answers 303 to the Drafts tab.
+its typing. A plain request answers 303 to the Drafts tab. "Restore draft" in the Library's
+Discarded filter and on a discarded draft's own page posts to ``/undo-discard`` too (M3.6),
+with the hidden field ``from`` (``library`` or ``editor``): its htmx answer is then the card
+that says where the draft is now, its 409 links back to where it was pressed, and so does
+the plain 303.
 
 Errors (spec 2.11): ``FactNotFound`` is a fixed 404 text that repeats nothing from the
-request; ``VersionConflict`` and ``FactTransitionRefused`` answer 409, for htmx as the block
-holding the reload prompt (the batch: its wrapper, with no form beside the prompt);
+request, and so is a fact id that isn't of the safe shape, before any lookup;
+``VersionConflict`` and ``FactTransitionRefused`` answer 409, for htmx as the block holding
+the reload prompt (the batch: its wrapper, with no form beside the prompt);
 ``FactInputInvalid`` answers 422 with the message tied to its field (the Library's status
 filter, a draft's wording) and nothing saved. A version that is missing or not a number is a
 stale one. A rewording takes only the fields that draft's form shows; any other is ignored.
@@ -54,6 +59,7 @@ from app.domain.errors import (
     FactTransitionRefused,
     VersionConflict,
 )
+from app.domain.ids import is_safe_id
 from app.onboarding.registry import Form
 from app.services.fact_views import (
     CAPTURE,
@@ -63,6 +69,7 @@ from app.services.fact_views import (
     MSG_DISCARDED,
     MSG_EDITED,
     MSG_RESTORED,
+    FactItem,
     FactViews,
     LibraryView,
     batch_message,
@@ -80,6 +87,13 @@ DRAFTS_FRAGMENT: Final = "fragments/facts/_drafts_answer.html"
 DRAFT_FRAGMENT: Final = "fragments/facts/_draft_answer.html"
 GROUP_FRAGMENT: Final = "fragments/facts/_group_answer.html"
 CONFLICT_FRAGMENT: Final = "fragments/facts/_draft_conflict.html"
+RESTORED_FRAGMENT: Final = "fragments/facts/_library_restored.html"
+# "Restore draft" outside the Drafts tab says where it was pressed in this hidden field: the
+# answer is then that place's card, and a refusal or a plain request leads back there.
+FROM_FIELD: Final = "from"
+FROM_LIBRARY: Final = "library"
+FROM_EDITOR: Final = "editor"
+DISCARDED_URL: Final = f"{FACTS_PATH}?tab={LIBRARY}&status=discarded"
 VERSION_FIELD: Final = "version"
 BATCH_PREFIX: Final = "version:"
 # The paging links: an answer to one of them moves focus to the count (the link is gone).
@@ -193,7 +207,7 @@ def _page(
 # --- draft actions ------------------------------------------------------------------------------
 
 
-def _facts(request: Request) -> FactService:
+def facts_service(request: Request) -> FactService:
     facts: FactService = request.app.state.facts
     return facts
 
@@ -203,11 +217,11 @@ def _reword(request: Request, fact_id: str, version: int, form: Form) -> object:
     a story's parts): a forged extra field changes nothing."""
     shown = [field.name for field in _views(request).draft(fact_id).fields]
     wording = {name: form[name][0] for name in shown if form.get(name)}
-    return _facts(request).reword_and_confirm(fact_id, wording, expected_version=version)
+    return facts_service(request).reword_and_confirm(fact_id, wording, expected_version=version)
 
 
 _CONFIRM: Final = _Action(
-    lambda request, fact_id, version, _form: _facts(request).confirm(
+    lambda request, fact_id, version, _form: facts_service(request).confirm(
         fact_id, expected_version=version
     ),
     "confirmed",
@@ -215,14 +229,14 @@ _CONFIRM: Final = _Action(
 )
 _CONFIRM_EDITED: Final = _Action(_reword, "edited", MSG_EDITED)
 _DISCARD: Final = _Action(
-    lambda request, fact_id, version, _form: _facts(request).discard(
+    lambda request, fact_id, version, _form: facts_service(request).discard(
         fact_id, expected_version=version
     ),
     "discarded",
     MSG_DISCARDED,
 )
 _UNDO_DISCARD: Final = _Action(
-    lambda request, fact_id, version, _form: _facts(request).undo_discard(
+    lambda request, fact_id, version, _form: facts_service(request).undo_discard(
         fact_id, expected_version=version
     ),
     "restored",
@@ -254,6 +268,8 @@ async def confirm_all(request: Request, import_id: str) -> Response:
 
 
 async def _draft_action(request: Request, fact_id: str, action: _Action) -> Response:
+    if (unknown := no_such_id(fact_id)) is not None:
+        return unknown
     form = await read_form(request)
     if form is None:
         return HTMLResponse("", status_code=413)
@@ -261,19 +277,33 @@ async def _draft_action(request: Request, fact_id: str, action: _Action) -> Resp
     return await run_in_threadpool(_run_action, request, fact_id, form, action)
 
 
+def _pressed_in(form: Form, fact_id: str, action: _Action) -> tuple[str, str]:
+    """Where a restore was pressed (``FROM_LIBRARY``, ``FROM_EDITOR`` or "" for the Drafts
+    tab) and the address that leads back there. Only "Restore draft" has another place."""
+    place = (form.get(FROM_FIELD) or ("",))[0] if action is _UNDO_DISCARD else ""
+    if place == FROM_LIBRARY:
+        return place, DISCARDED_URL
+    if place == FROM_EDITOR:
+        return place, f"{FACTS_PATH}/{fact_id}/edit"
+    return "", DRAFTS_TAB_URL
+
+
 def _run_action(request: Request, fact_id: str, form: Form, action: _Action) -> Response:
+    place, back_url = _pressed_in(form, fact_id, action)
     try:
-        action.run(request, fact_id, _version(form.get(VERSION_FIELD, ())), form)
+        action.run(request, fact_id, form_version(form.get(VERSION_FIELD, ())), form)
     except FactNotFound as error:
-        return _not_found(error)
+        return not_found(error)
     except _CONFLICTS as error:
-        return _conflict(request, error, fact_id=fact_id)
+        return _conflict(request, error, fact_id=fact_id, reload_url=back_url)
     except FactInputInvalid as error:
         return _invalid_wording(request, fact_id, form, error)
     if not is_htmx(request):
-        return RedirectResponse(DRAFTS_TAB_URL, status_code=303)
+        return RedirectResponse(back_url, status_code=303)
     views = _views(request)
     item = views.draft(fact_id)
+    if place:
+        return _restored_elsewhere(request, item, action.said, listed=place == FROM_LIBRARY)
     ctx = {
         "item": item,
         "mode": action.mode,
@@ -288,22 +318,32 @@ def _run_action(request: Request, fact_id: str, form: Form, action: _Action) -> 
     return response
 
 
+def _restored_elsewhere(request: Request, item: FactItem, said: str, *, listed: bool) -> Response:
+    """A discarded draft restored outside the Drafts tab: its card says where it is now.
+    ``listed`` is the Library's Discarded filter, where the card is a list item and the
+    Drafts tab's link gets its new count; the draft's own page has neither."""
+    ctx = {"item": item, "tab": _views(request).drafts_tab() if listed else None}
+    response = templates.TemplateResponse(request, RESTORED_FRAGMENT, ctx)
+    response.headers["HX-Trigger"] = json.dumps({"announce": said})
+    return response
+
+
 def _confirm_all(request: Request, import_id: str, form: Form) -> Response:
     """Confirm the listed drafts of one import together, or none of them; the drafts that
     need a check are left, and the answer says how many. Blocking."""
-    facts = _facts(request)
+    facts = facts_service(request)
     views = _views(request)
     if views.group(import_id) is None:  # also keeps an id of another shape out of the page
-        return _not_found(FactNotFound())
+        return not_found(FactNotFound())
     listed = {
-        name[len(BATCH_PREFIX) :]: _version(values)
+        name[len(BATCH_PREFIX) :]: form_version(values)
         for name, values in form.items()
         if name.startswith(BATCH_PREFIX)
     }
     try:
         confirmed = facts.confirm_import(import_id, expected_versions=listed)
     except FactNotFound as error:
-        return _not_found(error)
+        return not_found(error)
     except _CONFLICTS as error:
         return _conflict(request, error, import_id=import_id)
     if not is_htmx(request):
@@ -323,16 +363,22 @@ def _views(request: Request) -> FactViews:
     return views
 
 
-def _version(values: Sequence[str]) -> int:
+def form_version(values: Sequence[str]) -> int:
     """The version a form sent, when it sent one whole number; anything else is stale."""
     given = tuple(values)
     usable = len(given) == 1 and given[0].isascii() and given[0].isdigit() and len(given[0]) < 10
     return int(given[0]) if usable else _NO_VERSION
 
 
-def _not_found(error: AppError) -> PlainTextResponse:
+def not_found(error: AppError) -> PlainTextResponse:
     """A fixed message: nothing of the request is repeated."""
     return PlainTextResponse(error.user_message, status_code=404)
+
+
+def no_such_id(value: str) -> PlainTextResponse | None:
+    """The answer to an id that isn't of the safe shape (``is_safe_id``): the 404 an unknown
+    fact gets, before anything is looked up. ``None`` for an id that may name a fact."""
+    return None if is_safe_id(value) else not_found(FactNotFound())
 
 
 def _group_context(
@@ -357,19 +403,24 @@ def _group_context(
 
 
 def _conflict(
-    request: Request, error: AppError, *, fact_id: str = "", import_id: str = ""
+    request: Request,
+    error: AppError,
+    *,
+    fact_id: str = "",
+    import_id: str = "",
+    reload_url: str = DRAFTS_TAB_URL,
 ) -> Response:
     """409: the draft, or one the batch lists, changed since the page showed it, or isn't a
     draft any more. For htmx the reload prompt takes the place of the fact's block (its
     forms hold a version that no longer works); for the batch, of its form (the versions it
-    lists no longer work either). Nothing is announced: nothing happened. A plain request
-    gets the message."""
+    lists no longer work either). ``reload_url`` is the page the action was pressed on.
+    Nothing is announced: nothing happened. A plain request gets the message."""
     if not is_htmx(request):
         return PlainTextResponse(error.user_message, status_code=409)
     if import_id:
         ctx = _group_context(request, import_id, conflict=error.user_message)
         return templates.TemplateResponse(request, GROUP_FRAGMENT, ctx, status_code=409)
-    ctx = {"fact_id": fact_id, "conflict": error.user_message, "reload_url": DRAFTS_TAB_URL}
+    ctx = {"fact_id": fact_id, "conflict": error.user_message, "reload_url": reload_url}
     return templates.TemplateResponse(request, CONFLICT_FRAGMENT, ctx, status_code=409)
 
 

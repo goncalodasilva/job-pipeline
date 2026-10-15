@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status as of 2026-10-12 (M0 to M3.4 and the M2 and M1 acceptance reports).
+Status as of 2026-10-15 (M0 to M3.6 and the M2 and M1 acceptance reports).
 
 ## What belongs here
 
@@ -27,7 +27,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-007 | No `script-src 'self'` Content-Security-Policy. The policy only sets frame-ancestors. | ADR-077 (out of scope) | low: wider hardening idea | Decide in a later security pass. |
 | TD-008 | The snapshot `window` field accepts any string of the form `[A-Za-z0-9_.:-]{1,64}`. An allow-list per provider would close this. | ADR-088 item 6; M2.26 Known limits | low: Claude windows come from a fixed list, but a future provider could store odd text | When the next provider is added. |
 | TD-009 | `ANTHROPIC_AUTH_TOKEN` is blanked for SDK calls but is not registered with the redactor. The decision on registering it was left open. (status unclear: no decision found) | ADR-047 follow-up; M1.23 | low: the value could reach a log only if a library echoes it | Decide and record in a new ADR. |
-| TD-176 | Fact ids are not shape-checked before use in element ids and URLs. Import ids are checked; fact ids are not. | M3.5 | low: a malformed id reaches element ids and URLs unchecked | Add a fact-id shape check with a test. |
+| TD-210 | Non-page fact routes keep `{fact_id:path}`. The `no_such_id` guard and the launch token still apply to them. | M3.6; ADR-094 item 1 | low: a wider path parameter, guarded | Use the id shape in these routes when they are next touched. |
+| TD-211 | A path ending in a newline (`%0A`) reaches page handlers, because Starlette's `$` anchor matches before a final newline. It is the same page, so there is no bypass. | M3.6 | low: an odd path reaches the same page | Anchor the id check at the true end of the string, with a test. |
 
 ## 2. Privacy and stored data
 
@@ -52,7 +53,6 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-019 | `refine_sessions` has no link to the accepted version. | M3.2 (design) | low: weaker trail from a refinement to the saved version | M3.8. |
 | TD-020 | `cv_imports.task_id` and `refine_sessions.task_id` are not indexed. | M3.2 | low: slower lookups as data grows | When the lookup code needs it (M3.4). |
 | TD-021 | The FTS5 index has no stemming, so "manage" does not match "managed". | M3.2 | low: search recall | Decide with the user (see TD-127). |
-| TD-023 | `word_diff` yields whitespace-only segments. The M3.6 diff must hide or label them. | M3.2 | low: display only | M3.6. |
 | TD-024 | `fact_events` has no sequence column. History is ordered by `created_at, rowid`. | M3.2; ADR-090 item 3 | low: ties within one timestamp rely on rowid | When history order matters more (M3.6). |
 | TD-025 | `budget_notices.cycle_start` has a format-only CHECK that accepts 2026-02-30. The only writer builds real dates. | M2.5 (ADR-078 update) | low: the only writer is correct | Tighten with a later migration. Committed migrations are never edited. |
 | TD-026 | One shared SQLite connection, with an RLock so threads take turns. | ADR-038 | low: no contention reported | Revisit with per-thread connections if contention appears. |
@@ -60,7 +60,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-127 | Search matches whole words only. There is no prefix matching and no stemming: "forecast" does not find "forecasting", and "manage" does not find "managed" (see TD-021). | M3.3 Left (a) | medium: library search misses common word forms | Decide the matching rule with the user. The library search box arrives in M3.5. |
 | TD-128 | The search tokenizer drops punctuation, so "C++" and "c#" match any "c". | M3.3 | low: wrong hits for short technical skill names | Decide how symbol-only names are indexed. |
 | TD-129 | Skill aliases are not in the search index. Searching an alias finds nothing; only canonical names are matched. | M3.3 | low: a common alternative spelling does not find its facts | Decide together with TD-127. |
-| TD-130 | `start_date` after `end_date` is accepted for roles and facts. | M3.3 | medium: a timeline can show a role that ends before it starts | Add the check in the domain. A database CHECK needs a later migration. |
+| TD-130 | `start_date` after `end_date` is still accepted for roles and imports. The editor refuses it for facts since M3.6. | M3.3; narrowed in M3.6 | medium: a timeline can show a role that ends before it starts | Add the check to roles and imports in the domain. A database CHECK needs a later migration. |
 | TD-131 | Draft roles are orphaned when their drafts are discarded or merged away. They stay listed by `RoleService.list`. | M3.3 Left (e); TD-015 | medium: unused roles clutter the library | Decide the cleanup rule. Link roles to their import (TD-015). |
 | TD-132 | No role edit or rename. A role's title or employer cannot be changed once it exists. | M3.3 | low: a wrong role name stays until a screen can change it | Decide when role editing arrives. |
 | TD-133 | Draft roles are not matched against existing roles with the same employer and title. A new import can add a duplicate role. | M3.3 Left (e) | low: duplicate roles in the library | Decide whether the near-duplicate check (M3.7) covers roles. |
@@ -77,6 +77,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-152 | Removing an import keeps its draft roles, so they stay in the library. This is TD-015 seen from the remove route. | M3.4; TD-015 | medium: orphan draft roles after a remove | Decide the cleanup rule with TD-015 and TD-131. |
 | TD-177 | Drafts and library views read with N+1 queries, and each draft action re-reads every draft. | M3.5 review | low: slower pages and actions as the bank grows | Batch the reads and read only what an action touches. Same work as TD-136. |
 | TD-178 | `tasks_repo.get_latest` has no index on `dedupe_key` beyond the partial active one. | M3.5 | low: the latest-task lookup slows as the task table grows | Add the index in a later migration when the lookup is slow. Committed migrations are never edited. |
+| TD-202 | A role typed in the editor is not matched against existing roles with the same employer and title. Discarding its draft leaves the role confirmed. | M3.6 Left (c); ADR-094 item 4 | medium: duplicate or stray confirmed roles stay in the library | Decide with TD-131 and TD-133. |
+| TD-204 | `FactHistory.of` and `FactMerge.page` make several separate reads, not one snapshot. A write between the reads can show mixed data. | M3.6 | low: a rare mixed view during a write | Read in one `Database.read()` block, with a test. |
 
 ## 4. Extraction and uploads
 
@@ -103,6 +105,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-157 | `ExtractText` is an alias that loses the kind's type. | M3.4 | low: weaker type checking at the injected seam | When touched. |
 | TD-179 | Other routes (`setup.py`, `settings_usage.py` and the draft actions) still answer an oversized form with an empty HTML 413. ADR-092 item 11 covers only the import routes. | M3.5 review | low: no message for an oversized form on those routes | Give these routes the plain-text 413 with a test. |
 | TD-180 | "File and text together" is recognised by a detail constant on `UploadNotAccepted`, not by its own error. | M3.5 | low: a change to the constant changes which message shows | Give it its own error when the upload code is next changed. |
+| TD-203 | A tag longer than 80 characters stored by an import blocks the full editor's save with a 422. | M3.6; ADR-094 item 8 | medium: an imported fact cannot be saved in the full editor | Check import tags against the editor caps, with a test. |
+| TD-206 | The other 413 backstops (`app/api/facts.py`, settings, setup and tasks) answer an oversized body with an empty HTML body. | M3.6; TD-179 | low: no message for an oversized request on these routes | Give them the plain-text 413, with a test, together with TD-179. |
 
 ## 5. AI provider and tasks
 
@@ -132,7 +136,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-167 | A `FactInputInvalid` raised inside the completing write fails the whole import with a generic message. No test covers it. | M3.4 | medium: a bad draft ends the import with an unhelpful message | Add a test and map the message. |
 | TD-168 | Model text is stored without removing format or bidi characters. | M3.4; TD-029 | medium: misleading text in drafts | Strip before storage, with a test (see TD-029). |
 | TD-169 | With the fake provider, any CV produces the fictional "Alex Example" drafts. | M3.4 Left (e) | medium: drafts can be taken for the user's facts until the label is shown | M3.5 shows the Practice data label (TD-044). |
-| TD-170 | Import ids are checked with `is_task_id`, the task-id check. | M3.4 | low: a change to task ids would change import ids too | Give import ids their own check. |
+| TD-170 | Import ids are still checked with `is_task_id`, the task-id check. Fact ids use `is_safe_id` since M3.6. | M3.4; narrowed in M3.6 | low: a change to task ids would change import ids too | Give import ids their own check. |
 
 ## 6. Usage and budgets
 
@@ -191,7 +195,16 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-192 | "Confirm all" skips a draft that is being reworded, but the result sentence does not say so. | M3.5; ADR-093 item 4 | low: the user may not know a draft was skipped | Add it to the sentence, with a test. |
 | TD-193 | The status filter always sends `status=confirmed` in pushed URLs. | M3.5 | low: the address does not match the filter on screen | Send the filter the user chose. |
 | TD-194 | A dropped region refresh also drops the out-of-band tab count. | M3.5 | low: the Drafts count can be stale until reload | Keep the count in the refresh. |
-| TD-195 | A discarded draft can't be restored after leaving the page, because Undo lasts only on the page. | M3.5 Left (c); ADR-093 Consequences | medium: the user cannot undo a discard after leaving the page | M3.6 adds a restore path. |
+| TD-200 | Version sources and event types with no label show as "Saved" or "Changed". M3.8's `refine` source needs its own label in `fact_history`. | M3.6; ADR-094 Consequences | medium: a refined version would read as an ordinary save | M3.8: add the label, with a test. |
+| TD-201 | Merge candidates are listed 25 per status, with no paging beyond that. | M3.6; ADR-094 item 6 | low: a fact past the first 25 is reachable only by search | Add paging when the candidate list is next changed. |
+| TD-205 | A plain-text 404 for an unknown fact id has no app shell. | M3.6; ADR-094 item 1 | low: a bare error page on a direct visit | Decide the no-script path with TD-077 and TD-189. |
+| TD-208 | After an in-place "Restore draft" on a discarded draft's page, the heading still reads "Discarded draft" until reload. | M3.6 | low: a stale heading after a restore | Refresh the heading in the restore answer. |
+| TD-209 | With a draft target, the help under "Use the draft's wording" still says "The fact reads as …". | M3.6 | low: wrong copy on the merge screen | Fix the copy for drafts, with a test. |
+| TD-212 | History has no collapse for long histories, and same-minute events look alike. | M3.6 | low: a long page, and an unclear order within a minute | Decide with the UX reviewer. |
+| TD-213 | The skills checkbox list has no filter. | M3.6 | low: a long skill list is hard to scan on a phone | Add a filter when the list grows. |
+| TD-214 | On draft cards, the inline "Edit" sits beside "Edit details", which is ambiguous. "Merge with…" is a small trailing link. | M3.6 | low: unclear actions | Decide the labels and sizes with the UX reviewer. |
+| TD-215 | Merge screen titles are the same for search, compare and result. | M3.6 | low: the step is unclear from its title | Give each step its own title. |
+| TD-216 | The M3.5 "Skip to drafts" link is 18 px high. It is inline and exempt from the target size rule. | M3.5; M3.6 | low: a small target | Decide whether inline links are exempt, then fix or record it. |
 
 ## 8. Tests and CI
 
@@ -221,6 +234,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-172 | The kill tests do not cover a kill during the parser child. | M3.4 | low: a kill at that point is untested | Add a kill test during the parse. |
 | TD-173 | Each import test spawns parser children and starts the app. The fast suite now takes about 5 minutes. | M3.4 Evidence | medium: every run is slow | Decide how to run the slow import tests. A separate marker changes the test gates and needs your approval. |
 | TD-196 | The `data-shows-refusals` non-empty-body guard and the announce-replacement attributes in `app/static/js/app.js` have no direct test. | M3.5 | low: a change to either could pass the suite | Add direct tests. |
+| TD-207 | Editor saves swap fields with the default settle delay. This is the pattern that caused a search flake, which was fixed there with `settle:0ms`. | M3.6 | low: a possible flaky e2e test | Use `settle:0ms` on the editor swaps when they are next touched. |
 
 ## 9. Tooling and docs
 

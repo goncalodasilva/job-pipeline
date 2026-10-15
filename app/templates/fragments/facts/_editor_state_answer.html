@@ -1,0 +1,11 @@
+{# The answer to Archive or Restore (htmx): the block with those buttons, then, out of band,
+   the editor's version field (the form on the page keeps its typing and can still be saved)
+   and the history with the new event. A refusal (409) is the block alone, with the reload
+   prompt. #}
+{% include "fragments/facts/_editor_state.html" %}
+{% if editor %}
+<input type="hidden" id="fact-editor-version" name="version" value="{{ editor.version }}" hx-swap-oob="true">
+{% if history %}
+{% with oob = true %}{% include "fragments/facts/_history.html" %}{% endwith %}
+{% endif %}
+{% endif %}

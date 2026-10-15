@@ -1,0 +1,86 @@
+{# The fact editor's content (M3.6): the page of a new fact or story, or of one that exists,
+   and the answer to a save, which replaces all of it (so a new fact's page becomes its own).
+   One focus target: the line a save left, the reload prompt of a stale save, or the first
+   refused field. Needs `editor` (an EditorView), `history` (a HistoryView, or none for an
+   item that doesn't exist yet), `said`, `state_said`, `conflict`, `reload_url`, `refused`
+   and `swap_title` (the answer to a save, as a fragment: htmx sets the document's title
+   from the <title> it starts with, since the heading may be a new one). A draft says under
+   its heading that it is one, with what made it, its needs-check note and the CV line it
+   came from, as the Drafts tab does: an edit is not a confirmation. A discarded draft has no
+   form: it is shown as a card with "Restore draft" (one a merge closed: with the link to
+   its merge) and, after a save that found it discarded, what was typed, read-only, to be
+   copied. Everything typed or AI-made is escaped (spec 2.9 rule 4). #}
+{% if swap_title %}
+<title>{% if refused %}Error: {% endif %}{{ editor.heading }} · {{ area.name }} · Job Search Pipeline</title>
+{% endif %}
+<div id="fact-editor-page" class="facts-section fact-editor-page">
+  <p class="fact-links"><a href="{{ editor.back_url }}">{{ editor.back_label }}</a></p>
+  <h1 id="page-heading">{{ editor.heading }}</h1>
+  {% if editor.intro %}
+  <p id="fact-editor-intro" class="field-hint">{{ editor.intro }}</p>
+  {% endif %}
+  {% if editor.draft %}
+  {% with item = editor.draft %}
+  <div id="fact-editor-draft" class="editor-draft">
+    <ul class="badges">
+      <li class="badge">{{ item.status_label }}</li>
+      {% if item.practice %}<li class="badge badge-practice">Practice data (fake provider)</li>{% endif %}
+    </ul>
+    <p class="field-hint">This is a draft. Confirm it or discard it in <a href="/facts?tab=drafts#fact-{{ item.id }}">Drafts to review</a>.</p>
+    {% if item.needs_check %}
+    {% with note_id = "fact-editor-check" %}{% include "fragments/facts/_needs_check.html" %}{% endwith %}
+    {% endif %}
+    {% if item.quote %}
+    {% include "fragments/facts/_cv_quote.html" %}
+    {% endif %}
+  </div>
+  {% endwith %}
+  {% endif %}
+  {% if conflict %}
+  {% set reload_id = "fact-editor-conflict" %}
+  {% set reload_message = conflict %}
+  {% set reload_detail = "What you typed is still below. Copy anything you want to keep before you reload." if editor.fields or editor.kept else "" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% elif said %}
+  <p id="fact-editor-status" class="fact-result" tabindex="-1" data-autofocus>{{ said }}</p>
+  {% endif %}
+  {% if editor.fields %}
+  {% include "fragments/facts/_editor_form.html" %}
+  {% if editor.fact_id and not conflict and not editor.draft %}
+  {% include "fragments/facts/_editor_state.html" %}
+  {% endif %}
+  {% elif editor.item %}
+  {% with item = editor.item %}
+  <div id="fact-{{ item.id }}" class="fact-card">
+    {% include "fragments/facts/_fact_body.html" %}
+    {% if editor.merged %}
+    <p class="fact-meta">This draft was merged into another fact. <a href="/facts/{{ item.id }}/merge">See the merge</a>.</p>
+    {% elif conflict %}
+    <p class="fact-meta">This draft was discarded, so it can't be edited.</p>
+    {% else %}
+    <p id="fact-editor-discarded" class="fact-meta">This draft was discarded, so it can't be edited. Restore it to review and edit it again.</p>
+    <form class="fact-restore" method="post" action="/facts/{{ item.id }}/undo-discard"
+          hx-post="/facts/{{ item.id }}/undo-discard" hx-target="#fact-{{ item.id }}" hx-swap="outerHTML"
+          hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ item.version }}">
+      <input type="hidden" name="from" value="editor">
+      <button type="submit" class="button" aria-describedby="fact-editor-discarded">Restore draft</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endwith %}
+  {% if conflict and editor.kept %}
+  <div id="fact-editor-kept" class="fact-editor">
+    {% for field in editor.kept %}
+    <div class="field">
+      <label for="editor-kept-{{ field.name }}">{{ field.label }} (what you typed)</label>
+      <textarea id="editor-kept-{{ field.name }}" rows="3" readonly>{{ field.value }}</textarea>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endif %}
+  {% if history %}
+  {% with oob = false %}{% include "fragments/facts/_history.html" %}{% endwith %}
+  {% endif %}
+</div>

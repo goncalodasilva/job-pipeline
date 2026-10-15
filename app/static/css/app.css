@@ -378,10 +378,12 @@ a {
   border-radius: var(--radius);
   color: var(--color-text);
   text-decoration: none;
-  transition: background-color var(--motion-fast) ease;
 }
 
+/* The fade is for the pointer moving in only: on the link itself it would also animate a
+   light/dark switch, leaving the current area's words on the old background for a moment. */
 .sidebar a:hover {
+  transition: background-color var(--motion-fast) ease;
   background: var(--color-accent-soft);
   text-decoration: underline;
 }
@@ -1350,6 +1352,172 @@ a.button {
 .upload-task .task-label {
   flex: 0 1 auto;
   font-weight: 400;
+}
+
+/* Fact editor, history and merge screen (M3.6). */
+.fact-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0 0;
+}
+
+.fact-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+
+.fact-editor-page > .fact-links,
+.merge-page > .fact-links {
+  margin: 0;
+}
+
+.fact-restore {
+  margin-top: var(--space-3);
+}
+
+.fact-editor {
+  margin-top: var(--space-4);
+}
+
+.editor-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  column-gap: var(--space-4);
+}
+
+.editor-ticks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
+  column-gap: var(--space-4);
+}
+
+.editor-hint {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+}
+
+.editor-state {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.editor-state .field-hint {
+  margin-top: var(--space-2);
+}
+
+.fact-history {
+  margin-top: var(--space-6);
+}
+
+.history-events,
+.history-versions {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.history-events li {
+  margin-bottom: var(--space-2);
+}
+
+.history-versions {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.history-versions h4 {
+  margin: 0 0 var(--space-1);
+  font-size: 1rem;
+}
+
+.part-label {
+  margin: var(--space-2) 0 0;
+  font-weight: 600;
+}
+
+.version-note {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+
+/* A version's words keep their own spacing. What changed is underlined or struck through
+   as well as tinted, and starts with a hidden word, so it never relies on colour. */
+.version-words {
+  margin: 0 0 var(--space-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.version-words ins {
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  background: var(--color-accent-soft);
+}
+
+.version-words del {
+  text-decoration: line-through;
+  background: var(--color-warning-bg);
+}
+
+/* One changed run right after another ("60" replaced by "80"): the space written between
+   them, and a little more room, keep them from reading as one word. */
+.version-words del + ins,
+.version-words ins + del,
+.version-words del + del,
+.version-words ins + ins {
+  margin-inline-start: 0.25em;
+}
+
+/* A draft in the full editor: what it is and where it came from, above its form. */
+.editor-draft {
+  margin-top: var(--space-3);
+}
+
+.editor-draft .badges {
+  margin-bottom: var(--space-2);
+}
+
+.merge-page {
+  max-width: 64rem;
+  overflow-wrap: anywhere;
+}
+
+.merge-body > * + * {
+  margin-top: var(--space-4);
+}
+
+/* The two wordings: one under the other on a phone, side by side when there is room. */
+.merge-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  .merge-compare {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+.merge-side h2,
+.merge-candidates h2,
+.merge-result h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 1.1rem;
+}
+
+.merge-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.merge-form {
+  max-width: 48rem;
 }
 
 /* Phone and narrow windows: the sidebar collapses behind the top-bar toggle. */

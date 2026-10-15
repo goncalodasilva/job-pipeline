@@ -28,7 +28,7 @@ confirmed out of band, touching no other block. A plain POST answers 303 to
 
 import json
 import sqlite3
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -433,3 +433,349 @@ def fact_ids_shown(
     pool = elements if parent is None else inside(elements, parent)
     wanted = {fact_id_attr(fact_id): fact_id for fact_id in known}
     return [wanted[i] for e in pool if (i := e.attrs.get("id") or "") in wanted]
+
+
+# ================================================================================================
+# M3.6: the editor, the history and the merge screen (AC-M3.2, AC-M3.3)
+# ================================================================================================
+#
+# Pages (registered as pages: no token needed, full HTML, GET and HEAD change nothing):
+#
+# - ``GET /facts/new`` (``?type=fact|story``; anything else is a fact): the editor for a new item.
+# - ``GET /facts/{id}/edit``: the editor for one fact, with its history below (``#fact-history``).
+# - ``GET /facts/{draft id}/merge`` (``?q=`` searches, ``?target=<fact id>`` compares): the merge
+#   screen of one draft; for a draft a merge closed it shows the result and, while it can be
+#   taken back, "Undo merge".
+#
+# Everything else needs the launch token, and each POST the app's own origin too:
+#
+# - ``GET /facts/{id}/history``: the ``#fact-history`` fragment.
+# - ``POST /facts/new`` and ``POST /facts/{id}/edit`` (the editor's fields; the second with
+#   ``version``). ``POST /facts/{id}/archive`` and ``/restore`` (``version``).
+# - ``POST /facts/{draft id}/merge`` (``target``, ``draft_version``, ``target_version``,
+#   ``wording`` = ``target|draft|edited`` and, for ``edited``, the wording fields) and
+#   ``POST /facts/{draft id}/undo-merge`` (``draft_version``, ``target_version``).
+# - A discarded draft is restored with the existing ``POST /facts/{id}/undo-discard``, from the
+#   Library's "Discarded" filter or from its own page, with the hidden field ``from``
+#   (``library`` or ``editor``): the answer, a 409's link and a plain 303 lead back there.
+#
+# An htmx answer is a fragment with one ``data-autofocus`` target and the words for the live
+# region; a plain POST answers 303. 404 unknown fact, 409 stale or refused (reload prompt), 422
+# refused input tied to its field.
+
+NEW_URL = "/facts/new"
+TYPE_FIELD = "type"
+WORDING_FIELDS = {"fact": ("text",), "story": ("situation", "action", "result")}
+# The editor's other fields. ``skills`` is one checkbox per skill of the user's list (its value
+# is the skill's name); ``new_skills`` and ``tags`` are comma-separated; a new role is typed as
+# employer and title and wins over the chosen one.
+ROLE_FIELD = "role_id"
+NEW_ROLE_FIELDS = ("new_role_employer", "new_role_title")
+SKILLS_FIELD = "skills"
+NEW_SKILLS_FIELD = "new_skills"
+TAGS_FIELD = "tags"
+DATE_FIELDS = ("start_date", "end_date")
+PRIVACY_FIELD = "privacy"
+
+
+def new_url(kind: str = "fact") -> str:
+    return NEW_URL if kind == "fact" else f"{NEW_URL}?type={kind}"
+
+
+def edit_url(fact_id: str) -> str:
+    return f"/facts/{fact_id}/edit"
+
+
+def history_url(fact_id: str) -> str:
+    return f"/facts/{fact_id}/history"
+
+
+def archive_path(fact_id: str) -> str:
+    return f"/facts/{fact_id}/archive"
+
+
+def restore_path(fact_id: str) -> str:
+    return f"/facts/{fact_id}/restore"
+
+
+def merge_url(draft_id: str) -> str:
+    return f"/facts/{draft_id}/merge"
+
+
+def undo_merge_path(draft_id: str) -> str:
+    return f"/facts/{draft_id}/undo-merge"
+
+
+# --- element ids ---
+
+EDITOR_ID = "fact-editor"  # the editor's <form>
+EDITOR_STATUS_ID = "fact-editor-status"  # the line a save leaves ("Fact saved.")
+EDITOR_CONFLICT_ID = "fact-editor-conflict"  # the reload prompt of a stale save
+EDITOR_PAGE_ID = "fact-editor-page"  # the editor's content: what a save replaces
+EDITOR_DRAFT_ID = "fact-editor-draft"  # under a draft's heading: what it is and what made it
+EDITOR_STATE_STATUS_ID = "fact-editor-state-status"  # the line Archive or Restore leaves
+EDITOR_KEPT_ID = "fact-editor-kept"  # what a refused save typed for a fact with no form now
+MERGE_CONTENT_ID = "merge-content"  # the merge screen's content: what its search replaces
+MERGE_CANDIDATES_HEADING_ID = "merge-candidates-heading"
+HISTORY_ID = "fact-history"
+HISTORY_EVENTS_ID = "fact-history-events"
+HISTORY_VERSIONS_ID = "fact-history-versions"
+MERGE_SEARCH_ID = "merge-search"  # a plain GET form, field ``q``
+MERGE_CANDIDATES_ID = "merge-candidates"
+MERGE_COMPARE_ID = "merge-compare"
+MERGE_DRAFT_ID = "merge-draft"  # the draft's side of the comparison
+MERGE_TARGET_ID = "merge-target"  # the other fact's side
+MERGE_FORM_ID = "merge-form"
+MERGE_RESULT_ID = "merge-result"
+MERGE_CONFLICT_ID = "merge-conflict"
+
+
+def wording_id(fact_id: str) -> str:
+    """The element holding a fact's wording where it is listed (M3.5's ``_fact_body``)."""
+    return f"wording-{fact_id}"
+
+
+def version_id_attr(number: int) -> str:
+    """One version's entry in the history; ``number`` is the 3 of ``F12@3``."""
+    return f"fact-version-{number}"
+
+
+def merge_candidate_id(fact_id: str) -> str:
+    return f"merge-candidate-{fact_id}"
+
+
+# --- copy ---
+
+ADD_FACT = "Add a fact"
+ADD_STORY = "Add a story"
+NEW_HEADINGS = {"fact": "Add a fact", "story": "Add a story"}
+EDIT_HEADINGS = {"fact": "Edit fact", "story": "Edit story"}
+SAVE = "Save"
+EDIT_DETAILS = "Edit details"  # a draft's link to the full editor ("Edit" is its inline form)
+HISTORY = "History"
+MERGE_WITH = "Merge with…"
+ARCHIVE = "Archive"
+RESTORE = "Restore"
+RESTORE_DRAFT = "Restore draft"
+PRIVACY_LEGEND = "Privacy"
+PRIVACY_LABELS = {
+    "normal": "Normal",
+    "never_use": BADGE_NEVER_USE,
+    "generalize": BADGE_GENERALIZE,
+}
+PRIVACY_HELP = {
+    "normal": "The app may use this in your CVs and letters and send it to your AI provider.",
+    "never_use": (
+        "Kept for your own reference. It is never put in a CV or a letter and never sent to the AI."
+    ),
+    "generalize": (
+        "The AI is told to describe names in general terms, such as "
+        '"a large retail bank" instead of a client\'s name.'
+    ),
+}
+END_BEFORE_START = "The end date is before the start date."
+DATE_HINT = (
+    "A year (2024), a month (2024-03) or a full date (2024-03-15). Leave empty if it doesn't apply."
+)
+DATE_ERROR = "Write the date as 2024, 2024-03 or 2024-03-15."
+SAID_ADDED = "Fact added to your Library."
+SAID_SAVED = "Fact saved."
+SAID_STORY_ADDED = "Story added to your Library."
+SAID_STORY_SAVED = "Story saved."
+# A save in the full editor never confirms a draft, and its line must not read as if it did.
+SAID_DRAFT_SAVED = "Draft saved. It still needs your confirmation in Drafts to review."
+STORY_EMPTY = "Fill in at least one of situation, action or result."
+STORY_INTRO = "Fill in what you have; you can add the rest later."
+STORY_HINTS = {
+    "situation": "What was going on, in a sentence or two.",
+    "action": "What you did yourself.",
+    "result": "What changed, with a number if you have one.",
+}
+BACK_TO_LIBRARY = "Back to the Library"
+BACK_TO_DRAFTS = "Back to Drafts to review"
+CLOSED_HEADINGS = {"discarded": "Discarded draft", "merged": "Merged draft"}
+# "Restore draft" outside the Drafts tab says where it was pressed.
+FROM_FIELD = "from"
+DISCARDED_LIBRARY = ("/facts", {"tab": "library", "status": "discarded"})
+TITLE_SUFFIX = " · Fact bank · Job Search Pipeline"
+# The longest names and lists the editor takes.
+MAX_NAME_CHARS = 80
+MAX_ROLE_CHARS = 200
+MAX_TAGS = 30
+MAX_SKILLS = 60
+SAID_ARCHIVED = "Fact archived."
+SAID_UNARCHIVED = "Fact restored."
+
+# History: newest first, for the events and for the versions.
+VERSION_SOURCES = {
+    "manual": "Written by you",
+    "cv_import": "From a CV import",
+    "merge": "From a merge",
+    "merge_undo": "Merge undone",
+}
+EVENT_LABELS = {
+    "created": "Created",
+    "confirmed": "Confirmed",
+    "edited": "Wording changed",
+    "details_changed": "Details changed",
+    "archived": "Archived",
+    "restored": "Restored",
+    "discarded": "Discarded",
+    "discard_undone": "Discard undone",
+    "merged": "A draft was merged into this fact",
+    "merged_into": "Merged into another fact",
+    "merge_undone": "Merge undone",
+}
+# What a screen reader hears before a changed run of words: the first word inside each
+# ``<ins>`` and ``<del>`` (hidden from sight, never from assistive technology).
+DIFF_ADDED = "added"
+DIFF_REMOVED = "removed"
+# And after it, hidden the same way, so a run's end is heard too.
+DIFF_END_ADDED = "(end added)"
+DIFF_END_REMOVED = "(end removed)"
+DIFF_SPACING_ONLY = "Only spacing changed."
+
+
+def version_heading(number: int) -> str:
+    return f"Version {number}"
+
+
+def privacy_event(privacy: str) -> str:
+    return f"Privacy changed to {PRIVACY_LABELS[privacy]}"
+
+
+MERGE_HEADING = "Merge with another fact"
+COMPARE = "Compare"  # each candidate's link to the comparison
+MERGE_CHOICE_FIELD = "wording"
+MERGE_CHOICES = {  # in this order; the first is chosen when the comparison opens
+    "target": "Keep the existing fact's wording",
+    "draft": "Use the draft's wording",
+    "edited": "Write the wording myself",
+}
+# The same choices when the other side is a draft too: nothing is an "existing fact" yet.
+MERGE_CHOICES_DRAFT_TARGET = {**MERGE_CHOICES, "target": "Keep the other draft's wording"}
+MERGE_LEGEND = "Which wording should the fact keep?"
+MERGE_LEGEND_DRAFT_TARGET = "Which wording should be kept?"
+MERGE_TYPED_NOT_CHOSEN = (
+    'You changed the wording below. Choose "Write the wording myself" to use it, '
+    "or undo your change."
+)
+MERGE_WORDING_NEEDED = "Write the wording before merging."
+MERGE_NOT_A_DRAFT = "This fact isn't a draft any more, so it can't be merged from here."
+MERGE_UNDO_BLOCKED = (
+    "This merge can't be undone right now: the fact's wording changed after it. "
+    "If another draft was merged into it later, undo that merge first."
+)
+MERGE_CAPPED = "Not every fact is listed. Search to find the one you want."
+MERGE = "Merge"
+UNDO_MERGE = "Undo merge"
+SAID_MERGED = "Draft merged into the fact."
+SAID_MERGE_UNDONE = "Merge undone. The draft is back in Drafts to review."
+
+
+# --- reading forms ---
+
+FormValues = dict[str, str | list[str]]
+
+
+def send(facts: FactsApp, path: str, data: Mapping[str, object], *, htmx: bool = True) -> Response:
+    """Post form fields, some with several values (checkboxes), with token and origin."""
+    headers = facts.run.run.action(**(HTMX if htmx else {}))
+    return facts.run.client.post(path, data=dict(data), headers=headers)
+
+
+def page_of(facts: FactsApp, path: str, **params: str) -> list[Element]:
+    """A page route's answer with no token at all, parsed: a full page."""
+    response = facts.run.client.get(path, params=params)
+    assert response.status_code == 200, (path, response.status_code, response.text[:300])
+    assert "<html" in response.text, f"{path} is a page"
+    return outline(response.text)
+
+
+def controls(elements: list[Element], form: Element, name: str) -> list[Element]:
+    """The form's controls called ``name`` (several for radios and checkboxes)."""
+    form_id = form.attrs.get("id")
+    return [
+        e
+        for e in elements
+        if e.attrs.get("name") == name
+        and e.tag in ("input", "select", "textarea")
+        and (e.within(form) or (form_id and e.attrs.get("form") == form_id))
+    ]
+
+
+def form_values(elements: list[Element], form: Element) -> FormValues:
+    """What the form would send as it stands: text fields, the chosen option of each select,
+    the checked radio and every checked checkbox (a list)."""
+    form_id = form.attrs.get("id")
+    values: FormValues = {}
+    for element in elements:
+        name = element.attrs.get("name")
+        owned = element.within(form) or (form_id and element.attrs.get("form") == form_id)
+        if not name or not owned:
+            continue
+        kind = element.attrs.get("type") or "text"
+        if element.tag == "textarea":
+            values[name] = element.text
+        elif element.tag == "select":
+            options = [o for o in elements if o.tag == "option" and o.within(element)]
+            chosen = next((o for o in options if "selected" in o.attrs), options[0])
+            values[name] = chosen.attrs.get("value") or ""
+        elif element.tag != "input" or kind in ("submit", "button", "file"):
+            continue
+        elif kind == "checkbox":
+            listed = values.setdefault(name, [])
+            assert isinstance(listed, list)
+            if "checked" in element.attrs:
+                listed.append(element.attrs.get("value") or "on")
+        elif kind == "radio":
+            if "checked" in element.attrs:
+                values[name] = element.attrs.get("value") or ""
+        else:
+            values[name] = element.attrs.get("value") or ""
+    return values
+
+
+def posts_to(form: Element) -> str:
+    """Where a form posts: the same for htmx and without scripts."""
+    assert (form.attrs.get("method") or "").lower() == "post", form.attrs
+    path = form.attrs.get("action")
+    assert path and form.attrs.get("hx-post") == path, form.attrs
+    return path
+
+
+def described_by(elements: list[Element], control: Element) -> list[Element]:
+    return [required(elements, i) for i in (control.attrs.get("aria-describedby") or "").split()]
+
+
+def label_of(elements: list[Element], control: Element) -> str:
+    """The text of the control's visible ``<label for>``."""
+    control_id = control.attrs.get("id")
+    found = [e.text for e in elements if e.tag == "label" and e.attrs.get("for") == control_id]
+    assert control_id and len(found) == 1, (control.attrs, found)
+    return found[0]
+
+
+def names_fact(elements: list[Element], control: Element, wording: str) -> bool:
+    """Whether a link or button says which fact it is for: its name holds the fact's wording,
+    or it is labelled or described by an element that does."""
+    if wording in control.text or wording in (control.attrs.get("aria-label") or ""):
+        return True
+    ids = [
+        i
+        for attr in ("aria-describedby", "aria-labelledby")
+        for i in (control.attrs.get(attr) or "").split()
+    ]
+    return any(wording in (found.text if (found := by_id(elements, i)) else "") for i in ids)
+
+
+def headings(elements: list[Element], tag: str) -> list[str]:
+    return [e.text for e in elements if e.tag == tag]
+
+
+def alert(elements: list[Element], prompt_id: str) -> Element:
+    """The one alert of a 409 answer."""
+    alerts = [e for e in elements if e.attrs.get("role") == "alert"]
+    assert len(alerts) == 1, f"expected one alert, found {len(alerts)}"
+    assert alerts[0].attrs.get("id") == prompt_id, alerts[0].attrs
+    return alerts[0]

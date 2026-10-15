@@ -30,6 +30,7 @@ from app.api.events import (
     TaskEvents,
     register_events,
 )
+from app.api.fact_editor import register_fact_editor_routes
 from app.api.facts import register_fact_pages
 from app.api.facts_import import register_fact_import_routes
 from app.api.health import router as health_router
@@ -95,7 +96,10 @@ from app.services.cv_import import (
     import_target,
     sweep_orphan_imports,
 )
+from app.services.fact_editor import FactEditor
+from app.services.fact_history import FactHistory
 from app.services.fact_library import FactLibrary
+from app.services.fact_merge import FactMerge
 from app.services.fact_views import FactBank, FactViews
 from app.services.facts import FactService
 from app.services.health import HealthService
@@ -556,9 +560,9 @@ def _publish_fact_services(
     app.state.skills = SkillService(db, clock, ids) if db is not None else None
 
 
-def _fact_views(app: FastAPI, *, cv_import: CvImportService, tz: tzinfo) -> FactViews:
-    """What the Fact bank page shows (M3.5): like the other view services, it reads the open
-    workspace through the app's state at call time."""
+def _fact_bank(app: FastAPI) -> Callable[[], FactBank | None]:
+    """The open workspace's fact services, read through the app's state at call time; None
+    while no workspace is open."""
 
     def bank() -> FactBank | None:
         db = _current_db(app)
@@ -567,12 +571,27 @@ def _fact_views(app: FastAPI, *, cv_import: CvImportService, tz: tzinfo) -> Fact
         state = app.state
         return FactBank(db, state.facts, state.fact_library, state.roles, state.skills)
 
+    return bank
+
+
+def _publish_fact_screens(app: FastAPI, *, tz: tzinfo) -> None:
+    """The editor, the history and the merge screen (M3.6), over the same fact services."""
+    bank = _fact_bank(app)
+    app.state.fact_editor = FactEditor(bank=bank)
+    app.state.fact_history = FactHistory(bank=bank, tz=tz)
+    app.state.fact_merge = FactMerge(bank=bank)
+
+
+def _fact_views(app: FastAPI, *, cv_import: CvImportService, tz: tzinfo) -> FactViews:
+    """What the Fact bank page shows (M3.5): like the other view services, it reads the open
+    workspace through the app's state at call time."""
+
     def latest_task(import_id: str) -> TaskView | None:
         views: TaskViews = app.state.task_views
         return views.latest_for(EXTRACT_CV, import_target(import_id))
 
     return FactViews(
-        bank=bank,
+        bank=_fact_bank(app),
         imports=cv_import.imports,
         latest_task=latest_task,
         provider_kind=cv_import.saved_provider_kind,
@@ -859,6 +878,7 @@ def create_app(
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
+    _publish_fact_screens(app, tz=app_tz)
     if task_registry is None:  # a real task type: with or without fakes
         handlers.register(
             EXTRACT_CV,
@@ -889,6 +909,7 @@ def create_app(
     register_task_routes(app)
     register_fact_import_routes(app)
     register_fact_pages(app)
+    register_fact_editor_routes(app)
     register_setup_pages(app)
     register_events(
         app,
