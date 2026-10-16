@@ -77,6 +77,12 @@
   display: none !important;
 }
 
+/* A part app.js shows and hides with a choice (data-shown-when) stays in sight without
+   scripts, so the form still works (the server checks what was chosen). */
+html:not(.js) [data-shown-when][hidden] {
+  display: block !important;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
 }
@@ -378,12 +384,10 @@ a {
   border-radius: var(--radius);
   color: var(--color-text);
   text-decoration: none;
+  transition: background-color var(--motion-fast) ease;
 }
 
-/* The fade is for the pointer moving in only: on the link itself it would also animate a
-   light/dark switch, leaving the current area's words on the old background for a moment. */
 .sidebar a:hover {
-  transition: background-color var(--motion-fast) ease;
   background: var(--color-accent-soft);
   text-decoration: underline;
 }

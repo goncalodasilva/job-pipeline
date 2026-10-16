@@ -1,10 +1,11 @@
 """The merge screen of a draft (M3.6; AC-M3.2: merge works and is versioned).
 
 "Merge with…" on a draft opens ``GET /facts/{draft id}/merge``, a page: a search form (plain
-GET, field ``q``) and the facts the draft can be folded into (confirmed ones and other drafts;
-never itself, an archived or a discarded one), each with a "Compare" link back to the page with
-``?target=``. The comparison shows both wordings side by side with what made them, and a form
-that posts to the same address: keep the fact's wording, use the draft's, or write one. A merge
+GET, field ``q``) and the facts the draft can be folded into (confirmed ones only; never
+another draft, itself, an archived or a discarded one), each with a "Compare" link back to the
+page with ``?target=``. The comparison shows both wordings side by side with what made them,
+and a form that posts to the same address: keep the fact's wording, use the draft's, or write
+one (its fields hidden until that is chosen). A merge
 gives the target a new version and closes the draft; "Undo merge" is offered at once and for
 as long as the target reads as the merge left it (``POST /facts/{draft id}/undo-merge``). The
 contract's names live in ``tests/facts_page.py``. Real SQLite in a temp folder, the frozen
@@ -34,6 +35,8 @@ from tests.facts_page import (
     MERGE_FORM_ID,
     MERGE_HEADING,
     MERGE_NOT_A_DRAFT,
+    MERGE_NOTE_BAD_TARGET,
+    MERGE_OWN_WORDING_ID,
     MERGE_RESULT_ID,
     MERGE_SEARCH_ID,
     MERGE_TARGET_ID,
@@ -169,8 +172,8 @@ def undo(facts: FactsApp, draft_id: str, *, htmx: bool = True) -> Response:
 
 
 def test_merge_page_searches_and_lists_candidates(tmp_path: Path) -> None:
-    """The page lists what the draft can be merged into, confirmed facts and other drafts,
-    and a search narrows it; itself, archived and discarded facts are never offered."""
+    """The page lists what the draft can be merged into, confirmed facts only, and a search
+    narrows it; other drafts, itself, archived and discarded facts are never offered."""
     with facts_app(tmp_path) as facts:
         seeded = seed(facts)
         draft = seeded["draft"]
@@ -191,10 +194,10 @@ def test_merge_page_searches_and_lists_candidates(tmp_path: Path) -> None:
         assert search.attrs.get("action") == merge_url(draft.id)
         (query,) = controls(elements, search, "q")
         assert has_label(elements, query) and button(elements, search, SEARCH)
-        assert candidates(elements, seeded) == {"target", "other", "invoices"}
+        assert candidates(elements, seeded) == {"target", "invoices"}
         assert by_id(elements, MERGE_FORM_ID) is None, "nothing is compared until one is picked"
 
-        for name in ("target", "other", "invoices"):
+        for name in ("target", "invoices"):
             view = seeded[name]
             row = required(elements, merge_candidate_id(view.id))
             assert str(view.content.text) in row.text
@@ -202,9 +205,8 @@ def test_merge_page_searches_and_lists_candidates(tmp_path: Path) -> None:
             path, params, _ = href_parts(link)
             assert path == merge_url(draft.id) and params.get("target") == view.id
             assert names_fact(elements, link, str(view.content.text))
-        # A draft among the candidates says it is one; the fake's work keeps its label.
-        other = required(elements, merge_candidate_id(seeded["other"].id))
-        assert says(elements, "Draft", other) and says(elements, PRACTICE_BADGE, other)
+        # Another draft is never offered: a draft is merged only into a confirmed fact.
+        assert by_id(elements, merge_candidate_id(seeded["other"].id)) is None
         assert not says(
             elements, PRACTICE_BADGE, required(elements, merge_candidate_id(seeded["target"].id))
         )
@@ -214,8 +216,9 @@ def test_merge_page_searches_and_lists_candidates(tmp_path: Path) -> None:
         assert form_values(found, required(found, MERGE_SEARCH_ID))["q"] == "invoice"
         (link,) = links(found, COMPARE, required(found, MERGE_CANDIDATES_ID))
         assert href_parts(link)[1].get("target") == seeded["invoices"].id
-        # Words of the draft itself, an archived or a discarded fact find nothing to merge into.
-        for words in ("xylophone", "newsletter", "stocktake", "leading"):
+        # Words of the draft itself, another draft, an archived or a discarded fact find
+        # nothing to merge into.
+        for words in ("xylophone", "newsletter", "stocktake", "leading", "industrial"):
             none = page_of(facts, merge_url(draft.id), q=words)
             assert candidates(none, seeded) == set(), words
             assert says(none, NO_MATCH, required(none, MERGE_CANDIDATES_ID)), words
@@ -286,17 +289,12 @@ def test_merge_compare_shows_both_wordings_and_provenance(tmp_path: Path) -> Non
         (own_wording,) = controls(elements, form, "text")
         assert own_wording.tag == "textarea" and has_label(elements, own_wording)
         assert own_wording.text == ROUTES, "writing starts from the wording that would be kept"
+        own = required(elements, MERGE_OWN_WORDING_ID)
+        assert own_wording.within(own) and own.within(form)
+        assert "hidden" in own.attrs, "the fields wait until writing is chosen"
         merge_button = button(elements, form, MERGE)
         assert (merge_button.attrs.get("type") or "submit") == "submit"
         assert "novalidate" in form.attrs
-
-        # A flagged draft as the target keeps its note on its side.
-        other = seeded["other"]
-        elements, _ = compare(facts, other.id, draft.id)
-        theirs = required(elements, MERGE_TARGET_ID)
-        assert says(elements, NEEDS_CHECK_NOTE, theirs) and says(elements, PRACTICE_BADGE, theirs)
-        assert says(elements, "Draft", theirs), "a draft target says it is one"
-        assert not says(elements, NEEDS_CHECK_NOTE, required(elements, MERGE_DRAFT_ID))
 
 
 def test_merge_compare_escapes_hostile_text_and_story_parts(tmp_path: Path) -> None:
@@ -312,14 +310,14 @@ def test_merge_compare_escapes_hostile_text_and_story_parts(tmp_path: Path) -> N
             (merge_url(hostile.id), {}),
             (merge_url(hostile.id), {"q": "Planned"}),
             (merge_url(hostile.id), {"target": target.id}),
-            (merge_url(story.id), {"target": hostile.id}),
+            (merge_url(story.id), {"target": target.id}),
         ):
             elements = page_of(facts, path, **params)
             assert by_id(elements, "injected") is None and by_id(elements, "bold") is None
             assert not [e for e in elements if e.tag == "script" and "fictional" in e.text]
-        # A story against a story: its parts can be written one by one.
-        (other_story,) = facts.drafts(
-            IMPORT_A, DraftInput(type=FactType.STORY, action="Cut invoice time", result="by 30%.")
+        # A story against a (confirmed) story: its parts can be written one by one.
+        other_story = facts.bank.facts.create(
+            FactInput(type=FactType.STORY, action="Cut invoice time", result="by 30%.")
         )
         elements, values = compare(facts, story.id, other_story.id)
         ours = required(elements, MERGE_DRAFT_ID)
@@ -402,23 +400,101 @@ def test_merge_route_versions_target(
         assert settled in required(facts.tab("library"), fact_id_attr(target.id)).text
 
 
-def test_merge_into_another_draft_keeps_it_a_draft(tmp_path: Path) -> None:
-    """A draft can be folded into another draft: the target stays a draft, and a flagged one
-    stays flagged whatever wording is settled on (ADR-091 item 4)."""
+def test_compare_of_a_draft_target_shows_the_search_and_its_note(tmp_path: Path) -> None:
+    """A draft is merged only into a confirmed fact: ``?target=`` naming another draft is
+    treated like any target that can't be merged into, the search with its note and no
+    form, and the other draft is not among the candidates."""
+    with facts_app(tmp_path) as facts:
+        seeded = seed(facts)
+        draft, target, other = seeded["draft"], seeded["target"], seeded["other"]
+        before = facts.snapshot()
+        for response in (
+            facts.run.client.get(merge_url(draft.id), params={"target": other.id}),
+            facts.get(merge_url(draft.id), target=other.id),
+        ):
+            assert response.status_code == 200, response.status_code
+            elements = outline(response.text)
+            assert by_id(elements, MERGE_FORM_ID) is None
+            assert required(elements, MERGE_SEARCH_ID)
+            assert says(elements, MERGE_NOTE_BAD_TARGET)
+            assert candidates(elements, seeded) == {"target"}
+        # The note is for a target that was named and refused, not for the plain search.
+        assert not says(page_of(facts, merge_url(draft.id)), MERGE_NOTE_BAD_TARGET)
+        assert not says(
+            page_of(facts, merge_url(draft.id), target=target.id), MERGE_NOTE_BAD_TARGET
+        )
+        assert facts.snapshot() == before
+
+
+def test_merge_refused_into_another_draft(tmp_path: Path) -> None:
+    """The route refuses a draft target as it refuses an archived or discarded one: 409 with
+    the refusal and the way back to Drafts to review, with htmx and without. Nothing
+    changes, and both stay drafts."""
     with facts_app(tmp_path) as facts:
         seeded = seed(facts, flagged=True)
         flagged, other = seeded["draft"], seeded["other"]
+        before = facts.snapshot()
+        for choice, typed_text in (("target", ""), ("draft", ""), ("edited", SETTLED)):
+            data = {
+                "target": flagged.id,
+                "draft_version": str(other.version),
+                "target_version": str(flagged.version),
+                MERGE_CHOICE_FIELD: choice,
+            }
+            if typed_text:
+                data["text"] = typed_text
+            response = facts.post(merge_url(other.id), data)
+            assert response.status_code == 409, (choice, response.status_code)
+            assert "hx-trigger" not in response.headers, choice
+            elements = outline(response.text)
+            prompt = alert(elements, MERGE_CONFLICT_ID)
+            assert FactTransitionRefused.message in prompt.text, choice
+            assert only_focus(elements) is prompt
+            assert not links(elements, RELOAD), "a reload would only refuse again"
+            assert by_id(elements, MERGE_FORM_ID) is None
+            plain = facts.post(merge_url(other.id), data, htmx=False)
+            assert plain.status_code == 409 and "<html" in plain.text, choice
+        assert facts.snapshot() == before, "nothing was merged"
+        assert facts.status(other.id) == "draft" and facts.status(flagged.id) == "draft"
 
-        response = merge(facts, other.id, flagged.id, wording="edited", text=SETTLED)
 
-        assert response.status_code == 200, (response.status_code, response.text[:300])
-        merged = facts.bank.facts.get(flagged.id)
-        assert merged.status.value == "draft" and merged.needs_check
-        assert merged.content.text == SETTLED and merged.origin_provider == "fake"
-        assert facts.status(other.id) == "discarded"
-        drafts = facts.fragment(DRAFTS_URL)
-        block = required(drafts, fact_id_attr(flagged.id))
-        assert SETTLED in block.text and says(drafts, NEEDS_CHECK_NOTE, block)
+def test_own_wording_fields_hidden_unless_writing_is_chosen(tmp_path: Path) -> None:
+    """The fields for a wording of one's own are rendered with ``hidden`` unless "Write the
+    wording myself" is the checked choice: on a refused form that chose it they are shown at
+    once, with their hints; on one that chose another they stay hidden."""
+    with facts_app(tmp_path) as facts:
+        seeded = seed(facts)
+        draft, target = seeded["draft"], seeded["target"]
+
+        def own_wording(response: Response) -> tuple[Element, Element]:
+            elements = outline(response.text)
+            form = required(elements, MERGE_FORM_ID)
+            own = required(elements, MERGE_OWN_WORDING_ID)
+            (field,) = controls(elements, form, "text")
+            assert own.within(form) and field.within(own)
+            assert described_by(elements, field), "the field keeps its hint"
+            return own, field
+
+        shown = facts.get(merge_url(draft.id), target=target.id)
+        own, _ = own_wording(shown)
+        assert "hidden" in own.attrs, "the comparison opens with the existing fact's wording"
+
+        refused = merge(facts, draft.id, target.id, wording="edited", text=" ")
+        assert refused.status_code == 422
+        own, field = own_wording(refused)
+        assert "hidden" not in own.attrs, "writing was chosen: the fields are shown"
+        assert field.attrs.get("aria-invalid") == "true"
+        plain = merge(facts, draft.id, target.id, htmx=False, wording="edited", text=" ")
+        assert plain.status_code == 422
+        assert "hidden" not in own_wording(plain)[0].attrs
+
+        for choice, typed_text in (("both", ""), ("target", "Planned routes, typed by hand.")):
+            fields = {MERGE_CHOICE_FIELD: choice}
+            if typed_text:
+                fields["text"] = typed_text
+            other_choice = merge(facts, draft.id, target.id, **fields)
+            assert other_choice.status_code == 422, choice
+            assert "hidden" in own_wording(other_choice)[0].attrs, choice
 
 
 def test_merge_edited_wording_refused_422_and_bad_choice(tmp_path: Path) -> None:

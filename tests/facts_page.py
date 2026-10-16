@@ -527,6 +527,9 @@ MERGE_DRAFT_ID = "merge-draft"  # the draft's side of the comparison
 MERGE_TARGET_ID = "merge-target"  # the other fact's side
 MERGE_FORM_ID = "merge-form"
 MERGE_RESULT_ID = "merge-result"
+# The fields for a wording of one's own: hidden (the ``hidden`` attribute) unless "Write the
+# wording myself" is the checked choice; app.js shows them when it is chosen.
+MERGE_OWN_WORDING_ID = "merge-own-wording"
 MERGE_CONFLICT_ID = "merge-conflict"
 
 
@@ -652,10 +655,9 @@ MERGE_CHOICES = {  # in this order; the first is chosen when the comparison open
     "draft": "Use the draft's wording",
     "edited": "Write the wording myself",
 }
-# The same choices when the other side is a draft too: nothing is an "existing fact" yet.
-MERGE_CHOICES_DRAFT_TARGET = {**MERGE_CHOICES, "target": "Keep the other draft's wording"}
 MERGE_LEGEND = "Which wording should the fact keep?"
-MERGE_LEGEND_DRAFT_TARGET = "Which wording should be kept?"
+# A ``?target=`` that can't be merged into (a draft, archived, discarded, itself, unknown).
+MERGE_NOTE_BAD_TARGET = "That fact can't be merged into. Choose another one."
 MERGE_TYPED_NOT_CHOSEN = (
     'You changed the wording below. Choose "Write the wording myself" to use it, '
     "or undo your change."

@@ -172,6 +172,8 @@ def test_merge_keeping_the_targets_wording_keeps_the_targets_provenance(
 ) -> None:
     add_import(db, "imp-0001")
     (target,) = import_drafts(bank, "imp-0001", [TARGET_TEXT])
+    # Merge targets are confirmed facts only (user decision, 2026-10-16).
+    target = bank.facts.confirm(target.id, expected_version=target.version)
     draft = _other_draft(bank, DRAFT_TEXT, needs_check=True)
 
     merged = _merge(bank, draft.id, target.id, TARGET_TEXT)
@@ -194,6 +196,8 @@ def test_merge_keeping_a_typed_targets_wording_stays_unlabelled(bank: Bank, db: 
 def test_merge_with_wording_the_user_wrote_carries_no_provenance(bank: Bank, db: Database) -> None:
     add_import(db, "imp-0001")
     (target,) = import_drafts(bank, "imp-0001", [TARGET_TEXT])
+    # Merge targets are confirmed facts only (user decision, 2026-10-16).
+    target = bank.facts.confirm(target.id, expected_version=target.version)
     draft = _other_draft(bank, DRAFT_TEXT, needs_check=True)
 
     merged = _merge(bank, draft.id, target.id, MERGED_TEXT)

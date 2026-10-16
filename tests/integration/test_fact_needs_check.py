@@ -386,32 +386,3 @@ def test_confirmed_target_that_took_a_flagged_drafts_wording_does_not_report_the
     assert bank.facts.get(target.id).needs_check is False
     found = bank.library.search(LibraryQuery(status=FactStatus.CONFIRMED))
     assert [(item.id, item.needs_check) for item in found.items] == [(target.id, False)]
-
-
-def test_draft_target_that_took_a_flagged_drafts_wording_reports_the_flag(
-    bank: Bank, db: Database
-) -> None:
-    target, draft = _imported(bank, db, [(TARGET_TEXT, False), (STOCKTAKE, True)])
-
-    merged = _merge(bank, draft, target, STOCKTAKE)
-
-    assert (merged.status, merged.needs_check) == (FactStatus.DRAFT, True)
-    assert current_version_row(db, target.id)["needs_check"] == 1
-    # So a batch confirm leaves it for the user to check.
-    assert bank.facts.confirm_import(IMPORT, expected_versions={target.id: merged.version}) == ()
-    assert fact_row(db, target.id)["status"] == "draft"
-
-
-@pytest.mark.parametrize("wording", [STOCKTAKE, "Ran the yearly stocktake for the shop."])
-def test_flagged_draft_target_stays_flagged_whatever_wording_a_merge_settles_on(
-    bank: Bank, db: Database, wording: str
-) -> None:
-    # Taking an unflagged draft's wording, or writing new wording, is not the user's
-    # confirmation of the flagged target.
-    target, draft = _imported(bank, db, [(TARGET_TEXT, True), (STOCKTAKE, False)])
-
-    merged = _merge(bank, draft, target, wording)
-
-    assert (merged.status, merged.needs_check) == (FactStatus.DRAFT, True)
-    assert current_version_row(db, target.id)["needs_check"] == 1
-    assert bank.facts.confirm_import(IMPORT, expected_versions={target.id: merged.version}) == ()

@@ -59,10 +59,13 @@ _DETAILS_CHANGED_AFTER = (
     "SELECT EXISTS (SELECT 1 FROM fact_events WHERE fact_id = ? AND type = 'details_changed' "
     "AND rowid > (SELECT rowid FROM fact_events WHERE id = ?))"
 )
-# The first version a provider made: where an AI-made fact came from (ADR-089 item 8).
-_ORIGIN = (
-    "SELECT provider, model FROM fact_versions WHERE fact_id = ? AND provider IS NOT NULL "
-    "ORDER BY created_at, rowid LIMIT 1"
+# The latest version a provider made other than the one named: what the user's own current
+# wording may still read as (where an AI-made fact came from; ADR-089 item 8).
+_LATEST_BY_PROVIDER = (
+    "SELECT id, fact_id, version, text, situation, action, result, source, original_answer, "
+    "provider, model, prompt_id, prompt_version, needs_check, created_at "
+    "FROM fact_versions WHERE fact_id = ? AND id != ? AND provider IS NOT NULL "
+    "ORDER BY version DESC, created_at DESC, rowid DESC LIMIT 1"
 )
 # The CV line (or the user's own answer) a fact was first made from: the earliest version
 # that keeps one, whatever was reworded since.
@@ -386,11 +389,13 @@ def details_changed_after(conn: sqlite3.Connection, fact_id: str, event_id: str)
     return bool(conn.execute(_DETAILS_CHANGED_AFTER, (fact_id, event_id)).fetchone()[0])
 
 
-def origin(conn: sqlite3.Connection, fact_id: str) -> tuple[str, str | None] | None:
-    """The provider and model of the fact's earliest version a provider made; None when the
-    user wrote every version."""
-    row = conn.execute(_ORIGIN, (fact_id,)).fetchone()
-    return None if row is None else (row[0], row[1])
+def latest_by_provider(
+    conn: sqlite3.Connection, fact_id: str, *, besides: str
+) -> StoredVersion | None:
+    """The fact's most recent version a provider made, other than the version ``besides``
+    (the current one); None when there is none."""
+    row = conn.execute(_LATEST_BY_PROVIDER, (fact_id, besides)).fetchone()
+    return None if row is None else _version(row)
 
 
 def source_quote(conn: sqlite3.Connection, fact_id: str) -> str | None:

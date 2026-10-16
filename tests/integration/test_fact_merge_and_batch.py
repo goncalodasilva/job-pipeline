@@ -159,16 +159,18 @@ def test_ac_m3_2_merge_adds_version_to_target_and_closes_draft(
     assert target.id in indexed_fact_ids(db)
 
 
-def test_merge_into_a_draft_keeps_the_target_a_draft(bank: Bank, db: Database) -> None:
+def test_merge_into_a_draft_refused_and_writes_nothing(bank: Bank, db: Database) -> None:
+    """A draft folds only into a confirmed fact (decided by the user, 2026-10-16)."""
+    from app.domain.errors import FactTransitionRefused
+
     add_import(db, "imp-0001")
     target, draft = import_drafts(bank, "imp-0001", [TARGET_TEXT, DRAFT_TEXT])
+    before = snapshot(db)
 
-    merged = _merge(bank, draft, target)
+    with pytest.raises(FactTransitionRefused):
+        _merge(bank, draft, target)
 
-    # Merging is not a confirmation (AC-M3.1: nothing is confirmed without the user saying so).
-    assert merged.status == FactStatus.DRAFT
-    assert merged.content_version == 2
-    assert fact_row(db, draft.id)["merged_into_fact_id"] == target.id
+    assert snapshot(db) == before
 
 
 def _archived_target(bank: Bank) -> Any:

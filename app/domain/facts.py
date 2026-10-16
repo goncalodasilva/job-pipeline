@@ -10,6 +10,8 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, Self
 
+from app.domain.cv_checks import word_tokens
+
 
 class FactStatus(StrEnum):
     """The values 0003's CHECK on ``facts.status`` accepts."""
@@ -95,6 +97,22 @@ def next_version(current: int, old: FactContent, new: FactContent) -> int | None
     if old.normalized() == new.normalized():
         return None
     return current + 1
+
+
+def _words(content: FactContent) -> frozenset[str]:
+    """The word tokens of every part joined (``cv_checks.word_tokens``: shared normaliser,
+    without case)."""
+    return word_tokens(" ".join(part for part in content.normalized() if part))
+
+
+def still_reads_as(current: FactContent, earlier: FactContent) -> bool:
+    """Whether the user's ``current`` wording still reads as ``earlier``, a version a provider
+    made: at least half of its word tokens occur in ``earlier`` (the practice badge follows
+    the current wording). Wording without a word doesn't."""
+    words = _words(current)
+    if not words:
+        return False
+    return 2 * len(words & _words(earlier)) >= len(words)
 
 
 # ASCII digits only and no leading zeros, so each reference has exactly one spelling.

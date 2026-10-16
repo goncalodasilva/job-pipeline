@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status as of 2026-10-15 (M0 to M3.6 and the M2 and M1 acceptance reports).
+Status as of 2026-10-16 (M0 to M3.6, with the M3.6 follow-ups of 2026-10-16, and the M2 and M1 acceptance reports).
 
 ## What belongs here
 
@@ -199,12 +199,12 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-201 | Merge candidates are listed 25 per status, with no paging beyond that. | M3.6; ADR-094 item 6 | low: a fact past the first 25 is reachable only by search | Add paging when the candidate list is next changed. |
 | TD-205 | A plain-text 404 for an unknown fact id has no app shell. | M3.6; ADR-094 item 1 | low: a bare error page on a direct visit | Decide the no-script path with TD-077 and TD-189. |
 | TD-208 | After an in-place "Restore draft" on a discarded draft's page, the heading still reads "Discarded draft" until reload. | M3.6 | low: a stale heading after a restore | Refresh the heading in the restore answer. |
-| TD-209 | With a draft target, the help under "Use the draft's wording" still says "The fact reads as …". | M3.6 | low: wrong copy on the merge screen | Fix the copy for drafts, with a test. |
 | TD-212 | History has no collapse for long histories, and same-minute events look alike. | M3.6 | low: a long page, and an unclear order within a minute | Decide with the UX reviewer. |
 | TD-213 | The skills checkbox list has no filter. | M3.6 | low: a long skill list is hard to scan on a phone | Add a filter when the list grows. |
 | TD-214 | On draft cards, the inline "Edit" sits beside "Edit details", which is ambiguous. "Merge with…" is a small trailing link. | M3.6 | low: unclear actions | Decide the labels and sizes with the UX reviewer. |
 | TD-215 | Merge screen titles are the same for search, compare and result. | M3.6 | low: the step is unclear from its title | Give each step its own title. |
 | TD-216 | The M3.5 "Skip to drafts" link is 18 px high. It is inline and exempt from the target size rule. | M3.5; M3.6 | low: a small target | Decide whether inline links are exempt, then fix or record it. |
+| TD-217 | With JavaScript, a 422 after typing in "Your wording" and then switching back to another choice re-renders with the wording fields hidden, while the message says "You changed the wording below". | M3.6 follow-up (2026-10-16); ADR-094 update (decision 2) | low: the message points at fields the user cannot see | Show the fields again when a refused answer carries typed wording, with a test. |
 
 ## 8. Tests and CI
 
@@ -235,6 +235,9 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-173 | Each import test spawns parser children and starts the app. The fast suite now takes about 5 minutes. | M3.4 Evidence | medium: every run is slow | Decide how to run the slow import tests. A separate marker changes the test gates and needs your approval. |
 | TD-196 | The `data-shows-refusals` non-empty-body guard and the announce-replacement attributes in `app/static/js/app.js` have no direct test. | M3.5 | low: a change to either could pass the suite | Add direct tests. |
 | TD-207 | Editor saves swap fields with the default settle delay. This is the pattern that caused a search flake, which was fixed there with `settle:0ms`. | M3.6 | low: a possible flaky e2e test | Use `settle:0ms` on the editor swaps when they are next touched. |
+| TD-218 | The no-JavaScript path of the "Your wording" box has no browser test. | M3.6 follow-up (2026-10-16); ADR-094 update (decision 2) | low: a regression in the no-script path would pass the browser suite | Add a browser test with JavaScript disabled. The no-script decision is TD-077. |
+| TD-219 | `tests/e2e/test_facts_page.py::test_ac_m3_2_confirm_edit_discard_batch_by_keyboard` failed once in a full e2e run and passed on reruns. Not investigated; possibly a flake. | M3.6 follow-up (2026-10-16) | medium: a flaky test can hide a real failure or block a run | Investigate the cause. Fix it, or record why it is not a flake. |
+| TD-220 | The docstring at the top of `tests/integration/test_fact_review_fixes.py` says origin comes from the "earliest version". The rule now follows the current wording (ADR-091 update, 2026-10-16). | M3.6 follow-up (2026-10-16) | low: a misleading description of the rule | Fix the docstring. |
 
 ## 9. Tooling and docs
 

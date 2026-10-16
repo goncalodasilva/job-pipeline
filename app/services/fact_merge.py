@@ -1,11 +1,12 @@
 """The merge screen of a draft (M3.6; AC-M3.2): what it shows and which wording a posted
 choice settles on. ``FactService.merge`` and ``undo_merge`` do the writing.
 
-A draft is folded into a confirmed fact or another draft; never into itself, an archived or a
-discarded fact. The screen is a search with candidates, then a comparison of the two wordings
-with what made each, then the result, with "Undo merge" for as long as the merge can be taken
-back. Everything here reads only. Wording is the user's own or AI-made text: it is handed on as
-plain strings for the templates to escape, and nothing of it is logged.
+A draft is folded into a confirmed fact only; never into another draft, itself, an archived
+or a discarded fact, and ``FactService.merge`` refuses the same. The screen is
+a search with candidates, then a comparison of the two wordings with what made each, then the
+result, with "Undo merge" for as long as the merge can be taken back. Everything here reads
+only. Wording is the user's own or AI-made text: it is handed on as plain strings for the
+templates to escape, and nothing of it is logged.
 """
 
 from collections.abc import Callable
@@ -47,18 +48,15 @@ _CHOICES: Final[tuple[tuple[str, str, str], ...]] = (
     (TAKE_DRAFT, "Use the draft's wording", "The fact reads as the draft does now."),
     (EDITED, "Write the wording myself", "Use the field below."),
 )
-# The other side is a draft too: nothing here is an "existing fact" yet.
-_KEEP_OTHER_DRAFT: Final = "Keep the other draft's wording"
 _LEGEND: Final = "Which wording should the fact keep?"
-_LEGEND_DRAFT: Final = "Which wording should be kept?"
 _CHOICE_FIELD: Final = "wording"
 _CHOICE_NEEDED: Final = "Choose which wording to keep."
 _TYPED_NOT_CHOSEN: Final = (
     'You changed the wording below. Choose "Write the wording myself" to use it, '
     "or undo your change."
 )
-# What can be merged into; the Library lists each status on its own.
-_TARGET_STATUSES: Final = (FactStatus.CONFIRMED, FactStatus.DRAFT)
+# What can be merged into: a confirmed fact, never another draft.
+_TARGET_STATUS: Final = FactStatus.CONFIRMED
 _NOTE_BAD_TARGET: Final = "That fact can't be merged into. Choose another one."
 _NOTE_TYPES_DIFFER: Final = (
     "One of these is a story and the other isn't, so the draft's wording can't be taken as it "
@@ -84,12 +82,14 @@ class MergeView:
     error_message: str | None = None
     can_undo: bool = False
     legend: str = _LEGEND
+    writing: bool = False
+    """"Write the wording myself" is the checked choice: its fields are shown."""
     found: str = ""
     """What a search found, in words for the live region (``SEARCH`` only)."""
 
 
 def _mergeable(draft: FactView, target: FactView) -> bool:
-    return target.id != draft.id and target.status in _TARGET_STATUSES
+    return target.id != draft.id and target.status is _TARGET_STATUS
 
 
 class FactMerge:
@@ -142,29 +142,30 @@ class FactMerge:
         return target if _mergeable(draft, target) else None
 
     def _candidates(self, bank: FactBank, draft: FactView, q: str) -> tuple[list[FactView], bool]:
-        """Confirmed facts, then other drafts, that match ``q`` (the first page of each), and
-        whether there are more."""
-        found: list[FactView] = []
-        more = False
-        for status in _TARGET_STATUSES:
-            page = bank.library.search(LibraryQuery(text=q, status=status))
-            found.extend(view for view in page.items if view.id != draft.id)
-            more = more or page.total > len(page.items)
-        return found, more
+        """Confirmed facts that match ``q`` (the first page), and whether there are more."""
+        page = bank.library.search(LibraryQuery(text=q, status=_TARGET_STATUS))
+        found = [view for view in page.items if view.id != draft.id]
+        return found, page.total > len(page.items)
 
     def settle(
         self, draft_id: str, target_id: str, typed: Typed, *, target_version: int
     ) -> FactContent:
         """The wording a posted comparison settles on: the target's, the draft's (same type
-        only) or the typed one, read from the fields the form shows. Raises ``FactNotFound``
-        and ``FactInputInvalid``: for a choice that isn't one, and for wording that was typed
-        while another choice is made, which would otherwise be dropped without a word.
+        only) or the typed one, read from the fields the form shows. Raises ``FactNotFound``;
+        ``FactTransitionRefused`` for a target the screen never offers (another draft, the
+        draft itself, an archived or a discarded fact); and ``FactInputInvalid``: for a choice
+        that isn't one, and for wording that was typed while another choice is made, which
+        would otherwise be dropped without a word.
         ``target_version`` is the one the form carried: against any other the fields prove
         nothing (the page filled them in from older wording), and ``FactService.merge``,
         which checks the rest, refuses that form as stale."""
         bank = open_bank(self._bank)
         draft = bank.facts.get(draft_id)
         target = bank.facts.get(target_id)
+        if not _mergeable(draft, target):
+            raise FactTransitionRefused(
+                detail=f"merge into a {target.status} fact is not offered: confirmed only"
+            )
         choice = one(typed, _CHOICE_FIELD)
         if choice == EDITED:
             shown = {field.name: one(typed, field.name) for field in edit_fields(target)}
@@ -200,12 +201,7 @@ def _comparison(
     same type), the first chosen unless a refused form chose another, and the fields for a
     wording of the user's own, which start from the target's."""
     same_type = draft.type is target.type
-    to_draft = target.status is FactStatus.DRAFT
-    offered = [
-        (value, _KEEP_OTHER_DRAFT if to_draft and value == KEEP_TARGET else label, explained)
-        for value, label, explained in _CHOICES
-        if same_type or value != TAKE_DRAFT
-    ]
+    offered = [choice for choice in _CHOICES if same_type or choice[0] != TAKE_DRAFT]
     wanted = one(typed, _CHOICE_FIELD) if typed is not None else KEEP_TARGET
     chosen = wanted if any(wanted == value for value, _label, _help in offered) else KEEP_TARGET
     fields = edit_fields(target)
@@ -227,7 +223,7 @@ def _comparison(
             Choice(value, label, explained, value == chosen) for value, label, explained in offered
         ),
         fields=fields,
+        writing=chosen == EDITED,
         error_field=error_field,
         error_message=None if error is None else error.user_message,
-        legend=_LEGEND_DRAFT if to_draft else _LEGEND,
     )

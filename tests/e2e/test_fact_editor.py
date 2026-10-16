@@ -14,7 +14,7 @@ from collections.abc import Iterator
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
 
-from tests.e2e.axe import assert_no_serious_violations
+from tests.e2e.axe import assert_no_serious_violations, wait_for_settled_styles
 from tests.e2e.conftest import DESKTOP, PHONE
 from tests.e2e.test_facts_page import (
     AXE_CASES,
@@ -67,6 +67,7 @@ from tests.facts_page import (
     MERGE_DRAFT_ID,
     MERGE_FORM_ID,
     MERGE_HEADING,
+    MERGE_OWN_WORDING_ID,
     MERGE_RESULT_ID,
     MERGE_SEARCH_ID,
     MERGE_TARGET_ID,
@@ -382,6 +383,8 @@ def test_history_diff_readable_by_keyboard_and_axe(
 
         assert_no_serious_violations(page)
         page.emulate_media(color_scheme="dark")
+        # The sidebar links fade to the new colours: scan once they have.
+        wait_for_settled_styles(page)
         assert_no_serious_violations(page)
         page.set_viewport_size(PHONE)
         fits, scroll_width, inner_width = has_no_horizontal_scroll(page)
@@ -410,7 +413,7 @@ def test_ac_m3_2_merge_draft_into_fact_by_keyboard(
         expect(page.locator(f"#{MERGE_DRAFT_ID}")).to_contain_text(ENGLISH)
         listing = page.locator(f"#{MERGE_CANDIDATES_ID}")
         expect(candidate(page, ROUTES)).to_have_count(1)
-        expect(candidate(page, DEGREE)).to_have_count(1)  # another draft can be a target
+        expect(candidate(page, DEGREE)).to_have_count(0)  # never another draft: confirmed only
         expect(candidate(page, ENGLISH)).to_have_count(0)  # never itself
 
         # Search: type and press Enter.
@@ -494,6 +497,58 @@ def test_ac_m3_2_merge_draft_into_fact_by_keyboard(
         expect(history.locator(f"#{version_id_attr(2)}")).to_contain_text(SETTLED.split()[0])
         open_app(page, running_app, tab_url("drafts"))
         expect_draft_count(page, 2)
+        expect(page.get_by_text("Something went wrong")).to_have_count(0)
+
+
+@pytest.mark.parametrize(("viewport", "scheme"), AXE_CASES)
+def test_merge_own_wording_shown_only_when_chosen_by_keyboard(
+    running_app: RunningApp, browser: Browser, viewport: dict[str, int], scheme: str
+) -> None:
+    """The fields for a wording of one's own appear only while "Write the wording myself" is
+    chosen: choosing it by keyboard shows them at once, prefilled with the fact's wording,
+    with focus left on the radio; choosing another hides them again. A merge with written
+    wording works, and axe is clean in each state."""
+    with facts_page(browser, viewport, color_scheme=scheme) as page:
+        import_drafts(page, running_app)
+        named_button(draft(page, ROUTES), CONFIRM).click()  # seeding: the fact to merge into
+        wait_said(page, SAID_CONFIRMED)
+
+        press_by_keyboard(page, link(draft(page, ENGLISH), MERGE_WITH))
+        press_by_keyboard(page, link(candidate(page, ROUTES), COMPARE))
+        expect(page.locator(f"#{MERGE_COMPARE_ID}")).to_be_visible()
+        page.wait_for_function("() => typeof window.htmx !== 'undefined'")
+        form = page.locator(f"form#{MERGE_FORM_ID}")
+        own = page.locator(f"#{MERGE_OWN_WORDING_ID}")
+        wording = field(form, "text")
+        expect(own).to_be_hidden()
+        expect(wording).to_be_hidden()
+        assert_no_serious_violations(page)
+
+        choose_radio_by_keyboard(page, form, MERGE_CHOICE_FIELD, "edited")
+        expect(own).to_be_visible()
+        expect(wording).to_have_value(ROUTES)
+        written = form.locator(f'input[name="{MERGE_CHOICE_FIELD}"][value="edited"]')
+        expect(written).to_be_focused()
+        hints = wording.get_attribute("aria-describedby") or ""
+        assert hints.split(), "the field keeps its hint"
+        for hint in hints.split():
+            expect(page.locator(f"#{hint}")).to_be_visible()
+        assert_no_serious_violations(page)
+
+        choose_radio_by_keyboard(page, form, MERGE_CHOICE_FIELD, "draft")
+        expect(own).to_be_hidden()
+        expect(form.locator(f'input[name="{MERGE_CHOICE_FIELD}"][value="draft"]')).to_be_focused()
+        choose_radio_by_keyboard(page, form, MERGE_CHOICE_FIELD, "edited")
+        expect(own).to_be_visible()
+        expect(written).to_be_focused()
+
+        type_into(page, wording, SETTLED)
+        press_by_keyboard(page, named_button(form, MERGE))
+        wait_said(page, SAID_MERGED)
+        result = page.locator(f"#{MERGE_RESULT_ID}")
+        expect(result).to_contain_text(SETTLED)
+        expect_focus_inside(page, result)
+        assert_no_serious_violations(page)
         expect(page.get_by_text("Something went wrong")).to_have_count(0)
 
 
@@ -693,6 +748,9 @@ def test_merge_search_swaps_moves_focus_and_announces(
     the search, focus lands on the candidates' heading and what was found is announced."""
     with facts_page(browser, DESKTOP) as page:
         import_drafts(page, running_app)
+        # Seeding: only confirmed facts can be merged into.
+        named_button(draft(page, ROUTES), CONFIRM).click()
+        wait_said(page, SAID_CONFIRMED)
         press_by_keyboard(page, link(draft(page, ENGLISH), MERGE_WITH))
         expect(heading(page, MERGE_HEADING)).to_be_visible()
         page.wait_for_function("() => typeof window.htmx !== 'undefined'")

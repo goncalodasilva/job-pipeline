@@ -7,8 +7,10 @@
    it can be merged into, each with a "Compare" link. The search swaps itself, its field
    included, so it settles at once (settle:0ms): htmx otherwise gives the new field the
    old one's attributes for a moment, and what is typed in that moment is overwritten. compare: both wordings (side by side on a wide screen, stacked on a
-   phone) and the form that settles the wording; the fields for a wording of one's own are
-   always there, so the screen needs no script. result: where the draft went and, while the
+   phone) and the form that settles the wording; the fields for a wording of one's own
+   (#merge-own-wording) carry `hidden` unless "Write the wording myself" is checked, and
+   app.js shows them as soon as it is chosen (data-shown-when); without scripts CSS keeps
+   them in sight (html.js), so the screen works without one. result: where the draft went and, while the
    merge can be taken back, "Undo merge". One focus target: the result, the line an undo
    left, the reload prompt or a refused field. Everything is escaped. #}
 <div id="merge-page" class="merge-body">
@@ -54,7 +56,7 @@
     {% with side_id = "merge-draft", side_heading = "The draft", item = merge.draft %}
     {% include "fragments/facts/_merge_side.html" %}
     {% endwith %}
-    {% with side_id = "merge-target", side_heading = ("The other draft" if merge.target.status == "draft" else "The existing fact"), item = merge.target %}
+    {% with side_id = "merge-target", side_heading = "The existing fact", item = merge.target %}
     {% include "fragments/facts/_merge_side.html" %}
     {% endwith %}
   </div>
@@ -81,6 +83,7 @@
       </div>
       {% endfor %}
     </fieldset>
+    <div id="merge-own-wording" class="merge-own-wording" data-shown-when="wording=edited"{% if not merge.writing %} hidden{% endif %}>
     {% for field in merge.fields %}
     {% set refused_here = merge.error_field == field.name %}
     <div class="field">
@@ -92,6 +95,7 @@
     </div>
     {% endfor %}
     <p id="merge-own-hint" class="field-hint editor-hint">Used only when you choose "Write the wording myself".</p>
+    </div>
     <div class="form-actions">
       <button type="submit" class="button button-primary">Merge</button>
       <a class="button" href="/facts/{{ draft_id }}/merge">Choose another fact</a>

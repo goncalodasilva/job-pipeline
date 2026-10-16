@@ -68,6 +68,22 @@
     cancel.click();
   });
 
+  // A part of a form shown only while one choice of a radio group is made
+  // (data-shown-when="<name>=<value>": the merge screen's own wording, M3.6). The server
+  // renders it hidden unless that choice is checked; choosing a radio of the group shows or
+  // hides it at once. Focus stays on the radio. Without scripts CSS keeps it in sight.
+  document.addEventListener("change", function (event) {
+    var radio = event.target;
+    if (!(radio instanceof HTMLInputElement) || radio.type !== "radio" || !radio.form) return;
+    var parts = radio.form.querySelectorAll("[data-shown-when]");
+    for (var i = 0; i < parts.length; i++) {
+      var rule = parts[i].getAttribute("data-shown-when") || "";
+      var at = rule.indexOf("=");
+      if (at < 0 || rule.slice(0, at) !== radio.name) continue;
+      parts[i].hidden = !(radio.checked && radio.value === rule.slice(at + 1));
+    }
+  });
+
   // Routes can ask for an announcement with the header HX-Trigger: {"announce": "..."}.
   document.body.addEventListener("announce", function (event) {
     if (event.detail && typeof event.detail.value === "string") announce(event.detail.value);

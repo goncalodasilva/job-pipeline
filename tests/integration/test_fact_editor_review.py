@@ -63,13 +63,11 @@ from tests.facts_page import (
     MERGE_CAPPED,
     MERGE_CHOICE_FIELD,
     MERGE_CHOICES,
-    MERGE_CHOICES_DRAFT_TARGET,
     MERGE_CONFLICT_ID,
     MERGE_CONTENT_ID,
     MERGE_FORM_ID,
     MERGE_HEADING,
     MERGE_LEGEND,
-    MERGE_LEGEND_DRAFT_TARGET,
     MERGE_NOT_A_DRAFT,
     MERGE_RESULT_ID,
     MERGE_SEARCH_ID,
@@ -719,35 +717,30 @@ def test_htmx_save_answers_carry_the_new_title(tmp_path: Path) -> None:
         assert "<script" not in "".join(titles(outline(save_new(facts, text="<script>x").text)))
 
 
-def test_merge_choices_have_hints_and_name_a_draft_target(tmp_path: Path) -> None:
-    """Item 8: each choice is described by its one-line help. Against a confirmed fact the
-    words are the current ones; against another draft nothing is called an "existing fact"."""
+def test_merge_choices_have_hints(tmp_path: Path) -> None:
+    """Item 8: each choice is described by its one-line help, with the current words. A
+    draft is merged only into a confirmed fact, so the target is always "the existing
+    fact"."""
     with facts_app(tmp_path) as facts:
         seeded = seed(facts)
-        draft, target, other = seeded["draft"], seeded["target"], seeded["other"]
-        cases = (
-            (target, MERGE_CHOICES, MERGE_LEGEND),
-            (other, MERGE_CHOICES_DRAFT_TARGET, MERGE_LEGEND_DRAFT_TARGET),
-        )
-        for into, labels, legend in cases:
-            elements, _ = compare(facts, draft.id, into.id)
-            form = required(elements, MERGE_FORM_ID)
-            radios = controls(elements, form, MERGE_CHOICE_FIELD)
-            assert [label_of(elements, r) for r in radios] == list(labels.values())
-            assert [e.text for e in inside(elements, form) if e.tag == "legend"] == [legend]
-            helps = []
-            for radio in radios:
-                (note,) = described_by(elements, radio)
-                assert note.text and note.within(form) and note.tag == "p"
-                assert note.within(radio.parent), "the help sits with its choice"
-                helps.append(note.text)
-            assert len(set(helps)) == len(radios), "each choice has its own help"
-            assert "existing fact" not in form.text or into is target
+        draft, target = seeded["draft"], seeded["target"]
+        elements, _ = compare(facts, draft.id, target.id)
+        form = required(elements, MERGE_FORM_ID)
+        radios = controls(elements, form, MERGE_CHOICE_FIELD)
+        assert [label_of(elements, r) for r in radios] == list(MERGE_CHOICES.values())
+        assert [e.text for e in inside(elements, form) if e.tag == "legend"] == [MERGE_LEGEND]
+        helps = []
+        for radio in radios:
+            (note,) = described_by(elements, radio)
+            assert note.text and note.within(form) and note.tag == "p"
+            assert note.within(radio.parent), "the help sits with its choice"
+            helps.append(note.text)
+        assert len(set(helps)) == len(radios), "each choice has its own help"
         # A refused choice is described by the error and still by its help.
-        refused = merge(facts, draft.id, other.id, wording="both")
+        refused = merge(facts, draft.id, target.id, wording="both")
         elements = outline(refused.text)
         radios = controls(elements, required(elements, MERGE_FORM_ID), MERGE_CHOICE_FIELD)
-        assert [label_of(elements, r) for r in radios] == list(MERGE_CHOICES_DRAFT_TARGET.values())
+        assert [label_of(elements, r) for r in radios] == list(MERGE_CHOICES.values())
         for radio in radios:
             assert len(described_by(elements, radio)) == 2
 
@@ -776,7 +769,8 @@ def test_merge_search_is_enhanced_focuses_candidates_and_announces(tmp_path: Pat
         assert MERGE_HEADING in [e.text for e in inside(page, content) if e.tag == "h1"]
         assert not [e for e in page if "data-autofocus" in e.attrs], "a page load moves no focus"
 
-        for words, total in (("invoice", 1), ("", 3), ("planned", 1), ("xylophone", 0)):
+        # Confirmed facts only: the seeded fact and the invoices, never the other draft.
+        for words, total in (("invoice", 1), ("", 2), ("planned", 1), ("xylophone", 0)):
             response = facts.get(path, q=words)
             assert response.status_code == 200, (words, response.status_code)
             assert "<html" not in response.text

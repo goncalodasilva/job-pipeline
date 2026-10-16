@@ -29,6 +29,7 @@ from app.domain.facts import (
     can_transition,
     clean_part,
     next_version,
+    still_reads_as,
 )
 from app.domain.ids import IdFactory
 from app.domain.partial_dates import END_BEFORE_START, checked_partial_date, ends_before_start
@@ -123,9 +124,10 @@ class FactView:
     ``content_version`` the 3 in ``F12@3``. ``source``, ``provider`` and ``model`` describe
     the current version. ``needs_check`` is true only for a draft whose current version is
     flagged: the user's own confirm is the check, so no other fact reports it, whatever its
-    version rows keep. ``origin_provider`` and ``origin_model`` are those of the fact's
-    earliest version a provider made, whatever the user changed since (ADR-089 item 8); both
-    are None when the user wrote every version."""
+    version rows keep. ``origin_provider`` and ``origin_model`` follow the current wording:
+    those of the current version when a provider made it; for the user's own wording, those
+    of the latest earlier version a provider made while at least half of the wording's words
+    are still that version's (ADR-089 item 8, user decision 2026-10-16); else None."""
 
     id: str
     number: int
@@ -366,7 +368,22 @@ def fact_view(conn: sqlite3.Connection, fact_id: str) -> FactView:
     row = facts_repo.get_fact(conn, fact_id)
     if row is None:
         raise FactNotFound(detail=f"fact {fact_id} not found")
-    return _view_of(row, facts_repo.skill_names(conn, fact_id), facts_repo.origin(conn, fact_id))
+    return _view_of(row, facts_repo.skill_names(conn, fact_id), _origin(conn, row))
+
+
+def _origin(conn: sqlite3.Connection, row: facts_repo.StoredFact) -> tuple[str, str | None] | None:
+    """Where the current wording came from: the provider that made the current version;
+    for the user's own, the latest earlier version a provider made, while the wording still
+    reads as it (``still_reads_as``); else None."""
+    current = row.current
+    if current.provider is not None:
+        return current.provider, current.model
+    earlier = facts_repo.latest_by_provider(conn, row.id, besides=current.id)
+    if earlier is None or earlier.provider is None:
+        return None
+    if not still_reads_as(_content_of(current), _content_of(earlier)):
+        return None
+    return earlier.provider, earlier.model
 
 
 def _load(conn: sqlite3.Connection, fact_id: str, expected_version: int) -> facts_repo.StoredFact:
@@ -653,10 +670,8 @@ class FactService:
         with self._db.transaction() as conn:
             draft = _load(conn, draft_id, expected_draft_version)
             target = _load(conn, target_id, expected_target_version)
-            if draft.status != FactStatus.DRAFT or target.status not in (
-                FactStatus.DRAFT,
-                FactStatus.CONFIRMED,
-            ):
+            # A draft folds only into a confirmed fact (decided by the user, 2026-10-16).
+            if draft.status != FactStatus.DRAFT or target.status != FactStatus.CONFIRMED:
                 raise FactTransitionRefused(
                     detail=f"merge of a {draft.status} fact into a {target.status} fact"
                 )
@@ -667,8 +682,6 @@ class FactService:
                 SOURCE_MERGE,
                 now,
                 made_by=_taken_from(settled, target, draft),
-                # A flagged draft target stays flagged: a merge isn't the user's confirmation.
-                needs_check=target.status == FactStatus.DRAFT and target.current.needs_check,
             )
             added = sorted(
                 facts_repo.skill_ids(conn, draft.id) - facts_repo.skill_ids(conn, target.id)
