@@ -7,7 +7,6 @@ from app.domain.cv_checks import (
     CvText,
     has_duplicates,
     normalise,
-    number_tokens,
     one_space,
     real_partial_date,
     says_no_more_than,
@@ -22,19 +21,9 @@ CV = (
 )
 
 
-@pytest.mark.parametrize(
-    ("text", "tokens"),
-    [
-        ("Cut time by 35% across 4 warehouses.", {"35", "4"}),
-        ("Planned 60 routes", {"60"}),
-        ("1,200 orders in 3.5 days.", {"1,200", "3.5"}),
-        ("(2021 - 2024)", {"2021", "2024"}),
-        ("no numbers here", set()),
-        ("", set()),
-    ],
-)
-def test_number_tokens_are_whole_numbers_as_written(text: str, tokens: set[str]) -> None:
-    assert number_tokens(text) == tokens
+# The cases of ``number_tokens`` (the M3.4 number helper) moved to
+# ``tests/unit/domain/test_honesty.py::test_extract_quantities_kinds_and_values`` when
+# ``app/domain/honesty.py`` replaced it (M3.8; ADR-089 item 5, ADR-092 item 4).
 
 
 def test_one_space_folds_whitespace_runs() -> None:
@@ -60,6 +49,17 @@ def test_number_not_in_cv_is_noticed_and_a_digit_is_not_a_number() -> None:
     assert not cv.has_numbers_of(["Handled 1200 orders."]), "formats are compared in M3.8"
     assert not cv.has_numbers_of(["fine", "Saved 9 hours."])
     assert cv.has_numbers_of([None, None])
+
+
+def test_number_words_are_left_to_the_word_check() -> None:
+    """The refine check reads numbers written in words (M3.8 review); an import still
+    compares only numbers written in digits, and words through ``has_words_of``."""
+    cv = CvText("Handled twenty one orders, doubled throughput and cut costs by half.")
+
+    assert cv.has_numbers_of(["Handled twenty-one orders."])
+    assert cv.has_numbers_of(["Cut costs by fifty percent."])
+    assert cv.has_numbers_of(["Tripled throughput."])
+    assert not cv.has_numbers_of(["Handled 21 orders."])
 
 
 def test_names_must_be_in_the_cv_and_blank_ones_are_skipped() -> None:

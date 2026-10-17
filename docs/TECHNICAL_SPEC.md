@@ -620,7 +620,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 ### 4.3 Coverage
 
 - At least 85% line coverage across `app/`, excluding live-only provider code paths.
-- At least 95% branch coverage for critical modules: `app/domain/honesty.py`, `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware (`app/api/security.py`, ADR-039). `scripts/check_critical_coverage.py` enforces this with a registry of these modules and the milestone that introduces each (ADR-028).
+- At least 95% branch coverage for critical modules: `app/domain/honesty.py` and `app/domain/fact_selection.py` (both from M3, ADR-089 item 5), `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware (`app/api/security.py`, ADR-039). `scripts/check_critical_coverage.py` enforces this with a registry of these modules and the milestone that introduces each (ADR-028).
 
 ### 4.4 What every feature's tests must include
 

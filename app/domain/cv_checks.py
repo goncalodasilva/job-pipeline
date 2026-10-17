@@ -12,9 +12,11 @@ ligatures, curly quotes and dashes are folded, ``&lt;`` is read as ``<`` and whi
 are one space. Quotes and role names are then compared as written; words and skills without
 regard to case.
 
-The number helper is deliberately small: ``app/domain/honesty.py`` (M3.8) replaces
-``number_tokens`` with ``extract_quantities``, which also knows number formats ("1200" and
-"1,200" are different numbers here).
+Numbers go through ``app/domain/honesty.py``'s ``extract_quantities`` (M3.8; ADR-092 item
+4), the one quantity reader of imports and refine. An import compares each quantity as
+written (spacing aside), so it is at least as strict as the M3.4 helper it replaced: "1200"
+is not "1,200" and "35 percent" is not "35%" here, since an import is told to copy the CV's
+wording. Only the refine check treats equal values in other formats as equal.
 """
 
 import re
@@ -22,10 +24,9 @@ import unicodedata
 from collections.abc import Iterable
 from typing import Final
 
+from app.domain.honesty import extract_quantities
 from app.domain.partial_dates import is_partial_date
 
-# A run of digits, with dots or commas only between digits ("35", "1,200", "3.5").
-_NUMBER: Final = re.compile(r"\d+(?:[.,]\d+)*")
 _DIGITS: Final = re.compile(r"\d+")
 # A run of letters and digits ("5k" is one word, and not "5").
 _WORD: Final = re.compile(r"[^\W_]+")
@@ -48,9 +49,15 @@ def _folds() -> dict[int, str]:
 _FOLDS: Final = _folds()
 
 
-def number_tokens(text: str) -> frozenset[str]:
-    """The numbers written in ``text``, each as written: "60" is not "6"."""
-    return frozenset(_NUMBER.findall(text))
+def _quantities_as_written(text: str) -> frozenset[str]:
+    """The quantities written in digits in ``text``, each as written without its spacing
+    and case: "60" is not "6", "1,200" is not "1200", "35 %" is "35%". Numbers written in
+    words ("fourteen") are left to ``has_words_of``, as before M3.8."""
+    return frozenset(
+        "".join(q.text.split()).casefold()
+        for q in extract_quantities(text)
+        if _DIGITS.search(q.text)
+    )
 
 
 def word_tokens(text: str) -> frozenset[str]:
@@ -84,7 +91,7 @@ class CvText:
     def __init__(self, text: str) -> None:
         self._text = normalise(text)
         self._folded = self._text.casefold()
-        self._numbers = number_tokens(self._text)
+        self._numbers = _quantities_as_written(self._text)
         self._digit_runs = frozenset(_DIGITS.findall(self._text))
         self._words = frozenset(_WORD.findall(self._folded))
 
@@ -95,8 +102,10 @@ class CvText:
         return bool(wanted) and wanted in self._text
 
     def has_numbers_of(self, parts: Iterable[str | None]) -> bool:
-        """Whether every number written in ``parts`` is a number of the text."""
-        return all(number_tokens(normalise(part)) <= self._numbers for part in parts if part)
+        """Whether every quantity written in ``parts`` is written the same way in the text."""
+        return all(
+            _quantities_as_written(normalise(part)) <= self._numbers for part in parts if part
+        )
 
     def has_words_of(self, parts: Iterable[str | None]) -> bool:
         """Whether every word of ``parts`` is a word of the text, whatever its case."""

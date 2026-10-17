@@ -26,6 +26,19 @@ quotes are found only in the fictional CVs.
   the schema: the planted claim as one more unit. It is still only a draft.
 - ``injection_status_field``: the same model also adding ``"status": "confirmed"``; the
   schema refuses it, so nothing is stored.
+
+``refine_fact`` answers (M3.8), about the fictional fact "Cut invoice processing time by 35%
+across 4 warehouses.":
+
+- ``ok``: a question and a pure rephrase, starting with a verb.
+- ``questions_only``: two questions and no suggestion.
+- ``uses_answer``: a suggestion that uses the number the user gave in an answer.
+- ``adversarial_invented_claims``: inflated numbers and an invented employer; flagged.
+- ``adversarial_self_reported``: a lower-case added phrase the model reports in
+  ``added_details``; flagged.
+- ``injection_accept_field``: the invented claims plus ``"accepted": true``; the schema
+  refuses it, so nothing is stored.
+- ``malformed``: text that is not JSON.
 """
 
 from collections.abc import Mapping
@@ -47,6 +60,14 @@ KEYWORD_INJECTION_STATUS: Final = "fake-cv-injection-status"
 KEYWORD_INJECTION: Final = "fake-cv-injection"
 KEYWORD_USAGE_LIMIT: Final = "fake-cv-usage-limit"
 KEYWORD_OFFLINE: Final = "fake-cv-offline"
+
+REFINE_FACT_TASK: Final = "refine_fact"
+KEYWORD_REFINE_MALFORMED: Final = "fake-refine-malformed"
+KEYWORD_REFINE_QUESTIONS: Final = "fake-refine-questions"
+KEYWORD_REFINE_USES_ANSWER: Final = "fake-refine-uses-answer"
+KEYWORD_REFINE_INVENTED: Final = "fake-refine-invented"
+KEYWORD_REFINE_SELF_REPORTED: Final = "fake-refine-self-reported"
+KEYWORD_REFINE_INJECTION: Final = "fake-refine-injection"
 
 _NOT_JSON: Final = "fictional CV extraction output that is not JSON"
 _INVENTED_EMPLOYER: Final = "Imaginary Aerospace Corp"
@@ -198,6 +219,70 @@ _EXTRACT_CV_KEYWORDS: Final[tuple[tuple[str, ScriptedResponse], ...]] = (
 )
 
 
+_REFINE_QUESTION: Final = "About how many invoices did the team handle each month?"
+_REFINE_INVENTED: Final = (
+    "Cut invoice processing time by 85% across 14 warehouses at Globex Corporation."
+)
+
+
+def _refined(text: str, *questions: str, added: tuple[str, ...] = ()) -> dict[str, Any]:
+    return {
+        "questions": list(questions),
+        "suggestion": {"text": text, "situation": None, "action": None, "result": None},
+        "added_details": list(added),
+    }
+
+
+_ADDED_DETAIL: Final = "saving the finance team a week each month"
+# Fixture name -> response; the names are the files of tests/fixtures/ai/refine_fact/.
+REFINE_FACT_RESPONSES: Final[Mapping[str, ScriptedResponse]] = MappingProxyType(
+    {
+        "ok": ScriptedResponse(
+            data=_refined(
+                "Reduced invoice processing time by 35% across 4 warehouses.", _REFINE_QUESTION
+            )
+        ),
+        "questions_only": ScriptedResponse(
+            data={
+                "questions": [
+                    "What changed for the finance team once processing was faster?",
+                    "Which tool did you use to track the processing time?",
+                ],
+                "suggestion": None,
+                "added_details": [],
+            }
+        ),
+        "uses_answer": ScriptedResponse(
+            data=_refined(
+                "Cut invoice processing time by 35% across 4 warehouses, handling about 1200 "
+                "invoices a month."
+            )
+        ),
+        "adversarial_invented_claims": ScriptedResponse(
+            data=_refined(_REFINE_INVENTED, _REFINE_QUESTION)
+        ),
+        "adversarial_self_reported": ScriptedResponse(
+            data=_refined(
+                f"Cut invoice processing time by 35% across 4 warehouses, {_ADDED_DETAIL}.",
+                added=(_ADDED_DETAIL,),
+            )
+        ),
+        "injection_accept_field": ScriptedResponse(
+            data={**_refined(_REFINE_INVENTED), "accepted": True}
+        ),
+        "malformed": ScriptedResponse(raw_text="fictional refine output that is not JSON"),
+    }
+)
+_REFINE_FACT_KEYWORDS: Final[tuple[tuple[str, ScriptedResponse], ...]] = (
+    (KEYWORD_REFINE_MALFORMED, REFINE_FACT_RESPONSES["malformed"]),
+    (KEYWORD_REFINE_QUESTIONS, REFINE_FACT_RESPONSES["questions_only"]),
+    (KEYWORD_REFINE_USES_ANSWER, REFINE_FACT_RESPONSES["uses_answer"]),
+    (KEYWORD_REFINE_INVENTED, REFINE_FACT_RESPONSES["adversarial_invented_claims"]),
+    (KEYWORD_REFINE_SELF_REPORTED, REFINE_FACT_RESPONSES["adversarial_self_reported"]),
+    (KEYWORD_REFINE_INJECTION, REFINE_FACT_RESPONSES["injection_accept_field"]),
+)
+
+
 def real_task_scripts(*, delay_seconds: float = 0.0) -> Mapping[str, KeywordScript]:
     """The keyword script of every real task the fake can answer, by task name. Every call
     takes ``delay_seconds`` (for a visible waiting state and for cancelling)."""
@@ -214,6 +299,12 @@ def real_task_scripts(*, delay_seconds: float = 0.0) -> Mapping[str, KeywordScri
                 by_keyword=tuple(
                     (keyword, timed(response)) for keyword, response in _EXTRACT_CV_KEYWORDS
                 ),
-            )
+            ),
+            REFINE_FACT_TASK: KeywordScript(
+                default=timed(REFINE_FACT_RESPONSES["ok"]),
+                by_keyword=tuple(
+                    (keyword, timed(response)) for keyword, response in _REFINE_FACT_KEYWORDS
+                ),
+            ),
         }
     )

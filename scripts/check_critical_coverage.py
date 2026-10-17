@@ -33,8 +33,10 @@ CRITICAL_MODULES: tuple[tuple[str, int], ...] = (
     ("app/onboarding/detection.py", 1),
     ("app/domain/budgets.py", 2),
     ("app/services/usage.py", 2),
+    # ADR-089 item 5: honesty.py and fact_selection.py are critical from M3 (was M6).
+    ("app/domain/honesty.py", 3),
+    ("app/domain/fact_selection.py", 3),
     ("app/modules/fetch/guard.py", 4),
-    ("app/domain/honesty.py", 6),
 )
 THRESHOLD = 95.0
 REPO_ROOT = Path(__file__).resolve().parent.parent

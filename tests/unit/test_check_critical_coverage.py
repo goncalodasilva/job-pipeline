@@ -27,6 +27,7 @@ BUDGETS = "app/domain/budgets.py"
 USAGE = "app/services/usage.py"
 GUARD = "app/modules/fetch/guard.py"
 HONESTY = "app/domain/honesty.py"
+FACT_SELECTION = "app/domain/fact_selection.py"
 
 EXPECTED_REGISTRY = (
     (SECURITY, 0),
@@ -34,8 +35,9 @@ EXPECTED_REGISTRY = (
     (DETECTION, 1),
     (BUDGETS, 2),
     (USAGE, 2),
+    (HONESTY, 3),  # ADR-089 item 5: critical from M3 (was M6)
+    (FACT_SELECTION, 3),
     (GUARD, 4),
-    (HONESTY, 6),
 )
 ALL_MODULES = tuple(path for path, _ in EXPECTED_REGISTRY)
 

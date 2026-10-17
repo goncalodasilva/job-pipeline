@@ -373,6 +373,84 @@ class FactInputInvalid(AppError):
         return self._message if self._message is not None else self.message
 
 
+class RefineNeverUse(AppError):
+    """Refine with AI asked for a fact marked "never use": nothing is sent (ADR-089 item 6)."""
+
+    kind = "RefineNeverUse"
+    message = (
+        'This fact is marked "Never use in applications", so it is never sent to the AI. '
+        "To refine it, change its privacy setting first."
+    )
+
+
+class RefineNotAvailable(AppError):
+    """Refine with AI asked for a discarded or archived fact."""
+
+    kind = "RefineNotAvailable"
+    message = "Only drafts and confirmed facts can be refined. Restore this fact first."
+
+
+class RefineNotOpen(AppError):
+    """No Refine with AI conversation is open for the fact."""
+
+    kind = "RefineNotOpen"
+    message = "There is no open Refine with AI conversation for this fact. Start one first."
+
+
+class RefineBusy(AppError):
+    """A turn of the conversation is still queued or running, or waits to be started."""
+
+    kind = "RefineBusy"
+    message = "The AI hasn't answered yet. Wait for its answer, then try again."
+
+
+class RefineContextChanged(AppError):
+    """A fact sent earlier in the Refine with AI conversation (its wording, or quoted in the
+    AI's questions or suggestion) is now marked "never use", or (for Accept) "generalize
+    names" when it was sent without that mark: going on would use or send it in a way the
+    user no longer allows (ADR-089 item 6)."""
+
+    kind = "RefineContextChanged"
+    message = (
+        "The privacy setting of a fact used earlier in this conversation has changed. "
+        "Discard this conversation and start again."
+    )
+
+
+class RefineAnswersUsed(AppError):
+    """A conversation takes at most three answers."""
+
+    kind = "RefineAnswersUsed"
+    message = (
+        "This conversation already has three answers. Accept the suggestion, edit the fact "
+        "yourself or discard it."
+    )
+
+
+class RefineNoSuggestion(AppError):
+    """Accept asked for a Refine with AI conversation whose AI hasn't suggested a wording
+    (yet), so there is nothing the posted wording could have come from."""
+
+    kind = "RefineNoSuggestion"
+    message = "There is no suggested wording to accept yet."
+
+
+class RefineClaimsUnacknowledged(AppError):
+    """Accept refused: the wording says something that isn't in the fact bank, and the user
+    neither confirmed it nor edited it out (spec 3.1 item 5; AC-M3.5). ``claims`` are the
+    texts still to confirm, for the page to list; never logged."""
+
+    kind = "RefineClaimsUnacknowledged"
+    message = (
+        "This isn't in your fact bank. Confirm each item below is true, or edit it out, "
+        "before accepting."
+    )
+
+    def __init__(self, claims: tuple[str, ...] = (), *, detail: str | None = None) -> None:
+        self.claims = claims
+        super().__init__(detail=detail)
+
+
 class SkillAliasTaken(AppError):
     kind = "SkillAliasTaken"
     message = "Another skill already uses this name. Choose a different name."

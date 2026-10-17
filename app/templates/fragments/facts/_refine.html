@@ -1,0 +1,56 @@
+{# Refine with AI (M3.8): the minimal answer of the refine routes; M3.9 builds the full panel
+   on it. Needs `refine`: `fact_id`, `view` (the open conversation, or none), and after an
+   action its `status` (what happened; takes focus) or `error` (why nothing happened; takes
+   focus), `claims` (wording that isn't in the fact bank, each to confirm or edit out),
+   `dialog` (the budget dialog) or `budget_reason`. Questions, the suggestion and the claims
+   are AI-made or the user's own text: escaped. #}
+<section id="fact-refine" class="fact-refine" aria-labelledby="fact-refine-heading">
+  <h2 id="fact-refine-heading">Refine with AI</h2>
+  {% if refine.status %}
+  <p id="fact-refine-status" class="fact-result" tabindex="-1" data-autofocus>{{ refine.status }}</p>
+  {% endif %}
+  {% if refine.error %}
+  <p id="fact-refine-error" class="field-error" tabindex="-1" data-autofocus>{{ refine.error }}</p>
+  {% endif %}
+  {% if refine.claims %}
+  <ul id="fact-refine-claims" aria-labelledby="fact-refine-error">
+    {% for claim in refine.claims %}
+    <li>{{ claim }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if refine.dialog %}
+  {% with budget_dialog = refine.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}
+  {% endif %}
+  {% if refine.budget_reason %}
+  {% with budget_blocked = refine.budget_reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}
+  {% endif %}
+  {% set view = refine.view %}
+  {% if view %}
+  {% if view.practice %}
+  <p class="badge badge-practice">Practice data (fake provider)</p>
+  {% endif %}
+  {% if view.questions %}
+  <ul id="fact-refine-questions">
+    {% for question in view.questions %}
+    <li>{{ question }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if view.suggestion %}
+  <div id="fact-refine-suggestion">
+    {% for part in (view.suggestion.text, view.suggestion.situation, view.suggestion.action, view.suggestion.result) if part %}
+    <p>{{ part }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if view.flagged %}
+  <p>This isn't in your fact bank.</p>
+  <ul id="fact-refine-flagged">
+    {% for claim in view.flagged %}
+    <li>{{ claim }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
+</section>

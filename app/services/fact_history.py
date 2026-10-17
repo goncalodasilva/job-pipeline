@@ -24,6 +24,7 @@ _SOURCES: Final[Mapping[str, str]] = {
     "cv_import": "From a CV import",
     "merge": "From a merge",
     "merge_undo": "Merge undone",
+    "refine": "Refined with AI, accepted by you",
 }
 _SOURCE_OTHER: Final = "Saved"
 _EVENTS: Final[Mapping[str, str]] = {
@@ -38,6 +39,7 @@ _EVENTS: Final[Mapping[str, str]] = {
     "merged": "A draft was merged into this fact",
     "merged_into": "Merged into another fact",
     "merge_undone": "Merge undone",
+    "refined": "Refined with AI",
 }
 _EVENT_OTHER: Final = "Changed"
 _PRIVACY_CHANGED: Final = "privacy_changed"

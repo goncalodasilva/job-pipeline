@@ -35,6 +35,7 @@ from app.api.fact_editor import register_fact_editor_routes
 from app.api.facts import register_fact_pages
 from app.api.facts_capture import register_fact_capture_routes
 from app.api.facts_import import register_fact_import_routes
+from app.api.facts_refine import register_fact_refine_routes
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
@@ -107,6 +108,7 @@ from app.services.fact_editor import FactEditor
 from app.services.fact_history import FactHistory
 from app.services.fact_library import FactLibrary
 from app.services.fact_merge import FactMerge
+from app.services.fact_refine import REFINE_FACT, REFINE_FACT_LABEL, FactRefineService
 from app.services.fact_views import FactBank, FactViews
 from app.services.facts import FactService
 from app.services.health import HealthService
@@ -123,6 +125,7 @@ from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
 from app.tasks.cv_import import cv_import_handler
+from app.tasks.fact_refine import fact_refine_handler
 from app.tasks.practice import practice_handler
 from app.wiring import (
     TASK_TIMEOUT_FLOOR,
@@ -143,6 +146,8 @@ PRACTICE_TIMEOUT = TASK_TIMEOUT_FLOOR + timedelta(minutes=1)
 CV_IMPORT_TIMEOUT = (
     TASK_TIMEOUT_FLOOR + timedelta(seconds=2 * PARSE_TIMEOUT_SECONDS) + timedelta(minutes=1)
 )
+# One Fast call and its close, with a minute of margin between beats.
+REFINE_TIMEOUT = TASK_TIMEOUT_FLOOR + timedelta(minutes=1)
 
 
 @dataclass(frozen=True)
@@ -624,6 +629,31 @@ def _cv_import(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) ->
     )
 
 
+def _fact_refine(
+    app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory
+) -> FactRefineService:
+    """Refine with AI (M3.8): like the CV import service, it reads the open workspace
+    through the app's state at call time."""
+
+    def workspace() -> Workspace | None:
+        found: Workspace | None = getattr(app.state, "workspace", None)
+        return found
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db is not None else None
+
+    return FactRefineService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=workspace,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None) if workspace() else None,
+        usage=_open_usage(app),
+    )
+
+
 def _publish_fact_services(
     app: FastAPI, db: Database | None, *, clock: Clock, ids: IdFactory
 ) -> None:
@@ -958,11 +988,18 @@ def create_app(
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
     _publish_fact_screens(app, tz=app_tz, clock=app_clock, ids=app_ids)
-    if task_registry is None:  # a real task type: with or without fakes
+    fact_refine = _fact_refine(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.fact_refine = fact_refine
+    if task_registry is None:  # real task types: with or without fakes
         handlers.register(
             EXTRACT_CV,
             TaskTypeSpec(CV_IMPORT_TIMEOUT, EXTRACT_CV_LABEL),
             cv_import_handler(cv_import),
+        )
+        handlers.register(
+            REFINE_FACT,
+            TaskTypeSpec(REFINE_TIMEOUT, REFINE_FACT_LABEL),
+            fact_refine_handler(fact_refine),
         )
     app.state.shutdown_signal = shutdown_signal
     app.state.task_events = task_events
@@ -987,6 +1024,8 @@ def create_app(
     register_usage_settings(app)
     register_task_routes(app)
     register_fact_import_routes(app)
+    # Before the fact pages: their "{id:path}/discard" would also match ".../refine/discard".
+    register_fact_refine_routes(app)
     register_fact_pages(app)
     register_fact_editor_routes(app)
     register_fact_capture_routes(app)

@@ -1,0 +1,13 @@
+{
+  "data": {
+    "questions": [],
+    "suggestion": {
+      "text": "Cut invoice processing time by 85% across 14 warehouses at Globex Corporation.",
+      "situation": null,
+      "action": null,
+      "result": null
+    },
+    "added_details": [],
+    "accepted": true
+  }
+}

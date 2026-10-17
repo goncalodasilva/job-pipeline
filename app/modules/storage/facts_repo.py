@@ -25,6 +25,15 @@ _SELECT_FACT = (
     "v.created_at "
     "FROM facts AS f JOIN fact_versions AS v ON v.id = f.current_version_id WHERE f.id = ?"
 )
+# Every fact with its current version, in the order they were made.
+_SELECT_FACTS = (
+    "SELECT f.id, f.number, f.type, f.status, f.role_id, f.privacy, f.tags, f.start_date, "
+    "f.end_date, f.merged_into_fact_id, f.cv_import_id, f.created_at, f.updated_at, f.version, "
+    "v.id, v.fact_id, v.version, v.text, v.situation, v.action, v.result, v.source, "
+    "v.original_answer, v.provider, v.model, v.prompt_id, v.prompt_version, v.needs_check, "
+    "v.created_at "
+    "FROM facts AS f JOIN fact_versions AS v ON v.id = f.current_version_id ORDER BY f.number"
+)
 _UPDATE_FACT = (
     "UPDATE facts SET type = ?, status = ?, role_id = ?, privacy = ?, tags = ?, start_date = ?, "
     "end_date = ?, current_version_id = ?, merged_into_fact_id = ?, updated_at = ?, "
@@ -293,6 +302,12 @@ def get_fact(conn: sqlite3.Connection, fact_id: str) -> StoredFact | None:
     if row is None:
         return None
     return _fact(row)
+
+
+def list_facts(conn: sqlite3.Connection) -> list[StoredFact]:
+    """Every fact, whatever its status, with its current version, in the order they were
+    made."""
+    return [_fact(row) for row in conn.execute(_SELECT_FACTS).fetchall()]
 
 
 def update_fact(

@@ -106,6 +106,7 @@ class SpyProvider:
         self._hold = hold
         self.inner: AIProvider | None = None
         self._own: FakeAIProvider | None = None
+        self._by_task: dict[str, FakeAIProvider] = {}
         self.requests: list[AIRequest] = []
         self.entered = 0
 
@@ -113,7 +114,9 @@ class SpyProvider:
         self.requests.append(request)
         self.entered += 1
         await self._hold.wait()
-        provider = self._own if self._own is not None else self.inner
+        provider = self._by_task.get(request.task)
+        if provider is None:
+            provider = self._own if self._own is not None else self.inner
         assert provider is not None, "wiring built no provider"
         return await provider.run(request, cancel)
 
@@ -136,6 +139,14 @@ class SpyProvider:
     def as_wired(self) -> None:
         """Back to the answers of the provider wiring built."""
         self._own = None
+        self._by_task.clear()
+
+    def script(self, task: str, *responses: ScriptedResponse) -> None:
+        """Calls of ``task`` from now on get ``responses`` in turn, the last one repeating
+        (``FakeAIProvider.script``); calls of other tasks are answered as before."""
+        own = FakeAIProvider()
+        own.script(task, *responses)
+        self._by_task[task] = own
 
     def _script(self, response: ScriptedResponse) -> None:
         own = FakeAIProvider()

@@ -1,0 +1,30 @@
+The fact to refine, F3@2:
+
+<untrusted_document source="fact" id="F3@2">
+Role: Operations Analyst at Example Widgets Ltd
+Skills: Excel
+Text: Cut invoice processing time by 35% across 4 warehouses.
+</untrusted_document>
+
+The conversation so far, with your earlier questions and the person's answers:
+
+<untrusted_document source="answers" id="F3@2">
+Question: About how many invoices did the team handle each month?
+Answer: About 1,200 invoices a month.
+</untrusted_document>
+
+Other facts the person has confirmed, for context. A suggestion may use what they state
+about the same work:
+
+<untrusted_document source="facts" id="F3@2">
+[F5@1]
+Role: Junior Planner at Sample Logistics SA
+Text: Planned 60 delivery routes a week with a team of 3.
+
+[F8@1 (generalize names)]
+Text: Ran the Fernhill Bank payments migration.
+</untrusted_document>
+
+Ask your questions about F3@2 and, if you can, suggest a clearer wording for it,
+as JSON matching the schema. Use only what the fact, the answers and the confirmed facts
+state, and list in `added_details` anything else your suggestion says.

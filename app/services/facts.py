@@ -40,6 +40,7 @@ from app.services.skills import resolve_skills
 SOURCE_MANUAL = "manual"
 SOURCE_MERGE = "merge"
 SOURCE_MERGE_UNDO = "merge_undo"
+SOURCE_REFINE = "refine"
 
 _CONTENT_NEEDED = "Write the fact before saving."
 _STORY_NEEDED = "Fill in at least one of situation, action or result."
@@ -594,6 +595,57 @@ class FactService:
                 detail = {"from": row.privacy, "to": wanted}
                 self._event(conn, row.id, "privacy_changed", row.current.id, now, detail)
             return fact_view(conn, fact_id)
+
+    def save_refined_in(
+        self,
+        conn: sqlite3.Connection,
+        fact_id: str,
+        content: FactContent,
+        *,
+        expected_version: int,
+        origin: DraftOrigin,
+        detail: Mapping[str, object],
+    ) -> FactView:
+        """Inside a transaction the caller owns (Refine with AI's Accept, M3.8): the wording
+        the user accepted becomes the fact's next version, source ``refine``, keeping the
+        provider, model and prompt of the suggestion it came from, with a ``refined`` event
+        (``detail``: ids only). Only a draft or a confirmed fact can be refined; a draft stays
+        a draft, and its flag stays until the user confirms it (ADR-091). Wording that reads
+        as the current one adds nothing. Raises ``VersionConflict``,
+        ``FactTransitionRefused`` or ``FactInputInvalid``."""
+        settled = _checked_content(content.text, content.situation, content.action, content.result)
+        row = _load(conn, fact_id, expected_version)
+        if row.status not in (FactStatus.DRAFT, FactStatus.CONFIRMED):
+            raise FactTransitionRefused(detail=f"fact {fact_id} is {row.status}: no refine")
+        number = next_version(row.current.version, _content_of(row.current), settled)
+        if number is None:
+            return fact_view(conn, fact_id)
+        now = self._now()
+        version_id = self._ids.new()
+        facts_repo.insert_version(
+            conn,
+            facts_repo.StoredVersion(
+                id=version_id,
+                fact_id=row.id,
+                version=number,
+                text=settled.text,
+                situation=settled.situation,
+                action=settled.action,
+                result=settled.result,
+                source=origin.source,
+                original_answer=None,
+                provider=origin.provider,
+                model=origin.model,
+                prompt_id=origin.prompt_id,
+                prompt_version=origin.prompt_version,
+                # The user asserted what they accepted; only a draft keeps its flag.
+                needs_check=row.status == FactStatus.DRAFT and row.current.needs_check,
+                created_at=now,
+            ),
+        )
+        _save(conn, row, replace(_state(row), current_version_id=version_id), now)
+        self._event(conn, row.id, "refined", version_id, now, detail)
+        return fact_view(conn, fact_id)
 
     # --- status -------------------------------------------------------------------
 

@@ -30,6 +30,7 @@ from jinja2.meta import find_undeclared_variables
 from jinja2.runtime import Context
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
+from app.domain.fact_selection import GENERALIZE_INSTRUCTION, FactPromptBlock
 from app.domain.settings import Tier
 
 PROMPT_FILE: Final = "prompt.md"
@@ -173,7 +174,11 @@ def render_prompt(template: PromptTemplate, inputs: Mapping[str, object]) -> Ren
     _check_untrusted_usage(
         env, task, "prompt", template.system_source, template.user_source, template.untrusted_inputs
     )
-    values = dict(inputs)
+    # Templates receive ordinary text; immutable policy stays outside their control.
+    values = {
+        key: value.text if isinstance(value, FactPromptBlock) else value
+        for key, value in inputs.items()
+    }
     try:
         system = env.from_string(template.system_source).render(values)
         user = env.from_string(template.user_source).render(values)
@@ -187,6 +192,8 @@ def render_prompt(template: PromptTemplate, inputs: Mapping[str, object]) -> Ren
         ) from None
     except Exception:  # any other failure (ZeroDivisionError, RecursionError, MemoryError, ...)
         raise PromptError(f"Prompt {task!r}: the template could not be rendered.") from None
+    if any(isinstance(value, FactPromptBlock) and value.generalize for value in inputs.values()):
+        system = f"{GENERALIZE_INSTRUCTION}\n\n{system}"
     if template.untrusted_inputs:
         system = f"{UNTRUSTED_NOTICE}\n\n{system}"
     if len(system.encode("utf-8")) + len(user.encode("utf-8")) > MAX_RENDERED_BYTES:

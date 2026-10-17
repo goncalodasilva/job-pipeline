@@ -26,5 +26,8 @@ PRACTICE_SPEC: Final = TaskSpec("practice", kind="summary")
 _SPECS: Final = (
     # M3.4: lists what a CV states; every item is stored as a draft (AC-M3.1).
     TaskSpec("extract_cv", kind="extraction"),
+    # M3.8: sharpening questions and suggested wording for one fact; it never adds a claim
+    # and never changes the fact (spec 3.1 item 5; AC-M3.5).
+    TaskSpec("refine_fact", kind="feedback"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})
