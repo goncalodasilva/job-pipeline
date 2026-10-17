@@ -2,7 +2,9 @@
 lock (spec 2.4, 2.7; ADR-072)."""
 
 from app.modules.storage import (
+    capture_repo,
     cv_imports_repo,
+    fact_pairs_repo,
     facts_repo,
     roles_repo,
     skills_repo,
@@ -39,7 +41,9 @@ __all__ = [
     "StoredSetting",
     "StoredStep",
     "apply_migrations",
+    "capture_repo",
     "cv_imports_repo",
+    "fact_pairs_repo",
     "facts_repo",
     "get_setting",
     "insert_setting",

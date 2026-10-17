@@ -3,7 +3,9 @@
 Pages (``PAGE_TAG``; with ``HX-Request: true`` the main content only; GET and HEAD change
 nothing, whatever the query says: spec 2.9 rule 12):
 
-- ``GET /facts/new`` (``?type=fact|story``; anything else is a fact): the editor, empty.
+- ``GET /facts/new`` (``?type=fact|story``; anything else is a fact): the editor, empty; with
+  ``?note=<id>`` of an open capture note (M3.7), a fact with the note's text typed in and the
+  note named in a hidden field, so saving it records the fact on the note.
 - ``GET /facts/{id}/edit``: the editor for one fact with its history below (``#fact-history``).
   A discarded fact is shown without a form.
 - ``GET /facts/{draft id}/merge`` (``?q=`` searches, ``?target=`` compares): the merge screen;
@@ -65,9 +67,11 @@ from app.domain.errors import (
     VersionConflict,
 )
 from app.onboarding.registry import Form
+from app.services.capture import CaptureService
 from app.services.fact_editor import (
     MSG_ARCHIVED,
     MSG_UNARCHIVED,
+    NOTE_FIELD,
     EditorView,
     FactEditor,
     added_message,
@@ -174,7 +178,14 @@ def _too_large() -> Response:
 
 
 def new_fact_page(request: Request) -> Response:
-    return _editor_page(request, _editor(request).new(request.query_params.get("type", "")))
+    """``?note=<id>`` (M3.7, "Turn into a fact"): the form holds that capture note's text,
+    while the note is open; any other value is an empty form."""
+    capture: CaptureService = request.app.state.capture
+    note_id = request.query_params.get(NOTE_FIELD, "")
+    note = capture.open_note(note_id) if note_id else None
+    return _editor_page(
+        request, _editor(request).new(request.query_params.get("type", ""), note=note)
+    )
 
 
 def edit_fact_page(request: Request, fact_id: str) -> Response:

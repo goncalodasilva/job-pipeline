@@ -17,7 +17,9 @@ from typing import Final
 
 from app.domain.errors import FactInputInvalid
 from app.domain.facts import FactStatus, FactType, Privacy, RoleStatus
+from app.domain.ids import is_safe_id
 from app.modules.storage import facts_repo
+from app.services.capture import NoteView
 from app.services.fact_views import (
     DRAFTS,
     LIBRARY,
@@ -35,6 +37,9 @@ from app.services.facts import FactInput, FactView, NewRole
 
 Typed = Mapping[str, Sequence[str]]
 """A posted form: every value of each field, as it arrived."""
+
+NOTE_FIELD: Final = "note"
+"""The new-item form's hidden field naming the capture note it turns into a fact (M3.7)."""
 
 MSG_ADDED: Final = "Fact added to your Library."
 MSG_STORY_ADDED: Final = "Story added to your Library."
@@ -169,6 +174,8 @@ class EditorView:
     back_label: str = _BACK_LIBRARY[1]
     kept: tuple[EditField, ...] = ()
     """What a refused save typed for a fact that has no form any more, to be copied."""
+    note_id: str | None = None
+    """The capture note a new fact is made from (M3.7): sent back in a hidden field."""
 
 
 def one(typed: Typed, name: str) -> str:
@@ -251,18 +258,38 @@ def _input(fact_type: FactType, wording: Mapping[str, str | None], typed: Typed)
 class FactEditor:
     """``bank`` answers the open workspace's fact services (None while none is open)."""
 
-    def __init__(self, *, bank: Callable[[], FactBank | None]) -> None:
+    def __init__(
+        self,
+        *,
+        bank: Callable[[], FactBank | None],
+        on_created: Callable[[], None] = lambda: None,
+    ) -> None:
+        """``on_created`` is told after each new fact is saved (wiring marks setup's CV
+        import step done with it, M3.7); it never raises."""
         self._bank = bank
+        self._on_created = on_created
 
     # --- showing --------------------------------------------------------------------------------
 
     def new(
-        self, kind: str, *, typed: Typed | None = None, error: FactInputInvalid | None = None
+        self,
+        kind: str,
+        *,
+        typed: Typed | None = None,
+        error: FactInputInvalid | None = None,
+        note: NoteView | None = None,
     ) -> EditorView:
         """The form for a new fact or story (anything else is a fact), empty or, after a
-        refusal, with what was typed."""
+        refusal, with what was typed. ``note`` (an open capture note) makes it a fact with
+        the note's text typed in, and names the note in the form."""
         bank = open_bank(self._bank)
-        fact_type = _kind(kind)
+        fact_type = FactType.FACT if note is not None else _kind(kind)
+        fields = _wording_fields(fact_type)
+        if note is not None:
+            fields = tuple(
+                replace(field, value=note.text) if field.name == "text" else field
+                for field in fields
+            )
         view = EditorView(
             fact_id=None,
             kind=fact_type.value,
@@ -270,7 +297,7 @@ class FactEditor:
             action="/facts/new",
             version=None,
             status=None,
-            fields=_wording_fields(fact_type),
+            fields=fields,
             roles=self._roles(bank, None),
             role_id="",
             new_role_employer="",
@@ -282,6 +309,7 @@ class FactEditor:
             end_date="",
             privacy=_privacy(Privacy.NORMAL.value),
             intro=_STORY_INTRO if fact_type is FactType.STORY else None,
+            note_id=note.id if note is not None else _note_id(typed),
         )
         return _shown_back(view, typed, error)
 
@@ -350,11 +378,14 @@ class FactEditor:
 
     def create(self, typed: Typed) -> FactView:
         """Save the new-item form: a confirmed fact, with its role and skills, or nothing.
-        Raises ``FactInputInvalid``."""
+        A ``note`` field naming an open capture note records the fact on that note in the
+        same save. Raises ``FactInputInvalid``."""
         bank = open_bank(self._bank)
         fact_type = _kind(one(typed, "type"))
         wording = {name: one(typed, name) for name, _label in _WORDING[fact_type]}
-        return bank.facts.create(_input(fact_type, wording, typed))
+        made = bank.facts.create(_input(fact_type, wording, typed), note_id=_note_id(typed))
+        self._on_created()
+        return made
 
     def save(self, fact_id: str, typed: Typed, *, expected_version: int) -> FactView:
         """Save the edit form of one fact. Its type stays; a wording field the form doesn't
@@ -375,6 +406,14 @@ class FactEditor:
                 wording[field.name] = one(typed, field.name)
         data = _input(fact.type, wording, typed)
         return bank.facts.edit(fact_id, data, expected_version=expected_version)
+
+
+def _note_id(typed: Typed | None) -> str | None:
+    """The capture note a posted new-item form names, when it names one of the safe shape."""
+    if typed is None:
+        return None
+    note_id = one(typed, NOTE_FIELD)
+    return note_id if is_safe_id(note_id) else None
 
 
 def added_message(made: FactView) -> str:

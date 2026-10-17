@@ -126,10 +126,12 @@ WELCOME = StepDefinition(
     "welcome", "Welcome and data folder", True, 10, "fragments/setup/_welcome.html"
 )
 PROVIDER = StepDefinition("provider", "AI provider", True, 20, "fragments/setup/_provider.html")
-# Optional (M2.25): "Skip for now" is allowed. Order 40 is kept for CV import (M3).
+# Optional (M2.25): "Skip for now" is allowed.
 WEB_SEARCH = StepDefinition(
     "web_search", "Web search", False, 30, "fragments/setup/_web_search.html"
 )
+# Optional and recommended (M3.7): the Fact bank's CV import, or "Skip for now".
+CV_IMPORT = StepDefinition("cv_import", "Import CV", False, 40, "fragments/setup/_cv_import.html")
 PREFERENCES = StepDefinition(
     "preferences", "Job preferences", True, 50, "fragments/setup/_preferences.html"
 )
@@ -137,7 +139,7 @@ DONE = StepDefinition("done", "Done", False, 60, "fragments/setup/_done.html")
 
 
 def m1_registry() -> StepRegistry:
-    return StepRegistry((WELCOME, PROVIDER, WEB_SEARCH, PREFERENCES, DONE))
+    return StepRegistry((WELCOME, PROVIDER, WEB_SEARCH, CV_IMPORT, PREFERENCES, DONE))
 
 
 def require_handlers(

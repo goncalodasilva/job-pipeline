@@ -1,8 +1,8 @@
 {# The Fact bank's main content (M3.5): the page heading, the tabs as plain ?tab= links (the
    Drafts tab's link carries how many drafts wait) and the chosen tab. One focus target: the
    heading, unless a refused form shows its error (then the field does). Needs `tabs`,
-   `current_tab`, `refused` and, for the chosen tab, `library`, or `drafts`, `edits` and
-   `cv_import`. #}
+   `current_tab`, `refused` and, for the chosen tab, `library`, or `drafts`, `edits`,
+   `cv_import` and `duplicates` (none: the region is filled on demand), or `capture`. #}
 <h1 id="page-heading"{% if not refused %} data-autofocus{% endif %}>{{ area.name }}</h1>
 <nav class="tabs" aria-label="Fact bank sections">
   <ul>
@@ -18,12 +18,14 @@
   <p class="field-hint">A draft is used in a CV or a letter only after you confirm it. Check each one against the quoted line beside it.</p>
   {% include "fragments/facts/_drafts.html" %}
 </section>
-{% elif current_tab == "capture" %}
-<section class="empty-state facts-later" aria-labelledby="capture-heading">
-  <h2 id="capture-heading">Capture inbox</h2>
-  <p>Quick notes you jot down, to turn into facts when you have time, will wait here.</p>
-  <p>The capture inbox arrives in a later version.</p>
+<section class="facts-section" aria-labelledby="duplicates-heading">
+  <h2 id="duplicates-heading">Possible duplicates</h2>
+  <p id="duplicates-hint" class="field-hint">Compares each draft with your confirmed facts, word by word, and lists the ones that say nearly the same thing. Nothing is sent to the AI.</p>
+  <button type="button" id="find-duplicates" class="button" hx-get="/facts/duplicates" hx-target="#fact-duplicates" hx-swap="outerHTML settle:0ms" hx-disabled-elt="this" aria-describedby="duplicates-hint">Find possible duplicates</button>
+  {% include "fragments/facts/_duplicates.html" %}
 </section>
+{% elif current_tab == "capture" %}
+{% include "fragments/facts/_capture.html" %}
 {% else %}
 <section class="facts-section" aria-labelledby="library-heading">
   <h2 id="library-heading">Library</h2>

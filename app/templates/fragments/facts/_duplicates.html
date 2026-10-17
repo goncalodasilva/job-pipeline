@@ -1,0 +1,66 @@
+{# Possible duplicates (M3.7; ADR-089 item 7): the region the Drafts tab's "Find possible
+   duplicates" fills. Needs `duplicates`: none before the button is pressed (the region is
+   empty), else its `pairs` and, after an action, `status` (with `undo`, the pair its Undo
+   brings back) or `stale`. Each pair is a draft and a confirmed fact with alike wordings, both
+   shown; "Compare and merge" opens the merge screen on that pair and "Not a duplicate" posts
+   the pair, which swaps this region, as its Undo does. An answer moves focus to its first
+   line. Once filled, the region swaps itself for a line saying the drafts changed whenever a
+   draft action on the page answers or new drafts arrive (facts:duplicates-stale,
+   facts:drafts-changed), so a pair the page no longer has is never offered; that line takes
+   no focus and is not announced. Every swap settles at once (settle:0ms): htmx wires up
+   swapped-in forms only when the swap settles, and a quick keyboard user would otherwise
+   send a form htmx doesn't know yet, without the launch token. Wordings are the user's own
+   or AI-made text: escaped. #}
+{% if duplicates and not duplicates.stale %}
+<div id="fact-duplicates" class="fact-duplicates"
+     hx-get="/facts/duplicates?changed=1" hx-trigger="facts:duplicates-stale from:body, facts:drafts-changed from:body"
+     hx-swap="outerHTML settle:0ms" hx-disinherit="*">
+{% else %}
+<div id="fact-duplicates" class="fact-duplicates">
+{% endif %}
+  {% if duplicates %}
+  {% if duplicates.status %}
+  <div class="fact-result">
+    <p id="fact-duplicates-status"{% if not duplicates.stale %} tabindex="-1" data-autofocus{% endif %}>{{ duplicates.status }}</p>
+    {% if duplicates.undo %}
+    <form method="post" action="/facts/duplicates/undo-dismiss"
+          hx-post="/facts/duplicates/undo-dismiss" hx-target="#fact-duplicates" hx-swap="outerHTML settle:0ms"
+          hx-disabled-elt="find button">
+      <input type="hidden" name="draft_id" value="{{ duplicates.undo[0] }}">
+      <input type="hidden" name="fact_id" value="{{ duplicates.undo[1] }}">
+      <button type="submit" class="button">Undo</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if duplicates.pairs %}
+  <p id="fact-duplicates-count" tabindex="-1"{% if not duplicates.status %} data-autofocus{% endif %}>{{ duplicates.found }}</p>
+  <ul class="fact-list">
+    {% for pair in duplicates.pairs %}
+    {% set pair_id = "duplicate-" ~ pair.draft.id ~ "-" ~ pair.fact.id %}
+    {% set wording_id = "pair-" ~ pair.draft.id ~ "-" ~ pair.fact.id %}
+    <li id="{{ pair_id }}" class="fact-card duplicate-pair">
+      <dl class="duplicate-wordings">
+        <dt>Draft</dt>
+        <dd id="{{ wording_id }}-draft">{{ pair.draft_wording }}</dd>
+        <dt>Confirmed fact</dt>
+        <dd id="{{ wording_id }}-fact">{{ pair.fact_wording }}</dd>
+      </dl>
+      <div class="form-actions">
+        <a class="button" href="/facts/{{ pair.draft.id }}/merge?target={{ pair.fact.id }}" aria-describedby="{{ wording_id }}-draft">Compare and merge</a>
+        <form method="post" action="/facts/duplicates/dismiss"
+              hx-post="/facts/duplicates/dismiss" hx-target="#fact-duplicates" hx-swap="outerHTML settle:0ms"
+              hx-disabled-elt="find button">
+          <input type="hidden" name="draft_id" value="{{ pair.draft.id }}">
+          <input type="hidden" name="fact_id" value="{{ pair.fact.id }}">
+          <button type="submit" class="button" aria-describedby="{{ wording_id }}-draft">Not a duplicate</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif not duplicates.stale %}
+  <p id="fact-duplicates-none" class="drafts-none" tabindex="-1"{% if not duplicates.status %} data-autofocus{% endif %}>No possible duplicates found.</p>
+  {% endif %}
+  {% endif %}
+</div>

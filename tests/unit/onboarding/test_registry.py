@@ -1,9 +1,9 @@
 """Setup guide step registry and the Step protocol (M1.8; AC-M1.6 part; spec 2.3).
 
 The registry holds the step definitions (id, title, required, order, template) in order,
-refuses ambiguous definitions, and feeds start-up detection through ``infos()``. M1 registers
-steps 1, 2, 3, 5 and 6 of the detailed design (step 3, web search, since M2.25); order 40
-stays free for CV import (M3). Step behaviour is a structural ``StepHandler`` protocol.
+refuses ambiguous definitions, and feeds start-up detection through ``infos()``. The registry
+holds the six steps of the detailed design (step 3, web search, since M2.25; step 4, CV import
+at order 40, since M3.7). Step behaviour is a structural ``StepHandler`` protocol.
 """
 
 import dataclasses
@@ -139,10 +139,18 @@ def test_m1_registers_steps_1_2_3_5_6() -> None:
         ("welcome", 10, True),
         ("provider", 20, True),
         ("web_search", 30, False),
+        ("cv_import", 40, False),
         ("preferences", 50, True),
         ("done", 60, False),
     ]
-    assert registry.steps == (WELCOME, PROVIDER, WEB_SEARCH, PREFERENCES, DONE)
+    assert registry.steps == (
+        WELCOME,
+        PROVIDER,
+        WEB_SEARCH,
+        registry.get("cv_import"),
+        PREFERENCES,
+        DONE,
+    )
     assert WELCOME.title == "Welcome and data folder"
     assert PROVIDER.title == "AI provider"
     assert PREFERENCES.title == "Job preferences"
@@ -154,13 +162,14 @@ def test_m1_registers_steps_1_2_3_5_6() -> None:
         assert definition.template.endswith(".html")
     ids = {s.id for s in registry.steps}
     assert "web_search" in ids
-    assert "import_cv" not in ids
+    assert "cv_import" in ids
     assert registry.steps[-1].id == "done"
     assert registry.first is WELCOME
     assert registry.infos() == (
         StepInfo("welcome", True),
         StepInfo("provider", True),
         StepInfo("web_search", False),
+        StepInfo("cv_import", False),
         StepInfo("preferences", True),
         StepInfo("done", False),
     )

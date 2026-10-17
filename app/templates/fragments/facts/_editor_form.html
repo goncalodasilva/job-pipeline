@@ -9,6 +9,10 @@
       hx-post="{{ editor.action }}" hx-target="#fact-editor-page" hx-swap="outerHTML"
       hx-disabled-elt="find button" novalidate>
   <input type="hidden" name="type" value="{{ editor.kind }}">
+  {% if editor.note_id %}
+  {# The capture note this new fact is made from (M3.7): saving records the fact on it. #}
+  <input type="hidden" name="note" value="{{ editor.note_id }}">
+  {% endif %}
   {% if editor.version is not none %}
   <input type="hidden" id="fact-editor-version" name="version" value="{{ editor.version }}">
   {% endif %}

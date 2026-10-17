@@ -22,6 +22,9 @@ from tests.facts_page import (
     AREA,
     BADGE_GENERALIZE,
     BADGE_NEVER_USE,
+    CAPTURE_EMPTY,
+    CAPTURE_FORM_ID,
+    CAPTURE_ID,
     CAPTURE_LATER,
     CONFIRM,
     COUNT_ID,
@@ -221,7 +224,8 @@ def test_unknown_tab_shows_library_and_echoes_nothing(tmp_path: Path) -> None:
 
 
 def test_capture_tab_has_honest_empty_state(tmp_path: Path) -> None:
-    """The inbox itself is M3.7: the tab exists and says so, with nothing to type into."""
+    """The inbox (M3.7; it replaced the M3.5 placeholder): the tab shows the note form and,
+    with no note yet, says so; nothing of the Library or the import is on it."""
     with facts_app(tmp_path) as facts:
         seed_library(facts)
         response = facts.get(PAGE, tab="capture")
@@ -229,10 +233,14 @@ def test_capture_tab_has_honest_empty_state(tmp_path: Path) -> None:
         elements = outline(response.text)
         assert current_tab(elements) == "capture"
         assert any(e.tag == "h2" and e.text == TABS["capture"] for e in elements)
-        assert any(e.tag == "p" and CAPTURE_LATER in e.text for e in elements), (
-            "it says the capture inbox arrives in a later version"
+        assert not any(e.tag == "p" and CAPTURE_LATER in e.text for e in elements), (
+            "the placeholder is gone"
         )
-        assert not [e for e in elements if e.tag in ("form", "textarea", "input", "button")]
+        inbox = required(elements, CAPTURE_ID)
+        form = required(elements, CAPTURE_FORM_ID)
+        assert form.tag == "form" and form.within(inbox)
+        assert [e.attrs.get("name") for e in elements if e.tag == "textarea"] == ["text"]
+        assert CAPTURE_EMPTY in inbox.text
         assert by_id(elements, FILTERS_ID) is None and by_id(elements, IMPORT_ID) is None
 
 

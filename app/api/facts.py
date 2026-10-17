@@ -10,7 +10,8 @@ Fragments (launch token; the same with or without ``HX-Request``; they change no
 found in an "announce" trigger and, for htmx, the page's own address in ``HX-Push-Url``;
 ``GET /facts/drafts`` answers ``#fact-drafts`` and the Drafts tab's link with its count. The
 kept uploads' list (``GET /facts/imports``) and the import routes are in
-``app/api/facts_import.py``.
+``app/api/facts_import.py``; the capture inbox's routes and the possible duplicates (M3.7) in
+``app/api/facts_capture.py``.
 
 Draft actions (launch token and origin; URL-encoded; field ``version``, the version the page
 showed): ``POST /facts/{id}/confirm``, ``/discard``, ``/undo-discard`` and
@@ -61,6 +62,7 @@ from app.domain.errors import (
 )
 from app.domain.ids import is_safe_id
 from app.onboarding.registry import Form
+from app.services.capture import CaptureService
 from app.services.fact_views import (
     CAPTURE,
     DRAFTS,
@@ -101,6 +103,8 @@ PAGING_LINKS: Final = ("library-previous", "library-next")
 _NO_VERSION: Final = 0  # versions start at 1, so this one is always stale
 
 _CONFLICTS: Final = (VersionConflict, FactTransitionRefused)
+# Fired on the body by every draft action's answer (M3.7): see ``_changed_drafts``.
+DUPLICATES_STALE_EVENT: Final = "facts:duplicates-stale"
 
 
 @dataclass(frozen=True)
@@ -176,7 +180,12 @@ def drafts_region(request: Request) -> HTMLResponse:
 
 
 def _page(
-    request: Request, tab: str, *, edits: dict[str, Any] | None = None, status_code: int = 200
+    request: Request,
+    tab: str,
+    *,
+    edits: dict[str, Any] | None = None,
+    capture: dict[str, Any] | None = None,
+    status_code: int = 200,
 ) -> HTMLResponse:
     """The full page on ``tab``, or for htmx its main content. ``edits`` holds a refused
     inline form per fact id, shown back open with its error. Blocking."""
@@ -198,10 +207,38 @@ def _page(
         "drafts": views.drafts() if tab == DRAFTS else None,
         "edits": edits or {},
         "cv_import": import_context(request) if tab == DRAFTS else None,
+        "duplicates": None,  # the Drafts tab's region stays empty until it is asked (M3.7)
+        "capture": (capture or capture_context(request)) if tab == CAPTURE else None,
     }
     response = render(request, page=FACTS_PAGE, fragment=FACTS_FRAGMENT, ctx=ctx)
     response.status_code = status_code
     return response
+
+
+def capture_context(
+    request: Request,
+    *,
+    status: str | None = None,
+    undo_id: str | None = None,
+    error: str | None = None,
+    typed: str = "",
+) -> dict[str, Any]:
+    """The ``capture`` template value (M3.7): the open notes and what an action just did
+    (``status``, with the note an Undo brings back) or why it was refused (``error``, with
+    what was ``typed``). Blocking (reads the notes)."""
+    capture: CaptureService = request.app.state.capture
+    return {
+        "notes": capture.notes(),
+        "status": status,
+        "undo_id": undo_id,
+        "error": error,
+        "typed": typed,
+    }
+
+
+def capture_page(request: Request, capture: dict[str, Any], *, status_code: int) -> HTMLResponse:
+    """The page on the Capture inbox tab, showing ``capture`` (a refused note). Blocking."""
+    return _page(request, CAPTURE, capture=capture, status_code=status_code)
 
 
 # --- draft actions ------------------------------------------------------------------------------
@@ -314,7 +351,7 @@ def _run_action(request: Request, fact_id: str, form: Form, action: _Action) -> 
         "group": views.group_of(item),
     }
     response = templates.TemplateResponse(request, DRAFT_FRAGMENT, ctx)
-    response.headers["HX-Trigger"] = json.dumps({"announce": action.said})
+    response.headers["HX-Trigger"] = _changed_drafts(action.said)
     return response
 
 
@@ -324,7 +361,7 @@ def _restored_elsewhere(request: Request, item: FactItem, said: str, *, listed: 
     Drafts tab's link gets its new count; the draft's own page has neither."""
     ctx = {"item": item, "tab": _views(request).drafts_tab() if listed else None}
     response = templates.TemplateResponse(request, RESTORED_FRAGMENT, ctx)
-    response.headers["HX-Trigger"] = json.dumps({"announce": said})
+    response.headers["HX-Trigger"] = _changed_drafts(said)
     return response
 
 
@@ -351,11 +388,18 @@ def _confirm_all(request: Request, import_id: str, form: Form) -> Response:
     said = batch_message(len(confirmed), len(listed) - len(confirmed))
     ctx = _group_context(request, import_id, said=said, confirmed=[fact.id for fact in confirmed])
     response = templates.TemplateResponse(request, GROUP_FRAGMENT, ctx)
-    response.headers["HX-Trigger"] = json.dumps({"announce": said})
+    response.headers["HX-Trigger"] = _changed_drafts(said)
     return response
 
 
 # --- helpers ------------------------------------------------------------------------------------
+
+
+def _changed_drafts(said: str) -> str:
+    """The ``HX-Trigger`` of a draft action's answer: the words for the live region, and
+    the event that tells a filled "Possible duplicates" region its pairs may be out of date
+    (M3.7)."""
+    return json.dumps({"announce": said, DUPLICATES_STALE_EVENT: ""})
 
 
 def _views(request: Request) -> FactViews:

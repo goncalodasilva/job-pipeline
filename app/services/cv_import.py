@@ -56,7 +56,7 @@ from app.domain.settings import AIProviderSettings, Tier
 from app.domain.tasks import TaskRef, dedupe_key, is_task_id
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND, ServiceId
 from app.modules.ai import AIProviderFactory, CancelToken, TaskResult
-from app.modules.storage import Database, cv_imports_repo, tasks_repo
+from app.modules.storage import Database, cv_imports_repo, facts_repo, tasks_repo
 from app.services.facts import DraftInput, DraftOrigin, DraftRole, FactService
 from app.services.tasks import TaskService
 from app.services.usage import UsageService
@@ -72,6 +72,7 @@ FAST: Final[Tier] = "fast"
 IMPORTS_FOLDER: Final = "imports"
 SOURCE_CV_IMPORT: Final = "cv_import"
 STATE_DONE: Final = "done"
+STATE_UPLOADED: Final = "uploaded"
 
 _TARGET_PREFIX: Final = "cv_import"
 _SEPARATOR: Final = "/"  # never part of an id
@@ -333,6 +334,13 @@ def sweep_orphan_imports(data_dir: Path, db: Database) -> int:
     return removed
 
 
+def fact_bank_started(db: Database) -> bool:
+    """Whether the workspace already holds a fact (of any status) or an upload: setup's CV
+    import step then counts as done (M3.7; ADR-052). Reads only."""
+    with db.read() as conn:
+        return bool(facts_repo.count_by_status(conn)) or bool(cv_imports_repo.list_imports(conn))
+
+
 def _checked_length(text: str) -> str:
     if len(text) > MAX_CV_TEXT_CHARS:
         raise CvTextTooLong(detail="the CV text is over the limit")
@@ -359,9 +367,11 @@ class CvImportService:
         settings: Callable[[], AIProviderSettings | None],
         tasks: Callable[[], TaskService | None],
         usage: Callable[[], UsageService | None],
+        on_stored: Callable[[], None] = lambda: None,
     ) -> None:
         """``workspace``, ``settings`` (blocking: a database read), ``tasks`` and ``usage``
-        answer None while no workspace is open."""
+        answer None while no workspace is open. ``on_stored`` is told after each upload is
+        kept (wiring marks setup's CV import step done with it, M3.7); it never raises."""
         self._factory = factory
         self._sniff_type = sniff_type
         self._extract_text = extract_text
@@ -371,6 +381,7 @@ class CvImportService:
         self._settings = settings
         self._tasks = tasks
         self._usage = usage
+        self._on_stored = on_stored
 
     # --- for routes (blocking) ------------------------------------------------------------------
 
@@ -395,6 +406,7 @@ class CvImportService:
             _remove_file(path)
             raise
         _log.info("CV import %s stored (%s)", import_id, kind)
+        self._on_stored()
         return import_id
 
     def plan_start(self, import_id: str, *, tier: Tier | None = None) -> StartPlan:

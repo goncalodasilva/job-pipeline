@@ -961,3 +961,20 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Update (2026-10-16), user decision 4 (roles typed in the editor): decided by the user on 2026-10-16, option A, kept as it is. A role typed in the editor is stored confirmed even on a draft, because the user wrote it. Item 4 stands. Discarding such a draft leaves its confirmed role (TD-202).
 - Update (2026-10-16), user decision 5 (privacy help text): decided by the user on 2026-10-16. The privacy help text, which promises behaviour that M3.8 builds (`facts_for_ai()`, ADR-089 item 6), may stay as written.
 - Update (2026-10-16), user decision 6 (sidebar fade): decided by the user on 2026-10-16. The sidebar link fade, which M3.6 had moved from `.sidebar a` to `.sidebar a:hover`, is restored on `.sidebar a` in both directions, under the reduced-motion rule. The dark-mode axe test now waits for running CSS transitions to end (`wait_for_settled_styles` in `tests/e2e/axe.py`) instead of the app dropping the fade.
+
+## ADR-095 — M3.7 choices: setup step 4, capture inbox, near-duplicates (2026-10-17)
+
+- Context: M3.7 adds setup step 4 (CV import), the capture inbox and near-duplicate suggestions. Several choices came up in the build and the code, security and UX reviews: what the guide does when a start is held back or fails, how upload refusals are shown, how capture notes are deleted, when the step counts as done, how a note reaches the fact editor, and how duplicates are found and dismissed. No item below was decided by the user separately.
+- Decision: the following choices were made in M3.7.
+  1. If the budget gate holds the start back, no provider is saved, or the start fails after the CV is stored, the guide still moves on. The step is done and the upload is kept. The guide shows no budget dialog; its message says to start the import from the Fact bank once setup is finished.
+  2. In the guide, an oversized upload is a 422 field error. The Fact bank answers 413 for the same case (ADR-092 item 11). Refusals about the pasted text go on the text field, and the pasted text is shown back on refusal. Refusals made before the body is read whole go on the file field.
+  3. Capture notes are soft-deleted and guarded by state, not by a version check. Only open notes can be deleted, and only deleted notes can be undone. This is an exception to the version rule (ADR-027 and spec 2.7).
+  4. The step marks itself done when the workspace opens and through the `on_stored` and `on_created` hooks (facts or an import exist). The check at opening cannot block the app from opening. A SQLite error is logged by type and ignored. GET requests never write.
+  5. `?note=<id>` on the token-free `GET /facts/new` page pre-fills the editor from a capture note. The page reads the parameter and writes nothing. Only an open note with a safe id fills the form. This amends ADR-094 item 1, which listed the page's parameters as `?type=` only.
+  6. Near-duplicates are found mechanically: a Dice coefficient over word bags, with a threshold of 0.8 (`SUGGEST_AT`). No AI call is made. Suggestions are computed on demand. A pair is a draft against a confirmed fact only. A dismissal stores the two ids sorted and can be undone. The suggestions region is cleared when the drafts change.
+  7. The six-step test updates follow ADR-089 item 4. They cover the next-step targets (after web search, the next step is `/setup/cv_import`) and the Done rows (Import CV is listed).
+- Consequences:
+  - The guide has six steps: welcome (10), AI provider (20), web search (30, optional), CV import (40, optional, recommended), job preferences (50) and done (60). The step count assertions are updated to "Step N of 6".
+  - Capture notes stay in the database after deletion until a later purge, the same as refine answers (M3.2 Evidence, left for the user (e)).
+  - Duplicate suggestions never pair two confirmed facts, so near-identical confirmed facts are not suggested (listed for the user in the M3.7 Evidence line).
+  - ADR-094 item 1 now also covers `?note=<id>` on `/facts/new`.

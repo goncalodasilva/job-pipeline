@@ -781,3 +781,84 @@ def alert(elements: list[Element], prompt_id: str) -> Element:
     assert len(alerts) == 1, f"expected one alert, found {len(alerts)}"
     assert alerts[0].attrs.get("id") == prompt_id, alerts[0].attrs
     return alerts[0]
+
+
+# --- M3.7: the capture inbox and possible duplicates -------------------------------------------
+#
+# The capture inbox is the ``?tab=capture`` tab of ``/facts`` (it replaces the M3.5 empty state).
+# Its section ``#capture-inbox`` holds a form (``#capture-form``, one ``text`` field) and the
+# open notes (``#capture-notes``: every note neither deleted nor turned into a fact, each a
+# ``#note-<id>`` block with its text, a "Turn into a fact" link and a "Delete" button).
+#
+# - ``POST /facts/capture`` (field ``text``): adds a note. htmx: the ``#capture-inbox`` section
+#   with the note listed, the line ``#capture-status`` saying "Note added." and the same words
+#   in ``HX-Trigger: {"announce": ...}``. A plain POST answers 303 to ``/facts?tab=capture``. A
+#   blank note answers 422 with the section, the field marked ``aria-invalid`` and described by
+#   ``#capture-error``; nothing is stored.
+# - ``POST /facts/capture/{note_id}/delete``: sets ``deleted_at`` (soft delete, ADR-090 item
+#   10). htmx: the section without the note, "Note deleted." and an "Undo" button whose form
+#   posts to ``/facts/capture/{note_id}/undo-delete``, which clears ``deleted_at`` again and
+#   says "Note restored.". Plain: 303 to the tab.
+# - "Turn into a fact" is the link ``/facts/new?note=<id>`` (the M3.6 editor page, token-free):
+#   the editor opens with the note's text typed in and a hidden ``note`` field. Saving it adds
+#   the fact as usual (confirmed: the user typed it) and sets the note's ``resolved_fact_id``
+#   in the same save, so the note leaves the inbox.
+#
+# Possible duplicates live on the Drafts tab: a button "Find possible duplicates"
+# (``#find-duplicates``, ``hx-get="/facts/duplicates"``, ``hx-target="#fact-duplicates"``) and
+# the region ``#fact-duplicates``. ``GET /facts/duplicates`` (launch token; changes nothing; no
+# AI call) answers that region: every pair of a draft and a confirmed fact whose wordings are
+# alike by ``app.domain.similarity.is_near_duplicate``, except pairs the user dismissed. Each
+# pair is a ``#duplicate-<draft id>-<fact id>`` block showing both wordings, with a "Compare and
+# merge" link to ``/facts/<draft id>/merge?target=<fact id>`` (the M3.6 merge screen) and a
+# "Not a duplicate" button whose form posts ``draft_id`` and ``fact_id`` to
+# ``POST /facts/duplicates/dismiss``. Dismissing stores the pair in ``fact_pair_dismissals``
+# (the two ids in sorted order) and answers the region without it, saying "Suggestion
+# dismissed.". With no pair the region says "No possible duplicates found.".
+
+CAPTURE_URL = "/facts/capture"
+DUPLICATES_URL = "/facts/duplicates"
+DISMISS_URL = "/facts/duplicates/dismiss"
+NOTE_FIELD = "note"  # the editor's hidden field naming the note being turned into a fact
+
+
+def capture_delete_path(note_id: str) -> str:
+    return f"{CAPTURE_URL}/{note_id}/delete"
+
+
+def capture_undo_path(note_id: str) -> str:
+    return f"{CAPTURE_URL}/{note_id}/undo-delete"
+
+
+def note_id_attr(note_id: str) -> str:
+    return f"note-{note_id}"
+
+
+def duplicate_id(draft_id: str, fact_id: str) -> str:
+    return f"duplicate-{draft_id}-{fact_id}"
+
+
+def merge_target_url(draft_id: str, fact_id: str) -> str:
+    return f"/facts/{draft_id}/merge?target={fact_id}"
+
+
+CAPTURE_ID = "capture-inbox"
+CAPTURE_FORM_ID = "capture-form"
+CAPTURE_LIST_ID = "capture-notes"
+CAPTURE_STATUS_ID = "capture-status"
+CAPTURE_ERROR_ID = "capture-error"
+FIND_DUPLICATES_ID = "find-duplicates"
+DUPLICATES_ID = "fact-duplicates"
+
+ADD_NOTE = "Add note"
+TURN_INTO_FACT = "Turn into a fact"
+DELETE_NOTE = "Delete"
+CAPTURE_EMPTY = "No notes yet."
+SAID_NOTE_ADDED = "Note added."
+SAID_NOTE_DELETED = "Note deleted."
+SAID_NOTE_RESTORED = "Note restored."
+FIND_DUPLICATES = "Find possible duplicates"
+COMPARE_AND_MERGE = "Compare and merge"
+NOT_A_DUPLICATE = "Not a duplicate"
+NO_DUPLICATES = "No possible duplicates found."
+SAID_DISMISSED = "Suggestion dismissed."

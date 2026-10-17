@@ -7,7 +7,9 @@ through the guide. These tests start from a fresh app (``running_app`` with ``"f
 explicit data folder, no step done; fakes allowed; the file-backed test keyring) and walk every
 step in one browser session: Welcome, AI provider (the fake provider, whose fictional key
 keyword picks the connection outcome, ADR-054), Web search (optional, M2.25: the walk chooses
-"Skip for now"), Job preferences and Done, until the app opens.
+"Skip for now"), Import CV (optional and recommended, M3.7: the keyboard walk pastes a fictional
+CV, which the saved fake provider imports; the other walks choose "Skip for now"), Job
+preferences and Done, until the app opens.
 
 - AC-M1.8: the walk by keyboard only at desktop size; at 390x844 (taps) without horizontal
   scroll; and axe on every step state of the walk (desktop and phone, light and dark).
@@ -20,7 +22,7 @@ keyword picks the connection outcome, ADR-054), Web search (optional, M2.25: the
 - AC-M1.7: after finishing, a restart with ``--setup`` reopens the guide at its first step with
   every value kept, the Done step lists each step's status, and "Back to the app" leaves.
 - ADR-053: after each htmx step swap focus is on the step heading, ``aria-current="step"``
-  moves and "Step N of 5: <title>" is announced.
+  moves and "Step N of 6: <title>" is announced.
 - ADR-066: a finished setup with a broken provider (the saved fake without
   ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``) shows the banner; by keyboard: skip link, banner link,
   provider step, "Back to the app"; at 390x844 (light) and 360x740 (dark) with axe and no
@@ -74,9 +76,24 @@ GO_TO_TODAY = 'button[name="then"][value="today"]'
 SKIP_LINK = "a.skip-link"
 CURRENT = '[aria-current="step"]'
 SKIP_WEB_SEARCH = '#setup-step button[name="action"][value="skip"]'
-STEP_IDS = ("welcome", "provider", "web_search", "preferences", "done")
-STEP_TITLES = ("Welcome and data folder", "AI provider", "Web search", "Job preferences", "Done")
-# The required steps, which the walk finishes; it skips Web search, the optional one.
+# Step 4 (M3.7): the same "Skip for now" button shape, a pasted-text field and the import
+# button ("Import and continue") of ``tests/integration/test_setup_cv_import.py``.
+SKIP_CV_IMPORT = '#setup-step button[name="action"][value="skip"]'
+CV_PASTE = '#setup-step textarea[name="text"]'
+CV_IMPORT_START = "#setup-cv-start"
+CV_IMPORT_STARTED = "CV import started."
+CV_IMPORT_SKIPPED = "CV import skipped."
+FICTIONAL_CV = "Alex Example, fictional route planner at Example Freight Lda, 2019 to 2024."
+STEP_IDS = ("welcome", "provider", "web_search", "cv_import", "preferences", "done")
+STEP_TITLES = (
+    "Welcome and data folder",
+    "AI provider",
+    "Web search",
+    "Import CV",
+    "Job preferences",
+    "Done",
+)
+# The required steps, which the walk finishes; it skips Web search, an optional one.
 REQUIRED_TITLES = ("Welcome and data folder", "AI provider", "Job preferences")
 NOT_CONNECTED = "Not connected: "
 OUTCOMES = (  # (fake key keyword, expected text or prefix, connected?)
@@ -119,14 +136,14 @@ def assert_on_step(page: Page, app: RunningApp, step_id: str, title: str) -> Non
 
 def assert_swapped_to(page: Page, app: RunningApp, step_id: str, *, said: str = "") -> None:
     """After an htmx step swap (ADR-053): focus on the step heading, aria-current moved, and
-    "Step N of 5: <title>" announced in the live region, after ``said`` when the step left
+    "Step N of 6: <title>" announced in the live region, after ``said`` when the step left
     behind announces its outcome (web search: "Web search skipped.")."""
     position = STEP_IDS.index(step_id)
     title = STEP_TITLES[position]
     assert_on_step(page, app, step_id, title)
     expect(page.locator("#step-heading")).to_have_text(title)
     expect(page.locator("#step-heading")).to_be_focused()
-    step = f"Step {position + 1} of 5: {title}"
+    step = f"Step {position + 1} of {len(STEP_IDS)}: {title}"
     expect(page.locator("#announcer")).to_have_text(f"{said} {step}" if said else step)
     expect(page.locator("#announcer")).to_have_attribute("aria-live", "polite")
     others = page.locator("ol.setup-steps > li:not([aria-current])")
@@ -163,8 +180,16 @@ def pointer_provider_to_web_search(page: Page, app: RunningApp, *, tap: bool = F
 
 
 def pointer_skip_web_search(page: Page, app: RunningApp, *, tap: bool = False) -> None:
-    """Step 3 is optional: "Skip for now" moves on to job preferences."""
+    """Step 3 is optional: "Skip for now" moves on to step 4, Import CV (M3.7)."""
     skip = page.locator(SKIP_WEB_SEARCH)
+    expect(skip).to_have_text("Skip for now")
+    skip.tap() if tap else skip.click()
+    expect(page).to_have_url(url(app, "/setup/cv_import"))
+
+
+def pointer_skip_cv_import(page: Page, app: RunningApp, *, tap: bool = False) -> None:
+    """Step 4 is optional too: "Skip for now" moves on to job preferences."""
+    skip = page.locator(SKIP_CV_IMPORT)
     expect(skip).to_have_text("Skip for now")
     skip.tap() if tap else skip.click()
     expect(page).to_have_url(url(app, "/setup/preferences"))
@@ -173,6 +198,7 @@ def pointer_skip_web_search(page: Page, app: RunningApp, *, tap: bool = False) -
 def pointer_provider_connected(page: Page, app: RunningApp, *, tap: bool = False) -> None:
     pointer_provider_to_web_search(page, app, tap=tap)
     pointer_skip_web_search(page, app, tap=tap)
+    pointer_skip_cv_import(page, app, tap=tap)
 
 
 def pointer_preferences(page: Page, app: RunningApp, *, tap: bool = False) -> None:
@@ -226,6 +252,11 @@ def expect_step_done(page: Page, title: str) -> None:
 def expect_web_search_skipped(page: Page) -> None:
     expect(step_item(page, "Web search")).to_have_count(1)
     expect(step_status(page, "Web search")).to_have_text("· Skipped")
+
+
+def expect_cv_import_skipped(page: Page) -> None:
+    expect(step_item(page, "Import CV")).to_have_count(1)
+    expect(step_status(page, "Import CV")).to_have_text("· Skipped")
 
 
 def next_output_name(app: RunningApp) -> str:
@@ -299,8 +330,19 @@ def test_ac_m1_8_guide_completes_keyboard_only_desktop(
         # Step 3: optional; "Skip for now" by keyboard moves on.
         tab_to(page, SKIP_WEB_SEARCH)
         page.keyboard.press("Enter")
-        assert_swapped_to(page, app, "preferences", said="Web search skipped.")
+        assert_swapped_to(page, app, "cv_import", said="Web search skipped.")
         expect_web_search_skipped(page)
+        assert_no_serious_violations(page)
+
+        # Step 4 (M3.7): paste a fictional CV by keyboard and import it; the guide moves on
+        # at once (the import runs in the background) and the step reads "Done".
+        tab_to(page, CV_PASTE)
+        page.keyboard.type(FICTIONAL_CV)
+        tab_to(page, CV_IMPORT_START)
+        expect(page.locator(CV_IMPORT_START)).to_have_text("Import and continue")
+        page.keyboard.press("Enter")
+        assert_swapped_to(page, app, "preferences", said=CV_IMPORT_STARTED)
+        expect_step_done(page, "Import CV")
 
         # Step 5: every field by keyboard; Enter in the roles textarea is a new line.
         tab_to(page, ROLES)
@@ -325,11 +367,13 @@ def test_ac_m1_8_guide_completes_keyboard_only_desktop(
         page.keyboard.press("Enter")
         assert_swapped_to(page, app, "done")
 
-        # Step 6: every required step done, and the skipped one skipped, in text; "Go to
-        # Today" finishes and opens the app.
+        # Step 6: every required step done, the import done and the skipped one skipped, in
+        # text; "Go to Today" finishes and opens the app.
         for title in REQUIRED_TITLES:
             expect_step_done(page, title)
+        expect_step_done(page, "Import CV")
         expect_web_search_skipped(page)
+        assert_no_serious_violations(page)
         tab_to(page, GO_TO_TODAY)
         page.keyboard.press("Enter")
         expect(page).to_have_url(url(app, "/"))
@@ -365,7 +409,11 @@ def test_ac_m1_8_guide_completes_at_390x844(running_app: RunningApp, browser: Br
         assert_fits(page, "web search")
 
         pointer_skip_web_search(page, app, tap=True)
-        assert_swapped_to(page, app, "preferences", said="Web search skipped.")
+        assert_swapped_to(page, app, "cv_import", said="Web search skipped.")
+        assert_fits(page, "cv import")
+
+        pointer_skip_cv_import(page, app, tap=True)
+        assert_swapped_to(page, app, "preferences", said=CV_IMPORT_SKIPPED)
         assert_fits(page, "preferences")
 
         pointer_preferences(page, app, tap=True)
@@ -374,6 +422,7 @@ def test_ac_m1_8_guide_completes_at_390x844(running_app: RunningApp, browser: Br
         for title in REQUIRED_TITLES:
             expect_step_done(page, title)
         expect_web_search_skipped(page)
+        expect_cv_import_skipped(page)
 
         page.locator(ADD_JOB).tap()
         expect(page).to_have_url(url(app, "/inbox"))
@@ -407,6 +456,11 @@ def test_ac_m1_8_axe_each_step(
         assert_no_serious_violations(page)
 
         pointer_skip_web_search(page, app)
+        expect(page.locator(CV_PASTE)).to_be_visible()
+        expect(page.locator("#step-heading")).to_be_focused()
+        assert_no_serious_violations(page)
+
+        pointer_skip_cv_import(page, app)
         expect(page.locator(ROLES)).to_be_visible()
         assert_no_serious_violations(page)
 
@@ -567,8 +621,9 @@ def test_ac_m1_7_setup_flag_reopens_guide(running_app: RunningApp, browser: Brow
         open_app(page, reopened, "/setup/preferences")
         assert_preferences_kept(page)
 
-        # Done lists every step with its status in words: the walk skipped Web search, the
-        # optional step (M2.25), so it reads "Skipped"; none reads "Not done".
+        # Done lists every step with its status in words: the walk skipped Web search and
+        # Import CV, the optional steps (M2.25, M3.7), so they read "Skipped"; none reads
+        # "Not done".
         open_app(page, reopened, "/setup/done")
         rows = page.locator("ul.setup-summary > li")
         expect(rows).to_have_text(
@@ -576,11 +631,12 @@ def test_ac_m1_7_setup_flag_reopens_guide(running_app: RunningApp, browser: Brow
                 "Welcome and data folder: Done",
                 "AI provider: Done",
                 "Web search: Skipped",
+                "Import CV: Skipped",
                 "Job preferences: Done",
             ],
             use_inner_text=True,
         )
-        for title in STEP_TITLES[:4]:
+        for title in STEP_TITLES[:5]:
             expect(rows.get_by_role("link", name=title)).to_have_count(1)
         expect(rows.get_by_role("link", name="Web search")).to_have_attribute(
             "href", "/setup/web_search"
@@ -602,8 +658,8 @@ def test_focus_moves_to_step_heading_after_each_swap(
     running_app: RunningApp, browser: Browser
 ) -> None:
     """Each step change is made with htmx: Welcome -> AI provider (submit), AI provider -> Web
-    search (the "Continue" link), Web search -> Job preferences ("Skip for now") and Job
-    preferences -> Done (submit)."""
+    search (the "Continue" link), Web search -> Import CV ("Skip for now"), Import CV -> Job
+    preferences ("Skip for now") and Job preferences -> Done (submit)."""
     app = running_app
     with new_page(browser, DESKTOP) as page:
         open_app(page, app, "/")
@@ -617,8 +673,12 @@ def test_focus_moves_to_step_heading_after_each_swap(
         assert_swapped_to(page, app, "web_search")
 
         pointer_skip_web_search(page, app)
-        assert_swapped_to(page, app, "preferences", said="Web search skipped.")
+        assert_swapped_to(page, app, "cv_import", said="Web search skipped.")
         expect_web_search_skipped(page)
+
+        pointer_skip_cv_import(page, app)
+        assert_swapped_to(page, app, "preferences", said=CV_IMPORT_SKIPPED)
+        expect_cv_import_skipped(page)
 
         page.locator(ROLES).fill(ROLE_LINES[0])
         page.locator(COUNTRY).select_option("PT")

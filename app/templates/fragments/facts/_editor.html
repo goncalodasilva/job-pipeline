@@ -19,6 +19,9 @@
   {% if editor.intro %}
   <p id="fact-editor-intro" class="field-hint">{{ editor.intro }}</p>
   {% endif %}
+  {% if editor.note_id %}
+  <p id="fact-editor-note" class="field-hint">Made from your capture note. Saving it takes the note out of the Capture inbox.</p>
+  {% endif %}
   {% if editor.draft %}
   {% with item = editor.draft %}
   <div id="fact-editor-draft" class="editor-draft">

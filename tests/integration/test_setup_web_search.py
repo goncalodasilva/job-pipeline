@@ -16,7 +16,7 @@ still sent, empty. Two submit buttons outside it: the primary ``name="action" va
 
 - A valid budget is saved for ``web_search`` only, marks the step done and moves on to job
   preferences (303; htmx: the guide fragment, ``HX-Push-Url`` and "Web search budget saved.
-  Step 4 of 5: Job preferences" announced).
+  Step 4 of 6: Import CV" announced; the next step is CV import since M3.7).
 - Continuing with every field empty marks the step done with no budget ("Now: no limit on web
   searches."); a stored budget is kept (ADR-083), and the announcement says so.
 - A budget saved while the step couldn't be marked done answers 422 saying it was saved, with
@@ -102,8 +102,11 @@ STEP_ID = "web_search"
 TITLE = "Web search"
 SERVICE = "web_search"
 OTHER_SERVICES = ("claude_subscription", "claude_api_key", "fake")
-STEP_ANNOUNCEMENT = "Step 3 of 5: Web search"
-NEXT_ANNOUNCEMENT = "Step 4 of 5: Job preferences"
+STEP_ANNOUNCEMENT = "Step 3 of 6: Web search"
+# The step after web search: CV import (step 4, M3.7; ADR-089 item 4).
+NEXT_PATH = "/setup/cv_import"
+NEXT_TITLE = "Import CV"
+NEXT_ANNOUNCEMENT = "Step 4 of 6: Import CV"
 SAVED_SAID = "Web search budget saved."
 SKIPPED_SAID = "Web search skipped."
 KEPT_SAID = "Your web search budget of 100 requests was kept."
@@ -346,24 +349,25 @@ def status_of(run: Running) -> str:
     return live_statuses(run).get(STEP_ID, "pending")
 
 
-def assert_moved_to_preferences(response: Response, *, htmx: bool, said: str | None = None) -> None:
-    """303 to job preferences; for htmx the guide fragment at that step (ADR-053), announcing
-    ``said`` (what the submit did, when there is something to say) and then the step."""
+def assert_moved_to_next_step(response: Response, *, htmx: bool, said: str | None = None) -> None:
+    """303 to the next step (CV import since M3.7); for htmx the guide fragment at that step
+    (ADR-053), announcing ``said`` (what the submit did, when there is something to say) and
+    then the step."""
     if not htmx:
-        assert_see_other(response, PREFERENCES_PATH)
+        assert_see_other(response, NEXT_PATH)
         return
     assert response.status_code == 200, (response.status_code, response.text[:300])
     assert "location" not in response.headers
     assert "hx-redirect" not in response.headers
-    assert response.headers.get("hx-push-url") == PREFERENCES_PATH
+    assert response.headers.get("hx-push-url") == NEXT_PATH
     expected = f"{said} {NEXT_ANNOUNCEMENT}" if said else NEXT_ANNOUNCEMENT
     assert json.loads(response.headers["hx-trigger"]) == {"announce": expected}
     for marker in ("<html", "<body", 'id="announcer"'):
         assert marker not in response.text, marker
-    assert title_of(response).startswith("Job preferences"), title_of(response)
+    assert title_of(response).startswith(NEXT_TITLE), title_of(response)
     elements = outline(response.text)
     current = only([e for e in elements if e.attrs.get("aria-current") == "step"], "current")
-    assert current.text.startswith("Job preferences")
+    assert current.text.startswith(NEXT_TITLE)
     focused = [e.attrs.get("id") for e in elements if "data-autofocus" in e.attrs]
     assert focused == ["step-heading"], focused
 
@@ -487,6 +491,7 @@ def done_rows(response: Response) -> dict[str, str]:
         "/setup/welcome",
         "/setup/provider",
         STEP,
+        NEXT_PATH,
         "/setup/preferences",
     ], "Done lists the steps in order, web search third, each with its link"
     texts = dict(rows)
@@ -611,7 +616,7 @@ def test_web_search_budget_saved_and_step_done(tmp_path: Path) -> None:
 
         response = post_step(run, CAPPED)
 
-        assert_moved_to_preferences(response, htmx=False)
+        assert_moved_to_next_step(response, htmx=False)
         assert budgets(run) == ({SERVICE: CAPPED_BUDGET}, 1)
         assert usage(run).status(SERVICE).budget == CAPPED_BUDGET
         assert status_of(run) == "done"
@@ -645,7 +650,7 @@ def test_web_search_budget_saved_with_htmx_moves_on_and_announces(tmp_path: Path
     with running(tmp_path) as run:
         response = post_step(run, VALID, htmx=True)
 
-        assert_moved_to_preferences(response, htmx=True, said=SAVED_SAID)
+        assert_moved_to_next_step(response, htmx=True, said=SAVED_SAID)
         assert budgets(run) == ({SERVICE: VALID_BUDGET}, 1)
         assert status_of(run) == "done"
         assert run.decision == StartupDecision("guide", "preferences")
@@ -656,8 +661,8 @@ def test_web_search_budget_changed_from_the_step(tmp_path: Path) -> None:
     """Reopening the step and saving other numbers replaces the Web search budget alone."""
     with running(tmp_path) as run:
         usage(run).save_budget("claude_api_key", OTHER_BUDGET, expected_version=0)
-        assert_moved_to_preferences(post_step(run, VALID), htmx=False)
-        assert_moved_to_preferences(post_step(run, CAPPED), htmx=False)
+        assert_moved_to_next_step(post_step(run, VALID), htmx=False)
+        assert_moved_to_next_step(post_step(run, CAPPED), htmx=False)
 
         assert budgets(run) == ({"claude_api_key": OTHER_BUDGET, SERVICE: CAPPED_BUDGET}, 3)
         assert status_of(run) == "done"
@@ -672,10 +677,10 @@ def test_web_search_budget_never_saved_for_another_service(tmp_path: Path) -> No
         ):
             response = post_step(run, VALID, extra={"service": forged}, htmx=True)
             assert 'id="injected"' not in response.text
-            assert_moved_to_preferences(response, htmx=True, said=SAVED_SAID)
+            assert_moved_to_next_step(response, htmx=True, said=SAVED_SAID)
             assert budgets(run) == ({SERVICE: VALID_BUDGET}, saves), forged
         # The untouched form still saves web search's.
-        assert_moved_to_preferences(post_step(run, VALID), htmx=False)
+        assert_moved_to_next_step(post_step(run, VALID), htmx=False)
         assert budgets(run) == ({SERVICE: VALID_BUDGET}, 5)
 
 
@@ -685,7 +690,7 @@ def test_continue_without_a_budget_marks_done_with_no_limit(tmp_path: Path) -> N
     step is announced."""
     with running(tmp_path, done=ALL_DONE, preferences=SAVED) as run:
         for htmx in (False, True):
-            assert_moved_to_preferences(post_step(run, EMPTY, htmx=htmx), htmx=htmx)
+            assert_moved_to_next_step(post_step(run, EMPTY, htmx=htmx), htmx=htmx)
             assert budgets(run) == ({}, 0), "no budget saved"
             assert status_of(run) == "done"
 
@@ -706,12 +711,12 @@ def test_closed_budget_fields_are_sent_empty_and_continue_means_no_limit(
         assert is_open(elements) is False
         assert shown_values(elements) == EMPTY
 
-        assert_moved_to_preferences(resend(run, elements, action="save", htmx=True), htmx=True)
+        assert_moved_to_next_step(resend(run, elements, action="save", htmx=True), htmx=True)
         assert (budgets(run), status_of(run)) == (({}, 0), "done")
 
     with running(tmp_path / "other") as run:
         bare = run.client.post(STEP, data={"action": "save"}, headers=run.action())
-        assert_moved_to_preferences(bare, htmx=False)
+        assert_moved_to_next_step(bare, htmx=False)
         assert (budgets(run), status_of(run)) == (({}, 0), "done")
 
 
@@ -724,10 +729,10 @@ def test_emptied_form_never_removes_a_stored_budget(tmp_path: Path) -> None:
         assert stored == ({SERVICE: VALID_BUDGET}, 1)
         assert status_of(run) == "pending"
 
-        assert_moved_to_preferences(post_step(run, EMPTY), htmx=False)
+        assert_moved_to_next_step(post_step(run, EMPTY), htmx=False)
         assert budgets(run) == stored
         assert status_of(run) == "done"
-        assert_moved_to_preferences(post_step(run, EMPTY, htmx=True), htmx=True, said=KEPT_SAID)
+        assert_moved_to_next_step(post_step(run, EMPTY, htmx=True), htmx=True, said=KEPT_SAID)
         assert budgets(run) == stored
         assert status_of(run) == "done"
 
@@ -768,7 +773,7 @@ def test_budget_saved_but_step_not_marked_says_saved_and_retry_goes_through(
 
         again = resend(run, elements, action="save", htmx=htmx)
 
-        assert_moved_to_preferences(again, htmx=htmx, said=SAVED_SAID)
+        assert_moved_to_next_step(again, htmx=htmx, said=SAVED_SAID)
         assert budgets(run) == ({SERVICE: CAPPED_BUDGET}, 2)
         assert status_of(run) == "done"
 
@@ -789,7 +794,7 @@ def test_skip_that_could_not_be_recorded_keeps_what_was_typed(tmp_path: Path) ->
         assert is_open(elements) is True, "what was typed stays in sight"
 
         again = resend(run, elements, action="skip", htmx=True)
-        assert_moved_to_preferences(again, htmx=True, said=SKIPPED_SAID)
+        assert_moved_to_next_step(again, htmx=True, said=SKIPPED_SAID)
         assert (budgets(run), status_of(run)) == (({}, 0), "skipped")
 
 
@@ -878,7 +883,7 @@ def test_web_search_budget_errors_tied_to_fields(
 
         # Nothing sticks: the step shows no budget, and the corrected form is saved.
         assert shown_values(outline(step_page(run).text)) == EMPTY
-        assert_moved_to_preferences(post_step(run, VALID), htmx=False)
+        assert_moved_to_next_step(post_step(run, VALID), htmx=False)
         assert budgets(run) == ({**before[0], SERVICE: VALID_BUDGET}, before[1] + 1)
         assert status_of(run) == "done"
 
@@ -926,7 +931,7 @@ def test_skip_for_now_marks_skipped_and_moves_to_preferences(tmp_path: Path, htm
     with running(tmp_path) as run:
         response = post_step(run, action="skip", htmx=htmx)
 
-        assert_moved_to_preferences(response, htmx=htmx, said=SKIPPED_SAID)
+        assert_moved_to_next_step(response, htmx=htmx, said=SKIPPED_SAID)
         assert status_of(run) == "skipped", "persisted"
         assert budgets(run) == ({}, 0), "no budget saved"
         assert run.decision == StartupDecision("guide", "preferences")
@@ -946,7 +951,7 @@ def test_skip_for_now_ignores_what_was_typed(tmp_path: Path) -> None:
     with running(tmp_path) as run:
         for typed in (CAPPED, {**VALID, "reset_day": "32"}, {**VALID, "allowance": HOSTILE}):
             response = post_step(run, typed, action="skip")
-            assert_moved_to_preferences(response, htmx=False)
+            assert_moved_to_next_step(response, htmx=False)
             assert budgets(run) == ({}, 0)
             assert status_of(run) == "skipped"
 
@@ -954,8 +959,8 @@ def test_skip_for_now_ignores_what_was_typed(tmp_path: Path) -> None:
 def test_skip_after_a_saved_budget_keeps_the_budget_and_done(tmp_path: Path) -> None:
     """ADR-052: a done step stays done; skipping later removes nothing."""
     with running(tmp_path) as run:
-        assert_moved_to_preferences(post_step(run, VALID), htmx=False)
-        assert_moved_to_preferences(post_step(run, action="skip"), htmx=False)
+        assert_moved_to_next_step(post_step(run, VALID), htmx=False)
+        assert_moved_to_next_step(post_step(run, action="skip"), htmx=False)
 
         assert status_of(run) == "done"
         assert budgets(run) == ({SERVICE: VALID_BUDGET}, 1)
@@ -963,8 +968,8 @@ def test_skip_after_a_saved_budget_keeps_the_budget_and_done(tmp_path: Path) -> 
 
 def test_budget_saved_after_skipping_marks_done(tmp_path: Path) -> None:
     with running(tmp_path) as run:
-        assert_moved_to_preferences(post_step(run, action="skip"), htmx=False)
-        assert_moved_to_preferences(post_step(run, VALID), htmx=False)
+        assert_moved_to_next_step(post_step(run, action="skip"), htmx=False)
+        assert_moved_to_next_step(post_step(run, VALID), htmx=False)
 
         assert status_of(run) == "done"
         assert budgets(run) == ({SERVICE: VALID_BUDGET}, 1)
@@ -989,7 +994,7 @@ def test_web_search_post_needs_token_and_origin(tmp_path: Path) -> None:
             assert status_of(run) == "pending"
 
         # The same forms with the token and this origin are accepted.
-        assert_moved_to_preferences(post_step(run, action="skip"), htmx=False)
+        assert_moved_to_next_step(post_step(run, action="skip"), htmx=False)
         assert status_of(run) == "skipped"
 
 
@@ -1064,7 +1069,7 @@ def test_stale_budget_version_shows_reload_prompt_and_saves_nothing(tmp_path: Pa
 
         # Loading the step again gives the stored version, and the save goes through.
         assert form_version(outline(step_page(run).text)) == "1"
-        assert_moved_to_preferences(post_step(run, CAPPED), htmx=False)
+        assert_moved_to_next_step(post_step(run, CAPPED), htmx=False)
         assert budgets(run) == ({"claude_api_key": OTHER_BUDGET, SERVICE: CAPPED_BUDGET}, 2)
         assert status_of(run) == "done"
 
@@ -1093,11 +1098,11 @@ def test_unreadable_stored_budgets_never_shown_as_no_limit(tmp_path: Path) -> No
 
         # Continuing with empty fields fixes nothing and says nothing about a budget; the
         # step, opened again, still says the budgets couldn't be read.
-        assert_moved_to_preferences(post_step(run, EMPTY, htmx=True), htmx=True)
+        assert_moved_to_next_step(post_step(run, EMPTY, htmx=True), htmx=True)
         assert usage(run).status(SERVICE).budgets_unreadable is True
         assert status_line(outline(step_page(run).text)) == STATUS_UNREADABLE
 
-        assert_moved_to_preferences(post_step(run, VALID), htmx=False)
+        assert_moved_to_next_step(post_step(run, VALID), htmx=False)
         assert usage(run).status(SERVICE).budgets_unreadable is False
         assert budgets(run)[0] == {SERVICE: VALID_BUDGET}
         assert status_of(run) == "done"
@@ -1136,7 +1141,7 @@ def test_ac_m1_7_done_lists_skipped_web_search_with_link(tmp_path: Path) -> None
     """A step really skipped through the guide is listed on Done as "Skipped" with a link back
     to it, in the list and in the step list; being optional, it never blocks finishing."""
     with running(tmp_path, done=ALL_DONE, preferences=SAVED) as run:
-        assert_moved_to_preferences(post_step(run, action="skip"), htmx=False)
+        assert_moved_to_next_step(post_step(run, action="skip"), htmx=False)
 
         for shown in (run.client.get(DONE_PATH), run.client.get(DONE_PATH, headers=run.htmx())):
             assert shown.status_code == 200, shown.status_code
@@ -1169,7 +1174,7 @@ def test_ac_m1_7_done_says_done_after_a_budget_and_optional_when_untouched(
         untouched = done_rows(run.client.get(DONE_PATH))
         assert untouched[STEP].endswith(OPTIONAL_TEXT), untouched[STEP]
 
-        assert_moved_to_preferences(post_step(run, VALID), htmx=False)
+        assert_moved_to_next_step(post_step(run, VALID), htmx=False)
         saved = done_rows(run.client.get(DONE_PATH))
         assert saved[STEP].endswith("Done"), saved[STEP]
         assert "100" not in saved[STEP], "no details of the budget on Done"
@@ -1215,7 +1220,7 @@ def test_restart_resumes_after_skip(tmp_path: Path) -> None:
     seed(tmp_path)
     with started(tmp_path) as run:
         assert_see_other(run.client.get("/"), PREFERENCES_PATH)
-        assert_moved_to_preferences(post_step(run, action="skip"), htmx=False)
+        assert_moved_to_next_step(post_step(run, action="skip"), htmx=False)
 
     with started(tmp_path) as run:
         assert run.decision == StartupDecision("guide", "preferences")
@@ -1228,7 +1233,7 @@ def test_restart_resumes_after_skip(tmp_path: Path) -> None:
         reopened = step_page(run)
         assert "Skipped" in step_list_item(reopened, TITLE).text
         assert shown_values(outline(reopened.text)) == EMPTY
-        assert_moved_to_preferences(post_step(run, CAPPED), htmx=False)
+        assert_moved_to_next_step(post_step(run, CAPPED), htmx=False)
         assert status_of(run) == "done"
 
     with started(tmp_path) as run:
@@ -1265,7 +1270,7 @@ def test_restart_after_skip_then_setup_flag_keeps_skipped(tmp_path: Path) -> Non
     "Skipped" with its link."""
     seed(tmp_path, done=ALL_DONE, preferences=SAVED)
     with started(tmp_path) as run:
-        assert_moved_to_preferences(post_step(run, action="skip"), htmx=False)
+        assert_moved_to_next_step(post_step(run, action="skip"), htmx=False)
         assert_see_other(finish(run, "today"), "/")
 
     with started(tmp_path) as run:

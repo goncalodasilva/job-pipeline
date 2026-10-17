@@ -9,6 +9,7 @@ workspace opens, leftover AI call folders are cleared and provider health is com
 cached in ``app.state.provider_health``, never on GET (spec 2.9.12).
 """
 
+import logging
 import os
 import sqlite3
 import threading
@@ -32,6 +33,7 @@ from app.api.events import (
 )
 from app.api.fact_editor import register_fact_editor_routes
 from app.api.facts import register_fact_pages
+from app.api.facts_capture import register_fact_capture_routes
 from app.api.facts_import import register_fact_import_routes
 from app.api.health import router as health_router
 from app.api.pages import register_pages
@@ -70,6 +72,7 @@ from app.modules.storage import (
 )
 from app.onboarding.progress import SetupProgress
 from app.onboarding.registry import (
+    CV_IMPORT,
     DONE,
     PREFERENCES,
     PROVIDER,
@@ -82,20 +85,24 @@ from app.onboarding.registry import (
 )
 from app.onboarding.startup import OnboardingState, StartupInputs
 from app.onboarding.steps import PendingStep
+from app.onboarding.steps.cv_import import CvImportStep
 from app.onboarding.steps.done import DoneStep
 from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.budget_gate import BudgetGate
+from app.services.capture import CaptureService
 from app.services.cv_import import (
     EXTRACT_CV,
     EXTRACT_CV_LABEL,
     PARSE_TIMEOUT_SECONDS,
     CvImportService,
+    fact_bank_started,
     import_target,
     sweep_orphan_imports,
 )
+from app.services.fact_duplicates import FactDuplicates
 from app.services.fact_editor import FactEditor
 from app.services.fact_history import FactHistory
 from app.services.fact_library import FactLibrary
@@ -124,6 +131,8 @@ from app.wiring import (
     clear_ai_temp,
     local_timezone,
 )
+
+_log = logging.getLogger(__name__)
 
 BACKUP_FOLDER = "backups"
 LOG_FOLDER = "logs"
@@ -268,8 +277,9 @@ def _prepare_workspace(
     """Run when a workspace opens, before logging moves into it and before its task service
     is handed to the runner: clear leftover AI call folders, mark tasks a killed process left
     running as interrupted (ADR-076 item 10), remove stored CV files no import names (M3.4:
-    the folder lock is held, the database is migrated and no upload can be stored yet), then
-    check the provider (ADR-049, ADR-057)."""
+    the folder lock is held, the database is migrated and no upload can be stored yet), mark
+    the CV import step done when the fact bank already holds something (M3.7; ADR-052), then
+    check the provider (ADR-049, ADR-057), which refreshes the setup decision."""
     try:
         clear_ai_temp(folder)
     except OSError as error:
@@ -285,7 +295,56 @@ def _prepare_workspace(
     except sqlite3.Error as error:
         detail = f"can't list imports ({type(error).__name__})"
         raise DataFolderUnavailable(detail=detail) from None
+    _mark_cv_import_if_started(db, registry=registry, clock=clock)
     return _check_provider(db, wiring=wiring, onboarding=onboarding, registry=registry, clock=clock)
+
+
+def _mark_cv_import_if_started(db: Database, *, registry: StepRegistry, clock: Clock) -> None:
+    """Setup's CV import step is done once the workspace holds a fact or an upload, however
+    they got there (ADR-052). Only when the step is registered and not done yet. A setup
+    state that can't be read fails like the refresh after it would; the fact bank check is a
+    convenience for an optional step, so when it can't be made the step is left as it is
+    rather than the workspace refused."""
+    progress = _progress(registry, db, clock)
+    if progress is None or CV_IMPORT.id not in {step.id for step in registry.steps}:
+        return
+    if progress.statuses().get(CV_IMPORT.id) == "done":
+        return
+    try:
+        started = fact_bank_started(db)
+    except sqlite3.Error as error:  # sqlite messages can hold paths: log the type only
+        _log.warning("The fact bank couldn't be checked (%s).", type(error).__name__)
+        return
+    if started:
+        progress.mark_done(CV_IMPORT.id)
+
+
+def _fact_bank_used(app: FastAPI, *, clock: Clock) -> Callable[[], None]:
+    """What the Fact bank tells after an upload is kept or a fact is added (M3.7; ADR-052):
+    setup's CV import step is then done, and the setup decision refreshed. It reads the
+    registry, the decision and the database through the app's state at call time, does
+    nothing once the step is done (from the cached statuses), and never raises: the user's
+    upload or fact is saved either way."""
+
+    def mark() -> None:
+        registry: StepRegistry | None = getattr(app.state, "setup_registry", None)
+        onboarding: OnboardingState | None = getattr(app.state, "onboarding", None)
+        if registry is None or onboarding is None:
+            return
+        if CV_IMPORT.id not in {step.id for step in registry.steps}:
+            return
+        if onboarding.statuses.get(CV_IMPORT.id) == "done":
+            return
+        progress = _progress(registry, _current_db(app), clock)
+        if progress is None:
+            return
+        try:
+            progress.mark_done(CV_IMPORT.id)
+            onboarding.refresh(progress)
+        except Exception as error:  # sqlite messages can hold paths: log the type only
+            _log.warning("The CV import step couldn't be marked done (%s).", type(error).__name__)
+
+    return mark
 
 
 def _check_provider(
@@ -430,6 +489,22 @@ def _step_handlers(
             mark_done=mark_done(WEB_SEARCH.id),
             skip=skip_web_search,
         )
+
+    def skip_cv_import() -> None:
+        progress = _progress(registry, _current_db(app), clock)
+        if progress is None:  # pragma: no cover - the step checks for a workspace first
+            raise RuntimeError("no workspace is open")
+        progress.skip(CV_IMPORT.id)
+        onboarding.refresh(progress)
+
+    if CV_IMPORT.id in handlers:  # a registry passed to create_app (tests) may leave it out
+        handlers[CV_IMPORT.id] = CvImportStep(
+            app.state.cv_import,
+            app.state.budget_gate,
+            workspace_open=lambda: _current_db(app) is not None,
+            mark_done=mark_done(CV_IMPORT.id),
+            skip=skip_cv_import,
+        )
     handlers[PREFERENCES.id] = PreferencesStep(settings, mark_done=mark_done(PREFERENCES.id))
     handlers[DONE.id] = DoneStep(
         registry,
@@ -545,6 +620,7 @@ def _cv_import(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) ->
         settings=settings,
         tasks=lambda: getattr(app.state, "task_service", None) if workspace() else None,
         usage=_open_usage(app),
+        on_stored=_fact_bank_used(app, clock=clock),
     )
 
 
@@ -574,12 +650,15 @@ def _fact_bank(app: FastAPI) -> Callable[[], FactBank | None]:
     return bank
 
 
-def _publish_fact_screens(app: FastAPI, *, tz: tzinfo) -> None:
-    """The editor, the history and the merge screen (M3.6), over the same fact services."""
+def _publish_fact_screens(app: FastAPI, *, tz: tzinfo, clock: Clock, ids: IdFactory) -> None:
+    """The editor, the history and the merge screen (M3.6), the capture inbox and the
+    possible duplicates (M3.7), over the same fact services and database."""
     bank = _fact_bank(app)
-    app.state.fact_editor = FactEditor(bank=bank)
+    app.state.fact_editor = FactEditor(bank=bank, on_created=_fact_bank_used(app, clock=clock))
     app.state.fact_history = FactHistory(bank=bank, tz=tz)
     app.state.fact_merge = FactMerge(bank=bank)
+    app.state.capture = CaptureService(lambda: _current_db(app), clock, ids)
+    app.state.fact_duplicates = FactDuplicates(bank=bank, clock=clock)
 
 
 def _fact_views(app: FastAPI, *, cv_import: CvImportService, tz: tzinfo) -> FactViews:
@@ -878,7 +957,7 @@ def create_app(
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
-    _publish_fact_screens(app, tz=app_tz)
+    _publish_fact_screens(app, tz=app_tz, clock=app_clock, ids=app_ids)
     if task_registry is None:  # a real task type: with or without fakes
         handlers.register(
             EXTRACT_CV,
@@ -910,6 +989,7 @@ def create_app(
     register_fact_import_routes(app)
     register_fact_pages(app)
     register_fact_editor_routes(app)
+    register_fact_capture_routes(app)
     register_setup_pages(app)
     register_events(
         app,

@@ -33,7 +33,7 @@ from app.domain.facts import (
 )
 from app.domain.ids import IdFactory
 from app.domain.partial_dates import END_BEFORE_START, checked_partial_date, ends_before_start
-from app.modules.storage import Database, facts_repo, roles_repo
+from app.modules.storage import Database, capture_repo, facts_repo, roles_repo
 from app.services.roles import checked_role, insert_role
 from app.services.skills import resolve_skills
 
@@ -483,9 +483,11 @@ class FactService:
 
     # --- creating -----------------------------------------------------------------
 
-    def create(self, data: FactInput) -> FactView:
+    def create(self, data: FactInput, *, note_id: str | None = None) -> FactView:
         """Add a fact the user typed: confirmed at once (ADR-089 item 11), with its new
-        role, skills and privacy choice in the one transaction."""
+        role, skills and privacy choice in the one transaction. ``note_id`` names the capture
+        note it was turned from (M3.7): while that note is open, the same transaction records
+        the fact on it, so it leaves the inbox; otherwise the note is left as it is."""
         content, details, extras = _checked_input(data)
         _refuse_reversed_dates(details)
         now = self._now()
@@ -501,6 +503,8 @@ class FactService:
                 privacy=extras.privacy or Privacy.NORMAL.value,
             )
             self._confirm_role(conn, details.role_id, now)
+            if note_id is not None:
+                capture_repo.resolve_note(conn, note_id, fact_id=fact_id, now=now)
             return fact_view(conn, fact_id)
 
     def create_drafts(

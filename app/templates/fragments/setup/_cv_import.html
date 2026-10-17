@@ -1,0 +1,59 @@
+{# Step 4 (M3.7): import a CV, the Fact bank's own import (one file, or the pasted text). The
+   upload form posts multipart to /setup/cv_import/upload and swaps the guide; once the CV is
+   stored the guide moves on and the import runs in the background, making drafts only. The
+   notice says where the CV's text goes, and the button is described by it. "Skip for now" is
+   the step's ordinary submit. A refused upload shows its reason tied to the field it
+   belongs to, which takes focus: the pasted text (too long, no text in it, or sent together
+   with a file), shown back escaped, or else the file field. Otherwise the heading takes
+   focus. A file is never shown back. #}
+{% set form_error = errors.get("form") %}
+{% set file_error = errors.get("file") %}
+{% set text_error = errors.get("text") %}
+<h2 id="step-heading"{% if not errors %} data-autofocus{% endif %}>Import CV</h2>
+<p>Your CV is the quickest way to fill your fact bank: the app reads it and lists what it states, such as your roles and what you achieved in them, as drafts. Every CV and letter the app writes later is built only from facts you have confirmed.</p>
+<p>Nothing is confirmed for you. You check each draft against the line of your CV it came from, in the Fact bank, whenever you're ready. The import runs in the background, so you can go on with the next step at once.</p>
+
+{% if not form.get("workspace_open") %}
+{% if form_error %}
+<p id="form-error" class="field-error" role="alert" data-autofocus>{{ form_error }}</p>
+{% endif %}
+<div class="notice">
+  <p>Finish step 1 first, so the app knows where to keep your data. <a href="/setup/welcome">Go to step 1</a>.</p>
+</div>
+{% else %}
+<form id="setup-cv-form" class="step-form" method="post" action="/setup/cv_import/upload" enctype="multipart/form-data"
+      hx-post="/setup/cv_import/upload" hx-encoding="multipart/form-data" hx-target="#setup-guide" hx-swap="outerHTML"
+      hx-indicator="#setup-cv-sending" hx-disabled-elt="#setup-step button" novalidate>
+  {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
+  {% if form_error %}
+  <p id="form-error" class="field-error" role="alert"{% if not (file_error or text_error) %} data-autofocus{% endif %}>{{ form_error }}</p>
+  {% endif %}
+  <div class="field">
+    <label for="setup-cv-file">CV file (PDF, Word (.docx) or plain text, up to 10 MB)</label>
+    <input type="file" id="setup-cv-file" name="file" accept=".pdf,.docx,.txt,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"{% if file_error %} aria-invalid="true" aria-describedby="setup-cv-error" data-autofocus{% endif %}>
+    {% if file_error %}
+    <p id="setup-cv-error" class="field-error">{{ file_error }}</p>
+    {% endif %}
+  </div>
+  <div class="field">
+    <label for="setup-cv-text">Or paste your CV's text (leave the file empty)</label>
+    <textarea id="setup-cv-text" name="text" rows="6"{% if text_error %} aria-invalid="true" aria-describedby="setup-cv-text-error"{% if not file_error %} data-autofocus{% endif %}{% endif %}>{{ form.get("text", "") }}</textarea>
+    {% if text_error %}
+    <p id="setup-cv-text-error" class="field-error">{{ text_error }}</p>
+    {% endif %}
+  </div>
+  <p id="setup-cv-privacy" class="notice">Your CV's text, with any contact details in it, is sent to the AI provider you connected in step 2 so it can list what the CV states. The file is kept in your data folder on this computer until you remove it in the Fact bank.</p>
+  <div class="form-actions">
+    <button type="submit" id="setup-cv-start" class="button button-primary" aria-describedby="setup-cv-privacy">Import and continue</button>
+  </div>
+  <p id="setup-cv-sending" class="saving-note" role="status">Reading your CV…</p>
+</form>
+<form class="step-form" method="post" action="/setup/cv_import"
+      hx-post="/setup/cv_import" hx-target="#setup-guide" hx-swap="outerHTML"
+      hx-disabled-elt="#setup-step button" aria-label="Skip CV import">
+  <p class="field-hint">You can import your CV later from the Fact bank. A skipped step stays marked on the last page so you can find it again.</p>
+  <div class="form-actions">
+    <button type="submit" class="button" name="action" value="skip">Skip for now</button>
+  </div>
+</form>
+{% endif %}
