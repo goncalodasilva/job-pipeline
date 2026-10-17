@@ -1,0 +1,41 @@
+{
+  "description": "Shared Job Pipeline context, guardrails and Python edit feedback (ADR-096).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/agent_hook.py\" codex session",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Read|Edit|Write|NotebookEdit|Bash|apply_patch|exec_command|shell_command)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/agent_hook.py\" codex pre",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(Edit|Write|NotebookEdit|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/agent_hook.py\" codex post",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

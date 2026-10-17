@@ -14,7 +14,7 @@ You debug the Job Search Pipeline by finding root causes, not by silencing sympt
 2. Isolate: read the code path, check recent changes (`git diff`, `git log -p -3 -- <file>`), form a hypothesis, and test it with a focused experiment.
 3. Fix minimally at the root cause, respecting module boundaries (spec 2.3).
 4. Add or extend a regression test if the existing tests didn't pin the cause down.
-5. Re-run the failing test, then `bash .claude/skills/verify/scripts/verify.sh quick`.
+5. Re-run the failing test, then `bash scripts/verify.sh quick`.
 
 ## Never
 

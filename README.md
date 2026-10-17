@@ -141,9 +141,11 @@ Then on the AI provider step, choose the matching option (subscription token or 
 - `docs/DECISIONS.md`: decisions and their reasons
 - `docs/references/`: product spec and detailed design
 
-## Developing with Claude Code
+## Developing with Claude Code and Codex
 
-This repository includes a complete Claude Code setup: `CLAUDE.md`, subagents in `.claude/agents/`, skills in `.claude/skills/`, rules in `.claude/rules/`, and hooks in `.claude/hooks/`. The loop is `/plan-milestone M<n>`, then `/next-task` (one task per run), then `/milestone-acceptance M<n>`. Details in `docs/TECHNICAL_SPEC.md` section 6.
+Both tools share `AGENTS.md`, engineering rules, development procedures, verification and progress records. Claude Code keeps its slash commands and specialists; Codex uses repository skills and independent reviewer profiles. See [setup, commands, permissions and handoffs](docs/development/agents.md) and technical spec section 6.
+
+The workflow is plan → one task or a milestone run → acceptance. Claude entry points are `/plan-milestone`, `/next-task`, `/run-milestone`, `/verify`, `/milestone-acceptance`; Codex uses the same names as skills (`$next-task M3.8`, for example). Trust/review project hooks in each client before relying on them. Use one writer per checkout.
 
 Developer commands (spec 4.5):
 
@@ -156,8 +158,8 @@ Developer commands (spec 4.5):
 | Module boundaries | `uv run lint-imports` |
 | Fast tests | `uv run pytest -m "not e2e and not smoke and not live"` |
 | Smoke and end-to-end tests | `uv run pytest -m smoke` and `uv run pytest -m e2e` |
-| Quick verification | `bash .claude/skills/verify/scripts/verify.sh quick` |
-| Full verification (adds e2e, coverage gates, all hooks) | `bash .claude/skills/verify/scripts/verify.sh full` |
+| Quick verification | `bash scripts/verify.sh quick` |
+| Full verification (adds e2e, coverage gates, all hooks) | `bash scripts/verify.sh full` |
 
 Live tests that call real services are opt-in. See `docs/live-check-m1.md` for the full checklist. Both the environment variable and the marker are required: set `JOBPIPELINE_LIVE_TESTS=1` and run with `-m live`. Read credentials into shell variables without echoing them (using `read -rs`) so they stay out of shell history:
 

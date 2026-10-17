@@ -91,7 +91,7 @@ Architecture decision records, newest last. Each entry: context, decision, conse
 - Context: the technical spec added a dedicated module for user-supplied job URLs.
 - Decision: http and https only, no private or local addresses (checked after redirects), size and time limits, no crawling.
 
-## ADR-021 — Built with a Claude Code agentic system (2026-10-03)
+## ADR-021 — Built with a Claude Code agentic system (2026-10-03) — Superseded by ADR-096
 
 - Decision: one orchestrating session, ten project subagents, workflow and procedure skills, hooks and permission rules, with progress and decisions kept in `docs/` (spec section 6).
 
@@ -978,3 +978,10 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   - Capture notes stay in the database after deletion until a later purge, the same as refine answers (M3.2 Evidence, left for the user (e)).
   - Duplicate suggestions never pair two confirmed facts, so near-identical confirmed facts are not suggested (listed for the user in the M3.7 Evidence line).
   - ADR-094 item 1 now also covers `?note=<id>` on `/facts/new`.
+
+## ADR-096 — Shared development contract with native Claude Code and Codex adapters (2026-10-17)
+
+- Context: the repository's development system assumed Claude instruction/skill discovery, argument substitution, specialist agents, hook payloads and native permissions. The user approved the investigated dual-tool proposal before implementation. Synthetic probes showed the old guard ignored Codex patch input; Codex also does not support the guard's native Claude `ask` response.
+- Decision: `AGENTS.md` is the shared contract and `CLAUDE.md` imports it. Six procedures/references live under `.agents/skills/` with Claude wrappers; orchestration remains tool-specific, with the same gates/checkpoints/parking/user acceptance. Codex performs most phases in the main session and delegates independent reviews through four inherited-model profiles. Engineering rule files remain authoritative under `.claude/rules/`, with explicit Codex routing. Verification/status/policy helpers move to `scripts/` with legacy entry points; recurring reviewer notes move to shared docs.
+- Decision: hooks normalize both payloads, including patch rename/deletion paths. Policy input that cannot be checked blocks with a reason. Claude retains native ask; Codex blocks guardrail maintenance until the user handles the documented temporary native-hook maintenance procedure. No agent-controlled bypass switch. Native trust, sandbox and permissions remain additional layers; hooks do not fully interpret arbitrary shell programs or every connector. Both adapters use the same verification gates, without application/provider/dependency changes.
+- Consequences: spec section 6 and setup docs describe both clients. Native hook activation requires user trust and a separate fresh-session dispatch check. One writer per checkout; unfinished handoffs preserve phase/evidence/review and next action. Parallel implementation uses disjoint worktrees and one coordinator. Existing ADR-065 task/checkpoint semantics and parsed PROGRESS format are retained.

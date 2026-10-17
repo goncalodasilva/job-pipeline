@@ -445,6 +445,7 @@ job-pipeline/
     live-check-m1.md  manual checklist for M1 live tests
     references/     product spec, detailed design
     acceptance/     acceptance reports per milestone
+    development/    agent setup, handoffs and shared review notes
   scripts/          developer scripts (check_critical_coverage.py, etc.)
   tests/
     unit/           fast unit tests
@@ -462,8 +463,11 @@ job-pipeline/
     page_token.py   reads the launch token a page embeds (spec 2.9 rule 2)
     leak_scan.py    secret and personal-data leak scanner (M1.23, M2.26)
     setup_harness.py  completed setup helper
-  .claude/          agents, skills, rules, hooks, settings
-  CLAUDE.md         Claude Code agent instructions
+  .agents/skills/   shared procedures and native Codex workflows
+  .claude/          native Claude agents, skill wrappers, rules, hooks, settings
+  .codex/           native Codex agents, hooks, configuration and command rules
+  AGENTS.md         shared coding-agent contract
+  CLAUDE.md         imports AGENTS.md, adds Claude orchestration
   README.md         user guide and troubleshooting
   LICENSE           MIT license
   pyproject.toml    build config and dependencies
@@ -545,7 +549,7 @@ Each AI task has one prompt template, one output schema, a default tier, and fix
 | `company_brief` | Thorough | Brief with sources (uses web search) | M8 |
 | `group_removal_reasons` | Fast | Themes and suggested preference changes | M9 |
 
-Prompt files live in `prompts/<task>/` as `prompt.md` (YAML front matter plus template) and `schema.json`. The format is specified in `.claude/skills/add-ai-task/references/prompt-file-format.md`. Rules:
+Prompt files live in `prompts/<task>/` as `prompt.md` (YAML front matter plus template) and `schema.json`. The format is specified in `.agents/skills/add-ai-task/references/prompt-file-format.md`. Rules:
 
 - Any change to a prompt's wording or schema bumps its `version`.
 - Every generated record stores `prompt_id`, `prompt_version` and `model`.
@@ -639,8 +643,8 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 | End-to-end | `uv run pytest -m e2e` |
 | Smoke | `uv run pytest -m smoke` |
 | Coverage | `uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing --cov-fail-under=85` then `uv run python scripts/check_critical_coverage.py --from-progress` |
-| Quick verification (all of the above except e2e and coverage) | `bash .claude/skills/verify/scripts/verify.sh quick` |
-| Full verification | `bash .claude/skills/verify/scripts/verify.sh full` |
+| Quick verification (all of the above except e2e and coverage) | `bash scripts/verify.sh quick` |
+| Full verification | `bash scripts/verify.sh full` |
 
 ### 4.6 Continuous integration
 
@@ -966,148 +970,125 @@ flowchart LR
 
 ## 6. The agentic development system
 
-The app is built with Claude Code. One main session acts as the orchestrator; it delegates focused work to project subagents, follows project skills for repeatable procedures, and is kept safe by hooks and permission rules. Progress and decisions live in the repository, so any new session can pick up where the last one stopped.
+Claude Code and Codex share the project contract, procedures, verification and repository handoffs. Each tool uses native skills, agent definitions, hooks and permissions (ADR-096, superseding ADR-021). Detailed setup and maintenance: `docs/development/agents.md`. This changes development tooling; the application's Claude Agent SDK provider is independent.
 
 ### 6.1 Overview
 
-```mermaid
-flowchart TD
-  You((You)) -->|/plan-milestone, /next-task,<br/>/verify, /milestone-acceptance| Main[Main session: orchestrator]
-  Main --> Planner[planner]
-  Main --> TestAuthor[test-author]
-  Main --> Implementer[implementer]
-  Main --> Verifier[verifier]
-  Main --> Debugger[debugger]
-  Main --> Reviewers[code-reviewer, security-reviewer,<br/>ux-reviewer, prompt-engineer]
-  Main --> DocsKeeper[docs-keeper]
-  Hooks[Hooks and permissions] -.->|guard every tool call| Main
-  Main <--> Repo[(Code, tests,<br/>docs/PROGRESS.md, docs/DECISIONS.md)]
-```
+One main session owns a checkout and coordinates the task. Claude uses its existing specialists; Codex normally executes development phases in the main session and delegates independent reviews. Both follow tests first, implementation, verification, review, fixes/re-verification, evidence and a task commit. Milestone acceptance needs the user's manual confirmation.
 
 ### 6.2 Building blocks
 
-| Block | Location | Loaded | Purpose |
-| --- | --- | --- | --- |
-| Project memory | `CLAUDE.md` | Every session and subagent | Golden rules, commands, where things are |
-| Rules | `.claude/rules/*.md` | Always, or only when matching files are touched (`paths:`) | Detailed conventions per area |
-| Subagents | `.claude/agents/*.md` | When delegated to | Specialists with their own context, tools and model |
-| Skills | `.claude/skills/<name>/SKILL.md` | Description always; body when invoked | Workflows (slash commands) and procedures |
-| Hooks | `.claude/hooks/` + `.claude/settings.json` | On session and tool events | Deterministic guardrails |
-| Permissions | `.claude/settings.json` | Always | Allow, ask and deny rules for tools |
-| Shared memory | `docs/PROGRESS.md`, `docs/DECISIONS.md`, `docs/acceptance/` | Read on demand; status injected at session start | Handoffs between sessions |
+| Block | Shared source | Native loading |
+| --- | --- | --- |
+| Project contract | `AGENTS.md` | Codex reads it; `CLAUDE.md` imports it for Claude |
+| Engineering rules | `.claude/rules/*.md` | Claude path matching; Codex explicitly reads matching rules from the AGENTS.md routing table |
+| Procedure skills | Six procedure directories under `.agents/skills/` | Codex discovery; Claude skill wrappers load the shared body/references |
+| Workflow skills | Tool-specific orchestration, same gates | `.claude/skills/` and `.agents/skills/` |
+| Specialists | Shared role checklists in `.claude/agents/` | Claude Markdown agents; four Codex TOML reviewer profiles read the checklists |
+| Verification/status | `scripts/verify.sh`, `scripts/next_task.py`, `scripts/session_context.py` | Both tools; old Claude paths remain compatible |
+| Hook logic | `scripts/agent_support.py`, `scripts/agent_hook.py` | `.claude/settings.json` + wrappers; `.codex/hooks.json` |
+| Native permissions | Same project authorization boundaries | Claude allow/ask/deny; Codex config, command rules, sandbox and approvals |
+| Handoffs | `docs/PROGRESS.md`, `docs/DECISIONS.md`, `docs/acceptance/`, `docs/development/review-notes/` | Read on demand; status also injected by SessionStart |
 
 ### 6.3 Subagents
 
-| Agent | Role | Tools | Model | Edits |
-| --- | --- | --- | --- | --- |
-| `planner` | Turns a milestone or task into small, testable tasks with acceptance criteria and test notes | Read, Grep, Glob, Bash | inherit | None |
-| `test-author` | Writes failing tests from acceptance criteria before implementation | Read, Grep, Glob, Edit, Write, Bash | inherit | Tests and fixtures |
-| `implementer` | Implements one planned task until its tests pass | Read, Grep, Glob, Edit, Write, Bash | inherit | Application code |
-| `verifier` | Runs verification and reports evidence | Read, Grep, Glob, Bash | sonnet | None |
-| `debugger` | Finds root causes of failures; minimal fix plus regression test | Read, Grep, Glob, Edit, Bash | inherit | Targeted fixes |
-| `code-reviewer` | Reviews diffs against this spec, rules and conventions; keeps project memory of recurring issues | Read, Grep, Glob, Bash | inherit | Its memory only |
-| `security-reviewer` | Reviews secrets, network, uploads, middleware, untrusted input | Read, Grep, Glob, Bash | inherit | None |
-| `ux-reviewer` | Reviews pages against the detailed design, accessibility and responsiveness | Read, Grep, Glob, Bash | inherit | None |
-| `prompt-engineer` | Owns prompts, schemas, AI fixtures and task contracts | Read, Grep, Glob, Edit, Write, Bash | inherit | Prompts, schemas, AI fixtures |
-| `docs-keeper` | Keeps progress, decisions and run instructions current | Read, Grep, Glob, Edit, Write | haiku | Docs only |
+Claude retains `planner`, `test-author`, `implementer`, `verifier`, `debugger`, `code-reviewer`, `security-reviewer`, `ux-reviewer`, `prompt-engineer`, `docs-keeper` and their existing tool/model settings. The docs keeper edits documentation only and needs explicit authorization to change the spec or reference designs.
 
-Reviewers are triggered by what a change touches:
+Codex's main session handles planning, tests, implementation, verification, debugging and records. It delegates an independent code review and triggered specialist reviews through `.codex/agents/` (`code-reviewer`, `security-reviewer`, `ux-reviewer`, `prompt-reviewer`). Profiles inherit the selected model, provider and permissions; role instructions do not create separate read-only sandboxes. When a client cannot select a profile, pass the same instructions to a generic subagent. If delegation is unavailable, independent review is outstanding, not replaced by self-review.
 
-| Touched | Also consult |
+| Touched | Required independent review |
 | --- | --- |
-| Anything | `code-reviewer` |
-| `app/modules/secrets`, `app/modules/fetch`, `app/api` middleware, uploads, AI providers, anything with credentials | `security-reviewer` |
-| `app/templates`, `app/static`, page routes | `ux-reviewer` |
-| `prompts/`, `app/modules/ai/tasks.py`, AI fixtures | `prompt-engineer` (review mode) |
+| Every implementation task | Code reviewer |
+| Secrets, providers, fetching, uploads, middleware, credentials, coding-tool hooks/permissions | Security reviewer |
+| Templates, static files, page routes | UX reviewer |
+| Prompts, AI task contracts and fixtures | Prompt engineer in review mode (Claude) / prompt reviewer (Codex) |
+
+Pass the task, criteria, relevant rules, diff scope and actual verification evidence to each reviewer. Fix critical findings; record unresolved non-critical findings. The main session records recurring reviewer lessons in shared notes; Claude's code reviewer may update those notes directly as its only non-native-memory edit.
 
 ### 6.4 Skills
 
-| Skill | Invoked by | Purpose |
-| --- | --- | --- |
-| `/plan-milestone <M>` | You | Plan a milestone into tasks in `docs/PROGRESS.md`, for your approval |
-| `/next-task [task-id]` | You | Run the full loop for one task |
-| `/verify [quick or full]` | You or Claude | The project's verification recipe. Because it is a project skill named `verify` that Claude can invoke, recent Claude Code versions instruct Claude to run it right before each commit |
-| `/milestone-acceptance <M>` | You | Full verification, acceptance report and your manual checklist |
-| `add-ai-task` | Claude, when adding an AI task | Prompt file, schema, fixtures, tests, honesty requirements |
-| `add-provider` | Claude, when adding a provider | Interface conformance, capabilities, secrets, budgets, contract tests |
-| `htmx-ui` | Claude, when touching templates or routes | Fragment conventions, focus and announcements, live-update events, shortcuts |
-| `db-migration` | Claude, when changing the schema | Forward-only migrations, backups, schema-equality test |
-| `background-task` | Claude, when adding a task type | The ten reliability rules and their tests |
-| `onboarding-step` | Claude, when changing the setup guide | Step registry, detection, persistence, tests |
+| Skill name | Purpose |
+| --- | --- |
+| `plan-milestone` | Propose small testable tasks; write the plan only after approval |
+| `next-task` | Full development loop for exactly one task |
+| `run-milestone` | Eligible tasks back to back, one commit each, checkpoints and parking (ADR-065) |
+| `verify` | Shared quick/full recipe before committing or claiming completion |
+| `milestone-acceptance` | Full verification, criteria-to-tests report and user manual checklist |
+| `add-ai-task` | Prompts, schemas, fixtures, task contract, honesty |
+| `add-provider` | Interface/capability/secrets/budget/contract checks |
+| `htmx-ui` | Fragment, focus, announcements, keyboard and live-update conventions |
+| `db-migration` | Forward-only schema/data migrations and backup/equality tests |
+| `background-task` | Task runner reliability and budget rules |
+| `onboarding-step` | Registry, detection, persistence, redirects and tests |
+
+Claude uses `/name`; Codex uses an attached skill or `$name` with ids/options in the request. Planning, task/milestone execution and acceptance require explicit invocation in both tools. Verification and procedures can be selected automatically. Codex invocation controls live in `agents/openai.yaml`; Claude's extensions remain in its own wrappers/workflows. Shared instructions contain no Claude argument substitutions or injected shell syntax.
 
 ### 6.5 Hooks and permissions
 
-| Event | Matcher | Script | Effect |
-| --- | --- | --- | --- |
-| SessionStart | startup, resume, clear, compact | `session_start.py` | Adds the current milestone, the next open tasks and the golden rules to context |
-| PreToolUse | Read, Edit, Write, Bash | `pre_tool_guard.py` | Blocks access to secret files and the user's real data and config folders; blocks force pushes, `--no-verify` commits, printing secrets and deleting home or root |
-| PostToolUse | Edit, Write | `post_edit_check.py` | Formats and lints edited Python files and reports remaining errors to Claude |
+| Event | Behavior |
+| --- | --- |
+| SessionStart | Reload current milestone/open tasks and shared golden rules on startup, resume, clear and compaction; Codex also covers forks |
+| PreToolUse | Normalize Claude tools and Codex patches/shell aliases; check secrets, real data/config folders, common dangerous/secret-printing commands and guardrail edits |
+| PostToolUse | Format/lint existing changed Python files, including patch rename destinations, using offline no-sync uv; report remaining errors |
 
-Permission rules pre-approve routine commands (tests, lint, types, git status and diff, the verify script), ask before adding dependencies, pushing or deleting recursively, and deny reading `.env` and force pushes. Hooks fail open on malformed input so a format change can't brick a session; permissions remain the second line of defense.
+Codex patches carry their text in `tool_input.command`; renamed source/destination and deleted paths are checked. Malformed policy input or unrecognized file/patch shapes block with a reason. Informational/post-edit failures are advisory; explicit verification still gates completion. Hooks catch common mistakes and complement native permissions/sandbox and pre-commit/CI; arbitrary shell programs and every connector path are not fully interpreted or covered.
+
+Claude keeps native allow/ask/deny rules. Codex config requests workspace-write, on-request approval, no sandbox network access, enabled hooks and up to three concurrent subagents. Native command rules request approval for common push/history/dependency/deletion commands. Higher-priority managed policies still apply. Project hook definitions require trust review in Codex; skipped/untrusted hooks are not active protection.
+
+Guardrail changes need the user's explicit authorization. Claude can return `permissionDecision: ask`; current Codex cannot, so its adapter blocks and points to the maintenance instructions. After approval the user can temporarily disable only the project pre-tool hook in the native hook UI, re-enable it after the authorized edit, review/trust definitions and re-run synthetic probes. The agent never disables hooks or bypasses trust/sandbox on its own. No permanent maintenance environment switch.
 
 ### 6.6 The development loop
 
-1. **Plan the milestone.** `/plan-milestone M<n>`: the planner proposes tasks from section 5; you approve or adjust; tasks land in `docs/PROGRESS.md`.
-2. **Run one task.** `/next-task`:
-   1. Load the task and its context (the session-start hook and the skill show what is next).
-   2. Tests first: `test-author` writes failing tests for each acceptance criterion and confirms they fail for the right reason.
-   3. Implement: the main session, or `implementer` for well-scoped tasks.
-   4. Verify: `verifier` runs quick verification, or full verification when UI, migrations or the task runner changed.
-   5. Debug: `debugger` on failures; after three failed attempts on the same failure, stop and ask you.
-   6. Review: `code-reviewer`, plus the reviewers triggered by touched paths.
-   7. Fix findings and verify again.
-   8. Record: `docs-keeper` ticks the task with evidence and records any decision as an ADR.
-   9. Commit with a conventional message naming the task id; `/verify` and the gitleaks pre-commit hook run first.
-   10. Report what was done and stop. One task per invocation keeps context small and reviews meaningful.
-   - **Or run all of them.** `/run-milestone` runs steps 1–9 for every open task, one commit each, without stopping between tasks (ADR-065). A problem local to one task parks it (work stashed, a `Blocked:` question in `docs/PROGRESS.md`) and the run moves on to tasks that don't build on it; the global cases in 6.7 stop the run. Tasks marked with a checkpoint stop it before or after them. The run ends with one report: tasks done, parked questions and items left for you, then prepares acceptance.
-3. **Close the milestone.** `/milestone-acceptance M<n>`: full verification, an acceptance report in `docs/acceptance/M<n>.md`, and a manual checklist for you. The milestone is closed only after you confirm the manual checks.
+1. Plan from spec section 5 and the design. Propose criteria, tests, touched modules and checkpoints; wait for approval before writing tasks.
+2. Inspect branch/status/history and resume task-owned work at its actual phase. Stop if ownership of changes is unclear.
+3. Write behavior tests first and observe expected failures using fictional fakes/temp data. Claude delegates to test-author; Codex normally performs this phase itself.
+4. Implement using the relevant shared procedures; Claude may delegate to implementer.
+5. Run `bash scripts/verify.sh quick`, or full for templates/static/page routes/migrations/task runner changes. Claude normally delegates execution to verifier. Debug within scope; stop after three failed fixes of the same failure.
+6. Obtain independent code review and the triggered specialist reviews; fix critical findings and cheap should-fix findings, record the rest, and re-verify after fixes.
+7. Record task completion/evidence, leftovers and a dated session-log entry. Add an ADR for decisions. Stage only task-owned files and commit with a conventional task-id message; never bypass pre-commit.
+8. Report and stop after one task, or continue eligible tasks under run-milestone/ADR-065. Local problems may be parked only with task-owned changes safely stashed and a recorded Blocked question; never stash another agent's work. Global problems/checkpoints/caps stop the run.
+9. When all tasks are complete, run full verification and milestone-specific critical coverage. Map criteria to observed passing tests in `docs/acceptance/M<n>.md`. Present the user's manual checklist and wait for confirmation before accepting the milestone or advancing Current milestone. Suggest the user merge; no automatic merge/push.
 
 ### 6.7 When agents must stop and ask you
 
 - Sources conflict, or the spec is ambiguous.
 - A new runtime dependency or any stack change.
-- Any change to the honesty rule, the security model, or what data is stored about the user.
+- Any change to the honesty rule, the security model, or stored personal data.
 - Scope changes to a milestone.
-- A test's expectation seems wrong (fixing it would change the test, not the code).
-- Three failed attempts at the same failure.
-- Anything that needs real credentials or the user's real data.
-- Pushing, rewriting git history, or deleting data.
+- A test's expectation seems wrong; never weaken tests to get green.
+- Three failed fixes of the same failure.
+- Anything needing real credentials or the user's real data.
+- Pushing, rewriting history or deleting data.
+
+Existing authorization for the specific change remains valid; do not ask repeatedly for the same approved scope. Native sandbox/trust approval can still be required.
 
 ### 6.8 Shared memory and handoffs
 
-- `docs/PROGRESS.md` is the single status board. Its format is parsed by scripts: a `Current milestone: M<n>` line; one `## M<n> — Title` heading per milestone; tasks as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, and optional `Checkpoint:` and `Blocked:` lines (ADR-065); a session log at the end.
-- `docs/DECISIONS.md` holds ADRs: context, decision, consequences, date.
-- `docs/acceptance/M<n>.md` holds acceptance reports.
-- `code-reviewer` keeps project-scoped memory in `.claude/agent-memory/code-reviewer/`, committed so recurring lessons persist.
-- Git: one branch per milestone (`m<n>-<slug>`); conventional commits such as `feat(inbox): keyboard triage (M4.7)`; you merge to main after acceptance.
+- `PROGRESS.md` retains its parsed format: Current milestone, milestone headings, checkbox task ids, indented AC/Tests/Evidence and optional Checkpoint/Blocked lines, then a session log (ADR-065).
+- ADRs append context/decision/consequences/date in `DECISIONS.md`; acceptance reports remain under `docs/acceptance/`.
+- Recurring review lessons live in `docs/development/review-notes/`. Native Claude memory files route there; do not fork a second body of lessons.
+- Prefer switching agents at committed task boundaries. Unfinished handoffs name the task/phase, changed files, actual tests/results, outstanding review, blockers/checkpoints and next action. The receiving agent inspects the diff before resuming.
+- Integrated work stays on one milestone branch (`m<n>-<slug>`), conventional commits include the task id, and the user merges after acceptance.
 
 ### 6.9 Parallel work
 
-Tasks that touch disjoint files can run in parallel: ask the main session to run several `implementer` subagents in separate git worktrees, then verify and merge one at a time. Never parallelize tasks that touch migrations, the same module, or shared templates.
+One writer per checkout. Parallel implementation needs separate worktrees, disjoint files and one coordinator that alone updates shared progress and integrates verified/reviewed task commits. Never parallelize migrations, the same module or shared templates.
 
 ### 6.10 Usage awareness
 
-Subagents send their own requests, which count toward the same plan limits as the main session. Delegate when it protects the main context or enforces constraints, not by reflex. The verifier and docs-keeper run on lighter models; skills stay concise; compact or clear between tasks.
+Delegate where independent judgment, useful isolation or parallel work justify it. Subagents consume the same account limits. Claude's existing lighter verifier/docs models remain; Codex starts with model inheritance rather than hard-coded substitutions for Sonnet/Haiku. Keep skill descriptions precise and detailed references on demand.
 
 ### 6.11 Permission modes
 
-Start in the default (manual) mode until the workflow feels trustworthy, use plan mode for planning sessions, and switch to accept-edits mode for implementation sessions if you like. Do not use bypass mode in this repository.
+Use normal native permission/approval modes and workspace trust. Codex requests workspace-write/on-request; managed policies may override it. Do not use bypass mode or bypass hook trust. Cache/browser downloads and local server tests can need targeted command approval; this does not authorize live-provider calls.
 
-### 6.12 First session
+### 6.12 First session in a clone or worktree
 
-1. Put this scaffold in a new git repository and make the first commit.
-2. Open Claude Code in the repository and accept the workspace trust prompt (project hooks and agent hooks need it).
-3. Check that `python3` is on your PATH (the hooks use it). On Windows, run Claude Code with Git Bash; if your system only has `python`, change the hook commands in `.claude/settings.json`.
-4. Run `/plan-milestone M0`, review the plan, approve it.
-5. Run `/next-task` until M0 is done, then `/milestone-acceptance M0`.
+Follow `docs/development/agents.md`: install dependencies/pre-commit and browsers as needed, review/trust project configuration and hooks, confirm instructions/skills/current status in a fresh session, then run shared verification. Resume the existing Current milestone rather than restarting the roadmap. Validate hook event dispatch separately from directly invoking the adapter.
 
 ### 6.13 Evolving the system
 
-- When you correct the same behavior twice, encode it: a rule for conventions, a skill for procedures, a hook for anything that must always hold.
-- Keep subagent descriptions short; Claude Code warns when their combined size passes its budget.
-- Measure skill changes before keeping them; the skill-creator plugin can compare runs with and without a skill.
-- Review the code reviewer's memory occasionally and prune stale notes.
-- Keep `CLAUDE.md` under about 150 lines; move detail into rules and skills.
+Keep shared rules/procedures/lessons in one maintained place and native wrappers small. Encode recurring issues in the appropriate rule, procedure or tested hook policy. Validate changed skills and both payload formats, prune stale review lessons, and re-review changed hook scripts as well as native hook definitions. Keep the root guide concise; use on-demand references for detail.
 
 ---
 

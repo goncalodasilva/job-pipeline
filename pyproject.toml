@@ -55,8 +55,9 @@ packages = ["app"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-# Agent tooling (.claude/) and the spec's abbreviated code samples (docs/) are not project code.
-extend-exclude = [".claude", "docs"]
+# Native agent config/procedure examples and docs are not project code.
+# Shared executable tooling remains linted and type-checked under scripts/.
+extend-exclude = [".claude", ".agents", ".codex", "docs"]
 # Pre-commit passes file names explicitly; keep honouring the excludes then too.
 force-exclude = true
 

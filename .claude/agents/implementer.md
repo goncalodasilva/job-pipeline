@@ -24,7 +24,7 @@ Read the task in `docs/PROGRESS.md`, the failing tests, the spec sections it tou
 
 ## Finish
 
-Run `bash .claude/skills/verify/scripts/verify.sh quick` and make it pass. Report:
+Run `bash scripts/verify.sh quick` and make it pass. Report:
 
 - files changed and why, in a few lines;
 - the verify result line;
