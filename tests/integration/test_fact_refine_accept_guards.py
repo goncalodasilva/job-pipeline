@@ -97,7 +97,9 @@ def test_accept_of_a_suggestion_made_before_the_fact_changed_refused_409(tmp_pat
         stale = r.accept(fact.id, text=OK_SUGGESTION, version=edited.version)
 
         assert stale.status_code == 409, stale.status_code
-        assert message_for_kind("VersionConflict") in said(stale)
+        # Its own words, the panel's stale note, not "Reload" (approved by the user 2026-10-19).
+        assert message_for_kind("RefineSuggestionStale") in said(stale)
+        assert "Reload" not in said(stale)
         assert r.fact_tables() == before
         assert r.current(fact.id).content.text == EDITED
         assert r.open_session(fact.id)["state"] == "open"

@@ -48,6 +48,7 @@ from app.domain.errors import (
     RefineNotAvailable,
     RefineNotOpen,
     RefineStopping,
+    RefineSuggestionStale,
     RefineTurnRunning,
     VersionConflict,
 )
@@ -601,7 +602,7 @@ class FactRefineService:
                 raise FactInputInvalid("text", MSG_WORDING_NEEDED)
             snapshot = _snapshot(session)
             if snapshot.get("fact_version_id") != row.current.id:
-                raise VersionConflict(detail="the suggestion was made for an earlier version")
+                raise RefineSuggestionStale(detail="the suggestion was made for an earlier version")
             claims = _claims_in(session, snapshot, suggestion, content)
             missing = tuple(claim.text for claim in claims if claim.text not in asserted)
             if missing:

@@ -152,6 +152,18 @@ class VersionConflict(AppError):
     message = "This item changed elsewhere. Reload to see the latest version."
 
 
+class RefineSuggestionStale(VersionConflict):
+    """Accept of a Refine with AI suggestion made for an earlier version of the fact (it was
+    edited since). Reloading shows the same suggestion, so the words say what helps; the
+    panel shows the same note (ADR-097)."""
+
+    kind = "RefineSuggestionStale"
+    message = (
+        "Your fact changed after this suggestion. "
+        "Discard it and ask again, or keep editing it yourself."
+    )
+
+
 class ConfigError(AppError):
     """A start-up setting is invalid. ``detail`` names the setting, never its value."""
 
