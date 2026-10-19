@@ -205,6 +205,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-215 | Merge screen titles are the same for search, compare and result. | M3.6 | low: the step is unclear from its title | Give each step its own title. |
 | TD-216 | The M3.5 "Skip to drafts" link is 18 px high. It is inline and exempt from the target size rule. | M3.5; M3.6 | low: a small target | Decide whether inline links are exempt, then fix or record it. |
 | TD-217 | With JavaScript, a 422 after typing in "Your wording" and then switching back to another choice re-renders with the wording fields hidden, while the message says "You changed the wording below". | M3.6 follow-up (2026-10-16); ADR-094 update (decision 2) | low: the message points at fields the user cannot see | Show the fields again when a refused answer carries typed wording, with a test. |
+| TD-221 | Saving the fact editor redraws the whole page, so text typed in the Refine with AI answer box or its editable wording is lost. | M3.9 Left (b); user agreed 2026-10-19 to leave it | low: after a wording save the suggestion is stale and only Discard is offered | Make the editor's save swap only the form and history, leaving `#fact-refine` alone. |
+| TD-222 | A failed refine turn that still shows an earlier suggestion does not refresh after a Retry from Tasks until the page is reloaded (it does not refetch, to keep edited wording and ticks). | M3.9 Left (c); user agreed 2026-10-19 to leave it | low: needs a failed later turn plus a retry from elsewhere | Refresh only the status line, or show a "New answer ready, show it" button. |
 
 ## 8. Tests and CI
 
