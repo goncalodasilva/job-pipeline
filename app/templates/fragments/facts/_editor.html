@@ -52,6 +52,9 @@
   {% if editor.fact_id and not conflict and not editor.draft %}
   {% include "fragments/facts/_editor_state.html" %}
   {% endif %}
+  {% if refine is defined and refine %}
+  {% include "fragments/facts/_refine.html" %}
+  {% endif %}
   {% elif editor.item %}
   {% with item = editor.item %}
   <div id="fact-{{ item.id }}" class="fact-card">

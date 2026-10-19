@@ -1,0 +1,6 @@
+{# The editor's field macros (M3.6; shared with the Refine with AI answer in M3.9, which sends
+   the wording fields out of band after an Accept). Each takes the EditorView. A refused field
+   is marked aria-invalid, described by its message and takes focus. #}
+{% macro error_for(editor, name) %}{% if editor.error_field == name %}<p id="editor-{{ name }}-error" class="field-error">{{ editor.error_message }}</p>{% endif %}{% endmacro %}
+{% macro invalid(editor, name, described="") %}{% if editor.error_field == name %} aria-invalid="true" aria-describedby="{{ (described ~ " ") if described }}editor-{{ name }}-error" data-autofocus{% elif described %} aria-describedby="{{ described }}"{% endif %}{% endmacro %}
+{% macro wording_textarea(editor, field, oob=false) %}<textarea id="editor-{{ field.name }}" name="{{ field.name }}" rows="4"{{ invalid(editor, field.name, ("editor-" ~ field.name ~ "-hint") if field.hint else "") }}{% if oob %} hx-swap-oob="true"{% endif %}>{{ field.value }}</textarea>{% endmacro %}

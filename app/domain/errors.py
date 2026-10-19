@@ -398,10 +398,26 @@ class RefineNotOpen(AppError):
 
 
 class RefineBusy(AppError):
-    """A turn of the conversation is still queued or running, or waits to be started."""
+    """An answer when the AI has no question waiting for one (none was asked, or the last
+    question is answered). Its subclasses are the cases where a turn is on its way."""
 
     kind = "RefineBusy"
+    message = "The AI has no question waiting for an answer right now."
+
+
+class RefineTurnRunning(RefineBusy):
+    """A turn of the open conversation is still queued or running."""
+
+    kind = "RefineTurnRunning"
     message = "The AI hasn't answered yet. Wait for its answer, then try again."
+
+
+class RefineStopping(RefineBusy):
+    """A conversation that was cancelled or discarded still has its turn stopping, so a new
+    one can't open yet (ADR-097 item 6)."""
+
+    kind = "RefineStopping"
+    message = "The previous conversation is still stopping. Try again in a moment."
 
 
 class RefineContextChanged(AppError):

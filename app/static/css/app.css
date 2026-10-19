@@ -1415,6 +1415,88 @@ a.button {
   margin-top: var(--space-6);
 }
 
+/* Refine with AI (M3.9): under the editor, above the history. */
+.fact-refine {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.fact-refine h3 {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: 1rem;
+}
+
+.fact-refine .badge {
+  display: inline-block;
+  margin: 0 0 var(--space-3);
+}
+
+.refine-questions {
+  margin: 0 0 var(--space-3);
+  padding-inline-start: var(--space-6);
+}
+
+.refine-questions li,
+.refine-claim-text {
+  overflow-wrap: anywhere;
+}
+
+.refine-suggestion,
+.refine-accept,
+.refine-answer {
+  margin-bottom: var(--space-4);
+}
+
+.refine-flagged {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius);
+  background: var(--color-warning-bg);
+}
+
+.refine-flagged-heading {
+  margin: 0 0 var(--space-1);
+  font-weight: 600;
+}
+
+.refine-claims {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.refine-claim {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.refine-claim-text {
+  font-weight: 600;
+}
+
+.refine-claim .choice {
+  margin: 0;
+}
+
+.refine-claim .choice label {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+
+.refine-actions {
+  align-items: center;
+}
+
+.refine-actions form {
+  margin: 0;
+}
+
 .history-events,
 .history-versions {
   margin: 0 0 var(--space-4);

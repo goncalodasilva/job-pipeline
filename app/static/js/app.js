@@ -362,6 +362,111 @@
     refuseBlocked(event, blockedControl(submitter));
   }, true);
 
+  // Refine with AI (M3.9). "Edit it myself" ([data-focus-field], a button) takes focus to
+  // the editor's wording field and leaves the conversation as it is.
+  document.addEventListener("click", function (event) {
+    var control = event.target instanceof Element ? event.target.closest("[data-focus-field]") : null;
+    if (!control) return;
+    var field = document.getElementById(control.getAttribute("data-focus-field") || "");
+    if (!field) return;
+    event.preventDefault();
+    field.focus();
+  });
+
+  // When the panel is replaced (its turn ended) while focus was in it, on a control the new
+  // panel no longer has (Cancel), focus goes to its status line, which says what happened.
+  // Focus elsewhere on the page is never taken. A refetch that changes nothing answers 204
+  // and swaps nothing, so focus stays where it was. htmx fires beforeSwap for that 204 too
+  // (shouldSwap false) with no settle after it, so the mark is set only for a swap of the
+  // panel that happens (a 204 clears it), and only the panel's own settle reads and clears
+  // it: another part's swap (an editor save, the tasks indicator), even one that settles
+  // between the panel's swap and its settle, neither moves focus here nor drops the mark.
+  var refineHadFocus = false;
+  function isRefinePanel(element) {
+    return element instanceof Element && element.id === "fact-refine";
+  }
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    var detail = event.detail || {};
+    if (!isRefinePanel(detail.target)) return;
+    var active = document.activeElement;
+    refineHadFocus = detail.shouldSwap === true && active instanceof Element &&
+      detail.target.contains(active);
+  });
+  document.body.addEventListener("htmx:afterSettle", function (event) {
+    var detail = event.detail || {};
+    if (!isRefinePanel(detail.elt) && !isRefinePanel(detail.target)) return;
+    var hadFocus = refineHadFocus;
+    refineHadFocus = false;
+    if (!hadFocus) return;
+    var panel = document.getElementById("fact-refine");
+    if (!panel || panel.contains(document.activeElement)) return;
+    var line = document.getElementById("fact-refine-status") ||
+      document.getElementById("fact-refine-heading");
+    if (!line) return;
+    if (!line.hasAttribute("tabindex")) line.setAttribute("tabindex", "-1");
+    line.focus();
+  });
+
+  // Its Accept (form[data-refine-accept]) is blocked (aria-disabled, its reason shown) while
+  // a claim that isn't in the fact bank is neither ticked nor taken out of the wording; a
+  // form for a suggestion made before the fact changed (data-refine-stale) stays blocked as
+  // the server rendered it. A claim counts as taken out as the server's details_still_said
+  // reads one: its case-folded, space-collapsed text is no longer a substring of the
+  // wording's, and it could be (data-edits-out="true"; a detail the model reported that the
+  // suggestion didn't write as reported can't), and the wording isn't the one the server
+  // last refused with it (data-refused-for). The substring test is the looser one, so the
+  // client opens Accept only where that text is gone; numbers the server reads by value
+  // (written as words, say) can still be refused, and the refusal lists them with
+  // data-refused-for, which keeps Accept blocked until the wording changes again.
+  function folded(text) {
+    return text.toLowerCase().replace(/ß/g, "ss").replace(/ς/g, "σ")
+      .replace(/\s+/g, " ").trim();
+  }
+  function syncRefineAccept(form) {
+    if (form.hasAttribute("data-refine-stale")) return;
+    var button = form.querySelector("[data-refine-accept-button]");
+    var reason = document.getElementById("fact-refine-accept-reason");
+    if (!button || !reason) return;
+    var parts = [];
+    form.querySelectorAll("textarea[data-refine-wording]").forEach(function (field) {
+      if (field.value !== "") parts.push(field.value);
+    });
+    var wording = folded(parts.join("\n"));
+    var blocked = false;
+    form.querySelectorAll("input[data-refine-claim]").forEach(function (box) {
+      if (box.checked) return;
+      var refusedFor = box.getAttribute("data-refused-for");
+      if (box.getAttribute("data-edits-out") !== "true" ||
+          wording.indexOf(folded(box.value)) >= 0 ||
+          (refusedFor !== null && folded(refusedFor) === wording)) {
+        blocked = true;
+      }
+    });
+    reason.hidden = !blocked;
+    if (blocked) {
+      button.setAttribute("aria-disabled", "true");
+      button.setAttribute("aria-describedby", reason.id);
+    } else {
+      button.removeAttribute("aria-disabled");
+      button.removeAttribute("aria-describedby");
+    }
+  }
+  function syncRefineForms() {
+    document.querySelectorAll("form[data-refine-accept]").forEach(syncRefineAccept);
+  }
+  function refineFormOf(event) {
+    var target = event.target;
+    return target instanceof Element ? target.closest("form[data-refine-accept]") : null;
+  }
+  ["input", "change"].forEach(function (name) {
+    document.addEventListener(name, function (event) {
+      var form = refineFormOf(event);
+      if (form) syncRefineAccept(form);
+    });
+  });
+  syncRefineForms();
+  document.body.addEventListener("htmx:afterSettle", syncRefineForms);
+
   // The top-bar task indicator (M2.20): #tasks-toggle is a disclosure button for the non-modal
   // #tasks-popover. Opening moves no focus. The panel closes on Esc (focus goes to the button
   // only when it was on it or in the panel), on a pointer press outside the two, and when

@@ -1,0 +1,6 @@
+{# One part of a wording as a word diff (M3.6, shared with Refine with AI in M3.9). Needs `part`
+   (a PartView). A changed run is an <ins> or a <del> that starts with the hidden word "added"
+   or "removed" and ends with "(end added)" or "(end removed)"; runs are written without
+   spaces between them (white-space: pre-wrap keeps the wording's own), except a space where
+   one changed run follows another (`run.gap`). The words are the user's or AI-made: escaped. #}
+<p class="version-words">{% for run in part.runs %}{% if run.gap %} {% endif %}{% if run.op == "added" %}<ins><span class="visually-hidden">added: </span>{{ run.text }}<span class="visually-hidden"> (end added) </span></ins>{% elif run.op == "removed" %}<del><span class="visually-hidden">removed: </span>{{ run.text }}<span class="visually-hidden"> (end removed) </span></del>{% else %}{{ run.text }}{% endif %}{% endfor %}</p>

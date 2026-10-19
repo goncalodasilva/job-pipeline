@@ -64,8 +64,9 @@ def test_refine_routes_need_token_and_origin(tmp_path: Path) -> None:
 
         assert r.tasks() == [] and r.requests() == [] and r.sessions(fact.id) == []
         assert r.fact_tables() == before
-        # None of them is a page: a GET never reaches them.
-        for path in paths:
+        # None of the actions is a page: a GET never reaches them. The bare path's GET is the
+        # panel fragment (M3.9, approved by the user 2026-10-19), tested in test_fact_refine_panel.
+        for path in paths[1:]:
             got = r.client.get(path, headers=r.run.run.with_token())
             assert got.status_code in (404, 405), path
         # The same start with both is served: the refusals above were the checks'.

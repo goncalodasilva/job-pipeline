@@ -8,4 +8,9 @@
 {% if history %}
 {% with oob = true %}{% include "fragments/facts/_history.html" %}{% endwith %}
 {% endif %}
+{% if refine is defined and refine %}
+{# The Refine with AI panel (M3.9), out of band: Archive blocks it, Restore opens it again,
+   and its Accept form's version moves on. #}
+{% include "fragments/facts/_refine.html" %}
+{% endif %}
 {% endif %}

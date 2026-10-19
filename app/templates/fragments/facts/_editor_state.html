@@ -3,8 +3,8 @@
    `conflict`), `state_said` (what the last press did, or none), `conflict` and `reload_url`.
    After either press the line that says what happened takes focus, never the other button:
    a second Enter must not undo it. A draft has neither button (its page says where it is
-   confirmed or discarded). #}
-<div id="fact-editor-state" class="editor-state">
+   confirmed or discarded). `state_oob`: sent out of band (after a Refine with AI Accept). #}
+<div id="fact-editor-state" class="editor-state"{% if state_oob is defined and state_oob %} hx-swap-oob="true"{% endif %}>
   {% if conflict %}
   {% set reload_id = "fact-editor-conflict" %}
   {% set reload_message = conflict %}

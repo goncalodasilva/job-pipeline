@@ -47,6 +47,8 @@ from app.domain.errors import (
     RefineNoSuggestion,
     RefineNotAvailable,
     RefineNotOpen,
+    RefineStopping,
+    RefineTurnRunning,
     VersionConflict,
 )
 from app.domain.fact_selection import (
@@ -58,7 +60,7 @@ from app.domain.fact_selection import (
     prompt_fact_block,
     refine_target,
 )
-from app.domain.facts import FactContent, FactStatus, Privacy, clean_part
+from app.domain.facts import FactContent, FactStatus, FactType, Privacy, clean_part
 from app.domain.honesty import Claim, new_claims
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.settings import AIProviderSettings, Tier
@@ -73,6 +75,7 @@ from app.modules.storage import (
     skills_repo,
     tasks_repo,
 )
+from app.services.fact_history import PartView, diff_parts
 from app.services.facts import SOURCE_REFINE, DraftOrigin, FactService, FactView
 from app.services.tasks import TaskService
 from app.services.usage import UsageService
@@ -156,6 +159,46 @@ class RefineView:
     flagged: tuple[str, ...]
     answers_left: int
     practice: bool
+
+
+@dataclass(frozen=True)
+class RefineClaim:
+    """A claim of the suggestion that isn't in the fact bank (M3.9). ``edits_out``: taking
+    its text out of the wording drops it (a detail the model reported adding drops only
+    when the suggestion wrote it as reported); otherwise only ticking it will do."""
+
+    text: str
+    edits_out: bool
+
+
+PHASE_CLOSED: Final = "closed"
+PHASE_WAITING: Final = "waiting"
+PHASE_FAILED: Final = "failed"
+PHASE_ANSWERED: Final = "answered"
+
+
+@dataclass(frozen=True)
+class RefinePanel:
+    """The Refine with AI panel of a fact (M3.9). ``phase``: no open conversation
+    (closed), a turn queued or running (waiting), the last turn ended without an answer
+    (failed: an answer's or the first turn failed or was cancelled) or the AI answered.
+    ``blocked`` is why a conversation can't start (never use, archived). ``changes`` is the
+    suggestion as a word diff against the fact's current wording; ``unchanged`` when it
+    marks nothing."""
+
+    fact_id: str
+    version: int
+    story: bool
+    phase: str
+    blocked: str | None
+    view: RefineView | None
+    changes: tuple[PartView, ...]
+    unchanged: bool
+    claims: tuple[RefineClaim, ...]
+    stale: bool = False
+    """The suggestion was made for an earlier version of the fact: Accept would be refused."""
+    retry_start: bool = False
+    """The first turn failed: Start may queue it again."""
 
 
 @dataclass(frozen=True)
@@ -397,7 +440,7 @@ def _startable(conn: sqlite3.Connection, fact_id: str, session: refine_repo.Stor
     _history_allowed(conn, session)
     if _turns(session.turns):
         if _turn_active(conn, fact_id):
-            raise RefineBusy(detail="a turn is on its way")
+            raise RefineTurnRunning(detail="a turn is on its way")
         raise VersionConflict(detail="the conversation already had a turn")
 
 
@@ -462,7 +505,7 @@ class FactRefineService:
             if session is not None:
                 _startable(conn, fact_id, session)
             elif _turn_active(conn, fact_id):
-                raise RefineBusy(detail="the previous conversation's task is still active")
+                raise RefineStopping(detail="the previous conversation's task is still active")
         return self._plan(tier)
 
     def start(self, fact_id: str, *, tier: Tier | None = None) -> TaskRef:
@@ -476,7 +519,7 @@ class FactRefineService:
             session = refine_repo.get_open(conn, fact_id)
             if session is None:
                 if _turn_active(conn, fact_id):
-                    raise RefineBusy(detail="the previous conversation's task is still active")
+                    raise RefineStopping(detail="the previous conversation's task is still active")
                 session_id = self._ids.new()
                 refine_repo.insert_session(
                     conn,
@@ -600,16 +643,45 @@ class FactRefineService:
         """The fact's open conversation, or None. Reads only."""
         with self._db().read() as conn:
             session = refine_repo.get_open(conn, fact_id) if is_safe_id(fact_id) else None
-        if session is None:
-            return None
-        turns = _turns(session.turns)
-        return RefineView(
+        return None if session is None else _view_of(fact_id, session)
+
+    def panel(self, fact_id: str) -> RefinePanel:
+        """What the fact's Refine with AI panel shows. Reads only. Raises ``FactNotFound``."""
+        with self._db().read() as conn:
+            row = _fact_row(conn, fact_id)
+            session = refine_repo.get_open(conn, fact_id)
+            waiting = session is not None and _turn_active(conn, fact_id)
+        blocked: str | None = None
+        try:
+            _refinable(row)
+        except (RefineNeverUse, RefineNotAvailable) as error:
+            blocked = error.user_message
+        view = None if session is None else _view_of(fact_id, session)
+        suggestion = None if view is None else view.suggestion
+        current = row.current
+        changes, note = (
+            diff_parts(
+                FactContent(current.text, current.situation, current.action, current.result),
+                suggestion,
+            )
+            if suggestion is not None
+            else ((), None)
+        )
+        phase = _phase(session, waiting=waiting)
+        return RefinePanel(
             fact_id=fact_id,
-            questions=turns[-1].questions if turns and turns[-1].answer is None else (),
-            suggestion=_suggestion(session.suggestion),
-            flagged=tuple(item["text"] for item in _stored_claims(session.flagged_claims)),
-            answers_left=MAX_ANSWER_ROUNDS - session.answer_rounds,
-            practice=session.provider == "fake",
+            version=row.version,
+            story=row.type == FactType.STORY,
+            phase=phase,
+            stale=session is not None
+            and suggestion is not None
+            and _suggested_for(session) != current.id,
+            retry_start=phase == PHASE_FAILED and session is not None and not _turns(session.turns),
+            blocked=blocked,
+            view=view,
+            changes=changes,
+            unchanged=note is not None,
+            claims=() if session is None else _panel_claims(session, suggestion),
         )
 
     # --- for the task handler -------------------------------------------------------------------
@@ -733,7 +805,9 @@ class FactRefineService:
         _history_allowed(conn, session)
         turns = _turns(session.turns)
         last = turns[-1] if turns else None
-        if _turn_active(conn, fact_id) or last is None or last.answer is not None:
+        if _turn_active(conn, fact_id):
+            raise RefineTurnRunning(detail="a turn is on its way")
+        if last is None or last.answer is not None:
             raise RefineBusy(detail="no turn waits for an answer")
         if not last.questions:  # nothing was asked, so there is nothing to answer
             raise RefineBusy(detail="the last turn asked no question")
@@ -814,6 +888,54 @@ def _claims_in(
             reported, suggestion=wording_of(suggestion), wording=wording
         ),
         name_hidden_sources=snapshot.get("name_hidden_sources", ()),
+    )
+
+
+def _view_of(fact_id: str, session: refine_repo.StoredSession) -> RefineView:
+    turns = _turns(session.turns)
+    return RefineView(
+        fact_id=fact_id,
+        questions=turns[-1].questions if turns and turns[-1].answer is None else (),
+        suggestion=_suggestion(session.suggestion),
+        flagged=tuple(item["text"] for item in _stored_claims(session.flagged_claims)),
+        answers_left=MAX_ANSWER_ROUNDS - session.answer_rounds,
+        practice=session.provider == "fake",
+    )
+
+
+def _suggested_for(session: refine_repo.StoredSession) -> str | None:
+    """The id of the fact's version the stored suggestion was made for."""
+    snapshot = json.loads(session.suggestion or "{}")
+    found = snapshot.get("fact_version_id") if isinstance(snapshot, dict) else None
+    return found if isinstance(found, str) else None
+
+
+def _phase(session: refine_repo.StoredSession | None, *, waiting: bool) -> str:
+    """Closed, waiting, failed (no turn ran, or the turn after the last answer ended without
+    an answer) or answered."""
+    if session is None:
+        return PHASE_CLOSED
+    if waiting:
+        return PHASE_WAITING
+    turns = _turns(session.turns)
+    if not turns or turns[-1].answer is not None:
+        return PHASE_FAILED
+    return PHASE_ANSWERED
+
+
+def _panel_claims(
+    session: refine_repo.StoredSession, suggestion: FactContent | None
+) -> tuple[RefineClaim, ...]:
+    """The flagged claims, each with whether editing its text out of the wording drops it,
+    as ``details_still_said`` reads a reported detail; any other claim is the wording's own
+    text."""
+    said = _folded(wording_of(suggestion)) if suggestion is not None else ""
+    return tuple(
+        RefineClaim(
+            text=item["text"],
+            edits_out=item.get("kind") != "added_detail" or _folded(item["text"]) in said,
+        )
+        for item in _stored_claims(session.flagged_claims)
     )
 
 

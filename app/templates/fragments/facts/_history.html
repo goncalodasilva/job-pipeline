@@ -31,7 +31,7 @@
       {% if part.label %}
       <p class="part-label">{{ part.label }}</p>
       {% endif %}
-      <p class="version-words">{% for run in part.runs %}{% if run.gap %} {% endif %}{% if run.op == "added" %}<ins><span class="visually-hidden">added: </span>{{ run.text }}<span class="visually-hidden"> (end added) </span></ins>{% elif run.op == "removed" %}<del><span class="visually-hidden">removed: </span>{{ run.text }}<span class="visually-hidden"> (end removed) </span></del>{% else %}{{ run.text }}{% endif %}{% endfor %}</p>
+      {% include "fragments/facts/_diff_words.html" %}
       {% endfor %}
     </li>
     {% endfor %}

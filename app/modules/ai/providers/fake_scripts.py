@@ -68,6 +68,9 @@ KEYWORD_REFINE_USES_ANSWER: Final = "fake-refine-uses-answer"
 KEYWORD_REFINE_INVENTED: Final = "fake-refine-invented"
 KEYWORD_REFINE_SELF_REPORTED: Final = "fake-refine-self-reported"
 KEYWORD_REFINE_INJECTION: Final = "fake-refine-injection"
+# The ``ok`` answer, after SLOW_REFINE_SECONDS: a waiting state that lasts (M3.9 e2e).
+KEYWORD_REFINE_SLOW: Final = "fake-refine-slow"
+SLOW_REFINE_SECONDS: Final = 8.0
 
 _NOT_JSON: Final = "fictional CV extraction output that is not JSON"
 _INVENTED_EMPLOYER: Final = "Imaginary Aerospace Corp"
@@ -302,8 +305,15 @@ def real_task_scripts(*, delay_seconds: float = 0.0) -> Mapping[str, KeywordScri
             ),
             REFINE_FACT_TASK: KeywordScript(
                 default=timed(REFINE_FACT_RESPONSES["ok"]),
-                by_keyword=tuple(
-                    (keyword, timed(response)) for keyword, response in _REFINE_FACT_KEYWORDS
+                by_keyword=(
+                    *((keyword, timed(response)) for keyword, response in _REFINE_FACT_KEYWORDS),
+                    (
+                        KEYWORD_REFINE_SLOW,
+                        replace(
+                            REFINE_FACT_RESPONSES["ok"],
+                            delay_seconds=max(SLOW_REFINE_SECONDS, delay_seconds),
+                        ),
+                    ),
                 ),
             ),
         }

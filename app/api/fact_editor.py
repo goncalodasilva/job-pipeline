@@ -45,7 +45,7 @@ async routes do their work in a worker thread.
 
 import json
 from collections.abc import Callable
-from typing import Final
+from typing import Any, Final
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, Request
@@ -55,6 +55,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.errors import INVALID_REQUEST
 from app.api.facts import FACTS_PATH, facts_service, form_version, no_such_id, not_found
 from app.api.facts_import import DRAFTS_TAB_URL
+from app.api.facts_refine import panel_context
 from app.api.forms import is_htmx, read_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
@@ -88,6 +89,7 @@ from app.services.fact_merge import (
     FactMerge,
     MergeView,
 )
+from app.services.fact_refine import FactRefineService
 
 NEW_PATH: Final = f"{FACTS_PATH}/new"
 EDITOR_PAGE: Final = "pages/fact_editor.html"
@@ -212,6 +214,15 @@ def _history_of(request: Request, view: EditorView) -> HistoryView | None:
     return None if view.fact_id is None else _history(request).of(view.fact_id)
 
 
+def _refine_of(request: Request, view: EditorView, *, oob: bool = False) -> dict[str, Any] | None:
+    """The Refine with AI panel (M3.9) of a fact that has a form; a new or discarded one has
+    none. ``oob``: sent out of band with another answer (Archive, Restore)."""
+    if view.fact_id is None or not view.fields:
+        return None
+    refine: FactRefineService = request.app.state.fact_refine
+    return panel_context(refine.panel(view.fact_id), oob=oob)
+
+
 def _editor_page(
     request: Request,
     view: EditorView,
@@ -230,6 +241,7 @@ def _editor_page(
         "areas": AREAS,
         "editor": view,
         "history": _history_of(request, view),
+        "refine": _refine_of(request, view),
         "said": said,
         "state_said": None,
         "conflict": conflict,
@@ -347,6 +359,7 @@ def _change_state(
         "history": _history_of(request, view),
         "state_said": said,
         "conflict": None,
+        "refine": _refine_of(request, view, oob=True),
     }
     return _announcing(templates.TemplateResponse(request, STATE_FRAGMENT, ctx), said)
 
