@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status as of 2026-10-19: M0–M3 limits, the M1/M2 acceptance follow-ups and M4.1 fetch items. M3.10 closes the specification-alignment items listed at the end; other entries retain their last recorded status.
+Status as of 2026-10-19: M0–M3 limits, the M1/M2 acceptance follow-ups, M4.1 fetch items and M4.2 schema items. M3.10 closes the specification-alignment items listed at the end; other entries retain their last recorded status.
 
 ## What belongs here
 
@@ -88,6 +88,12 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-178 | `tasks_repo.get_latest` has no index on `dedupe_key` beyond the partial active one. | M3.5 | low: the latest-task lookup slows as the task table grows | Add the index in a later migration when the lookup is slow. Committed migrations are never edited. |
 | TD-202 | A role typed in the editor is not matched against existing roles with the same employer and title. Discarding its draft leaves the role confirmed. | M3.6 Left (c); ADR-094 item 4 | medium: duplicate or stray confirmed roles stay in the library | Decide with TD-131 and TD-133. |
 | TD-204 | `FactHistory.of` and `FactMerge.page` make several separate reads, not one snapshot. A write between the reads can show mixed data. | M3.6 | low: a rare mixed view during a write | Read in one `Database.read()` block, with a test. |
+| TD-234 | Removal history is not kept. A second removal overwrites the reason and text, there is no `removed_at`, and a restored job keeps its old reason. | M4.2 | medium: M9 learning from removals would read incomplete or wrong history | Keep an append-only removal log, or have M9 skip restored jobs. Decide in M9. |
+| TD-235 | `jobs_fts` keeps merged jobs, so search would return duplicates that were merged away. | M4.2 | medium: duplicate cards in search results | M4.6 search must filter `merged_into_job_id IS NULL`, with a test. |
+| TD-236 | Pasted text with a link can be stored as kind `pasted` with a URL, or as `link`. | M4.2 | low: source counts may be unstable | M4.3 picks one rule, with a test. |
+| TD-237 | `jobs.locations` and `companies.locations` string-only content is checked only by the domain, because SQLite CHECK cannot test it. `NUMERIC` salary quietly accepts numeric strings. | M4.2 | low: odd values can be stored if a caller skips the domain | Enforce the types in the domain and test them at the repository. |
+| TD-238 | `update_job_triage` reports a missing job as `VersionConflict`. | M4.2 | low: a wrong message for a missing job | M4.6 and M4.8 call `get_job` first to answer 404. |
+| TD-239 | `JOB_FIELDS` has `company`, but `jobs` stores `company_id`. | M4.2 | low: a corrected company name cannot be written directly | M4.4 maps a corrected company name to `company_id`. |
 
 ## 4. Extraction and uploads
 

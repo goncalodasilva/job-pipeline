@@ -479,6 +479,14 @@ class RefineClaimsUnacknowledged(AppError):
         super().__init__(detail=detail)
 
 
+class TriageNotAllowed(AppError):
+    """A triage move the job's current state doesn't allow (M4.2), for example removing a
+    job that is already removed, or a stale page acting on a job that moved since."""
+
+    kind = "TriageNotAllowed"
+    message = "This job can't be changed that way now. Reload to see its current state."
+
+
 class SkillAliasTaken(AppError):
     kind = "SkillAliasTaken"
     message = "Another skill already uses this name. Choose a different name."

@@ -1,5 +1,6 @@
 {
   "0001_initial.sql": "df5edd867e83674d3c37d6fca70eda3d426b3d3b7df31c94c1909f1e12c18d86",
   "0002_tasks_usage_budgets.sql": "d1ee8b5853ad66ab94a7f56f61717ad18075c789db8a2aaa781d012f941756d2",
-  "0003_fact_bank.sql": "75c4df80b8df9cc8b12d9837fdd7d93facfce4cd6c1c5663741c30c08cb7ea25"
+  "0003_fact_bank.sql": "75c4df80b8df9cc8b12d9837fdd7d93facfce4cd6c1c5663741c30c08cb7ea25",
+  "0004_jobs.sql": "c52f8e54ac3fcb70342d1e4b349626fef655748bfea83c761107ac6668ebf737"
 }
