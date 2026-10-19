@@ -1,0 +1,79 @@
+{# One draft's block (M3.5; AC-M3.1, AC-M3.2). Needs `item` (a FactItem), `mode` and `edit`.
+   mode "draft": the wording, the quoted CV line beside it, the needs-check note and the
+   actions in one row (Confirm, Discard, and Edit, which opens the inline form below them),
+   each a small form that swaps this block. The quote of a draft that needs a check is what
+   the AI said the CV holds, which nothing confirmed: its caption says so, never "From your
+   CV". "restored"
+   is the same after an undo, with focus on the wording (never on Confirm: the key that
+   pressed Undo must not confirm). "confirmed" and "edited": a line saying so, which takes
+   focus; "discarded": the line and Undo, which takes focus (app.js keeps the drafts from
+   being refreshed while an Undo is on the page: data-holds-refresh).
+   `edit` is a refused inline form ({typed, field, message}) or none: the form is shown open
+   with what was typed, the message tied to its field and that field focused (422); each
+   field then also carries the saved wording (data-saved), so app.js can tell it was changed.
+   Under the actions, links to the full editor ("Edit details": role, skills, tags, dates
+   and privacy), the history and the merge screen (M3.6), each described by the wording.
+   The quote, the wording and the role are AI-made or come from the CV: always escaped. #}
+{% set block = "fact-" ~ item.id %}
+{% set is_draft = mode in ("draft", "restored") %}
+<div id="{{ block }}" class="fact-card draft{% if not is_draft %} draft-done{% endif %}" role="listitem">
+  {% with wording_focus = (mode == "restored") %}
+  {% include "fragments/facts/_fact_body.html" %}
+  {% endwith %}
+  {% if is_draft %}
+  {% if item.quote %}
+  {% include "fragments/facts/_cv_quote.html" %}
+  {% endif %}
+  {% if item.needs_check %}
+  {% with note_id = block ~ "-check" %}{% include "fragments/facts/_needs_check.html" %}{% endwith %}
+  {% endif %}
+  <div class="draft-actions">
+    <form method="post" action="/facts/{{ item.id }}/confirm" hx-post="/facts/{{ item.id }}/confirm"
+          hx-target="#{{ block }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ item.version }}">
+      <button type="submit" class="button button-primary" aria-describedby="wording-{{ item.id }}{% if item.needs_check %} {{ block }}-check{% endif %}">Confirm</button>
+    </form>
+    <form method="post" action="/facts/{{ item.id }}/discard" hx-post="/facts/{{ item.id }}/discard"
+          hx-target="#{{ block }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ item.version }}">
+      <button type="submit" class="button" aria-describedby="wording-{{ item.id }}">Discard</button>
+    </form>
+    <details class="draft-edit"{% if edit %} open{% endif %}>
+      <summary aria-describedby="wording-{{ item.id }}">Edit</summary>
+      <form class="draft-edit-form" method="post" action="/facts/{{ item.id }}/confirm-edited"
+            hx-post="/facts/{{ item.id }}/confirm-edited" hx-target="#{{ block }}" hx-swap="outerHTML"
+            hx-disabled-elt="find button" novalidate>
+        <input type="hidden" name="version" value="{{ item.version }}">
+        {% for field in item.fields %}
+        {% set field_id = "edit-" ~ item.id ~ "-" ~ field.name %}
+        {% set refused = edit and edit.field == field.name %}
+        <div class="field">
+          <label for="{{ field_id }}">{{ field.label }}</label>
+          <textarea id="{{ field_id }}" name="{{ field.name }}" rows="3"{% if edit %} data-saved="{{ field.value }}"{% endif %}{% if refused %} aria-invalid="true" aria-describedby="{{ field_id }}-error" data-autofocus{% endif %}>{{ edit.typed.get(field.name, field.value) if edit else field.value }}</textarea>
+          {% if refused %}
+          <p id="{{ field_id }}-error" class="field-error">{{ edit.message }}</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+        <div class="form-actions">
+          <button type="submit" class="button button-primary">Save and confirm</button>
+        </div>
+      </form>
+    </details>
+  </div>
+  <p class="fact-links">
+    <a href="/facts/{{ item.id }}/edit" aria-describedby="wording-{{ item.id }}">Edit details</a>
+    <a href="/facts/{{ item.id }}/edit#fact-history" aria-describedby="wording-{{ item.id }}">History</a>
+    <a href="/facts/{{ item.id }}/merge" aria-describedby="wording-{{ item.id }}">Merge with…</a>
+  </p>
+  {% elif mode == "discarded" %}
+  <p id="{{ block }}-status" class="fact-result">Discarded. It won't be used. Undo is available until you leave this page.</p>
+  <form method="post" action="/facts/{{ item.id }}/undo-discard" hx-post="/facts/{{ item.id }}/undo-discard"
+        hx-target="#{{ block }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-holds-refresh>
+    <input type="hidden" name="version" value="{{ item.version }}">
+    <button type="submit" class="button" aria-describedby="{{ block }}-status wording-{{ item.id }}" data-autofocus>Undo</button>
+  </form>
+  {% else %}
+  <p id="{{ block }}-status" class="fact-result" tabindex="-1" data-autofocus>{% if mode == "edited" %}Saved and confirmed.{% else %}Confirmed.{% endif %} It's in your Library now.</p>
+  {% endif %}
+</div>

@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["questions", "suggestion", "added_details"],
+  "properties": {
+    "questions": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {"type": "string", "minLength": 1, "maxLength": 300, "pattern": "\\S"}
+    },
+    "suggestion": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["text", "situation", "action", "result"],
+      "properties": {
+        "text": {"type": ["string", "null"], "maxLength": 2000, "pattern": "\\S"},
+        "situation": {"type": ["string", "null"], "maxLength": 2000, "pattern": "\\S"},
+        "action": {"type": ["string", "null"], "maxLength": 2000, "pattern": "\\S"},
+        "result": {"type": ["string", "null"], "maxLength": 2000, "pattern": "\\S"}
+      },
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "situation", "action", "result"],
+          "properties": {
+            "text": {"type": "string", "maxLength": 2000},
+            "situation": {"type": "null"},
+            "action": {"type": "null"},
+            "result": {"type": "null"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "situation", "action", "result"],
+          "properties": {
+            "text": {"type": "null"},
+            "situation": {"type": ["string", "null"], "maxLength": 2000},
+            "action": {"type": ["string", "null"], "maxLength": 2000},
+            "result": {"type": ["string", "null"], "maxLength": 2000}
+          },
+          "anyOf": [
+            {"properties": {"situation": {"type": "string", "maxLength": 2000}}},
+            {"properties": {"action": {"type": "string", "maxLength": 2000}}},
+            {"properties": {"result": {"type": "string", "maxLength": 2000}}}
+          ]
+        }
+      ]
+    },
+    "added_details": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {"type": "string", "minLength": 1, "maxLength": 300, "pattern": "\\S"}
+    }
+  }
+}

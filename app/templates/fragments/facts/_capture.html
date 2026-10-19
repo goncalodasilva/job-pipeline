@@ -1,0 +1,60 @@
+{# The capture inbox (M3.7; detailed design "Fact bank", Capture inbox). Needs `capture`
+   (capture_context in app/api/facts_capture.py): the open notes, and after an action its
+   result (`status`, which takes focus, with "Undo" after a delete) or a refused note
+   (`error`, tied to the field, which takes focus, with what was typed shown back). Every
+   form here swaps this whole section. "Turn into a fact" opens the editor with the note's
+   text typed in; saving it there takes the note out of this list. Every swap settles at once
+   (settle:0ms), so a quick keyboard user never reaches a form htmx hasn't wired up yet.
+   Notes are the user's own text: escaped like everything else. #}
+<section id="capture-inbox" class="facts-section capture-inbox" aria-labelledby="capture-heading">
+  <h2 id="capture-heading">Capture inbox</h2>
+  <p class="field-hint">Jot down something you did, in a line. When you have time, turn each note into a fact for your Library.</p>
+  {% if capture.status %}
+  <div class="fact-result capture-result">
+    <p id="capture-status" tabindex="-1" data-autofocus>{{ capture.status }}</p>
+    {% if capture.undo_id %}
+    <form method="post" action="/facts/capture/{{ capture.undo_id }}/undo-delete"
+          hx-post="/facts/capture/{{ capture.undo_id }}/undo-delete" hx-target="#capture-inbox" hx-swap="outerHTML settle:0ms"
+          hx-disabled-elt="find button">
+      <button type="submit" class="button">Undo</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+  <form id="capture-form" class="step-form" method="post" action="/facts/capture"
+        hx-post="/facts/capture" hx-target="#capture-inbox" hx-swap="outerHTML settle:0ms"
+        hx-disabled-elt="find button" novalidate>
+    <div class="field">
+      <label for="capture-text">New note</label>
+      <textarea id="capture-text" name="text" rows="3"{% if capture.error %} aria-invalid="true" aria-describedby="capture-error" data-autofocus{% endif %}>{{ capture.typed }}</textarea>
+      {% if capture.error %}
+      <p id="capture-error" class="field-error">{{ capture.error }}</p>
+      {% endif %}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="button button-primary">Add note</button>
+    </div>
+  </form>
+  <h3 id="capture-notes-heading">Notes</h3>
+  <div id="capture-notes" class="capture-notes">
+    {% if capture.notes %}
+    <ul class="fact-list" aria-labelledby="capture-notes-heading">
+      {% for note in capture.notes %}
+      <li id="note-{{ note.id }}" class="fact-card capture-note">
+        <p id="capture-text-{{ note.id }}" class="fact-text">{{ note.text }}</p>
+        <div class="form-actions">
+          <a class="button" href="/facts/new?note={{ note.id }}" aria-describedby="capture-text-{{ note.id }}">Turn into a fact</a>
+          <form method="post" action="/facts/capture/{{ note.id }}/delete"
+                hx-post="/facts/capture/{{ note.id }}/delete" hx-target="#capture-inbox" hx-swap="outerHTML settle:0ms"
+                hx-disabled-elt="find button">
+            <button type="submit" class="button" aria-describedby="capture-text-{{ note.id }}">Delete</button>
+          </form>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="drafts-none">No notes yet.</p>
+    {% endif %}
+  </div>
+</section>

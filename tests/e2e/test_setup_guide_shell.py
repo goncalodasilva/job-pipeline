@@ -27,6 +27,7 @@ STEPS = (
     ("welcome", "Welcome and data folder"),
     ("provider", "AI provider"),
     ("web_search", "Web search"),
+    ("cv_import", "Import CV"),
     ("preferences", "Job preferences"),
     ("done", "Done"),
 )

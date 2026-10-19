@@ -1,0 +1,56 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 702 >>
+stream
+BT /F1 11 Tf 1 0 0 1 72 770 Tm (Alex Example) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 748 Tm (Operations Analyst - Lisbon, Portugal) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 726 Tm (alex@example.com) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 704 Tm (Experience) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 682 Tm (Example Widgets Ltd - Operations Analyst \(2021 - 2024\)) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 660 Tm (Cut invoice processing time by 35% across 4 warehouses.) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 638 Tm (Built weekly stock reports used by 12 store managers.) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 616 Tm (Sample Logistics SA - Junior Planner \(2018 - 2021\)) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 594 Tm (Planned 60 delivery routes a week with a team of 3.) Tj ET
+
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 268 >>
+stream
+BT /F1 11 Tf 1 0 0 1 72 770 Tm (Education) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 748 Tm (BSc in Industrial Management, Example University, 2018) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 726 Tm (Skills) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 704 Tm (SQL, Excel, Python, Portuguese, English) Tj ET
+
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000344 00000 n 
+0000001097 00000 n 
+0000001223 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1542
+%%EOF

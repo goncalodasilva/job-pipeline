@@ -152,6 +152,18 @@ class VersionConflict(AppError):
     message = "This item changed elsewhere. Reload to see the latest version."
 
 
+class RefineSuggestionStale(VersionConflict):
+    """Accept of a Refine with AI suggestion made for an earlier version of the fact (it was
+    edited since). Reloading shows the same suggestion, so the words say what helps; the
+    panel shows the same note (ADR-097)."""
+
+    kind = "RefineSuggestionStale"
+    message = (
+        "Your fact changed after this suggestion. "
+        "Discard it and ask again, or keep editing it yourself."
+    )
+
+
 class ConfigError(AppError):
     """A start-up setting is invalid. ``detail`` names the setting, never its value."""
 
@@ -192,6 +204,101 @@ class DataFolderInUse(ConfigError):
 class FetchRefused(AppError):
     kind = "FetchRefused"
     message = "This address can't be fetched. Paste the job text instead."
+
+
+class UnsupportedDocumentType(AppError):
+    """The content is not a PDF, a Word file or plain text (decided by content, never by name)."""
+
+    kind = "UnsupportedDocumentType"
+    message = (
+        "This file type isn't supported. Upload a PDF or Word file, or paste the text instead."
+    )
+
+
+class UnreadableDocument(AppError):
+    """The document is damaged or can't be read. ``detail`` names an error type at most, never
+    the reader's own error text, which can quote the document."""
+
+    kind = "UnreadableDocument"
+    message = (
+        "This file couldn't be read. It may be damaged. Save it again, or paste the text instead."
+    )
+
+
+class EncryptedDocument(UnreadableDocument):
+    kind = "EncryptedDocument"
+    message = (
+        "This PDF is protected by a password. Save a copy without the password, "
+        "or paste the text instead."
+    )
+
+
+class NoTextFound(AppError):
+    """The document has nothing to read, as in a scan (no OCR; ADR-089 item 11)."""
+
+    kind = "NoTextFound"
+    message = "No text was found in this file. If it's a scan, paste the text instead."
+
+
+class ParseTimedOut(AppError):
+    kind = "ParseTimedOut"
+    message = "Reading this file took too long. Try again, or paste the text instead."
+
+
+class UploadTooLarge(AppError):
+    kind = "UploadTooLarge"
+    message = "This file is larger than 10 MB. Upload a smaller file, or paste the text instead."
+
+
+class UploadNotAccepted(AppError):
+    """The request isn't one file or a pasted text (two files, both, neither, or malformed)."""
+
+    kind = "UploadNotAccepted"
+    message = "Upload one file (PDF, Word or plain text), or paste the text instead."
+
+
+class CvTextTooLong(AppError):
+    """The CV's text is longer than one import takes. It is refused whole, never cut."""
+
+    kind = "CvTextTooLong"
+    message = (
+        "This CV has too much text to import in one go. Paste the part that matters most instead."
+    )
+
+
+class NothingExtracted(AppError):
+    """The AI answered, but listed nothing from the CV."""
+
+    kind = "NothingExtracted"
+    message = "Nothing could be listed from this CV. Try again, or paste the text instead."
+
+
+class CvImportNotFound(AppError):
+    """The id names no uploaded CV: never stored, or removed (also while its task ran)."""
+
+    kind = "CvImportNotFound"
+    message = "This uploaded CV wasn't found. It may have been removed. Upload it again."
+
+
+class CvImportBusy(AppError):
+    """The upload can't be removed while its task is queued or running."""
+
+    kind = "CvImportBusy"
+    message = "This CV is being read. Cancel the task or wait for it to finish, then remove it."
+
+
+class CvImportAlreadyDone(AppError):
+    """The upload was already imported; its drafts are made once."""
+
+    kind = "CvImportAlreadyDone"
+    message = "This CV was already imported. Its drafts are in your fact bank."
+
+
+class ProviderNotConfigured(AppError):
+    """No usable AI provider is saved, so nothing that needs one can start."""
+
+    kind = "ProviderNotConfigured"
+    message = "No AI provider is connected. Connect one in Settings > Providers, then try again."
 
 
 class SecretStoreUnavailable(AppError):
@@ -240,6 +347,141 @@ class UnknownSetupStep(AppError):
 
 class StepNotSkippable(AppError):
     message = "This step is needed, so it can't be skipped."
+
+
+class FactNotFound(AppError):
+    """The id names no fact, role or skill."""
+
+    kind = "FactNotFound"
+    message = "This item wasn't found. Reload the page and try again."
+
+
+class FactTransitionRefused(AppError):
+    """A status change the fact lifecycle doesn't allow (spec 3.2)."""
+
+    kind = "FactTransitionRefused"
+    message = (
+        "This can't be done to this fact in its current state. Reload to see the latest version."
+    )
+
+
+class FactInputInvalid(AppError):
+    """What the user typed can't be saved. ``field`` names the form field it belongs to and
+    ``message`` says what to change; without one it reads as the class message, which is also
+    what a stored kind maps back to."""
+
+    kind = "FactInputInvalid"
+    message = "This can't be saved as it is. Check what you typed and try again."
+
+    def __init__(
+        self, field: str = "", message: str | None = None, *, detail: str | None = None
+    ) -> None:
+        self.field = field
+        self._message = message
+        super().__init__(detail=detail)
+
+    @property
+    def user_message(self) -> str:
+        return self._message if self._message is not None else self.message
+
+
+class RefineNeverUse(AppError):
+    """Refine with AI asked for a fact marked "never use": nothing is sent (ADR-089 item 6)."""
+
+    kind = "RefineNeverUse"
+    message = (
+        'This fact is marked "Never use in applications", so it is never sent to the AI. '
+        "To refine it, change its privacy setting first."
+    )
+
+
+class RefineNotAvailable(AppError):
+    """Refine with AI asked for a discarded or archived fact."""
+
+    kind = "RefineNotAvailable"
+    message = "Only drafts and confirmed facts can be refined. Restore this fact first."
+
+
+class RefineNotOpen(AppError):
+    """No Refine with AI conversation is open for the fact."""
+
+    kind = "RefineNotOpen"
+    message = "There is no open Refine with AI conversation for this fact. Start one first."
+
+
+class RefineBusy(AppError):
+    """An answer when the AI has no question waiting for one (none was asked, or the last
+    question is answered). Its subclasses are the cases where a turn is on its way."""
+
+    kind = "RefineBusy"
+    message = "The AI has no question waiting for an answer right now."
+
+
+class RefineTurnRunning(RefineBusy):
+    """A turn of the open conversation is still queued or running."""
+
+    kind = "RefineTurnRunning"
+    message = "The AI hasn't answered yet. Wait for its answer, then try again."
+
+
+class RefineStopping(RefineBusy):
+    """A conversation that was cancelled or discarded still has its turn stopping, so a new
+    one can't open yet (ADR-097 item 6)."""
+
+    kind = "RefineStopping"
+    message = "The previous conversation is still stopping. Try again in a moment."
+
+
+class RefineContextChanged(AppError):
+    """A fact sent earlier in the Refine with AI conversation (its wording, or quoted in the
+    AI's questions or suggestion) is now marked "never use", or (for Accept) "generalize
+    names" when it was sent without that mark: going on would use or send it in a way the
+    user no longer allows (ADR-089 item 6)."""
+
+    kind = "RefineContextChanged"
+    message = (
+        "The privacy setting of a fact used earlier in this conversation has changed. "
+        "Discard this conversation and start again."
+    )
+
+
+class RefineAnswersUsed(AppError):
+    """A conversation takes at most three answers."""
+
+    kind = "RefineAnswersUsed"
+    message = (
+        "This conversation already has three answers. Accept the suggestion, edit the fact "
+        "yourself or discard it."
+    )
+
+
+class RefineNoSuggestion(AppError):
+    """Accept asked for a Refine with AI conversation whose AI hasn't suggested a wording
+    (yet), so there is nothing the posted wording could have come from."""
+
+    kind = "RefineNoSuggestion"
+    message = "There is no suggested wording to accept yet."
+
+
+class RefineClaimsUnacknowledged(AppError):
+    """Accept refused: the wording says something that isn't in the fact bank, and the user
+    neither confirmed it nor edited it out (spec 3.1 item 5; AC-M3.5). ``claims`` are the
+    texts still to confirm, for the page to list; never logged."""
+
+    kind = "RefineClaimsUnacknowledged"
+    message = (
+        "This isn't in your fact bank. Confirm each item below is true, or edit it out, "
+        "before accepting."
+    )
+
+    def __init__(self, claims: tuple[str, ...] = (), *, detail: str | None = None) -> None:
+        self.claims = claims
+        super().__init__(detail=detail)
+
+
+class SkillAliasTaken(AppError):
+    kind = "SkillAliasTaken"
+    message = "Another skill already uses this name. Choose a different name."
 
 
 BUDGET_MESSAGE = (

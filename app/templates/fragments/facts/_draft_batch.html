@@ -1,0 +1,35 @@
+{# "Confirm all from this import" for one group, after its drafts. Needs `group` (a DraftGroup
+   with an id), `oob`, `said` (the button's result: it takes focus) and `conflict` with
+   `reload_url` (a refused batch: the reload prompt takes focus, with no form beside it, since
+   the versions the form lists no longer work).
+   The form posts the version of every draft the import still has, the flagged ones too: the
+   server leaves those and the result says how many (ADR-091 item 3). The sentence above the
+   button says what it would confirm, and the button is offered only while that is something.
+   The answer replaces this wrapper only and removes the confirmed drafts' blocks out of band,
+   so nothing else in the group is touched; app.js leaves out of the request a draft that
+   needs no check whose inline form is open with changed wording (data-confirms names its
+   block), so what is being typed is never confirmed in its old words.
+   The wrapper is always there, so the answer to an action on one draft can replace it out of
+   band (`oob`): the versions the batch sends then match the drafts as they are. #}
+{% set batch_id = "draft-group-" ~ group.id ~ "-batch" %}
+<div id="{{ batch_id }}" class="draft-batch"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if said %}
+  <p id="draft-group-{{ group.id }}-status" class="fact-result" tabindex="-1" data-autofocus>{{ said }}</p>
+  {% endif %}
+  {% if conflict %}
+  {% set reload_id = "draft-group-" ~ group.id ~ "-conflict" %}
+  {% set reload_message = conflict %}
+  {% set reload_detail = "" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% elif group.batch_hint %}
+  <p id="{{ batch_id }}-hint" class="field-hint">{{ group.batch_hint }}</p>
+  <form method="post" action="/facts/import/{{ group.id }}/confirm-all"
+        hx-post="/facts/import/{{ group.id }}/confirm-all" hx-target="#{{ batch_id }}" hx-swap="outerHTML"
+        hx-disabled-elt="find button" data-skips-open-edits>
+    {% for item in group.items %}
+    <input type="hidden" name="version:{{ item.id }}" value="{{ item.version }}"{% if not item.needs_check %} data-confirms="fact-{{ item.id }}"{% endif %}>
+    {% endfor %}
+    <button type="submit" class="button" aria-describedby="draft-group-{{ group.id }}-heading {{ batch_id }}-hint">Confirm all from this import</button>
+  </form>
+  {% endif %}
+</div>

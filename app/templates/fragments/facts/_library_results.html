@@ -1,0 +1,67 @@
+{# The Library's results (M3.5): replaced by a search or a paging link. Needs `library`
+   (a LibraryView), `library_alone` (this is the whole answer, so a refused filter says why
+   here: its field isn't in the answer) and `count_focus` (an answer to a paging link: the
+   count takes focus, since the link is gone). Paging links are plain links to the page that
+   keep the query; with htmx they swap this element. A draft listed here (the Draft status)
+   keeps its needs-check note and links to the Drafts tab, where it is reviewed. A confirmed
+   or archived fact links to its editor and its history (M3.6), each link described by the
+   fact's wording; a discarded draft has "Restore draft" (the Drafts tab's undo-discard
+   route; its hidden `from` field tells the route to answer this card), unless a merge closed it: its
+   way back is "Undo merge" on its merge screen. Every fact's words are escaped. #}
+<div id="library-results" class="library-results">
+  {% if library.status_error %}
+  {% if library_alone %}
+  <p class="field-error">{{ library.status_error }}</p>
+  {% endif %}
+  {% elif library.empty == "none" %}
+  <div class="empty-state">
+    <p>{{ area.explanation }}</p>
+    <p>No facts yet. <a href="/facts?tab=drafts#cv-import">Import your CV</a>?</p>
+  </div>
+  {% elif library.empty == "drafts" %}
+  <div class="empty-state">
+    <p>{{ area.explanation }}</p>
+    <p>No confirmed facts yet. You have <a href="/facts?tab=drafts">{{ library.drafts_waiting }} to review</a>.</p>
+  </div>
+  {% elif library.empty == "no_match" %}
+  <p class="library-none">No facts match your search.</p>
+  {% else %}
+  <p id="library-count" class="library-count"{% if count_focus %} tabindex="-1" data-autofocus{% endif %}>{{ library.count_text }}</p>
+  <div class="fact-list" role="list">
+    {% for item in library.items %}
+    <div id="fact-{{ item.id }}" class="fact-card" role="listitem">
+      {% include "fragments/facts/_fact_body.html" %}
+      {% if item.status == "draft" %}
+      {% if item.needs_check %}
+      {% with note_id = "fact-" ~ item.id ~ "-check" %}{% include "fragments/facts/_needs_check.html" %}{% endwith %}
+      {% endif %}
+      <p class="fact-meta"><a href="/facts?tab=drafts#fact-{{ item.id }}">Review it in Drafts to review</a></p>
+      {% elif item.status == "discarded" and item.merged %}
+      <p class="fact-links"><a href="/facts/{{ item.id }}/merge" aria-describedby="wording-{{ item.id }}">See the merge</a> <a href="/facts/{{ item.id }}/edit#fact-history" aria-describedby="wording-{{ item.id }}">History</a></p>
+      {% elif item.status == "discarded" %}
+      <form id="restore-draft-{{ item.id }}" class="fact-restore" method="post" action="/facts/{{ item.id }}/undo-discard"
+            hx-post="/facts/{{ item.id }}/undo-discard" hx-target="#fact-{{ item.id }}" hx-swap="outerHTML"
+            hx-disabled-elt="find button">
+        <input type="hidden" name="version" value="{{ item.version }}">
+        <input type="hidden" name="from" value="library">
+        <button type="submit" class="button" aria-describedby="wording-{{ item.id }}">Restore draft</button>
+      </form>
+      <p class="fact-links"><a href="/facts/{{ item.id }}/edit#fact-history" aria-describedby="wording-{{ item.id }}">History</a></p>
+      {% else %}
+      <p class="fact-links"><a href="/facts/{{ item.id }}/edit" aria-describedby="wording-{{ item.id }}">Edit</a> <a href="/facts/{{ item.id }}/edit#fact-history" aria-describedby="wording-{{ item.id }}">History</a></p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% if library.previous_query or library.next_query %}
+  <nav class="library-pages" aria-label="Library pages">
+    {% if library.previous_query %}
+    <a id="library-previous" class="button" href="/facts?{{ library.previous_query }}" hx-get="/facts/library?{{ library.previous_query }}" hx-target="#library-results" hx-swap="outerHTML">Previous</a>
+    {% endif %}
+    {% if library.next_query %}
+    <a id="library-next" class="button" href="/facts?{{ library.next_query }}" hx-get="/facts/library?{{ library.next_query }}" hx-target="#library-results" hx-swap="outerHTML">Next</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+  {% endif %}
+</div>

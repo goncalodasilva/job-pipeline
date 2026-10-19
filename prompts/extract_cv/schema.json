@@ -1,0 +1,83 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["roles", "units"],
+  "properties": {
+    "roles": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "employer", "title", "start_date", "end_date"],
+        "properties": {
+          "key": {"type": "string", "pattern": "^r[1-9][0-9]{0,2}$"},
+          "employer": {"type": ["string", "null"], "maxLength": 200, "pattern": "\\S"},
+          "title": {"type": ["string", "null"], "maxLength": 200, "pattern": "\\S"},
+          "start_date": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9]{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12][0-9]|3[01]))?)?$"
+          },
+          "end_date": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9]{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12][0-9]|3[01]))?)?$"
+          }
+        },
+        "anyOf": [
+          {"properties": {"employer": {"type": "string"}}},
+          {"properties": {"title": {"type": "string"}}}
+        ]
+      }
+    },
+    "units": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "role_key",
+          "text",
+          "situation",
+          "action",
+          "result",
+          "skills",
+          "source_quote"
+        ],
+        "properties": {
+          "type": {"enum": ["fact", "story"]},
+          "role_key": {"type": ["string", "null"], "pattern": "^r[1-9][0-9]{0,2}$"},
+          "text": {"type": ["string", "null"], "maxLength": 1000, "pattern": "\\S"},
+          "situation": {"type": ["string", "null"], "maxLength": 1000, "pattern": "\\S"},
+          "action": {"type": ["string", "null"], "maxLength": 1000, "pattern": "\\S"},
+          "result": {"type": ["string", "null"], "maxLength": 1000, "pattern": "\\S"},
+          "skills": {
+            "type": "array",
+            "maxItems": 60,
+            "uniqueItems": true,
+            "items": {"type": "string", "maxLength": 80, "pattern": "\\S"}
+          },
+          "source_quote": {"type": "string", "maxLength": 2000, "pattern": "\\S"}
+        },
+        "if": {"properties": {"type": {"enum": ["story"]}}},
+        "then": {
+          "properties": {"text": {"type": "null"}},
+          "anyOf": [
+            {"properties": {"situation": {"type": "string"}}},
+            {"properties": {"action": {"type": "string"}}},
+            {"properties": {"result": {"type": "string"}}}
+          ]
+        },
+        "else": {
+          "properties": {
+            "text": {"type": "string"},
+            "situation": {"type": "null"},
+            "action": {"type": "null"},
+            "result": {"type": "null"}
+          }
+        }
+      }
+    }
+  }
+}

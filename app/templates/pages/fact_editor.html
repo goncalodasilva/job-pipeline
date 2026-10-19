@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% set live_updates = true %}
+{% block title %}{% if refused %}Error: {% endif %}{{ editor.heading }} · {{ area.name }}{% endblock %}
+{% block content %}{% include "fragments/facts/_editor.html" %}{% endblock %}

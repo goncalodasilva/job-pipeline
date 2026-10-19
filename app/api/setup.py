@@ -25,6 +25,12 @@ for htmx 200 with ``HX-Redirect``. A submit that changes nothing but asks or ans
 in that state, for htmx and plain requests alike. A refused submit shows back only the fields
 the handler names (``echo_fields``, one value each; ``echo_multi_fields``, every value).
 
+``POST /setup/cv_import/upload`` (M3.7; not page-tagged, POST only) is step 4's upload: one
+file or a pasted text (``read_upload``, capped), handed to the CV import step, which stores it
+through the Fact bank's ``CvImportService`` and starts it. It answers like a submit: on to job
+preferences once stored, or 422 with the reason on the field it belongs to (the pasted text,
+shown back, or the file) and nothing stored.
+
 ``POST /setup/leave`` (M1.20; not page-tagged, POST only, registered before the step submit)
 is "Back to the app", offered whenever setup is finished: on a guide reopened by ``--setup``
 it ends the reopening for the rest of the run; reached from a banner it has nothing to end.
@@ -40,19 +46,23 @@ the fragment and an "announce" trigger with the result text, a plain request the
 
 import json
 from collections.abc import Mapping
+from functools import partial
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from app.api.errors import DOCUMENT_ERRORS
 from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.security import PAGE_TAG
 from app.api.setup_redirect import SETUP_PATH, setup_step_path
 from app.api.templating import render
-from app.domain.errors import UnknownSetupStep
+from app.api.uploads import BOTH_GIVEN, read_upload
+from app.domain.errors import AppError, UnknownSetupStep, UploadNotAccepted, UploadTooLarge
 from app.onboarding.detection import StartupDecision
 from app.onboarding.registry import (
+    CV_IMPORT,
     PROVIDER,
     ConnectionCheck,
     ConnectionTester,
@@ -63,12 +73,16 @@ from app.onboarding.registry import (
     StepResult,
 )
 from app.onboarding.startup import OnboardingState
+from app.onboarding.steps.cv_import import FILE_FIELD, TEXT_FIELD, CvImportStep
+from app.services.fact_views import MSG_CHOOSE_ONE
 
 SETUP_PAGE = "pages/setup.html"
 GUIDE_FRAGMENT = "fragments/setup/_guide_swap.html"
 NOT_FOUND_PAGE = "pages/setup_not_found.html"
 NOT_FOUND_FRAGMENT = "fragments/setup/_not_found.html"
 LEAVE_PATH = f"{SETUP_PATH}/leave"  # "Back to the app" (M1.20)
+CV_UPLOAD_PATH = f"{setup_step_path(CV_IMPORT.id)}/upload"  # step 4's upload (M3.7)
+_UPLOAD_ERRORS: tuple[type[AppError], ...] = (UploadTooLarge, *DOCUMENT_ERRORS)
 APP_HOME = "/"
 
 
@@ -96,6 +110,13 @@ def register_setup_pages(app: FastAPI) -> None:
         methods=["POST"],
         response_class=HTMLResponse,
         name="setup_provider_test",
+    )
+    app.add_api_route(
+        CV_UPLOAD_PATH,
+        upload_cv,
+        methods=["POST"],
+        response_class=HTMLResponse,
+        name="setup_cv_import_upload",
     )
     app.add_api_route(
         LEAVE_PATH,
@@ -145,6 +166,54 @@ async def submit_step(request: Request, step_id: str) -> Response:
     handler: StepHandler = request.app.state.setup_handlers[step.id]
     # Handlers block (folders, database, keychain): never on the event loop.
     result: StepResult = await run_in_threadpool(handler.submit, form)
+    return await _answer(request, registry, step, result, form)
+
+
+async def upload_cv(request: Request) -> Response:
+    """Step 4's upload (M3.7): one file or a pasted text, read with the size cap, handed to
+    the step, then answered like a submit. A refused upload is a field error (422) on the
+    step, whatever the reason; nothing is stored. Takes only ``Request``: ``read_upload``
+    caps the body as it reads it."""
+    registry: StepRegistry = request.app.state.setup_registry
+    try:
+        step = registry.get(CV_IMPORT.id)
+    except UnknownSetupStep:
+        return _not_found(request)
+    handler: CvImportStep = request.app.state.setup_handlers[step.id]
+    pasted: Form | None = None  # what is shown back after a refusal: a pasted text only
+    try:
+        upload = await read_upload(request)
+    except _UPLOAD_ERRORS as error:
+        result = StepResult(ok=False, errors=dict([_refusal(error)]))
+    else:
+        if upload.source == "text":
+            pasted = {TEXT_FIELD: [upload.data.decode("utf-8", errors="replace")]}
+        # Blocking (a parse in a child process, a file, the database).
+        result = await run_in_threadpool(
+            partial(handler.upload, upload.data, pasted=pasted is not None)
+        )
+    return await _answer(request, registry, step, result, pasted)
+
+
+def _refusal(error: AppError) -> tuple[str, str]:
+    """The field an upload refused before it was read whole belongs to, and what to say: a
+    file sent together with a pasted text is the text field's, in the Fact bank's words;
+    anything else (no upload at all, a body past the cap, a malformed one) the file
+    field's, since what was sent can't be told then."""
+    if isinstance(error, UploadNotAccepted) and str(error) == BOTH_GIVEN:
+        return TEXT_FIELD, MSG_CHOOSE_ONE
+    return FILE_FIELD, error.user_message
+
+
+async def _answer(
+    request: Request,
+    registry: StepRegistry,
+    step: StepDefinition,
+    result: StepResult,
+    form: Form | None,
+) -> Response:
+    """What a step's submit answers, from the handler's ``result`` (see the module's
+    docstring). ``form`` is what was sent, shown back when refused (None: nothing is)."""
     # Showing a step reads stored settings (the handler's context): in a worker thread too.
     if result.conflict:  # changed elsewhere: nothing saved; the step asks to load it again
         response = await run_in_threadpool(

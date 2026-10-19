@@ -1,0 +1,50 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 1189 >>
+stream
+BT /F1 11 Tf 1 0 0 1 50 770 Tm (Alex Example) Tj ET
+BT /F1 11 Tf 1 0 0 1 50 748 Tm (Contact) Tj ET
+BT /F1 11 Tf 1 0 0 1 50 726 Tm (alex@example.com) Tj ET
+BT /F1 11 Tf 1 0 0 1 50 704 Tm (Skills) Tj ET
+BT /F1 11 Tf 1 0 0 1 50 682 Tm (SQL and Python) Tj ET
+BT /F1 11 Tf 1 0 0 1 50 660 Tm (Stock forecasting) Tj ET
+BT /F1 11 Tf 1 0 0 1 50 638 Tm (Languages) Tj ET
+BT /F1 11 Tf 1 0 0 1 50 616 Tm (Portuguese \(native\)) Tj ET
+BT /F1 11 Tf 1 0 0 1 50 594 Tm (English \(fluent\)) Tj ET
+BT /F1 11 Tf 1 0 0 1 220 770 Tm (Profile) Tj ET
+BT /F1 11 Tf 1 0 0 1 220 748 Tm (Operations analyst with six years in retail logistics.) Tj ET
+BT /F1 11 Tf 1 0 0 1 220 726 Tm (Experience) Tj ET
+BT /F1 11 Tf 1 0 0 1 220 704 Tm (Example Widgets Ltd, Operations Analyst, 2021 - 2024) Tj ET
+BT /F1 11 Tf 1 0 0 1 220 682 Tm (Cut invoice processing time by 35% across 4 warehouses.) Tj ET
+BT /F1 11 Tf 1 0 0 1 220 660 Tm (Sample Logistics SA, Junior Planner, 2018 - 2021) Tj ET
+BT /F1 11 Tf 1 0 0 1 220 638 Tm (Planned 60 delivery routes a week with a team of 3.) Tj ET
+BT /F1 11 Tf 1 0 0 1 220 616 Tm (Education) Tj ET
+BT /F1 11 Tf 1 0 0 1 220 594 Tm (BSc in Industrial Management, Example University, 2018) Tj ET
+
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000212 00000 n 
+0000000338 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1579
+%%EOF

@@ -1,0 +1,53 @@
+{# The CV import section of the Drafts tab (M3.5; AC-M3.1; ADR-092). Needs `cv_import`
+   (import_context in app/api/facts_import.py). The form (one file, or pasted text) posts as
+   multipart and swaps this whole section, as do a kept upload's Start and the budget
+   dialog's Continue, which this section holds when the budget gate has a question: the
+   dialog alone would replace the form. The notice says where the CV's text goes, and the
+   button is described by it; with the practice provider saved, a second notice says that
+   it reads no CV and makes fictional example drafts. After a start the status line takes focus (it is outside the
+   list, which refetches itself while the task runs) and the same words go to the live
+   region. A refused upload answers 400 or 413 with the reason: app.js lets a region marked
+   data-shows-refusals show it. The fields are emptied by every answer: the upload is kept
+   and listed below, so nothing is sent twice.
+   When an import fails, the task indicator's sentence sends the user to the Tasks panel; on
+   this page the reason is in the upload's own row, so app.js says the other sentence instead
+   (data-announce-instead-of, data-announce-instead: both fixed, from the server). #}
+<section id="cv-import" class="facts-section cv-import" aria-labelledby="cv-import-heading" data-shows-refusals
+         data-announce-instead-of="{{ cv_import.failed_said }}" data-announce-instead="{{ cv_import.failed_instead }}">
+  <h2 id="cv-import-heading">Import your CV</h2>
+  {% with count = cv_import.draft_count, oob = false %}{% include "fragments/facts/_skip_link.html" %}{% endwith %}
+  <p class="field-hint">Upload your CV, or paste its text. The app lists what it states as drafts for you to check. Nothing is confirmed for you.</p>
+  {% if cv_import.status %}
+  <p id="cv-import-status" class="fact-result" tabindex="-1" data-autofocus>{{ cv_import.status }}</p>
+  {% endif %}
+  <form id="cv-import-form" class="step-form" method="post" action="/facts/import" enctype="multipart/form-data"
+        hx-post="/facts/import" hx-encoding="multipart/form-data" hx-target="#cv-import" hx-swap="outerHTML"
+        hx-indicator="#cv-import-sending" hx-disabled-elt="#cv-import-start" novalidate>
+    {% if cv_import.error %}
+    <p id="cv-import-error" class="field-error" tabindex="-1" data-autofocus>{{ cv_import.error }}</p>
+    {% endif %}
+    <div class="field">
+      <label for="cv-import-file">CV file (PDF, Word or plain text, up to 10 MB)</label>
+      <input type="file" id="cv-import-file" name="file" accept=".pdf,.docx,.txt,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"{% if cv_import.error %} aria-describedby="cv-import-error"{% endif %}>
+    </div>
+    <div class="field">
+      <label for="cv-import-text">Or paste your CV's text (leave the file empty)</label>
+      <textarea id="cv-import-text" name="text" rows="6"{% if cv_import.error %} aria-describedby="cv-import-error"{% endif %}></textarea>
+    </div>
+    <p id="cv-import-privacy" class="notice">Your CV's text, with any contact details in it, is sent to the AI provider you chose in Settings so it can list what the CV states. The file is kept in your data folder on this computer until you remove it.</p>
+    {% if cv_import.practice %}
+    <p id="cv-import-practice" class="notice">You're using the practice provider. It doesn't read your CV: you'll get fictional example drafts, labelled Practice data.</p>
+    {% endif %}
+    {% if cv_import.budget_reason %}
+    {% with budget_blocked = cv_import.budget_reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}
+    {% endif %}
+    <div class="form-actions">
+      <button type="submit" id="cv-import-start" class="button button-primary" aria-describedby="cv-import-privacy{% if cv_import.practice %} cv-import-practice{% endif %}{% if cv_import.budget_reason %} {{ cv_import.budget_reason.id }}{% endif %}">Import CV</button>
+    </div>
+    <p id="cv-import-sending" class="saving-note" role="status">Reading your CV…</p>
+  </form>
+  {% if cv_import.dialog %}
+  {% with budget_dialog = cv_import.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}
+  {% endif %}
+  {% include "fragments/facts/_import_list.html" %}
+</section>

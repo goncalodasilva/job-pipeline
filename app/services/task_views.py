@@ -51,6 +51,12 @@ _OUTCOMES = {
     TaskStatus.INTERRUPTED: "was interrupted.",
 }
 
+
+def failed_message(label: str) -> str:
+    """How a failed task with this label is announced."""
+    return f"{label} {_OUTCOMES[TaskStatus.FAILED]}"
+
+
 NEEDS_ATTENTION = frozenset({TaskStatus.FAILED, TaskStatus.INTERRUPTED})
 """How a task ends when the user should look at it: both offer Retry."""
 
@@ -299,6 +305,13 @@ class TaskViews:
         """One task, or None when there is none with that id. Reads only."""
         service = self._service(task_id)
         row = service.get(task_id) if service is not None else None
+        return None if row is None else self._view(row)
+
+    def latest_for(self, task_type: str, target: str) -> TaskView | None:
+        """The most recently changed task of ``task_type`` for ``target`` (a failed import's
+        last attempt, say), or None when there never was one. Reads only."""
+        service = self._tasks()
+        row = service.latest(task_type, target) if service is not None else None
         return None if row is None else self._view(row)
 
     def cancel(self, task_id: str) -> ActionView | None:

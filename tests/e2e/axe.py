@@ -49,3 +49,12 @@ def assert_no_serious_violations(page: Page) -> None:
             f" ({violation.get('helpUrl', '')})"
         )
     raise AssertionError("Accessibility violations:\n" + "\n".join(lines))
+
+
+SETTLED_STYLES = "() => document.getAnimations().every((a) => a.playState !== 'running')"
+
+
+def wait_for_settled_styles(page: Page) -> None:
+    """Wait until no CSS transition or animation is running, for a scan right after a change
+    that starts one (such as switching to dark mid-page): axe must see the final colours."""
+    page.wait_for_function(SETTLED_STYLES)

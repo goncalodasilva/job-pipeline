@@ -63,6 +63,7 @@ from app.modules.ai.providers.fake import (
     practice_responses,
 )
 from app.modules.ai.providers.fake import KNOWN_MODELS as FAKE_MODELS
+from app.modules.ai.providers.fake_scripts import real_task_scripts
 from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS, TaskSpec
 from app.modules.secrets import KNOWN_SECRET_KEYS
 from app.modules.secrets.providers.chained import ChainedSecretStore
@@ -175,7 +176,7 @@ class Wiring:
         if kind is None or kind not in self._offered():
             raise ValueError("This AI provider isn't available.")
         if kind == "fake":
-            return FakeAIProvider(app_mode=True)
+            return _saved_fake()
         mode = claude_auth_mode(kind)
         if mode is None:  # pragma: no cover - every other kind is a Claude kind
             raise ValueError("This AI provider isn't available.")
@@ -394,6 +395,16 @@ def _real_folder(path: Path) -> Path:
     if not stat.S_ISDIR(path.lstat().st_mode):
         raise NotADirectoryError("the AI temporary folder is a link or not a folder")
     return path
+
+
+def _saved_fake() -> FakeAIProvider:
+    """The fake as the saved provider: it answers real tasks from the fictional keyword
+    scripts (ADR-088; ADR-089 item 8). The connection-test fake (``fake_for_key``) never
+    does."""
+    provider = FakeAIProvider(app_mode=True)
+    for task, script in real_task_scripts().items():
+        provider.script_keywords(task, script)
+    return provider
 
 
 def _provider_name(kind: ProviderKind | None) -> str:

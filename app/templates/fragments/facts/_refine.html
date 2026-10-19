@@ -1,0 +1,197 @@
+{# Refine with AI (M3.8, M3.9; AC-M3.5; ADR-086, ADR-097): the panel on a fact's editor page
+   and the answer of every refine route. Needs `refine` (app/api/facts_refine.panel_context):
+   `fact_id`, `panel` (a RefinePanel), `view`, `line` (the status line: what an action did,
+   which takes focus when `focus`, the waiting line, a turn's end or its failure), `error`
+   (why nothing happened; takes focus, under its field when `error_field` names one),
+   `dialog` or `budget_reason` (the budget gate), `fields` (the Accept form's wording),
+   `claims` (each with its checkbox), `accept_blocked`, `version`, `answer` (a refused
+   answer's text), `edit_field` (the editor's wording), `blocked_open` and `oob`.
+
+   - No open conversation: "Refine with AI", or for a fact that can't be refined the same
+     button blocked (focusable, aria-disabled, described by the reason above it).
+   - A turn on its way: the waiting line, Cancel (it ends the conversation) and "Edit it
+     myself". The line refetches the panel on the body's task events and every few seconds
+     (in case the turn ended before this answer was swapped in), sending the phase it showed;
+     while that phase holds the answer is 204 and nothing is swapped, so focus stays put.
+     A failed turn's line refetches on task events too: it has nothing typed to lose.
+   - The first turn failed: "Try again" (a new start). A later one: the way to Tasks.
+   - The AI answered: its questions with the answer box (or, three answers used, a line
+     saying so), the suggestion as a word diff against the fact's wording now, the Accept
+     form (the editable wording, the claims that aren't in the fact bank, each with "This is
+     true; add it", and Accept, aria-disabled with its reason until each claim is ticked or
+     edited out, or for good when the fact changed after the suggestion: app.js checks the
+     claims again as the user types and ticks; the server checks the wording itself), "Edit
+     it myself" and Discard. Nothing in it refetches, so typing is never lost.
+   - A fact that can't be refined any more (never use, archived) with a conversation open:
+     the reason, "Edit it myself" and Discard only.
+   Cancel and "Edit it myself" keep their ids, so htmx keeps focus on them across swaps.
+   Questions, suggestions, claims and answers are AI-made or the user's own: always escaped. #}
+{% set panel = refine.panel %}
+{% set view = refine.view %}
+{% set base = "/facts/" ~ refine.fact_id ~ "/refine" %}
+{% set phase = panel.phase %}
+{% set blocked_open = refine.blocked_open %}
+{# A failed turn that still shows an earlier suggestion doesn't refetch: its Accept form may
+   hold edited wording and ticks, which a refresh would lose (a Retry from Tasks shows on
+   the next load). #}
+{% set refreshes = not blocked_open and (phase == "waiting" or (phase == "failed" and not view.suggestion)) %}
+{% set error_field = refine.error_field %}
+{% macro tied(name) %}{% if error_field == name %} aria-invalid="true" data-autofocus{% endif %}{% endmacro %}
+{% macro field_error(id) %}<p id="{{ id }}" class="field-error">{{ refine.error }}</p>{% endmacro %}
+{% macro discard_form() %}
+    <form method="post" action="{{ base }}/discard" hx-post="{{ base }}/discard"
+          hx-target="#fact-refine" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <button type="submit" class="button">Discard</button>
+    </form>
+{% endmacro %}
+<section id="fact-refine" class="fact-refine" aria-labelledby="fact-refine-heading"{% if panel.task_key and ((refreshes and phase == "waiting") or refine.announces_turn) %} data-task-announcement-key="{{ panel.task_key }}"{% endif %}{% if refine.oob %} hx-swap-oob="true"{% endif %}>
+  <h2 id="fact-refine-heading">Refine with AI</h2>
+  {% if refine.line %}
+  <p id="fact-refine-status" class="fact-result" tabindex="-1"{% if refine.focus %} data-autofocus{% endif %}{% if refreshes %}
+     hx-get="{{ base }}" hx-trigger="tasks:resync from:body, tasks:updated from:body{% if phase == 'waiting' %}, every 3s{% endif %}"
+     hx-vals='{"was": "{{ phase }}"}' hx-target="#fact-refine" hx-swap="outerHTML"{% endif %}>{{ refine.line }}</p>
+  {% endif %}
+  {% if refine.error and not error_field and refine.error != panel.blocked %}
+  <p id="fact-refine-error" class="field-error" tabindex="-1" data-autofocus>{{ refine.error }}</p>
+  {% endif %}
+  {% if refine.dialog %}
+  {% with budget_dialog = refine.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}
+  {% endif %}
+  {% if refine.budget_reason %}
+  {% with budget_blocked = refine.budget_reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}
+  {% endif %}
+  {% if phase == "closed" %}
+  <form class="fact-refine-start" method="post" action="{{ base }}" hx-post="{{ base }}"
+        hx-target="#fact-refine" hx-swap="outerHTML" hx-disabled-elt="find button">
+    {% if panel.blocked %}
+    <p id="fact-refine-blocked" class="blocked-action">{{ panel.blocked }}</p>
+    <button type="submit" class="button" aria-disabled="true" aria-describedby="fact-refine-blocked"{% if refine.error and refine.error == panel.blocked %} data-autofocus{% endif %}>Refine with AI</button>
+    {% else %}
+    <p id="fact-refine-intro" class="field-hint">The AI asks what would make this fact stronger and may suggest clearer wording. It never adds details you didn't give, and nothing changes until you accept.</p>
+    <button type="submit" class="button" aria-describedby="fact-refine-intro">Refine with AI</button>
+    {% endif %}
+  </form>
+  {% elif blocked_open %}
+  <p id="fact-refine-blocked" class="blocked-action">{{ panel.blocked }}</p>
+  <div class="form-actions refine-actions">
+    <button type="button" id="fact-refine-edit" class="button" data-focus-field="{{ refine.edit_field }}">Edit it myself</button>
+    {{ discard_form() }}
+  </div>
+  {% else %}
+  {% if phase == "failed" %}
+  {% if panel.retry_start %}
+  <form class="fact-refine-start" method="post" action="{{ base }}" hx-post="{{ base }}"
+        hx-target="#fact-refine" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <button type="submit" class="button">Try again</button>
+  </form>
+  {% else %}
+  <p id="fact-refine-failed-hint" class="field-hint">Try again from Tasks, or discard and start over.</p>
+  {% endif %}
+  {% endif %}
+  {% if phase != "waiting" %}
+  {% if panel.context_count is not none %}
+  <p class="field-hint">Based on this fact, your answers and {{ panel.context_count }} other confirmed {{ "fact" if panel.context_count == 1 else "facts" }}.</p>
+  {% endif %}
+  {% if view.practice %}
+  <p class="badge badge-practice">Practice data (fake provider)</p>
+  {% endif %}
+  {% if view.questions %}
+  <h3 id="fact-refine-questions-heading">The AI asks</h3>
+  <ul id="fact-refine-questions" class="refine-questions" aria-labelledby="fact-refine-questions-heading">
+    {% for question in view.questions %}
+    <li>{{ question }}</li>
+    {% endfor %}
+  </ul>
+  {% if view.answers_left > 0 %}
+  <form id="fact-refine-answer-form" class="refine-answer" method="post" action="{{ base }}/answer"
+        hx-post="{{ base }}/answer" hx-target="#fact-refine" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <div class="field">
+      <label for="fact-refine-answer">Your answer</label>
+      <textarea id="fact-refine-answer" name="answer" rows="3" aria-describedby="fact-refine-answer-hint{% if error_field == 'answer' %} fact-refine-answer-error{% endif %}"{{ tied("answer") }}>{{ refine.answer }}</textarea>
+      <p id="fact-refine-answer-hint" class="field-hint">Answer in your own words: the AI uses only what you write. {{ view.answers_left }} {{ "answer" if view.answers_left == 1 else "answers" }} left in this conversation.</p>
+      {% if error_field == "answer" %}{{ field_error("fact-refine-answer-error") }}{% endif %}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="button">Send answer</button>
+    </div>
+  </form>
+  {% else %}
+  <p id="fact-refine-answers-used" class="field-hint">You've used your three answers: accept, edit it yourself or discard.</p>
+  {% endif %}
+  {% endif %}
+  {% if view.suggestion %}
+  <h3 id="fact-refine-suggestion-heading">Suggested wording</h3>
+  <div id="fact-refine-suggestion" class="refine-suggestion">
+    <p class="field-hint">Compared with your fact's wording now: added words are underlined, removed words struck through.</p>
+    {% for part in panel.changes %}
+    {% if part.label %}
+    <p class="part-label">{{ part.label }}</p>
+    {% endif %}
+    {% include "fragments/facts/_diff_words.html" %}
+    {% endfor %}
+    {% if panel.unchanged %}
+    <p class="version-note">The suggestion keeps your wording as it is.</p>
+    {% endif %}
+  </div>
+  <form id="fact-refine-accept" class="refine-accept" method="post" action="{{ base }}/accept"
+        hx-post="{{ base }}/accept" hx-target="#fact-refine" hx-swap="outerHTML"
+        hx-disabled-elt="find button" data-refine-accept{% if panel.stale %} data-refine-stale{% endif %}>
+    <input type="hidden" name="version" value="{{ refine.version }}">
+    {% for field in refine.fields %}
+    {% set described = ((["fact-refine-" ~ field.name ~ "-suggested"] if field.suggested is not none else [])
+                        + (["fact-refine-" ~ field.name ~ "-error"] if error_field == field.name else [])) %}
+    <div class="field">
+      <label for="fact-refine-{{ field.name }}">{{ field.label }}</label>
+      <textarea id="fact-refine-{{ field.name }}" name="{{ field.name }}" rows="4" data-refine-wording{% if described %} aria-describedby="{{ described | join(' ') }}"{% endif %}{{ tied(field.name) }}>{{ field.value }}</textarea>
+      {% if field.suggested is not none %}
+      <p id="fact-refine-{{ field.name }}-suggested" class="field-hint">The AI suggested: {{ field.suggested }}</p>
+      {% endif %}
+      {% if error_field == field.name %}{{ field_error("fact-refine-" ~ field.name ~ "-error") }}{% endif %}
+    </div>
+    {% endfor %}
+    {% if refine.claims %}
+    <div id="fact-refine-flagged" class="refine-flagged">
+      <p id="fact-refine-not-in-bank" class="refine-flagged-heading">This isn't in your fact bank.</p>
+      <p class="field-hint">Tick an item only if it is true. Or take it out of the wording above.</p>
+      <ul id="fact-refine-claims" class="refine-claims" aria-labelledby="fact-refine-not-in-bank">
+        {% for claim in refine.claims %}
+        <li class="refine-claim">
+          <span class="refine-claim-text">{{ claim.text }}</span>
+          <span class="choice">
+            <input type="checkbox" id="fact-refine-claim-{{ loop.index }}" name="acknowledged" value="{{ claim.text }}" data-refine-claim data-edits-out="{{ 'true' if claim.edits_out else 'false' }}"{% if claim.refused_for is not none %} data-refused-for="{{ claim.refused_for }}"{% endif %}{% if claim.checked %} checked{% endif %}>
+            <label for="fact-refine-claim-{{ loop.index }}">This is true; add it<span class="visually-hidden"> ({{ claim.text }})</span></label>
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% if not panel.stale %}
+    <p id="fact-refine-accept-reason" class="blocked-action"{% if not refine.accept_blocked %} hidden{% endif %}>To accept, tick "This is true; add it" for each item, or take it out of the wording.</p>
+    {% endif %}
+    {% endif %}
+    {% if panel.stale %}
+    <p id="fact-refine-stale" class="blocked-action">Your fact changed after this suggestion. Discard it and ask again, or keep editing it yourself.</p>
+    {% endif %}
+    <div class="form-actions">
+      <button type="submit" class="button button-primary" data-refine-accept-button{% if panel.stale %} aria-disabled="true" aria-describedby="fact-refine-stale"{% elif refine.claims and refine.accept_blocked %} aria-disabled="true" aria-describedby="fact-refine-accept-reason"{% endif %}>Accept</button>
+    </div>
+  </form>
+  {% endif %}
+  {% endif %}
+  <div class="form-actions refine-actions">
+    {% if phase == "waiting" %}
+    <form method="post" action="{{ base }}/discard" hx-post="{{ base }}/discard"
+          hx-target="#fact-refine" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <button type="submit" id="fact-refine-cancel" class="button" aria-describedby="fact-refine-cancel-hint">Cancel</button>
+    </form>
+    {% endif %}
+    <button type="button" id="fact-refine-edit" class="button" data-focus-field="{{ refine.edit_field }}">Edit it myself</button>
+    {% if phase != "waiting" %}
+    {{ discard_form() }}
+    {% endif %}
+  </div>
+  {% if phase == "waiting" %}
+  <p id="fact-refine-cancel-hint" class="field-hint">This ends the conversation.</p>
+  {% endif %}
+  {% endif %}
+</section>

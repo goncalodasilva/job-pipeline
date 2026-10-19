@@ -1,0 +1,14 @@
+{# The answer to "Confirm all from this import" (htmx): the batch's own wrapper, led by the
+   result or holding the reload prompt. Then, out of band: the block of each draft it
+   confirmed is removed (`confirmed`, their ids), and the group's heading, the Drafts tab's
+   link and the "Skip to drafts" link get the new count. No other block is in the answer, so
+   a discarded draft keeps its Undo and an open inline form what was typed in it. #}
+{% with oob = false %}{% include "fragments/facts/_draft_batch.html" %}{% endwith %}
+{% for fact_id in confirmed %}
+<div id="fact-{{ fact_id }}" hx-swap-oob="delete"></div>
+{% endfor %}
+{% with oob = true %}
+{% include "fragments/facts/_group_heading.html" %}
+{% include "fragments/facts/_tab_link.html" %}
+{% with count = tab.count %}{% include "fragments/facts/_skip_link.html" %}{% endwith %}
+{% endwith %}

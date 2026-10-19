@@ -145,6 +145,7 @@ These rules are enforced by import-linter contracts in `pyproject.toml` and chec
 1. `app.domain` MUST be pure Python: no I/O, no framework imports, nothing from other `app` packages.
 2. `app.modules.*` MAY import `app.domain`. They MUST NOT import `app.services`, `app.api`, `app.onboarding` or `app.tasks`.
 3. Vendor SDKs MUST be imported only inside the provider package that wraps them. For example, `claude_agent_sdk` is imported only in `app.modules.ai.providers.claude_sdk`, and `keyring` only in `app.modules.secrets.providers.keyring_store`.
+   PDF and Word parsing follow the same rule: `pypdf` only in `app.modules.extract.providers.pdf`, `docx` only in `app.modules.extract.providers.docx` (ADR-089).
 4. `app.services` MAY import `app.domain` and the public interface of each module (`app.modules.<name>`, not its `providers` subpackage). Services MUST NOT import FastAPI, Starlette or Jinja2.
 5. `app.api` MAY import services, onboarding and the task runner's public functions. It MUST NOT import `app.modules.*` or `sqlite3`.
 6. `app.tasks` MAY import services and domain. Task handlers are thin: they call a service function. The runner reaches the AI module and storage only through services; the 2.5 diagram shows the logical flow (ADR-034).
@@ -241,6 +242,8 @@ class IdFactory(Protocol):
     def new(self) -> str: ...
 ```
 
+Text extraction (M3, ADR-089, ADR-092): `app.modules.extract` exports `DocumentKind`, the `TextExtractor` protocol, `sniff_type(data)`, `extractor_for(kind)` and `extract_text(path, kind, timeout)`. The composition root injects sniffing/extraction functions into the service, which calls them from a worker thread; services cannot import this module directly because it reaches its adapters (ADR-092 item 7). Extraction spawns a child process with a cleared environment and a deadline; PDF/Word libraries stay in their adapters. `app.api.uploads.read_upload` reads one file or pasted text in memory, caps actual bytes at 10 MB, and never trusts a client filename as a path.
+
 ### 2.5 Runtime flows
 
 Page and fragment requests: route → service → repository → template. Full pages render the app shell; htmx requests (`HX-Request: true`) receive fragments only.
@@ -324,16 +327,19 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 8. When the app calls the Agent SDK, it MUST isolate the call from any developer configuration: run in an empty temporary working directory and disable loading of filesystem settings (the SDK's `setting_sources` option at the time of writing; verify against the installed SDK version).
 9. Secrets live only in the keychain (or the environment fallback). They MUST NOT be stored in the database, written to logs, returned by any endpoint, or included in exports. A logging filter redacts configured secret values and token-shaped strings.
 10. The app sends no telemetry.
-11. Every HTTP response, rejections included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so no other site can frame the app and trick a click (ADR-039).
-12. Only routes the server registers as pages (`register_pages`, `tags=[PAGE_TAG]`) and that dispatch actually picks may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Token-free GETs return only full HTML pages. The M2 routes aren't pages either, so each needs the token: `GET /events` (the live-update stream, `text/event-stream`, still side-effect free; ADR-077), `GET /tasks/panel`, `GET /tasks/indicator`, `GET /tasks/{id}`, `GET /settings/usage`, `GET /settings/testing-tools`, and the POST routes `/tasks/practice`, `/tasks/{id}/cancel`, `/tasks/{id}/retry`, `/settings/usage/budgets` and `/settings/usage/concurrency`, which also need the origin (rule 3). The browser's reader for `GET /events` sends the token as a header; there is no cookie and no token in a URL (ADR-076 item 1, ADR-077). Never add CORS headers, and never put the token in a URL or log (ADR-039).
-13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it.
+11. Every HTTP response, rejections included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so no other site can frame the app and trick a click (ADR-039). Every non-static response also carries `Cache-Control: no-store`, including pages, fragments and refusals (ADR-093).
+12. Only routes the server registers as pages (`register_pages`, `tags=[PAGE_TAG]`) and that dispatch actually picks may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Successful token-free page GETs return full HTML; an unknown/unsafe fact id returns a fixed plain-text 404 that echoes nothing (ADR-094). The M2 routes aren't pages either, so each needs the token: `GET /events` (the live-update stream, `text/event-stream`, still side-effect free; ADR-077), `GET /tasks/panel`, `GET /tasks/indicator`, `GET /tasks/{id}`, `GET /settings/usage`, `GET /settings/testing-tools`, and the POST routes `/tasks/practice`, `/tasks/{id}/cancel`, `/tasks/{id}/retry`, `/settings/usage/budgets` and `/settings/usage/concurrency`, which also need the origin (rule 3). The browser's reader for `GET /events` sends the token as a header; there is no cookie and no token in a URL (ADR-076 item 1, ADR-077). Never add CORS headers, and never put the token in a URL or log (ADR-039).
+   Fact pages `/facts`, `/facts/new`, `/facts/{id}/edit` and `/facts/{id}/merge` can load without the token; they read only and return full HTML (ADR-093, ADR-094). A fact editor may prefill a capture note by safe id. Writes to fact wording and role data use POST bodies; GET filters are read-only. `/facts/library`, `/facts/drafts`, `/facts/{id}/history` and `/facts/{id}/refine` are protected fragments, never pages. Query strings are removed from access logs (2.10).
+13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it. Pages with a fact id in the path expose that fact locally, the same as the library; the id is not an authorization boundary (ADR-094).
 14. The data folder is locked while the app runs (ADR-072, ADR-076 item 9, M2.4). Before logging, the database, migrations or the AI temporary clean-up, the CLI and the app's start take `flock(LOCK_EX | LOCK_NB)` on `<data folder>/.lock`. The file is created with mode 0600 and refused unless it is a private regular file owned by the user with one link. A second copy gets `DataFolderInUse`, whose message names no path, and exits. The lock is POSIX only; where `fcntl` is missing it does nothing (ADR-061). The operating system releases it when the process exits or is killed.
 
 ### 2.10 Logging and diagnostics
 
-Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MiB; ADR-037). Prompt contents and personal data are not logged by default; a local debug setting can enable prompt logging and shows a warning while on. `GET /health` returns app version, database status and task runner status.
+Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MiB; ADR-037). Prompt contents and personal data are not logged. No prompt-debug switch is implemented; a future debug feature must preserve the CV/fact-text exclusions below (TD-151). `GET /health` returns app version, database status and task runner status.
 
 Task, service, AI-module and event-stream loggers write constant format strings. Their arguments are ids, task type names, counts and exception type names, never provider output, error text, prompts or row content. `tasks.error` stores the error kind only, and each event frame carries an id, a type and a status only (ADR-088, ADR-077). The leak scans of AC-M1.4 cover tasks, usage rows, events and logs (spec 5, M2).
+
+AC-M1.4 also covers CV text, fact wording and refine answers: these stay out of task/usage rows, events, logs and error copy. They belong in uploads, fact versions and local refine conversations/source snapshots (ADR-092, ADR-097). Uvicorn access records omit the complete query string before formatting, so a search cannot put fact text in a log (ADR-093).
 
 ### 2.11 Errors
 
@@ -359,6 +365,39 @@ Task, service, AI-module and event-stream loggers write constant format strings.
 | `PracticeNotOffered` | Practice service | "Practice tasks are only available while the fake provider is active." (M2.17) |
 | `BUDGET_MESSAGE` (a constant, never raised: the copy for a stored `BudgetBlocked` kind) | Returned by `message_for_kind` (`app/domain/errors.py`), used by task views | "A monthly usage limit was reached. Open Settings > Usage budgets to see when it resets." (a stored kind keeps no service, tier or date; M2.19) |
 
+M3 document, fact and refinement errors (ADR-089 to ADR-097):
+
+| Error | Raised by | User-facing message pattern |
+| --- | --- | --- |
+| `UnsupportedDocumentType` | Extraction/upload service | "This file type isn't supported. Upload a PDF or Word file, or paste the text instead." |
+| `UnreadableDocument` | Extraction/upload service | "This file couldn't be read. It may be damaged. Save it again, or paste the text instead." |
+| `EncryptedDocument` | Extraction/upload service | "This PDF is protected by a password. Save a copy without the password, or paste the text instead." |
+| `NoTextFound` | Extraction/upload service | "No text was found in this file. If it's a scan, paste the text instead." |
+| `ParseTimedOut` | Extraction/upload service | "Reading this file took too long. Try again, or paste the text instead." |
+| `UploadTooLarge` | Extraction/upload service | "This file is larger than 10 MB. Upload a smaller file, or paste the text instead." |
+| `UploadNotAccepted` | Extraction/upload service | "Upload one file (PDF, Word or plain text), or paste the text instead." |
+| `CvTextTooLong` | Extraction/upload service | "This CV has too much text to import in one go. Paste the part that matters most instead." |
+| `NothingExtracted` | Fact/import/refine services | "Nothing could be listed from this CV. Try again, or paste the text instead." |
+| `CvImportNotFound` | Fact/import/refine services | "This uploaded CV wasn't found. It may have been removed. Upload it again." |
+| `CvImportBusy` | Fact/import/refine services | "This CV is being read. Cancel the task or wait for it to finish, then remove it." |
+| `CvImportAlreadyDone` | Fact/import/refine services | "This CV was already imported. Its drafts are in your fact bank." |
+| `ProviderNotConfigured` | Fact/import/refine services | "No AI provider is connected. Connect one in Settings > Providers, then try again." |
+| `FactNotFound` | Fact/import/refine services | "This item wasn't found. Reload the page and try again." |
+| `FactTransitionRefused` | Fact/import/refine services | "This can't be done to this fact in its current state. Reload to see the latest version." |
+| `FactInputInvalid` | Fact/import/refine services | "This can't be saved as it is. Check what you typed and try again." |
+| `SkillAliasTaken` | Fact/import/refine services | "Another skill already uses this name. Choose a different name." |
+| `RefineNeverUse` | Fact/import/refine services | "This fact is marked "Never use in applications", so it is never sent to the AI. To refine it, change its privacy setting first." |
+| `RefineNotAvailable` | Fact/import/refine services | "Only drafts and confirmed facts can be refined. Restore this fact first." |
+| `RefineNotOpen` | Fact/import/refine services | "There is no open Refine with AI conversation for this fact. Start one first." |
+| `RefineBusy` | Fact/import/refine services | "The AI has no question waiting for an answer right now." |
+| `RefineTurnRunning` | Fact/import/refine services | "The AI hasn't answered yet. Wait for its answer, then try again." |
+| `RefineStopping` | Fact/import/refine services | "The previous conversation is still stopping. Try again in a moment." |
+| `RefineContextChanged` | Fact/import/refine services | "The privacy setting of a fact used earlier in this conversation has changed. Discard this conversation and start again." |
+| `RefineAnswersUsed` | Fact/import/refine services | "This conversation already has three answers. Accept the suggestion, edit the fact yourself or discard it." |
+| `RefineNoSuggestion` | Fact/import/refine services | "There is no suggested wording to accept yet." |
+| `RefineClaimsUnacknowledged` | Fact/import/refine services | "This isn't in your fact bank. Confirm each item below is true, or edit it out, before accepting." |
+| `RefineSuggestionStale` | Fact/import/refine services | "Your fact changed after this suggestion. Discard it and ask again, or keep editing it yourself." |
+
 Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
 Refusals of a start answer 409, for htmx and for a plain request, with the reason: a blocking point, a tier cap without a free Fast tier, or unreadable budgets (ADR-086). A warning that isn't confirmed answers 200 with the warning dialog for htmx, and 409 as text for a plain request (ADR-086). A stale version of a budget form, or of the guide's budget step, answers 409 with the reload prompt (`fragments/shell/_reload_prompt.html`, `role="alert"`): the form's own explanation, then a "Reload the page" link. In the usage budget forms the message is `VersionConflict`'s copy (ADR-081, ADR-087).
@@ -378,7 +417,7 @@ Refusals of a start answer 409, for htmx and for a plain request, with the reaso
 | Secrets | `keyring` | Env fallback |
 | Paths | `platformdirs` | Bootstrap config and default data folder |
 | Job page fetch | `httpx` with the SSRF guard | Text extraction with a lightweight HTML parser |
-| CV import | `pypdf` or `pdfplumber` for PDF, `python-docx` for Word | Chosen in M3 by fixture quality |
+| CV import | `pypdf`, `python-docx`, `python-multipart` | Approved in ADR-089; PDF fixtures passed. Word brings transitive `lxml`; parsing runs in a child process |
 | Rendering | PDF from HTML (WeasyPrint is the default candidate), Word via `python-docx` | M6 starts with a spike: WeasyPrint needs system libraries on some platforms |
 | HTML sanitizing | `nh3` | For rendered Markdown |
 | Calendar | `icalendar` | .ics generation |
@@ -402,6 +441,8 @@ The reader turns `resync` and `task-updated` into the body events `tasks:resync`
 - `tasks:updated`: for each task change;
 - `usage:changed`: sent by a budget save or removal once the swap has settled (`HX-Trigger-After-Settle`);
 - `tasks:finished`: every `GET /tasks/indicator` answer sends it in an `HX-Trigger` header, with the detail `{"tasks": [{"key", "message", "age"}]}` (the key is the task id and attempt, and age is whole seconds since the task finished). The page announces each once in the live region, keeps its key in localStorage (`jobpipeline-tasks-announced`, the newest 50), and on the first answer of a page announces only tasks that ended in the last 10 seconds.
+
+The refine panel owns the completion announcement for its turn, identified by task id and attempt in `data-task-announcement-key`. While a refine POST is in flight, indicator completions wait for its response or failure before choosing an owner. The indicator remembers the owned key without a second announcement, regardless of response order. Initial page markup for an already completed turn does not claim ownership: recent completions still announce on navigation. Other tasks still announce normally. A failed panel retaining an older editable suggestion does not claim the new turn's announcement (TD-222).
 
 Who refetches: the top-bar indicator and the tasks panel refetch on `tasks:resync` and `tasks:updated`; an open panel also asks every 2 seconds while it shows a task with a progress bar (queued or running), and once a minute when idle; each task row refetches on both events; the usage panel refetches on `usage:changed` and on `tasks:updated` (after a one-second delay); Testing tools refetches on `usage:changed`. A part that holds an open dialog doesn't refetch (ADR-086). A failed or interrupted task that the open panel hasn't shown yet counts on the closed Tasks button as "needs attention"; the keys seen are kept per browser origin in localStorage (`jobpipeline-tasks-seen`, ids and attempts only; ADR-088).
 
@@ -427,6 +468,8 @@ job-pipeline/
       secrets/      interface, providers/ (keyring_store.py, env.py, chained.py,
                     redacting.py, memory.py)
       fetch/        SSRF-guarded fetcher, HTML-to-text
+      extract/      public sniff/extract interface, killed parser child, providers/pdf.py,
+                    docx.py and text.py (M3; ADR-089)
     render/         CV and letter rendering (PDF, Word), country templates (planned, M6)
     tasks/          runner, handler registry, practice handler (the event publisher is api/events.py; ADR-077)
     templates/      Jinja2 pages and fragments
@@ -445,6 +488,7 @@ job-pipeline/
     live-check-m1.md  manual checklist for M1 live tests
     references/     product spec, detailed design
     acceptance/     acceptance reports per milestone
+    development/    agent setup, handoffs and shared review notes
   scripts/          developer scripts (check_critical_coverage.py, etc.)
   tests/
     unit/           fast unit tests
@@ -454,7 +498,8 @@ job-pipeline/
     live/           live tests against real Claude services (opt-in, M1+)
     fakes/          scripting helpers, the SDK replay transport and keyring backends
                     (app-selectable fakes live in app/modules/*/providers/)
-    fixtures/       ai/, prompts/, import_violations/, migration_hashes.json
+    fixtures/       ai/, prompts/, cv/ (fictional PDFs, Word and text),
+                    import_violations/, migration_hashes.json
     conftest.py     pytest configuration, keyring guard, session fixtures
     running_app.py  subprocess fixture (smoke and e2e)
     waiting.py      deadline-based waits (M2.3)
@@ -462,8 +507,11 @@ job-pipeline/
     page_token.py   reads the launch token a page embeds (spec 2.9 rule 2)
     leak_scan.py    secret and personal-data leak scanner (M1.23, M2.26)
     setup_harness.py  completed setup helper
-  .claude/          agents, skills, rules, hooks, settings
-  CLAUDE.md         Claude Code agent instructions
+  .agents/skills/   shared procedures and native Codex workflows
+  .claude/          native Claude agents, skill wrappers, rules, hooks, settings
+  .codex/           native Codex agents, hooks, configuration and command rules
+  AGENTS.md         shared coding-agent contract
+  CLAUDE.md         imports AGENTS.md, adds Claude orchestration
   README.md         user guide and troubleshooting
   LICENSE           MIT license
   pyproject.toml    build config and dependencies
@@ -489,7 +537,8 @@ The AI draws facts out of the user and rephrases them; it never invents experien
    - a content unit with no ids is `unsupported`;
    - numbers, percentages, years and money amounts that appear in the unit but in none of its cited facts are `needs_check`.
 4. The UI shows these flags inline. Approval is blocked until each flagged unit is edited, removed, or confirmed by the user, and a user confirmation saves the claim as a new confirmed fact (the user is asserting it is true).
-5. Feedback tasks (`answer_feedback`, `refine_fact`) may suggest wording but MUST NOT add claims; any claim not found in the fact bank is surfaced as "This isn't in your fact bank. Add it as a draft?".
+5. Feedback tasks (`answer_feedback`, `refine_fact`) may suggest wording but MUST NOT add claims; any claim not found in the fact bank is surfaced as "This isn't in your fact bank." with a checkbox per claim ("This is true; add it"). A ticked claim stays in the accepted wording of that fact and is recorded as the user's assertion on the conversation; it does not create a separate draft (ADR-089 item 5, ADR-097 update of 2026-10-19).
+   M3 refinement checks against the target fact/role, the user's answers and the confirmed context sent in that request. `facts_for_ai()` is the shared context selector: confirmed, current, non-never-use only. Names in generalized context cannot support named claims. The suggestion keeps a source/version snapshot; Accept rechecks its claims, the target version and context privacy. The checker flags quantities (including number words), capitalized name tokens, controlled skill names and the model's `added_details`. Lower-case non-numeric embellishment and a lone capitalized word at a sentence start may escape it; users review the whole diff. CV import checks digit quantities against each source quote and leaves every unit a draft (ADR-092, ADR-097).
 6. Tests MUST include adversarial fake outputs (invented employer, wrong id, inflated number, uncited paragraph) and prove each is flagged.
 
 ### 3.2 Drafts, approval and versions
@@ -545,7 +594,7 @@ Each AI task has one prompt template, one output schema, a default tier, and fix
 | `company_brief` | Thorough | Brief with sources (uses web search) | M8 |
 | `group_removal_reasons` | Fast | Themes and suggested preference changes | M9 |
 
-Prompt files live in `prompts/<task>/` as `prompt.md` (YAML front matter plus template) and `schema.json`. The format is specified in `.claude/skills/add-ai-task/references/prompt-file-format.md`. Rules:
+Prompt files live in `prompts/<task>/` as `prompt.md` (YAML front matter plus template) and `schema.json`. The format is specified in `.agents/skills/add-ai-task/references/prompt-file-format.md`. Rules:
 
 - Any change to a prompt's wording or schema bumps its `version`.
 - Every generated record stores `prompt_id`, `prompt_version` and `model`.
@@ -554,6 +603,8 @@ Prompt files live in `prompts/<task>/` as `prompt.md` (YAML front matter plus te
 - Responses are parsed as JSON and validated against the schema; one automatic retry with the validation error appended, then `InvalidModelOutput`.
 
 The `practice` task (M2.17, ADR-076 item 2) is not in this table and not in `TASK_SPECS`: it is a fake-only vehicle for the task runner, offered only when fake providers are allowed and the fake is the saved provider. It never reaches a real model, produces no user-facing content and so cites no fact ids; this exemption is for that task alone.
+
+M3 registers `extract_cv` (extraction) and `refine_fact` (feedback). Extraction requires a `source_quote` per unit, no status field, and saves drafts atomically with task success. Refinement returns questions, an optional suggestion and `added_details`; it never writes a fact until explicit Accept. Both use the saved provider's service for the budget gate and usage meter, delimit untrusted text, and label fake output. A request-log case for every entry in `TASK_SPECS` proves never-use exclusion; new tasks must extend it. The settings list of tiers per task is deferred to M9 (ADR-089 item 9).
 
 ### 3.7 Tiers and usage
 
@@ -616,7 +667,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 ### 4.3 Coverage
 
 - At least 85% line coverage across `app/`, excluding live-only provider code paths.
-- At least 95% branch coverage for critical modules: `app/domain/honesty.py`, `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware (`app/api/security.py`, ADR-039). `scripts/check_critical_coverage.py` enforces this with a registry of these modules and the milestone that introduces each (ADR-028).
+- At least 95% branch coverage for critical modules: `app/domain/honesty.py` and `app/domain/fact_selection.py` (both from M3, ADR-089 item 5), `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware (`app/api/security.py`, ADR-039). `scripts/check_critical_coverage.py` enforces this with a registry of these modules and the milestone that introduces each (ADR-028).
 
 ### 4.4 What every feature's tests must include
 
@@ -639,8 +690,8 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 | End-to-end | `uv run pytest -m e2e` |
 | Smoke | `uv run pytest -m smoke` |
 | Coverage | `uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing --cov-fail-under=85` then `uv run python scripts/check_critical_coverage.py --from-progress` |
-| Quick verification (all of the above except e2e and coverage) | `bash .claude/skills/verify/scripts/verify.sh quick` |
-| Full verification | `bash .claude/skills/verify/scripts/verify.sh full` |
+| Quick verification (all of the above except e2e and coverage) | `bash scripts/verify.sh quick` |
+| Full verification | `bash scripts/verify.sh full` |
 
 ### 4.6 Continuous integration
 
@@ -822,7 +873,9 @@ flowchart LR
 - AC-M3.5 Refine with AI: a fake response containing an invented claim is flagged and is never applied without explicit acceptance.
 - AC-M3.6 Full-text search and filters by role, skill and status return correct results.
 - AC-M3.7 Oversized, wrong-type and malformed uploads fail with friendly messages and leave no partial records.
-- AC-M3.8 Setup step 4 works and, when skipped, is listed on the Done screen and Today.
+- AC-M3.8 Setup step 4 works and, when skipped, is listed with a link on the Done screen. Today lists skipped steps from M5 (ADR-089 item 3).
+
+M3 notes (ADR-089): near-duplicates use mechanical similarity on demand; the controlled skills list starts empty. Typed facts are confirmed immediately; imported output is always draft. The Coverage tab, quality hints, tag filtering, fact shortcuts, application-use links and per-task tier settings arrive in later milestones. Fake output is visibly labelled; its fixed suggestions are practice data, not analysis of the user's text.
 
 **Test plan:** unit tests for extraction adapters with fictional fixture files and version logic; integration tests for the import pipeline with fake AI fixtures (including malformed output); e2e for import, review, confirm and refine, with axe and keyboard checks.
 
@@ -864,7 +917,7 @@ flowchart LR
 - AC-M5.3 Moving to Interviewing offers an optional date; moving to Rejected offers optional feedback.
 - AC-M5.4 Generated .ics files parse correctly and keep the right time zone.
 - AC-M5.5 With a frozen clock, due reminders appear on Today and in notifications; nothing runs while the app is closed.
-- AC-M5.6 Today shows its blocks in priority order, hides empty ones, and says plainly when nothing is due.
+- AC-M5.6 Today shows its blocks in priority order, hides empty ones, and says plainly when nothing is due. It lists skipped optional setup steps with links, including CV import (deferred from AC-M3.8, ADR-089 item 3).
 
 **Test plan:** unit tests for reminder rules and .ics generation; integration tests for status history and phases; e2e for the board (drag and keyboard), drawer and Today, with axe and phone viewport.
 
@@ -933,7 +986,7 @@ flowchart LR
 
 **Goal:** a complete, accessible, shareable first release.
 
-**Scope:** learning from removals (six-step design: mapping, explainable detection with a threshold, previewed suggestions, visible and reversible rules, no nagging, `group_removal_reasons` on request); prompts editor with overrides; lists and statuses editor; appearance settings; JSON export and import with a schema version (keys excluded); delete all data; demo dataset; full accessibility audit; performance pass; README and user guide; tag v1.0.
+**Scope:** learning from removals (six-step design: mapping, explainable detection with a threshold, previewed suggestions, visible and reversible rules, no nagging, `group_removal_reasons` on request); prompts editor with overrides; per-task tier list (deferred from M3, ADR-089); lists and statuses editor; appearance settings; JSON export and import with a schema version (keys excluded); delete all data; demo dataset; full accessibility audit; performance pass; README and user guide; tag v1.0.
 
 **Acceptance criteria:**
 
@@ -966,148 +1019,125 @@ flowchart LR
 
 ## 6. The agentic development system
 
-The app is built with Claude Code. One main session acts as the orchestrator; it delegates focused work to project subagents, follows project skills for repeatable procedures, and is kept safe by hooks and permission rules. Progress and decisions live in the repository, so any new session can pick up where the last one stopped.
+Claude Code and Codex share the project contract, procedures, verification and repository handoffs. Each tool uses native skills, agent definitions, hooks and permissions (ADR-096, superseding ADR-021). Detailed setup and maintenance: `docs/development/agents.md`. This changes development tooling; the application's Claude Agent SDK provider is independent.
 
 ### 6.1 Overview
 
-```mermaid
-flowchart TD
-  You((You)) -->|/plan-milestone, /next-task,<br/>/verify, /milestone-acceptance| Main[Main session: orchestrator]
-  Main --> Planner[planner]
-  Main --> TestAuthor[test-author]
-  Main --> Implementer[implementer]
-  Main --> Verifier[verifier]
-  Main --> Debugger[debugger]
-  Main --> Reviewers[code-reviewer, security-reviewer,<br/>ux-reviewer, prompt-engineer]
-  Main --> DocsKeeper[docs-keeper]
-  Hooks[Hooks and permissions] -.->|guard every tool call| Main
-  Main <--> Repo[(Code, tests,<br/>docs/PROGRESS.md, docs/DECISIONS.md)]
-```
+One main session owns a checkout and coordinates the task. Claude uses its existing specialists; Codex normally executes development phases in the main session and delegates independent reviews. Both follow tests first, implementation, verification, review, fixes/re-verification, evidence and a task commit. Milestone acceptance needs the user's manual confirmation.
 
 ### 6.2 Building blocks
 
-| Block | Location | Loaded | Purpose |
-| --- | --- | --- | --- |
-| Project memory | `CLAUDE.md` | Every session and subagent | Golden rules, commands, where things are |
-| Rules | `.claude/rules/*.md` | Always, or only when matching files are touched (`paths:`) | Detailed conventions per area |
-| Subagents | `.claude/agents/*.md` | When delegated to | Specialists with their own context, tools and model |
-| Skills | `.claude/skills/<name>/SKILL.md` | Description always; body when invoked | Workflows (slash commands) and procedures |
-| Hooks | `.claude/hooks/` + `.claude/settings.json` | On session and tool events | Deterministic guardrails |
-| Permissions | `.claude/settings.json` | Always | Allow, ask and deny rules for tools |
-| Shared memory | `docs/PROGRESS.md`, `docs/DECISIONS.md`, `docs/acceptance/` | Read on demand; status injected at session start | Handoffs between sessions |
+| Block | Shared source | Native loading |
+| --- | --- | --- |
+| Project contract | `AGENTS.md` | Codex reads it; `CLAUDE.md` imports it for Claude |
+| Engineering rules | `.claude/rules/*.md` | Claude path matching; Codex explicitly reads matching rules from the AGENTS.md routing table |
+| Procedure skills | Six procedure directories under `.agents/skills/` | Codex discovery; Claude skill wrappers load the shared body/references |
+| Workflow skills | Tool-specific orchestration, same gates | `.claude/skills/` and `.agents/skills/` |
+| Specialists | Shared role checklists in `.claude/agents/` | Claude Markdown agents; four Codex TOML reviewer profiles read the checklists |
+| Verification/status | `scripts/verify.sh`, `scripts/next_task.py`, `scripts/session_context.py` | Both tools; old Claude paths remain compatible |
+| Hook logic | `scripts/agent_support.py`, `scripts/agent_hook.py` | `.claude/settings.json` + wrappers; `.codex/hooks.json` |
+| Native permissions | Same project authorization boundaries | Claude allow/ask/deny; Codex config, command rules, sandbox and approvals |
+| Handoffs | `docs/PROGRESS.md`, `docs/DECISIONS.md`, `docs/acceptance/`, `docs/development/review-notes/` | Read on demand; status also injected by SessionStart |
 
 ### 6.3 Subagents
 
-| Agent | Role | Tools | Model | Edits |
-| --- | --- | --- | --- | --- |
-| `planner` | Turns a milestone or task into small, testable tasks with acceptance criteria and test notes | Read, Grep, Glob, Bash | inherit | None |
-| `test-author` | Writes failing tests from acceptance criteria before implementation | Read, Grep, Glob, Edit, Write, Bash | inherit | Tests and fixtures |
-| `implementer` | Implements one planned task until its tests pass | Read, Grep, Glob, Edit, Write, Bash | inherit | Application code |
-| `verifier` | Runs verification and reports evidence | Read, Grep, Glob, Bash | sonnet | None |
-| `debugger` | Finds root causes of failures; minimal fix plus regression test | Read, Grep, Glob, Edit, Bash | inherit | Targeted fixes |
-| `code-reviewer` | Reviews diffs against this spec, rules and conventions; keeps project memory of recurring issues | Read, Grep, Glob, Bash | inherit | Its memory only |
-| `security-reviewer` | Reviews secrets, network, uploads, middleware, untrusted input | Read, Grep, Glob, Bash | inherit | None |
-| `ux-reviewer` | Reviews pages against the detailed design, accessibility and responsiveness | Read, Grep, Glob, Bash | inherit | None |
-| `prompt-engineer` | Owns prompts, schemas, AI fixtures and task contracts | Read, Grep, Glob, Edit, Write, Bash | inherit | Prompts, schemas, AI fixtures |
-| `docs-keeper` | Keeps progress, decisions and run instructions current | Read, Grep, Glob, Edit, Write | haiku | Docs only |
+Claude retains `planner`, `test-author`, `implementer`, `verifier`, `debugger`, `code-reviewer`, `security-reviewer`, `ux-reviewer`, `prompt-engineer`, `docs-keeper` and their existing tool/model settings. The docs keeper edits documentation only and needs explicit authorization to change the spec or reference designs.
 
-Reviewers are triggered by what a change touches:
+Codex's main session handles planning, tests, implementation, verification, debugging and records. It delegates an independent code review and triggered specialist reviews through `.codex/agents/` (`code-reviewer`, `security-reviewer`, `ux-reviewer`, `prompt-reviewer`). Profiles inherit the selected model, provider and permissions; role instructions do not create separate read-only sandboxes. When a client cannot select a profile, pass the same instructions to a generic subagent. If delegation is unavailable, independent review is outstanding, not replaced by self-review.
 
-| Touched | Also consult |
+| Touched | Required independent review |
 | --- | --- |
-| Anything | `code-reviewer` |
-| `app/modules/secrets`, `app/modules/fetch`, `app/api` middleware, uploads, AI providers, anything with credentials | `security-reviewer` |
-| `app/templates`, `app/static`, page routes | `ux-reviewer` |
-| `prompts/`, `app/modules/ai/tasks.py`, AI fixtures | `prompt-engineer` (review mode) |
+| Every implementation task | Code reviewer |
+| Secrets, providers, fetching, uploads, middleware, credentials, coding-tool hooks/permissions | Security reviewer |
+| Templates, static files, page routes | UX reviewer |
+| Prompts, AI task contracts and fixtures | Prompt engineer in review mode (Claude) / prompt reviewer (Codex) |
+
+Pass the task, criteria, relevant rules, diff scope and actual verification evidence to each reviewer. Fix critical findings; record unresolved non-critical findings. The main session records recurring reviewer lessons in shared notes; Claude's code reviewer may update those notes directly as its only non-native-memory edit.
 
 ### 6.4 Skills
 
-| Skill | Invoked by | Purpose |
-| --- | --- | --- |
-| `/plan-milestone <M>` | You | Plan a milestone into tasks in `docs/PROGRESS.md`, for your approval |
-| `/next-task [task-id]` | You | Run the full loop for one task |
-| `/verify [quick or full]` | You or Claude | The project's verification recipe. Because it is a project skill named `verify` that Claude can invoke, recent Claude Code versions instruct Claude to run it right before each commit |
-| `/milestone-acceptance <M>` | You | Full verification, acceptance report and your manual checklist |
-| `add-ai-task` | Claude, when adding an AI task | Prompt file, schema, fixtures, tests, honesty requirements |
-| `add-provider` | Claude, when adding a provider | Interface conformance, capabilities, secrets, budgets, contract tests |
-| `htmx-ui` | Claude, when touching templates or routes | Fragment conventions, focus and announcements, live-update events, shortcuts |
-| `db-migration` | Claude, when changing the schema | Forward-only migrations, backups, schema-equality test |
-| `background-task` | Claude, when adding a task type | The ten reliability rules and their tests |
-| `onboarding-step` | Claude, when changing the setup guide | Step registry, detection, persistence, tests |
+| Skill name | Purpose |
+| --- | --- |
+| `plan-milestone` | Propose small testable tasks; write the plan only after approval |
+| `next-task` | Full development loop for exactly one task |
+| `run-milestone` | Eligible tasks back to back, one commit each, checkpoints and parking (ADR-065) |
+| `verify` | Shared quick/full recipe before committing or claiming completion |
+| `milestone-acceptance` | Full verification, criteria-to-tests report and user manual checklist |
+| `add-ai-task` | Prompts, schemas, fixtures, task contract, honesty |
+| `add-provider` | Interface/capability/secrets/budget/contract checks |
+| `htmx-ui` | Fragment, focus, announcements, keyboard and live-update conventions |
+| `db-migration` | Forward-only schema/data migrations and backup/equality tests |
+| `background-task` | Task runner reliability and budget rules |
+| `onboarding-step` | Registry, detection, persistence, redirects and tests |
+
+Claude uses `/name`; Codex uses an attached skill or `$name` with ids/options in the request. Planning, task/milestone execution and acceptance require explicit invocation in both tools. Verification and procedures can be selected automatically. Codex invocation controls live in `agents/openai.yaml`; Claude's extensions remain in its own wrappers/workflows. Shared instructions contain no Claude argument substitutions or injected shell syntax.
 
 ### 6.5 Hooks and permissions
 
-| Event | Matcher | Script | Effect |
-| --- | --- | --- | --- |
-| SessionStart | startup, resume, clear, compact | `session_start.py` | Adds the current milestone, the next open tasks and the golden rules to context |
-| PreToolUse | Read, Edit, Write, Bash | `pre_tool_guard.py` | Blocks access to secret files and the user's real data and config folders; blocks force pushes, `--no-verify` commits, printing secrets and deleting home or root |
-| PostToolUse | Edit, Write | `post_edit_check.py` | Formats and lints edited Python files and reports remaining errors to Claude |
+| Event | Behavior |
+| --- | --- |
+| SessionStart | Reload current milestone/open tasks and shared golden rules on startup, resume, clear and compaction; Codex also covers forks |
+| PreToolUse | Normalize Claude tools and Codex patches/shell aliases; check secrets, real data/config folders, common dangerous/secret-printing commands and guardrail edits |
+| PostToolUse | Format/lint existing changed Python files, including patch rename destinations, using offline no-sync uv; report remaining errors |
 
-Permission rules pre-approve routine commands (tests, lint, types, git status and diff, the verify script), ask before adding dependencies, pushing or deleting recursively, and deny reading `.env` and force pushes. Hooks fail open on malformed input so a format change can't brick a session; permissions remain the second line of defense.
+Codex patches carry their text in `tool_input.command`; renamed source/destination and deleted paths are checked. Malformed policy input or unrecognized file/patch shapes block with a reason. Informational/post-edit failures are advisory; explicit verification still gates completion. Hooks catch common mistakes and complement native permissions/sandbox and pre-commit/CI; arbitrary shell programs and every connector path are not fully interpreted or covered.
+
+Claude keeps native allow/ask/deny rules. Codex config requests workspace-write, on-request approval, no sandbox network access, enabled hooks and up to three concurrent subagents. Native command rules request approval for common push/history/dependency/deletion commands. Higher-priority managed policies still apply. Project hook definitions require trust review in Codex; skipped/untrusted hooks are not active protection.
+
+Guardrail changes need the user's explicit authorization. Claude can return `permissionDecision: ask`; current Codex cannot, so its adapter blocks and points to the maintenance instructions. After approval the user can temporarily disable only the project pre-tool hook in the native hook UI, re-enable it after the authorized edit, review/trust definitions and re-run synthetic probes. The agent never disables hooks or bypasses trust/sandbox on its own. No permanent maintenance environment switch.
 
 ### 6.6 The development loop
 
-1. **Plan the milestone.** `/plan-milestone M<n>`: the planner proposes tasks from section 5; you approve or adjust; tasks land in `docs/PROGRESS.md`.
-2. **Run one task.** `/next-task`:
-   1. Load the task and its context (the session-start hook and the skill show what is next).
-   2. Tests first: `test-author` writes failing tests for each acceptance criterion and confirms they fail for the right reason.
-   3. Implement: the main session, or `implementer` for well-scoped tasks.
-   4. Verify: `verifier` runs quick verification, or full verification when UI, migrations or the task runner changed.
-   5. Debug: `debugger` on failures; after three failed attempts on the same failure, stop and ask you.
-   6. Review: `code-reviewer`, plus the reviewers triggered by touched paths.
-   7. Fix findings and verify again.
-   8. Record: `docs-keeper` ticks the task with evidence and records any decision as an ADR.
-   9. Commit with a conventional message naming the task id; `/verify` and the gitleaks pre-commit hook run first.
-   10. Report what was done and stop. One task per invocation keeps context small and reviews meaningful.
-   - **Or run all of them.** `/run-milestone` runs steps 1–9 for every open task, one commit each, without stopping between tasks (ADR-065). A problem local to one task parks it (work stashed, a `Blocked:` question in `docs/PROGRESS.md`) and the run moves on to tasks that don't build on it; the global cases in 6.7 stop the run. Tasks marked with a checkpoint stop it before or after them. The run ends with one report: tasks done, parked questions and items left for you, then prepares acceptance.
-3. **Close the milestone.** `/milestone-acceptance M<n>`: full verification, an acceptance report in `docs/acceptance/M<n>.md`, and a manual checklist for you. The milestone is closed only after you confirm the manual checks.
+1. Plan from spec section 5 and the design. Propose criteria, tests, touched modules and checkpoints; wait for approval before writing tasks.
+2. Inspect branch/status/history and resume task-owned work at its actual phase. Stop if ownership of changes is unclear.
+3. Write behavior tests first and observe expected failures using fictional fakes/temp data. Claude delegates to test-author; Codex normally performs this phase itself.
+4. Implement using the relevant shared procedures; Claude may delegate to implementer.
+5. Run `bash scripts/verify.sh quick`, or full for templates/static/page routes/migrations/task runner changes. Claude normally delegates execution to verifier. Debug within scope; stop after three failed fixes of the same failure.
+6. Obtain independent code review and the triggered specialist reviews; fix critical findings and cheap should-fix findings, record the rest, and re-verify after fixes.
+7. Record task completion/evidence, leftovers and a dated session-log entry. Add an ADR for decisions. Stage only task-owned files and commit with a conventional task-id message; never bypass pre-commit.
+8. Report and stop after one task, or continue eligible tasks under run-milestone/ADR-065. Local problems may be parked only with task-owned changes safely stashed and a recorded Blocked question; never stash another agent's work. Global problems/checkpoints/caps stop the run.
+9. When all tasks are complete, run full verification and milestone-specific critical coverage. Map criteria to observed passing tests in `docs/acceptance/M<n>.md`. Present the user's manual checklist and wait for confirmation before accepting the milestone or advancing Current milestone. Suggest the user merge; no automatic merge/push.
 
 ### 6.7 When agents must stop and ask you
 
 - Sources conflict, or the spec is ambiguous.
 - A new runtime dependency or any stack change.
-- Any change to the honesty rule, the security model, or what data is stored about the user.
+- Any change to the honesty rule, the security model, or stored personal data.
 - Scope changes to a milestone.
-- A test's expectation seems wrong (fixing it would change the test, not the code).
-- Three failed attempts at the same failure.
-- Anything that needs real credentials or the user's real data.
-- Pushing, rewriting git history, or deleting data.
+- A test's expectation seems wrong; never weaken tests to get green.
+- Three failed fixes of the same failure.
+- Anything needing real credentials or the user's real data.
+- Pushing, rewriting history or deleting data.
+
+Existing authorization for the specific change remains valid; do not ask repeatedly for the same approved scope. Native sandbox/trust approval can still be required.
 
 ### 6.8 Shared memory and handoffs
 
-- `docs/PROGRESS.md` is the single status board. Its format is parsed by scripts: a `Current milestone: M<n>` line; one `## M<n> — Title` heading per milestone; tasks as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, and optional `Checkpoint:` and `Blocked:` lines (ADR-065); a session log at the end.
-- `docs/DECISIONS.md` holds ADRs: context, decision, consequences, date.
-- `docs/acceptance/M<n>.md` holds acceptance reports.
-- `code-reviewer` keeps project-scoped memory in `.claude/agent-memory/code-reviewer/`, committed so recurring lessons persist.
-- Git: one branch per milestone (`m<n>-<slug>`); conventional commits such as `feat(inbox): keyboard triage (M4.7)`; you merge to main after acceptance.
+- `PROGRESS.md` retains its parsed format: Current milestone, milestone headings, checkbox task ids, indented AC/Tests/Evidence and optional Checkpoint/Blocked lines, then a session log (ADR-065).
+- ADRs append context/decision/consequences/date in `DECISIONS.md`; acceptance reports remain under `docs/acceptance/`.
+- Recurring review lessons live in `docs/development/review-notes/`. Native Claude memory files route there; do not fork a second body of lessons.
+- Prefer switching agents at committed task boundaries. Unfinished handoffs name the task/phase, changed files, actual tests/results, outstanding review, blockers/checkpoints and next action. The receiving agent inspects the diff before resuming.
+- Integrated work stays on one milestone branch (`m<n>-<slug>`), conventional commits include the task id, and the user merges after acceptance.
 
 ### 6.9 Parallel work
 
-Tasks that touch disjoint files can run in parallel: ask the main session to run several `implementer` subagents in separate git worktrees, then verify and merge one at a time. Never parallelize tasks that touch migrations, the same module, or shared templates.
+One writer per checkout. Parallel implementation needs separate worktrees, disjoint files and one coordinator that alone updates shared progress and integrates verified/reviewed task commits. Never parallelize migrations, the same module or shared templates.
 
 ### 6.10 Usage awareness
 
-Subagents send their own requests, which count toward the same plan limits as the main session. Delegate when it protects the main context or enforces constraints, not by reflex. The verifier and docs-keeper run on lighter models; skills stay concise; compact or clear between tasks.
+Delegate where independent judgment, useful isolation or parallel work justify it. Subagents consume the same account limits. Claude's existing lighter verifier/docs models remain; Codex starts with model inheritance rather than hard-coded substitutions for Sonnet/Haiku. Keep skill descriptions precise and detailed references on demand.
 
 ### 6.11 Permission modes
 
-Start in the default (manual) mode until the workflow feels trustworthy, use plan mode for planning sessions, and switch to accept-edits mode for implementation sessions if you like. Do not use bypass mode in this repository.
+Use normal native permission/approval modes and workspace trust. Codex requests workspace-write/on-request; managed policies may override it. Do not use bypass mode or bypass hook trust. Cache/browser downloads and local server tests can need targeted command approval; this does not authorize live-provider calls.
 
-### 6.12 First session
+### 6.12 First session in a clone or worktree
 
-1. Put this scaffold in a new git repository and make the first commit.
-2. Open Claude Code in the repository and accept the workspace trust prompt (project hooks and agent hooks need it).
-3. Check that `python3` is on your PATH (the hooks use it). On Windows, run Claude Code with Git Bash; if your system only has `python`, change the hook commands in `.claude/settings.json`.
-4. Run `/plan-milestone M0`, review the plan, approve it.
-5. Run `/next-task` until M0 is done, then `/milestone-acceptance M0`.
+Follow `docs/development/agents.md`: install dependencies/pre-commit and browsers as needed, review/trust project configuration and hooks, confirm instructions/skills/current status in a fresh session, then run shared verification. Resume the existing Current milestone rather than restarting the roadmap. Validate hook event dispatch separately from directly invoking the adapter.
 
 ### 6.13 Evolving the system
 
-- When you correct the same behavior twice, encode it: a rule for conventions, a skill for procedures, a hook for anything that must always hold.
-- Keep subagent descriptions short; Claude Code warns when their combined size passes its budget.
-- Measure skill changes before keeping them; the skill-creator plugin can compare runs with and without a skill.
-- Review the code reviewer's memory occasionally and prune stale notes.
-- Keep `CLAUDE.md` under about 150 lines; move detail into rules and skills.
+Keep shared rules/procedures/lessons in one maintained place and native wrappers small. Encode recurring issues in the appropriate rule, procedure or tested hook policy. Validate changed skills and both payload formats, prune stale review lessons, and re-review changed hook scripts as well as native hook definitions. Keep the root guide concise; use on-demand references for detail.
 
 ---
 

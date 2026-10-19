@@ -541,7 +541,7 @@ def test_continue_link_only_after_connected(tmp_path: Path) -> None:
 def test_continue_is_an_htmx_step_change_announced(tmp_path: Path) -> None:
     """ "Continue" moves to the next step like a submit does (ADR-053): an htmx GET of the
     guide, the URL pushed, with the href as the fallback. The htmx GET answers the fragment
-    with the title, focus on the next heading and "Step 3 of 5: Web search" announced (the
+    with the title, focus on the next heading and "Step 3 of 6: Web search" announced (the
     step the link leads to since M2.25); a plain GET announces nothing. Neither changes
     anything."""
     with running(tmp_path) as run:
@@ -557,7 +557,7 @@ def test_continue_is_an_htmx_step_change_announced(tmp_path: Path) -> None:
         target = str(link.attrs.get("hx-get"))
         swapped = run.client.get(target, headers=run.htmx())
         assert swapped.status_code == 200, (swapped.status_code, swapped.text[:300])
-        assert announced(swapped) == "Step 3 of 5: Web search"
+        assert announced(swapped) == "Step 3 of 6: Web search"
         assert "<html" not in swapped.text
         assert "<title>Web search · Set up · Job Search Pipeline</title>" in swapped.text
         elements = outline(swapped.text)

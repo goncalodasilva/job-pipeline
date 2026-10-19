@@ -1,0 +1,10 @@
+{# One side of the merge screen: a fact with what made it (the status and practice badges of
+   _fact_body.html, the needs-check note). Needs `side_id`, `side_heading` and `item` (a
+   FactItem). Always escaped. #}
+<section id="{{ side_id }}" class="fact-card merge-side" aria-labelledby="{{ side_id }}-heading">
+  <h2 id="{{ side_id }}-heading">{{ side_heading }}</h2>
+  {% include "fragments/facts/_fact_body.html" %}
+  {% if item.needs_check %}
+  {% with note_id = side_id ~ "-check" %}{% include "fragments/facts/_needs_check.html" %}{% endwith %}
+  {% endif %}
+</section>

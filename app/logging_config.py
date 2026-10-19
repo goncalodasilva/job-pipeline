@@ -38,7 +38,8 @@ from app.domain.redaction import Redactor
 LOG_FILE_NAME = "jobpipeline.log"
 MAX_LOG_BYTES = 1_048_576
 LOG_BACKUP_COUNT = 4  # the live file plus 4 backups: 5 files in total
-UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+ACCESS_LOGGER = "uvicorn.access"
+UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", ACCESS_LOGGER)
 SDK_LOGGER = "claude_agent_sdk"
 # Set on an SDK record once reduced, so a later pass (another handler's filter) keeps the
 # exception type it can no longer see. Internal: never treated as an extra or written out.
@@ -89,6 +90,23 @@ class RedactionFilter(logging.Filter):
         for key, value in _extras(record).items():
             if not isinstance(value, _PLAIN_TYPES):
                 setattr(record, key, redact(str(value)))
+        return True
+
+
+class AccessQueryFilter(logging.Filter):
+    """Cut the query string from uvicorn's access records, keeping method, path and status.
+
+    A GET form puts what the user typed in the address (a Library search, for one), and
+    redaction only knows secrets, so the query is dropped whole (spec 2.10, ADR-093).
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # uvicorn's access arguments: client, method, path with query, HTTP version, status.
+        if record.name == ACCESS_LOGGER and isinstance(args, tuple) and len(args) == 5:
+            path = args[2]
+            if isinstance(path, str):
+                record.args = (*args[:2], path.partition("?")[0], *args[3:])
         return True
 
 
@@ -174,6 +192,7 @@ def install_sdk_record_reduction() -> Callable[[], None]:
 
 def _add_filters(handler: logging.Handler, redactor: Redactor) -> None:
     handler.addFilter(SdkRecordFilter())
+    handler.addFilter(AccessQueryFilter())
     handler.addFilter(RedactionFilter(redactor))
 
 

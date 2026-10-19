@@ -6,6 +6,11 @@ testing and the demo. In the setup guide, fictional keywords in the pasted "key"
 the connection test behaves (``outcome_for_key``); with no keyword the test is rejected like
 a bad key, except in the demo, where nothing needs pasting and it connects. Content is
 returned as data; nothing is interpreted.
+
+Real tasks (M3.4; ADR-088; ADR-089 item 8) are answered only when wiring scripts them with
+``script_keywords`` and the fictional scripts of ``fake_scripts.py``; an unscripted task
+still fails. Every answer reports a ``fake-`` model and the provider is named ``fake``, so
+what is stored from it can be labelled as practice data.
 """
 
 import asyncio
@@ -86,6 +91,35 @@ class ScriptedResponse:
             raise ValueError("A scripted response needs data, raw_text or a failure.")
 
 
+@dataclass(frozen=True)
+class KeywordScript:
+    """How the fake answers one real task: fictional keywords in the request's text choose
+    the response, in the listed order (so list a keyword before any keyword it contains);
+    text with no keyword gets ``default``."""
+
+    default: ScriptedResponse
+    by_keyword: tuple[tuple[str, ScriptedResponse], ...] = ()
+
+    def __post_init__(self) -> None:
+        seen: list[str] = []
+        for keyword, _ in self.by_keyword:
+            if not keyword.strip():
+                raise ValueError("A script keyword can't be blank.")
+            if any(earlier in keyword for earlier in seen):
+                raise ValueError("A script keyword is hidden by an earlier one.")
+            seen.append(keyword)
+
+    def response_for(self, text: str) -> ScriptedResponse:
+        for keyword, response in self.by_keyword:
+            if keyword in text:
+                return response
+        return self.default
+
+    @property
+    def keywords(self) -> tuple[str, ...]:
+        return tuple(keyword for keyword, _ in self.by_keyword)
+
+
 def outcome_for_key(key: str | None, *, otherwise: FakeOutcome = "auth") -> FakeOutcome:
     """The outcome a pasted fictional key asks for; anything else (nothing pasted included)
     is ``otherwise``: rejected like a bad key unless the caller says differently."""
@@ -129,20 +163,30 @@ class FakeAIProvider:
         self._sleep = sleep
         self._app_mode = app_mode
         self._scripts: dict[str, deque[ScriptedResponse]] = {}
+        self._keyword_scripts: dict[str, KeywordScript] = {}
         self.requests: list[AIRequest] = []
         # Every simulated tool call as (tool, allowed): no personal data, so app mode keeps it.
         self.tool_calls: list[tuple[str, bool]] = []
 
     def script(self, task: str, *responses: ScriptedResponse) -> None:
         """Queue responses for a task; each run takes the next, and the last one repeats."""
+        self._keyword_scripts.pop(task, None)
         self._scripts[task] = deque(responses)
+
+    def script_keywords(self, task: str, script: "KeywordScript") -> None:
+        """Answer ``task`` by keyword (ADR-088; ADR-089 item 8): each run gets the response of
+        the first listed keyword found in the request's user text, else the default. Nothing
+        is used up, so the same text always gets the same answer. Replaces a queue scripted
+        for the task, as ``script`` replaces this."""
+        self._scripts.pop(task, None)
+        self._keyword_scripts[task] = script
 
     async def run(self, request: AIRequest, cancel: CancelToken) -> AIResponse:
         if cancel.cancelled:
             raise CallCancelled
         if not self._app_mode:
             self.requests.append(request)
-        response = self._next(request.task)
+        response = self._next(request)
         if response.delay_seconds:
             await self._sleep(response.delay_seconds)
             if cancel.cancelled:  # cancelled while the call was running
@@ -182,7 +226,11 @@ class FakeAIProvider:
         allowed = hook is not None and await hook(WEB_SEARCH_TOOL) is True
         self.tool_calls.append((WEB_SEARCH_TOOL, allowed))
 
-    def _next(self, task: str) -> ScriptedResponse:
+    def _next(self, request: AIRequest) -> ScriptedResponse:
+        task = request.task
+        by_keyword = self._keyword_scripts.get(task)
+        if by_keyword is not None:
+            return by_keyword.response_for(request.user)
         queue = self._scripts.get(task)
         if not queue:
             if self._app_mode:

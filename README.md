@@ -2,7 +2,7 @@
 
 A local, open-source web app for running a job search: collect postings, see honestly how well you fit, position yourself for each role with a growing bank of your own facts, draft tailored CVs and cover letters, track every application on a board, and prepare for interviews. You always submit applications yourself.
 
-**Status:** M0, M1 (setup guide and Claude connection) and M2 (background tasks and usage budgets) are accepted. Most job-search features arrive from M3 on. See `docs/PROGRESS.md`.
+**Status:** M0–M3 are accepted. The fact bank, CV import and Refine with AI are available. M4 is next and not yet planned; job intake and application tracking arrive from M4 on. See `docs/PROGRESS.md`.
 
 ## How it works
 
@@ -34,9 +34,11 @@ The setup guide opens on first launch. Follow these steps:
 
 3. **Web search (optional):** nothing in this version searches the web yet, and web search only runs when you ask for it. You can set a monthly limit on web searches now. Leave the budget empty for no limit, or choose "Skip for now".
 
-4. **Set your job preferences:** target roles, locations, work preferences, preferred salary and your CV country. You can edit these anytime by re-running the setup guide.
+4. **Import CV (optional):** upload a PDF, Word document or UTF-8 text file, or paste text. Everything extracted starts as a draft to review in the Fact bank. You can skip this and return later.
 
-5. **Done:** the app opens with a choice to add your first job or go to Today. You can re-run the setup guide anytime with `--setup`.
+5. **Set your job preferences:** target roles, locations, work preferences, preferred salary and your CV country. You can edit these anytime by re-running the setup guide.
+
+6. **Done:** the app opens with a choice to add your first job or go to Today. Skipped optional steps have links here. You can re-run the setup guide anytime with `--setup`.
 
 In Settings, you can change your AI connection, replace a saved credential, and choose which models to use for fast and thorough tasks.
 
@@ -86,7 +88,17 @@ AI work runs as background tasks. The **Tasks** button in the top bar shows how 
 - **Retry** runs a failed, cancelled or interrupted task again.
 - If the app stopped while a task ran, for example after a crash, that task shows as **interrupted** when the app starts again. It runs again only when you press Retry. Queued tasks run after a restart.
 
-Nothing retries on its own. In this version the only task type is the practice task, which is offered only on the demo's own folder, or when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` is set. With `--data-dir` or `JOBPIPELINE_DATA_DIR`, even `--demo` needs that variable. Real AI tasks arrive in later milestones.
+Failed and interrupted tasks retry only when you ask. CV import and Refine with AI use the runner; invalid AI output gets one automatic correction attempt. The practice task is offered only on the demo's own folder, or when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` is set. With `--data-dir` or `JOBPIPELINE_DATA_DIR`, even `--demo` needs that variable.
+
+## Fact bank and CV import
+
+Open **Fact bank > Drafts to review** to import a CV (up to 10 MB and 60,000 extracted characters). Scans need pasted text; there is no OCR. Review each draft beside its source quote, then confirm, edit and confirm, merge into a confirmed fact, or discard with undo. Batch confirmation leaves drafts marked “Needs check” for individual review. A failed import keeps its upload with Start and Remove actions. Removing an upload keeps facts already extracted from it.
+
+The **Library** searches current wording, roles and skills, with role, skill and status filters. Edits create versions with a history and word diff. The **Capture inbox** keeps quick notes you can turn into facts. “Find possible duplicates” uses text similarity on demand.
+
+In a fact's editor, **Refine with AI** asks questions and offers a diff. Nothing changes until you press Accept. Claims the checker cannot support must be ticked as true or edited out; a ticked claim stays in that fact's wording. Review the whole suggestion: the checker cannot catch every embellishment. “Never use in applications” excludes a fact from AI requests and blocks refinement. “Generalize names” instructs the AI to hide names in its output; the provider still receives the source text. Refinement also sends other usable confirmed facts and shows how many were used.
+
+The fake provider makes fixed fictional suggestions and labels them **Practice data (fake provider)**. It does not understand the CV or fact you give it. Use fictional text when practicing. Fact versions and closed conversations remain in the local database; discard and archive do not erase their history.
 
 ## Usage budgets
 
@@ -94,7 +106,7 @@ Settings > Usage budgets sets a monthly limit for each service: Claude subscript
 
 Each warning appears once per cycle, in a dialog that asks you to continue. At the blocking point the action is disabled and says when the count resets. The usage panel above the forms shows each service's count, its reset date and any calls still running. Claude's own plan usage is shown for information only and never blocks an action. A connection test counts as one request and is never blocked.
 
-In this version the only requests that count are the connection test and, in the demo, the practice task. Web search budgets take effect once web search is used. "Background tasks at once" sets how many tasks run together; a change applies the next time you start the app.
+Connection tests, CV import, Refine with AI and practice calls count toward usage, including failed calls and AI correction attempts. Web search budgets take effect once web search is used. "Background tasks at once" sets how many tasks run together; a change applies the next time you start the app.
 
 ## Credentials and the keychain
 
@@ -136,14 +148,16 @@ Then on the AI provider step, choose the matching option (subscription token or 
 
 ## Documentation
 
-- `docs/TECHNICAL_SPEC.md`: architecture, rules, testing strategy, roadmap, and how the app is built with Claude Code
+- `docs/TECHNICAL_SPEC.md`: architecture, rules, testing strategy, roadmap, and development with Claude Code and Codex
 - `docs/PROGRESS.md`: what is done and what is next
 - `docs/DECISIONS.md`: decisions and their reasons
 - `docs/references/`: product spec and detailed design
 
-## Developing with Claude Code
+## Developing with Claude Code and Codex
 
-This repository includes a complete Claude Code setup: `CLAUDE.md`, subagents in `.claude/agents/`, skills in `.claude/skills/`, rules in `.claude/rules/`, and hooks in `.claude/hooks/`. The loop is `/plan-milestone M<n>`, then `/next-task` (one task per run), then `/milestone-acceptance M<n>`. Details in `docs/TECHNICAL_SPEC.md` section 6.
+Both tools share `AGENTS.md`, engineering rules, development procedures, verification and progress records. Claude Code keeps its slash commands and specialists; Codex uses repository skills and independent reviewer profiles. See [setup, commands, permissions and handoffs](docs/development/agents.md) and technical spec section 6.
+
+The workflow is plan → one task or a milestone run → acceptance. Claude entry points are `/plan-milestone`, `/next-task`, `/run-milestone`, `/verify`, `/milestone-acceptance`; Codex uses the same names as skills (`$next-task M3.8`, for example). Trust/review project hooks in each client before relying on them. Use one writer per checkout.
 
 Developer commands (spec 4.5):
 
@@ -156,8 +170,8 @@ Developer commands (spec 4.5):
 | Module boundaries | `uv run lint-imports` |
 | Fast tests | `uv run pytest -m "not e2e and not smoke and not live"` |
 | Smoke and end-to-end tests | `uv run pytest -m smoke` and `uv run pytest -m e2e` |
-| Quick verification | `bash .claude/skills/verify/scripts/verify.sh quick` |
-| Full verification (adds e2e, coverage gates, all hooks) | `bash .claude/skills/verify/scripts/verify.sh full` |
+| Quick verification | `bash scripts/verify.sh quick` |
+| Full verification (adds e2e, coverage gates, all hooks) | `bash scripts/verify.sh full` |
 
 Live tests that call real services are opt-in. See `docs/live-check-m1.md` for the full checklist. Both the environment variable and the marker are required: set `JOBPIPELINE_LIVE_TESTS=1` and run with `-m live`. Read credentials into shell variables without echoing them (using `read -rs`) so they stay out of shell history:
 

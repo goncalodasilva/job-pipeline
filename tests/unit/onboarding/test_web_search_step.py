@@ -22,7 +22,7 @@ from typing import Any, cast
 import pytest
 
 from app.domain.budgets import Budget
-from app.domain.errors import UnknownSetupStep, VersionConflict
+from app.domain.errors import VersionConflict
 from app.onboarding.detection import StartupDecision, StartupFacts, StepInfo, StepStatus, detect
 from app.onboarding.progress import SetupProgress
 from app.onboarding.registry import StepRegistry, StepResult, m1_registry
@@ -97,20 +97,20 @@ def test_registry_registers_web_search_optional_at_30() -> None:
     assert step.title == "Web search"
     assert step.template.startswith("fragments/setup/")
     assert step.template.endswith(".html")
-    # Between the AI provider and job preferences; "Step N of M" counts it (3 of 5).
+    # Between the AI provider and CV import; "Step N of M" counts it (3 of 6).
     assert [s.id for s in registry.steps] == [
         "welcome",
         "provider",
         WEB_SEARCH,
+        "cv_import",
         "preferences",
         "done",
     ]
     assert registry.steps.index(step) + 1 == 3
-    assert len(registry.steps) == 5
+    assert len(registry.steps) == 6
     assert StepInfo(WEB_SEARCH, False) in registry.infos()
     assert registry.last.id == "done", "Done stays the final step"
-    with pytest.raises(UnknownSetupStep):
-        registry.get("import_cv")  # order 40 is still free (M3)
+    assert registry.get("cv_import").order == 40  # order 40 is CV import since M3.7
 
 
 def test_web_search_step_can_be_skipped_and_then_done() -> None:

@@ -1,0 +1,39 @@
+{# A fact's history (M3.6; AC-M3.3): what happened to it and its versions, newest first.
+   Needs `history` (a HistoryView) and `oob`. Each version after the first shows what changed
+   against the one before: a changed run of words is an <ins> or a <del> that starts with the
+   word "added" or "removed" and ends with "(end added)" or "(end removed)", hidden from
+   sight but not from assistive technology, and is underlined or struck through, so it never
+   relies on colour. The runs are written without spaces between them: the wording's own
+   spacing is kept (white-space: pre-wrap). Only where one changed run follows another
+   directly (`run.gap`) a space is written between them, so "60" replaced by "80" is never
+   read, seen or copied as "6080". Wording is the user's or AI-made: always escaped. #}
+<section id="fact-history" class="fact-history" aria-labelledby="fact-history-heading"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <h2 id="fact-history-heading">History</h2>
+  <h3 id="fact-history-events-heading">What happened</h3>
+  <ol id="fact-history-events" class="history-events" aria-labelledby="fact-history-events-heading">
+    {% for event in history.events %}
+    <li>{{ event.label }} <span class="fact-meta">· <time datetime="{{ event.when_iso }}">{{ event.when_text }}</time></span></li>
+    {% endfor %}
+  </ol>
+  <h3 id="fact-history-versions-heading">Versions</h3>
+  <ol id="fact-history-versions" class="history-versions" aria-labelledby="fact-history-versions-heading">
+    {% for version in history.versions %}
+    <li id="fact-version-{{ version.number }}" class="fact-card">
+      <h4>Version {{ version.number }}</h4>
+      <p class="fact-meta"><span>{{ version.source }}</span> · <time datetime="{{ version.when_iso }}">{{ version.when_text }}</time></p>
+      {% if version.practice %}
+      <ul class="badges"><li class="badge badge-practice">Practice data (fake provider)</li></ul>
+      {% endif %}
+      {% if version.note %}
+      <p class="version-note">{{ version.note }}</p>
+      {% endif %}
+      {% for part in version.parts %}
+      {% if part.label %}
+      <p class="part-label">{{ part.label }}</p>
+      {% endif %}
+      {% include "fragments/facts/_diff_words.html" %}
+      {% endfor %}
+    </li>
+    {% endfor %}
+  </ol>
+</section>

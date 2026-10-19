@@ -40,6 +40,7 @@ from app.modules.ai import AIProvider, ConnectionResult
 from app.modules.ai.providers.claude_sdk import ClaudeSdkProvider
 from app.onboarding.registry import m1_registry
 from app.wiring import AI_TEMP_FOLDER, Wiring
+from tests.fact_bank import seed_page_ids
 from tests.fakes.claude_query import replaying, success_frames
 from tests.fakes.clock import FrozenClock
 from tests.integration.test_setup_provider import API_KEY_VARIABLE, TOKEN_VARIABLE, data_folder
@@ -422,9 +423,16 @@ def app_session(
 
 
 def visit_every_page(session: Session) -> None:
-    """GET every page route the app registers (each guide step for ``/setup/{step_id}``),
-    plain and as htmx, following one redirect, plus ``/health`` and a missing page."""
+    """GET every page route the app registers (each guide step for ``/setup/{step_id}``; a
+    fictional typed fact for ``/facts/{fact_id}/edit`` and a fictional draft for
+    ``/facts/{draft_id}/merge``, both made here by the app's own service), plain and as
+    htmx, following one redirect, plus ``/health`` and a missing page."""
     step_ids = [step.id for step in m1_registry().steps]
+    fact_ids = seed_page_ids(session.run.app.state.facts)
+    fact_pages = {
+        "/facts/{fact_id}/edit": f"/facts/{fact_ids['fact_id']}/edit",
+        "/facts/{draft_id}/merge": f"/facts/{fact_ids['draft_id']}/merge",
+    }
     paths: list[str] = []
     for route in session.run.app.routes:
         if not isinstance(route, APIRoute) or PAGE_TAG not in route.tags:
@@ -433,10 +441,13 @@ def visit_every_page(session: Session) -> None:
             continue
         if "{step_id}" in route.path:
             paths.extend(route.path.replace("{step_id}", step) for step in step_ids)
+        elif route.path in fact_pages:
+            paths.append(fact_pages[route.path])
         else:
             assert "{" not in route.path, f"unknown page parameter in {route.path}"
             paths.append(route.path)
     assert "/settings" in paths and "/" in paths and GUIDE in paths, paths
+    assert set(fact_pages.values()) <= set(paths), paths
     for path in [*paths, "/health", "/no-such-page-m123"]:
         for htmx in (False, True):
             response = session.get(path, htmx=htmx)

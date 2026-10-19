@@ -325,7 +325,7 @@ def test_setup_flag_on_unfinished_guide_then_finishing_done_reaches_app(tmp_path
     write_bootstrap(tmp_path / "cfg", data_dir=tmp_path / "data", version=__version__)
     seed_workspace(
         tmp_path / "data",
-        done=("welcome", "provider", "web_search", "preferences"),
+        done=("welcome", "provider", "web_search", "cv_import", "preferences"),
         clock=FrozenClock(START),
         provider=HARNESS_PROVIDER,
         preferences=SAVED,
@@ -498,6 +498,7 @@ def test_done_summary_says_needs_attention_for_banner_steps(
             "Welcome and data folder: Done",
             "AI provider: Needs attention",
             "Web search: Done",
+            "Import CV: Done",
             "Job preferences: Done",
         ], rows
 

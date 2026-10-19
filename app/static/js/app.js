@@ -68,6 +68,22 @@
     cancel.click();
   });
 
+  // A part of a form shown only while one choice of a radio group is made
+  // (data-shown-when="<name>=<value>": the merge screen's own wording, M3.6). The server
+  // renders it hidden unless that choice is checked; choosing a radio of the group shows or
+  // hides it at once. Focus stays on the radio. Without scripts CSS keeps it in sight.
+  document.addEventListener("change", function (event) {
+    var radio = event.target;
+    if (!(radio instanceof HTMLInputElement) || radio.type !== "radio" || !radio.form) return;
+    var parts = radio.form.querySelectorAll("[data-shown-when]");
+    for (var i = 0; i < parts.length; i++) {
+      var rule = parts[i].getAttribute("data-shown-when") || "";
+      var at = rule.indexOf("=");
+      if (at < 0 || rule.slice(0, at) !== radio.name) continue;
+      parts[i].hidden = !(radio.checked && radio.value === rule.slice(at + 1));
+    }
+  });
+
   // Routes can ask for an announcement with the header HX-Trigger: {"announce": "..."}.
   document.body.addEventListener("announce", function (event) {
     if (event.detail && typeof event.detail.value === "string") announce(event.detail.value);
@@ -207,6 +223,87 @@
     if (from.querySelector("dialog[data-modal][open]")) event.preventDefault();
   });
 
+  // A part of the page where the user edits in place ([data-keep-edits]: the Fact bank's
+  // drafts, M3.5) and that fetches itself again when its content changed elsewhere is never
+  // replaced while the user is at work in it: an inline form is open (<details open>), focus
+  // is inside, or something in it would be lost for good ([data-holds-refresh]: the Undo of a
+  // discarded draft, which the refreshed list no longer has). Typing is never lost to a
+  // refresh. The refresh is dropped, both before
+  // it is asked for and, when work began while the answer was on its way, before it is
+  // swapped in; the part's own note ([data-stale-note], its words are in the template) is
+  // shown and said once instead. Answers to the forms inside target their own block, so
+  // they are never held back.
+  function keepsEdits(region, requester) {
+    if (!(region instanceof Element) || region !== requester) return false;
+    if (!region.hasAttribute("data-keep-edits")) return false;
+    var active = document.activeElement;
+    return region.querySelector("details[open], [data-holds-refresh]") !== null ||
+      (active instanceof Element && active !== region && region.contains(active));
+  }
+  function showStaleNote(region) {
+    var note = region.querySelector("[data-stale-note]");
+    if (!note || !note.hidden) return;
+    note.hidden = false;
+    announce(note.textContent.replace(/\s+/g, " ").trim());
+  }
+  document.body.addEventListener("htmx:beforeRequest", function (event) {
+    var detail = event.detail || {};
+    if (!keepsEdits(detail.target, detail.elt)) return;
+    event.preventDefault();
+    showStaleNote(detail.target);
+  });
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    var detail = event.detail || {};
+    var requester = detail.requestConfig ? detail.requestConfig.elt : null;
+    if (!detail.shouldSwap || !keepsEdits(detail.target, requester)) return;
+    detail.shouldSwap = false;
+    showStaleNote(detail.target);
+  });
+
+  // A form that confirms several drafts together ([data-skips-open-edits]: the Fact bank's
+  // "Confirm all from this import") never confirms one the user is rewording. Each of its
+  // fields that would confirm a draft names that draft's block (data-confirms); when the
+  // block's inline form is open with wording that differs from the saved one, the field is
+  // left out of the request, so the server leaves that draft as it is.
+  function editedInPlace(block) {
+    if (!block) return false;
+    var fields = block.querySelectorAll("details[open] textarea");
+    for (var i = 0; i < fields.length; i += 1) {
+      var saved = fields[i].getAttribute("data-saved");
+      if (fields[i].value !== (saved === null ? fields[i].defaultValue : saved)) return true;
+    }
+    return false;
+  }
+  document.body.addEventListener("htmx:configRequest", function (event) {
+    var detail = event.detail || {};
+    var form = detail.elt;
+    if (!(form instanceof Element) || !form.hasAttribute("data-skips-open-edits")) return;
+    form.querySelectorAll("input[data-confirms]").forEach(function (input) {
+      if (!editedInPlace(document.getElementById(input.getAttribute("data-confirms")))) return;
+      if (detail.formData && typeof detail.formData.delete === "function") {
+        detail.formData.delete(input.name);
+      }
+      if (detail.parameters) delete detail.parameters[input.name];
+    });
+  });
+
+  // A refused upload answers 400 or 413, which htmx treats as an error and doesn't show. A
+  // part of the page that shows its own refusals ([data-shows-refusals]: the CV import
+  // section) gets such an answer swapped in when it is HTML with something in it, so the
+  // reason appears with the form; an empty or plain-text refusal (the server's backstop)
+  // stays an error and the section stays as it is.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    var detail = event.detail || {};
+    var xhr = detail.xhr;
+    var target = detail.target;
+    if (!xhr || (xhr.status !== 400 && xhr.status !== 413)) return;
+    if (!(target instanceof Element) || !target.hasAttribute("data-shows-refusals")) return;
+    var type = (xhr.getResponseHeader("content-type") || "").toLowerCase();
+    if (type.indexOf("text/html") !== 0 || !(xhr.responseText || "").trim()) return;
+    detail.shouldSwap = true;
+    detail.isError = false;
+  });
+
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Tab") return;
     var dialog = openModal();
@@ -264,6 +361,111 @@
       form.querySelector("button[type='submit'], button:not([type]), input[type='submit']");
     refuseBlocked(event, blockedControl(submitter));
   }, true);
+
+  // Refine with AI (M3.9). "Edit it myself" ([data-focus-field], a button) takes focus to
+  // the editor's wording field and leaves the conversation as it is.
+  document.addEventListener("click", function (event) {
+    var control = event.target instanceof Element ? event.target.closest("[data-focus-field]") : null;
+    if (!control) return;
+    var field = document.getElementById(control.getAttribute("data-focus-field") || "");
+    if (!field) return;
+    event.preventDefault();
+    field.focus();
+  });
+
+  // When the panel is replaced (its turn ended) while focus was in it, on a control the new
+  // panel no longer has (Cancel), focus goes to its status line, which says what happened.
+  // Focus elsewhere on the page is never taken. A refetch that changes nothing answers 204
+  // and swaps nothing, so focus stays where it was. htmx fires beforeSwap for that 204 too
+  // (shouldSwap false) with no settle after it, so the mark is set only for a swap of the
+  // panel that happens (a 204 clears it), and only the panel's own settle reads and clears
+  // it: another part's swap (an editor save, the tasks indicator), even one that settles
+  // between the panel's swap and its settle, neither moves focus here nor drops the mark.
+  var refineHadFocus = false;
+  function isRefinePanel(element) {
+    return element instanceof Element && element.id === "fact-refine";
+  }
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    var detail = event.detail || {};
+    if (!isRefinePanel(detail.target)) return;
+    var active = document.activeElement;
+    refineHadFocus = detail.shouldSwap === true && active instanceof Element &&
+      detail.target.contains(active);
+  });
+  document.body.addEventListener("htmx:afterSettle", function (event) {
+    var detail = event.detail || {};
+    if (!isRefinePanel(detail.elt) && !isRefinePanel(detail.target)) return;
+    var hadFocus = refineHadFocus;
+    refineHadFocus = false;
+    if (!hadFocus) return;
+    var panel = document.getElementById("fact-refine");
+    if (!panel || panel.contains(document.activeElement)) return;
+    var line = document.getElementById("fact-refine-status") ||
+      document.getElementById("fact-refine-heading");
+    if (!line) return;
+    if (!line.hasAttribute("tabindex")) line.setAttribute("tabindex", "-1");
+    line.focus();
+  });
+
+  // Its Accept (form[data-refine-accept]) is blocked (aria-disabled, its reason shown) while
+  // a claim that isn't in the fact bank is neither ticked nor taken out of the wording; a
+  // form for a suggestion made before the fact changed (data-refine-stale) stays blocked as
+  // the server rendered it. A claim counts as taken out as the server's details_still_said
+  // reads one: its case-folded, space-collapsed text is no longer a substring of the
+  // wording's, and it could be (data-edits-out="true"; a detail the model reported that the
+  // suggestion didn't write as reported can't), and the wording isn't the one the server
+  // last refused with it (data-refused-for). The substring test is the looser one, so the
+  // client opens Accept only where that text is gone; numbers the server reads by value
+  // (written as words, say) can still be refused, and the refusal lists them with
+  // data-refused-for, which keeps Accept blocked until the wording changes again.
+  function folded(text) {
+    return text.toLowerCase().replace(/ß/g, "ss").replace(/ς/g, "σ")
+      .replace(/\s+/g, " ").trim();
+  }
+  function syncRefineAccept(form) {
+    if (form.hasAttribute("data-refine-stale")) return;
+    var button = form.querySelector("[data-refine-accept-button]");
+    var reason = document.getElementById("fact-refine-accept-reason");
+    if (!button || !reason) return;
+    var parts = [];
+    form.querySelectorAll("textarea[data-refine-wording]").forEach(function (field) {
+      if (field.value !== "") parts.push(field.value);
+    });
+    var wording = folded(parts.join("\n"));
+    var blocked = false;
+    form.querySelectorAll("input[data-refine-claim]").forEach(function (box) {
+      if (box.checked) return;
+      var refusedFor = box.getAttribute("data-refused-for");
+      if (box.getAttribute("data-edits-out") !== "true" ||
+          wording.indexOf(folded(box.value)) >= 0 ||
+          (refusedFor !== null && folded(refusedFor) === wording)) {
+        blocked = true;
+      }
+    });
+    reason.hidden = !blocked;
+    if (blocked) {
+      button.setAttribute("aria-disabled", "true");
+      button.setAttribute("aria-describedby", reason.id);
+    } else {
+      button.removeAttribute("aria-disabled");
+      button.removeAttribute("aria-describedby");
+    }
+  }
+  function syncRefineForms() {
+    document.querySelectorAll("form[data-refine-accept]").forEach(syncRefineAccept);
+  }
+  function refineFormOf(event) {
+    var target = event.target;
+    return target instanceof Element ? target.closest("form[data-refine-accept]") : null;
+  }
+  ["input", "change"].forEach(function (name) {
+    document.addEventListener(name, function (event) {
+      var form = refineFormOf(event);
+      if (form) syncRefineAccept(form);
+    });
+  });
+  syncRefineForms();
+  document.body.addEventListener("htmx:afterSettle", syncRefineForms);
 
   // The top-bar task indicator (M2.20): #tasks-toggle is a disclosure button for the non-modal
   // #tasks-popover. Opening moves no focus. The panel closes on Esc (focus goes to the button
@@ -554,11 +756,40 @@
   // are remembered, and only a task that finished in the last 10 seconds is said (it may have
   // ended while the browser was going from one page to the next). "age" is the server's
   // count of whole seconds since the task finished.
+  // A page that shows a failure's reason itself says so in its own words: an element with
+  // data-announce-instead-of (the server's sentence) and data-announce-instead (what to say
+  // in its place; both written by the server) swaps the one for the other.
   var ANNOUNCED_KEY = "jobpipeline-tasks-announced";
   var ANNOUNCED_MAX = 50;
   var ANNOUNCE_RECENT_S = 10;
   var announcedHere = [];
   var announcedBaseline = false;
+  var pendingRefineRequests = new Set();
+  var deferredFinished = [];
+  var deferredFinishedReceived = false;
+
+  // A fast turn can finish before its initiating POST has supplied the panel's task key.
+  // Wait for that response (or its failure) before deciding which component owns the words.
+  document.body.addEventListener("htmx:beforeSend", function (event) {
+    var detail = event.detail || {};
+    var from = detail.elt;
+    if (from instanceof Element && from.closest("#fact-refine") &&
+        detail.requestConfig && detail.requestConfig.verb === "post") {
+      var xhr = detail.xhr;
+      pendingRefineRequests.add(xhr);
+      // A save can detach the originating form. Failure events then cannot bubble to the
+      // body. loadend belongs to the request itself and follows htmx's onload/swap handler.
+      xhr.addEventListener("loadend", function () {
+        if (!pendingRefineRequests.delete(xhr) || pendingRefineRequests.size) return;
+        var tasks = deferredFinished;
+        var received = deferredFinishedReceived;
+        deferredFinished = [];
+        deferredFinishedReceived = false;
+        // No reply and a real empty reply have different baseline semantics.
+        if (received) finishedTasks(tasks);
+      }, { once: true });
+    }
+  });
 
   function storedAnnounced() {
     return storedKeys(ANNOUNCED_KEY);
@@ -570,9 +801,29 @@
     }).slice(-ANNOUNCED_MAX));
   }
 
-  document.body.addEventListener("tasks:finished", function (event) {
-    var tasks = event.detail && event.detail.tasks;
+  function pageWords(message) {
+    var own = document.querySelectorAll("[data-announce-instead-of][data-announce-instead]");
+    for (var i = 0; i < own.length; i += 1) {
+      if (own[i].getAttribute("data-announce-instead-of") === message) {
+        return own[i].getAttribute("data-announce-instead") || message;
+      }
+    }
+    return message;
+  }
+
+  function finishedTasks(tasks) {
     if (!Array.isArray(tasks)) return;
+    if (pendingRefineRequests.size) {
+      deferredFinishedReceived = true;
+      tasks.forEach(function (task) {
+        if (task && typeof task.key === "string" &&
+            !deferredFinished.some(function (held) { return held.key === task.key; })) {
+          deferredFinished.push(task);
+        }
+      });
+      deferredFinished = deferredFinished.slice(-ANNOUNCED_MAX);
+      return;
+    }
     var known = storedAnnounced().concat(announcedHere);
     var fresh = tasks.filter(function (task) {
       return task && typeof task.key === "string" && typeof task.message === "string" &&
@@ -583,9 +834,19 @@
     if (!fresh.length) return;
     rememberAnnounced(known, fresh.map(function (task) { return task.key; }));
     var said = fresh.filter(function (task) {
-      return !first || (typeof task.age === "number" && task.age <= ANNOUNCE_RECENT_S);
+      // A panel that follows this exact turn announces its result itself. Mark its key
+      // above even when the indicator's answer wins the race with the panel's answer.
+      var owned = Array.from(document.querySelectorAll("[data-task-announcement-key]"))
+        .some(function (panel) {
+          return panel.getAttribute("data-task-announcement-key") === task.key;
+        });
+      return !owned && (!first || (typeof task.age === "number" && task.age <= ANNOUNCE_RECENT_S));
     });
-    if (said.length) announce(said.map(function (task) { return task.message; }).join(" "));
+    if (said.length) announce(said.map(function (task) { return pageWords(task.message); }).join(" "));
+  }
+
+  document.body.addEventListener("tasks:finished", function (event) {
+    finishedTasks(event.detail && event.detail.tasks);
   });
 
   // Live updates (ADR-076 item 1, ADR-077): the server streams events at the URL in

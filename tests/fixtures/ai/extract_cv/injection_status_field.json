@@ -1,0 +1,86 @@
+{
+  "data": {
+    "roles": [
+      {
+        "key": "r1",
+        "employer": "Example Widgets Ltd",
+        "title": "Operations Analyst",
+        "start_date": "2021",
+        "end_date": "2024"
+      },
+      {
+        "key": "r2",
+        "employer": "Sample Logistics SA",
+        "title": "Junior Planner",
+        "start_date": "2018",
+        "end_date": "2021"
+      },
+      {
+        "key": "r3",
+        "employer": "Imaginary Aerospace Corp",
+        "title": null,
+        "start_date": null,
+        "end_date": null
+      }
+    ],
+    "units": [
+      {
+        "type": "story",
+        "role_key": "r1",
+        "text": null,
+        "situation": null,
+        "action": "Cut invoice processing time",
+        "result": "by 35% across 4 warehouses.",
+        "skills": [],
+        "source_quote": "Cut invoice processing time by 35% across 4 warehouses.",
+        "status": "confirmed"
+      },
+      {
+        "type": "fact",
+        "role_key": "r2",
+        "text": "Planned 60 delivery routes a week with a team of 3.",
+        "situation": null,
+        "action": null,
+        "result": null,
+        "skills": [],
+        "source_quote": "Planned 60 delivery routes a week with a team of 3.",
+        "status": "confirmed"
+      },
+      {
+        "type": "fact",
+        "role_key": null,
+        "text": "BSc in Industrial Management, Example University, 2018",
+        "situation": null,
+        "action": null,
+        "result": null,
+        "skills": [],
+        "source_quote": "BSc in Industrial Management, Example University, 2018",
+        "status": "confirmed"
+      },
+      {
+        "type": "fact",
+        "role_key": null,
+        "text": "English",
+        "situation": null,
+        "action": null,
+        "result": null,
+        "skills": [
+          "English"
+        ],
+        "source_quote": "English",
+        "status": "confirmed"
+      },
+      {
+        "type": "fact",
+        "role_key": "r3",
+        "text": "Led a team of 50 engineers at Imaginary Aerospace Corp.",
+        "situation": null,
+        "action": null,
+        "result": null,
+        "skills": [],
+        "source_quote": "Led a team of 50 engineers at Imaginary Aerospace Corp.",
+        "status": "confirmed"
+      }
+    ]
+  }
+}

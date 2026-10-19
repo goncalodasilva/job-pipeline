@@ -163,6 +163,11 @@ class TaskService:
         with self._db.read() as conn:
             return tasks_repo.get(conn, task_id)
 
+    def latest(self, task_type: str, target: str) -> TaskRow | None:
+        """The most recently changed task of this type for ``target``, in any state."""
+        with self._db.read() as conn:
+            return tasks_repo.get_latest(conn, dedupe_key(task_type, target))
+
     def recent(self, limit: int) -> list[TaskRow]:
         """Up to ``limit`` tasks, most recently changed first."""
         with self._db.read() as conn:

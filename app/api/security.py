@@ -10,6 +10,8 @@ A pure ASGI middleware, so streamed responses (server-sent events in M2) pass th
 3. Origin: state-changing requests need an ``Origin`` equal to ``http://<Host>``, or, when there
    is no ``Origin``, a ``Referer`` from that origin; else 403.
 Every HTTP response, including rejections, forbids framing (clickjacking) and MIME sniffing.
+Every response outside ``/static/`` is marked ``Cache-Control: no-store``: pages embed the
+launch token, and fragments and answers hold the user's own text.
 WebSocket connections are refused; the app doesn't use them.
 """
 
@@ -88,6 +90,8 @@ class SecurityMiddleware:
             return
 
         send = _with_protective_headers(send)
+        if not scope["path"].startswith(_TOKEN_FREE_PREFIXES):  # static files may be cached
+            send = _with_header(send, (b"cache-control", b"no-store"))
         headers = _headers(scope)
         host = _single(headers, b"host")
         if host is None or host.lower() not in self._allowed_hosts:
@@ -95,8 +99,6 @@ class SecurityMiddleware:
             return
         method = scope["method"].upper()
         page = method in _PAGE_METHODS and self._is_page(scope)
-        if page:  # pages embed the launch token, so no cache may keep them
-            send = _with_header(send, (b"cache-control", b"no-store"))
         if self._needs_token(scope, method, headers, page) and not self._token_ok(headers):
             await _plain(send, 403, "Forbidden.")
             return

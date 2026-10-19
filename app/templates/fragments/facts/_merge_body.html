@@ -1,0 +1,144 @@
+{# The merge screen's body (M3.6): what every form on the screen replaces. Needs `merge` (a
+   MergeView, or none with a `conflict`), `draft_id`, `said`, `conflict`, `reload_url`,
+   `back_url` (a refusal that a reload would only repeat, such as a fact that isn't a draft
+   any more: the link leads to the Drafts tab instead) and `searched`.
+   search: the draft, a GET search form (with htmx it replaces the screen's content, the
+   address follows, and focus moves to the candidates' heading: `searched`) and the facts
+   it can be merged into, each with a "Compare" link. The search swaps itself, its field
+   included, so it settles at once (settle:0ms): htmx otherwise gives the new field the
+   old one's attributes for a moment, and what is typed in that moment is overwritten. compare: both wordings (side by side on a wide screen, stacked on a
+   phone) and the form that settles the wording; the fields for a wording of one's own
+   (#merge-own-wording) carry `hidden` unless "Write the wording myself" is checked, and
+   app.js shows them as soon as it is chosen (data-shown-when); without scripts CSS keeps
+   them in sight (html.js), so the screen works without one. result: where the draft went and, while the
+   merge can be taken back, "Undo merge". One focus target: the result, the line an undo
+   left, the reload prompt or a refused field. Everything is escaped. #}
+<div id="merge-page" class="merge-body">
+  {% if conflict and back_url %}
+  <div id="merge-conflict" class="notice reload-prompt" role="alert" tabindex="-1" data-autofocus>
+    <p>{{ conflict }}</p>
+    <p><a href="{{ back_url }}">Back to Drafts to review</a></p>
+  </div>
+  {% elif conflict %}
+  {% set reload_id = "merge-conflict" %}
+  {% set reload_message = conflict %}
+  {% set reload_detail = "" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% elif merge.state == "result" %}
+  <section id="merge-result" class="merge-result" aria-labelledby="merge-result-heading">
+    <h2 id="merge-result-heading" tabindex="-1" data-autofocus>Merged</h2>
+    <p>The draft is closed. The fact below has a new version with the wording you settled on, and the draft's skills.</p>
+    {% with item = merge.target %}
+    <div class="fact-card">
+      {% include "fragments/facts/_fact_body.html" %}
+      <p class="fact-links"><a href="/facts/{{ item.id }}/edit" aria-describedby="wording-{{ item.id }}">Open this fact and its history</a></p>
+    </div>
+    {% endwith %}
+    {% if merge.can_undo %}
+    <form method="post" action="/facts/{{ draft_id }}/undo-merge" hx-post="/facts/{{ draft_id }}/undo-merge"
+          hx-target="#merge-page" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="draft_version" value="{{ merge.draft.version }}">
+      <input type="hidden" name="target_version" value="{{ merge.target.version }}">
+      <button type="submit" class="button" aria-describedby="merge-undo-hint">Undo merge</button>
+    </form>
+    <p id="merge-undo-hint" class="field-hint">Undo puts the draft back in Drafts to review and the fact back to its wording from before. It is offered until the fact's wording changes again.</p>
+    {% else %}
+    <p class="field-hint">This merge can't be undone right now: the fact's wording changed after it. If another draft was merged into it later, undo that merge first.</p>
+    {% endif %}
+  </section>
+  {% else %}
+  {% if said %}
+  <p id="merge-status" class="fact-result" tabindex="-1" data-autofocus>{{ said }}</p>
+  <p class="fact-links"><a href="/facts?tab=drafts">Go to Drafts to review</a></p>
+  {% endif %}
+  {% if merge.state == "compare" %}
+  <div id="merge-compare" class="merge-compare">
+    {% with side_id = "merge-draft", side_heading = "The draft", item = merge.draft %}
+    {% include "fragments/facts/_merge_side.html" %}
+    {% endwith %}
+    {% with side_id = "merge-target", side_heading = "The existing fact", item = merge.target %}
+    {% include "fragments/facts/_merge_side.html" %}
+    {% endwith %}
+  </div>
+  {% if merge.note %}
+  <p class="field-hint">{{ merge.note }}</p>
+  {% endif %}
+  {% set choice_error = merge.error_field == "wording" %}
+  <form id="merge-form" class="merge-form" method="post" action="/facts/{{ draft_id }}/merge"
+        hx-post="/facts/{{ draft_id }}/merge" hx-target="#merge-page" hx-swap="outerHTML"
+        hx-disabled-elt="find button" novalidate>
+    <input type="hidden" name="target" value="{{ merge.target.id }}">
+    <input type="hidden" name="draft_version" value="{{ merge.draft.version }}">
+    <input type="hidden" name="target_version" value="{{ merge.target.version }}">
+    <fieldset class="choices">
+      <legend>{{ merge.legend }}</legend>
+      {% if choice_error %}
+      <p id="merge-wording-error" class="field-error">{{ merge.error_message }}</p>
+      {% endif %}
+      {% for choice in merge.choices %}
+      <div class="choice">
+        <input type="radio" id="merge-wording-{{ choice.value }}" name="wording" value="{{ choice.value }}"{% if choice.checked %} checked{% endif %}{% if choice_error %} aria-invalid="true" aria-describedby="merge-wording-error merge-wording-{{ choice.value }}-help"{% if choice.checked %} data-autofocus{% endif %}{% else %} aria-describedby="merge-wording-{{ choice.value }}-help"{% endif %}>
+        <label for="merge-wording-{{ choice.value }}">{{ choice.label }}</label>
+        <p id="merge-wording-{{ choice.value }}-help" class="field-hint">{{ choice.help }}</p>
+      </div>
+      {% endfor %}
+    </fieldset>
+    <div id="merge-own-wording" class="merge-own-wording" data-shown-when="wording=edited"{% if not merge.writing %} hidden{% endif %}>
+    {% for field in merge.fields %}
+    {% set refused_here = merge.error_field == field.name %}
+    <div class="field">
+      <label for="merge-{{ field.name }}">Your wording{% if field.name != "text" %}: {{ field.label }}{% endif %}</label>
+      <textarea id="merge-{{ field.name }}" name="{{ field.name }}" rows="4" aria-describedby="merge-own-hint{% if refused_here %} merge-{{ field.name }}-error{% endif %}"{% if refused_here %} aria-invalid="true" data-autofocus{% endif %}>{{ field.value }}</textarea>
+      {% if refused_here %}
+      <p id="merge-{{ field.name }}-error" class="field-error">{{ merge.error_message }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <p id="merge-own-hint" class="field-hint editor-hint">Used only when you choose "Write the wording myself".</p>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="button button-primary">Merge</button>
+      <a class="button" href="/facts/{{ draft_id }}/merge">Choose another fact</a>
+    </div>
+  </form>
+  {% else %}
+  {% with side_id = "merge-draft", side_heading = "The draft", item = merge.draft %}
+  {% include "fragments/facts/_merge_side.html" %}
+  {% endwith %}
+  {% if merge.note %}
+  <p class="notice">{{ merge.note }}</p>
+  {% endif %}
+  <form id="merge-search" class="library-filters" method="get" action="/facts/{{ draft_id }}/merge"
+        hx-get="/facts/{{ draft_id }}/merge" hx-target="#merge-content" hx-swap="outerHTML settle:0ms"
+        hx-push-url="true" novalidate>
+    <div class="field">
+      <label for="merge-q">Search for the fact to merge it into</label>
+      <input type="search" id="merge-q" name="q" value="{{ merge.q }}" autocomplete="off">
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="button button-primary">Search</button>
+    </div>
+  </form>
+  <section id="merge-candidates" class="merge-candidates" aria-labelledby="merge-candidates-heading">
+    <h2 id="merge-candidates-heading"{% if searched %} tabindex="-1" data-autofocus{% endif %}>Facts you can merge it into</h2>
+    {% if not merge.candidates and merge.q %}
+    <p class="library-none">No facts match your search.</p>
+    {% elif not merge.candidates %}
+    <p class="library-none">There is no other fact to merge this draft into yet.</p>
+    {% else %}
+    <ul class="fact-list merge-list">
+      {% for item in merge.candidates %}
+      <li id="merge-candidate-{{ item.id }}" class="fact-card">
+        {% include "fragments/facts/_fact_body.html" %}
+        <p class="fact-links"><a class="button" href="/facts/{{ draft_id }}/merge?target={{ item.id|urlencode }}" aria-describedby="wording-{{ item.id }}">Compare</a></p>
+      </li>
+      {% endfor %}
+    </ul>
+    {% if merge.more %}
+    <p class="field-hint">Not every fact is listed. Search to find the one you want.</p>
+    {% endif %}
+    {% endif %}
+  </section>
+  {% endif %}
+  {% endif %}
+</div>

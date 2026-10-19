@@ -1,0 +1,56 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 975 >>
+stream
+BT /F1 14 Tf 1 0 0 1 72 770 Tm (Alex Example - Work history) Tj ET
+0.5 w
+66 736 m 529 736 l S
+66 712 m 529 712 l S
+66 688 m 529 688 l S
+66 664 m 529 664 l S
+66 640 m 529 640 l S
+66 736 m 66 640 l S
+226 736 m 226 640 l S
+406 736 m 406 640 l S
+529 736 m 529 640 l S
+BT /F1 10 Tf 1 0 0 1 72 720 Tm (Role) Tj ET
+BT /F1 10 Tf 1 0 0 1 232 720 Tm (Employer) Tj ET
+BT /F1 10 Tf 1 0 0 1 412 720 Tm (Years) Tj ET
+BT /F1 10 Tf 1 0 0 1 72 696 Tm (Operations Analyst) Tj ET
+BT /F1 10 Tf 1 0 0 1 232 696 Tm (Example Widgets Ltd) Tj ET
+BT /F1 10 Tf 1 0 0 1 412 696 Tm (2021 - 2024) Tj ET
+BT /F1 10 Tf 1 0 0 1 72 672 Tm (Junior Planner) Tj ET
+BT /F1 10 Tf 1 0 0 1 232 672 Tm (Sample Logistics SA) Tj ET
+BT /F1 10 Tf 1 0 0 1 412 672 Tm (2018 - 2021) Tj ET
+BT /F1 10 Tf 1 0 0 1 72 648 Tm (Stock Intern) Tj ET
+BT /F1 10 Tf 1 0 0 1 232 648 Tm (Fictional Foods Lda) Tj ET
+BT /F1 10 Tf 1 0 0 1 412 648 Tm (2017 - 2018) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 610 Tm (References available on request.) Tj ET
+
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000212 00000 n 
+0000000338 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1364
+%%EOF

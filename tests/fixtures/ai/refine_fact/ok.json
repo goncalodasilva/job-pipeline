@@ -1,0 +1,14 @@
+{
+  "data": {
+    "questions": [
+      "About how many invoices did the team handle each month?"
+    ],
+    "suggestion": {
+      "text": "Reduced invoice processing time by 35% across 4 warehouses.",
+      "situation": null,
+      "action": null,
+      "result": null
+    },
+    "added_details": []
+  }
+}

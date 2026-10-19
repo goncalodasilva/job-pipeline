@@ -1,0 +1,21 @@
+{# The answer of the refine routes (M3.9): the #fact-refine panel and, after an Accept (which
+   saved a new version), out of band the editor's wording fields (as _editor_form.html writes
+   them) and version field (the rest of the form keeps what was typed in it), its archive
+   block and the history, so the page shows the accepted wording and a later save isn't
+   stale. Needs `refine` (see _refine.html) with `editor` (an EditorView) and `history`
+   after an Accept. #}
+{% from "fragments/facts/_editor_macros.html" import wording_textarea %}
+{% include "fragments/facts/_refine.html" %}
+{% if refine.editor %}
+{% set editor = refine.editor %}
+<input type="hidden" id="fact-editor-version" name="version" value="{{ editor.version }}" hx-swap-oob="true">
+{% for field in editor.fields %}
+{{ wording_textarea(editor, field, oob=true) }}
+{% endfor %}
+{% if not editor.draft %}
+{% with state_said = none, conflict = none, state_oob = true %}{% include "fragments/facts/_editor_state.html" %}{% endwith %}
+{% endif %}
+{% if refine.history %}
+{% with history = refine.history, oob = true %}{% include "fragments/facts/_history.html" %}{% endwith %}
+{% endif %}
+{% endif %}

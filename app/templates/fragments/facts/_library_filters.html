@@ -1,0 +1,51 @@
+{# The Library's filters (M3.5; AC-M3.6): a plain GET form to the page, so it works without
+   scripts; with htmx it swaps #library-results only, so focus stays in the field being used
+   and what was found is announced (HX-Trigger). Nothing here is disabled while a search
+   runs: a disabled field would lose focus. With no status chosen the Library lists confirmed
+   facts, so "Confirmed" is the option shown then (there is no separate "any" option, which
+   would list the same). A chosen role or skill is selected only when it
+   is a listed one; a status that isn't one is never shown back and gets its error tied to
+   the field (422). Needs `library` (a LibraryView). #}
+<form id="library-filters" class="library-filters" method="get" action="/facts"
+      hx-get="/facts/library" hx-target="#library-results" hx-swap="outerHTML"
+      aria-labelledby="library-heading" novalidate>
+  <input type="hidden" name="tab" value="library">
+  <div class="filter-fields">
+    <div class="field">
+      <label for="library-q">Search facts</label>
+      <input type="search" id="library-q" name="q" value="{{ library.q }}" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="library-role">Role</label>
+      <select id="library-role" name="role">
+        <option value="">Any role</option>
+        {% for option in library.roles %}
+        <option value="{{ option.value }}"{% if option.value == library.role %} selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="library-skill">Skill</label>
+      <select id="library-skill" name="skill">
+        <option value="">Any skill</option>
+        {% for option in library.skills %}
+        <option value="{{ option.value }}"{% if option.value == library.skill %} selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="library-status">Status</label>
+      <select id="library-status" name="status"{% if library.status_error %} aria-invalid="true" aria-describedby="library-status-error" data-autofocus{% endif %}>
+        {% for option in library.statuses %}
+        <option value="{{ option.value }}"{% if option.value == (library.status or "confirmed") %} selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+      {% if library.status_error %}
+      <p id="library-status-error" class="field-error">{{ library.status_error }}</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="button button-primary">Search</button>
+  </div>
+</form>

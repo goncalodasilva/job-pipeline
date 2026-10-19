@@ -109,7 +109,7 @@ def test_preferences_and_done_keyboard_add_a_job(running_app: RunningApp, browse
         expect(page.locator('[aria-current="step"]')).to_contain_text("Done")
         expect(page).to_have_title(re.compile(r"^Done"))
         expect(page.locator("#step-heading")).to_be_focused()
-        expect(page.locator("#announcer")).to_have_text("Step 5 of 5: Done")
+        expect(page.locator("#announcer")).to_have_text("Step 6 of 6: Done")
         expect(page.locator("h1")).to_have_count(1)
         prefs_item = page.locator("ol.setup-steps > li").filter(has_text="Job preferences")
         expect(prefs_item).to_contain_text("Done")

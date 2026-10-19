@@ -1,0 +1,14 @@
+{
+  "data": {
+    "questions": [
+      "How did you measure the processing time before and after?"
+    ],
+    "suggestion": {
+      "text": null,
+      "situation": "Invoice processing was slow across 14 warehouses.",
+      "action": "Rebuilt the approval queue with Globex Corporation.",
+      "result": "Cut processing time by 35% in 2019."
+    },
+    "added_details": []
+  }
+}

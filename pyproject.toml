@@ -20,6 +20,9 @@ dependencies = [
     "keyring>=25.7,<26",
     "platformdirs>=4.12",
     "pydantic>=2.13",
+    "pypdf>=6.20",
+    "python-docx>=1.2,<2",
+    "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
     "uvicorn>=0.54",
 ]
@@ -52,8 +55,9 @@ packages = ["app"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-# Agent tooling (.claude/) and the spec's abbreviated code samples (docs/) are not project code.
-extend-exclude = [".claude", "docs"]
+# Native agent config/procedure examples and docs are not project code.
+# Shared executable tooling remains linted and type-checked under scripts/.
+extend-exclude = [".claude", ".agents", ".codex", "docs"]
 # Pre-commit passes file names explicitly; keep honouring the excludes then too.
 force-exclude = true
 
@@ -213,4 +217,20 @@ type = "forbidden"
 source_modules = ["app"]
 forbidden_modules = ["yaml"]
 ignore_imports = ["app.modules.ai.prompts -> yaml"]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "pypdf only in the PDF extractor (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["pypdf"]
+ignore_imports = ["app.modules.extract.providers.pdf -> pypdf"]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "docx only in the Word extractor (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["docx"]
+ignore_imports = ["app.modules.extract.providers.docx -> docx"]
 unmatched_ignore_imports_alerting = "none"

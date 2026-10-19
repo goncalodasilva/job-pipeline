@@ -2,7 +2,7 @@
 
 Spec 3.3 (untrusted content), 3.6 (prompt library, overrides, versions), ADR-044 items 1
 and 13 (``yaml.safe_load`` only; the defaults folder is injected). The file format is in
-``.claude/skills/add-ai-task/references/prompt-file-format.md``.
+``.agents/skills/add-ai-task/references/prompt-file-format.md``.
 
 Valid prompts come from ``tests/fixtures/prompts/_test_task``; broken variants are built in
 ``tmp_path``. All prompt content and inputs are fictional.

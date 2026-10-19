@@ -9,6 +9,7 @@ workspace opens, leftover AI call folders are cleared and provider health is com
 cached in ``app.state.provider_health``, never on GET (spec 2.9.12).
 """
 
+import logging
 import os
 import sqlite3
 import threading
@@ -30,6 +31,11 @@ from app.api.events import (
     TaskEvents,
     register_events,
 )
+from app.api.fact_editor import register_fact_editor_routes
+from app.api.facts import register_fact_pages
+from app.api.facts_capture import register_fact_capture_routes
+from app.api.facts_import import register_fact_import_routes
+from app.api.facts_refine import register_fact_refine_routes
 from app.api.health import router as health_router
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
@@ -57,6 +63,7 @@ from app.domain.redaction import Redactor
 from app.domain.settings import AI_PROVIDER, TASK_RUNNER, AIProviderSettings
 from app.domain.tasks import TaskChange, TaskStatus, TaskTypeSpec
 from app.modules.ai import ProviderHealth
+from app.modules.extract import extract_text, sniff_type
 from app.modules.storage import (
     MIGRATIONS_DIR,
     Database,
@@ -66,6 +73,7 @@ from app.modules.storage import (
 )
 from app.onboarding.progress import SetupProgress
 from app.onboarding.registry import (
+    CV_IMPORT,
     DONE,
     PREFERENCES,
     PROVIDER,
@@ -78,23 +86,46 @@ from app.onboarding.registry import (
 )
 from app.onboarding.startup import OnboardingState, StartupInputs
 from app.onboarding.steps import PendingStep
+from app.onboarding.steps.cv_import import CvImportStep
 from app.onboarding.steps.done import DoneStep
 from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.budget_gate import BudgetGate
+from app.services.capture import CaptureService
+from app.services.cv_import import (
+    EXTRACT_CV,
+    EXTRACT_CV_LABEL,
+    PARSE_TIMEOUT_SECONDS,
+    CvImportService,
+    fact_bank_started,
+    import_target,
+    sweep_orphan_imports,
+)
+from app.services.fact_duplicates import FactDuplicates
+from app.services.fact_editor import FactEditor
+from app.services.fact_history import FactHistory
+from app.services.fact_library import FactLibrary
+from app.services.fact_merge import FactMerge
+from app.services.fact_refine import REFINE_FACT, REFINE_FACT_LABEL, FactRefineService
+from app.services.fact_views import FactBank, FactViews
+from app.services.facts import FactService
 from app.services.health import HealthService
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
+from app.services.roles import RoleService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
-from app.services.task_views import TaskViews
+from app.services.skills import SkillService
+from app.services.task_views import TaskView, TaskViews, failed_message
 from app.services.tasks import TaskService
 from app.services.usage import UsageService
 from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
+from app.tasks.cv_import import cv_import_handler
+from app.tasks.fact_refine import fact_refine_handler
 from app.tasks.practice import practice_handler
 from app.wiring import (
     TASK_TIMEOUT_FLOOR,
@@ -104,10 +135,19 @@ from app.wiring import (
     local_timezone,
 )
 
+_log = logging.getLogger(__name__)
+
 BACKUP_FOLDER = "backups"
 LOG_FOLDER = "logs"
 # Longer than one provider run plus its close, so a slow step is never taken for a hung task.
 PRACTICE_TIMEOUT = TASK_TIMEOUT_FLOOR + timedelta(minutes=1)
+# One Thorough call and its close, plus the task's one read of the stored file (the upload
+# route made the other), with twice its parse timeout as margin between beats.
+CV_IMPORT_TIMEOUT = (
+    TASK_TIMEOUT_FLOOR + timedelta(seconds=2 * PARSE_TIMEOUT_SECONDS) + timedelta(minutes=1)
+)
+# One Fast call and its close, with a minute of margin between beats.
+REFINE_TIMEOUT = TASK_TIMEOUT_FLOOR + timedelta(minutes=1)
 
 
 @dataclass(frozen=True)
@@ -241,7 +281,10 @@ def _prepare_workspace(
 ) -> ProviderHealth:
     """Run when a workspace opens, before logging moves into it and before its task service
     is handed to the runner: clear leftover AI call folders, mark tasks a killed process left
-    running as interrupted (ADR-076 item 10), then check the provider (ADR-049, ADR-057)."""
+    running as interrupted (ADR-076 item 10), remove stored CV files no import names (M3.4:
+    the folder lock is held, the database is migrated and no upload can be stored yet), mark
+    the CV import step done when the fact bank already holds something (M3.7; ADR-052), then
+    check the provider (ADR-049, ADR-057), which refreshes the setup decision."""
     try:
         clear_ai_temp(folder)
     except OSError as error:
@@ -252,7 +295,61 @@ def _prepare_workspace(
     except sqlite3.Error as error:
         detail = f"can't recover tasks ({type(error).__name__})"
         raise DataFolderUnavailable(detail=detail) from None
+    try:
+        sweep_orphan_imports(folder, db)
+    except sqlite3.Error as error:
+        detail = f"can't list imports ({type(error).__name__})"
+        raise DataFolderUnavailable(detail=detail) from None
+    _mark_cv_import_if_started(db, registry=registry, clock=clock)
     return _check_provider(db, wiring=wiring, onboarding=onboarding, registry=registry, clock=clock)
+
+
+def _mark_cv_import_if_started(db: Database, *, registry: StepRegistry, clock: Clock) -> None:
+    """Setup's CV import step is done once the workspace holds a fact or an upload, however
+    they got there (ADR-052). Only when the step is registered and not done yet. A setup
+    state that can't be read fails like the refresh after it would; the fact bank check is a
+    convenience for an optional step, so when it can't be made the step is left as it is
+    rather than the workspace refused."""
+    progress = _progress(registry, db, clock)
+    if progress is None or CV_IMPORT.id not in {step.id for step in registry.steps}:
+        return
+    if progress.statuses().get(CV_IMPORT.id) == "done":
+        return
+    try:
+        started = fact_bank_started(db)
+    except sqlite3.Error as error:  # sqlite messages can hold paths: log the type only
+        _log.warning("The fact bank couldn't be checked (%s).", type(error).__name__)
+        return
+    if started:
+        progress.mark_done(CV_IMPORT.id)
+
+
+def _fact_bank_used(app: FastAPI, *, clock: Clock) -> Callable[[], None]:
+    """What the Fact bank tells after an upload is kept or a fact is added (M3.7; ADR-052):
+    setup's CV import step is then done, and the setup decision refreshed. It reads the
+    registry, the decision and the database through the app's state at call time, does
+    nothing once the step is done (from the cached statuses), and never raises: the user's
+    upload or fact is saved either way."""
+
+    def mark() -> None:
+        registry: StepRegistry | None = getattr(app.state, "setup_registry", None)
+        onboarding: OnboardingState | None = getattr(app.state, "onboarding", None)
+        if registry is None or onboarding is None:
+            return
+        if CV_IMPORT.id not in {step.id for step in registry.steps}:
+            return
+        if onboarding.statuses.get(CV_IMPORT.id) == "done":
+            return
+        progress = _progress(registry, _current_db(app), clock)
+        if progress is None:
+            return
+        try:
+            progress.mark_done(CV_IMPORT.id)
+            onboarding.refresh(progress)
+        except Exception as error:  # sqlite messages can hold paths: log the type only
+            _log.warning("The CV import step couldn't be marked done (%s).", type(error).__name__)
+
+    return mark
 
 
 def _check_provider(
@@ -397,6 +494,22 @@ def _step_handlers(
             mark_done=mark_done(WEB_SEARCH.id),
             skip=skip_web_search,
         )
+
+    def skip_cv_import() -> None:
+        progress = _progress(registry, _current_db(app), clock)
+        if progress is None:  # pragma: no cover - the step checks for a workspace first
+            raise RuntimeError("no workspace is open")
+        progress.skip(CV_IMPORT.id)
+        onboarding.refresh(progress)
+
+    if CV_IMPORT.id in handlers:  # a registry passed to create_app (tests) may leave it out
+        handlers[CV_IMPORT.id] = CvImportStep(
+            app.state.cv_import,
+            app.state.budget_gate,
+            workspace_open=lambda: _current_db(app) is not None,
+            mark_done=mark_done(CV_IMPORT.id),
+            skip=skip_cv_import,
+        )
     handlers[PREFERENCES.id] = PreferencesStep(settings, mark_done=mark_done(PREFERENCES.id))
     handlers[DONE.id] = DoneStep(
         registry,
@@ -490,6 +603,112 @@ def _practice(
     )
 
 
+def _cv_import(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> CvImportService:
+    """The CV import service (M3.4): like the practice service, it reads the open workspace
+    through the app's state at call time."""
+
+    def workspace() -> Workspace | None:
+        found: Workspace | None = getattr(app.state, "workspace", None)
+        return found
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db is not None else None
+
+    return CvImportService(
+        factory=wiring,
+        sniff_type=sniff_type,
+        extract_text=extract_text,
+        clock=clock,
+        ids=ids,
+        workspace=workspace,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None) if workspace() else None,
+        usage=_open_usage(app),
+        on_stored=_fact_bank_used(app, clock=clock),
+    )
+
+
+def _fact_refine(
+    app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory
+) -> FactRefineService:
+    """Refine with AI (M3.8): like the CV import service, it reads the open workspace
+    through the app's state at call time."""
+
+    def workspace() -> Workspace | None:
+        found: Workspace | None = getattr(app.state, "workspace", None)
+        return found
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db is not None else None
+
+    return FactRefineService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=workspace,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None) if workspace() else None,
+        usage=_open_usage(app),
+    )
+
+
+def _publish_fact_services(
+    app: FastAPI, db: Database | None, *, clock: Clock, ids: IdFactory
+) -> None:
+    """The fact bank's services over the open workspace's database (M3.5), on the app's
+    state for the routes; None while no workspace is open. Called just before the workspace
+    itself is published."""
+    app.state.facts = FactService(db, clock, ids) if db is not None else None
+    app.state.fact_library = FactLibrary(db) if db is not None else None
+    app.state.roles = RoleService(db, clock, ids) if db is not None else None
+    app.state.skills = SkillService(db, clock, ids) if db is not None else None
+
+
+def _fact_bank(app: FastAPI) -> Callable[[], FactBank | None]:
+    """The open workspace's fact services, read through the app's state at call time; None
+    while no workspace is open."""
+
+    def bank() -> FactBank | None:
+        db = _current_db(app)
+        if db is None:
+            return None
+        state = app.state
+        return FactBank(db, state.facts, state.fact_library, state.roles, state.skills)
+
+    return bank
+
+
+def _publish_fact_screens(app: FastAPI, *, tz: tzinfo, clock: Clock, ids: IdFactory) -> None:
+    """The editor, the history and the merge screen (M3.6), the capture inbox and the
+    possible duplicates (M3.7), over the same fact services and database."""
+    bank = _fact_bank(app)
+    app.state.fact_editor = FactEditor(bank=bank, on_created=_fact_bank_used(app, clock=clock))
+    app.state.fact_history = FactHistory(bank=bank, tz=tz)
+    app.state.fact_merge = FactMerge(bank=bank)
+    app.state.capture = CaptureService(lambda: _current_db(app), clock, ids)
+    app.state.fact_duplicates = FactDuplicates(bank=bank, clock=clock)
+
+
+def _fact_views(app: FastAPI, *, cv_import: CvImportService, tz: tzinfo) -> FactViews:
+    """What the Fact bank page shows (M3.5): like the other view services, it reads the open
+    workspace through the app's state at call time."""
+
+    def latest_task(import_id: str) -> TaskView | None:
+        views: TaskViews = app.state.task_views
+        return views.latest_for(EXTRACT_CV, import_target(import_id))
+
+    return FactViews(
+        bank=_fact_bank(app),
+        imports=cv_import.imports,
+        latest_task=latest_task,
+        provider_kind=cv_import.saved_provider_kind,
+        import_failed_said=failed_message(EXTRACT_CV_LABEL),
+        tz=tz,
+    )
+
+
 def _task_labels(registry: HandlerRegistry) -> Callable[[str], str | None]:
     """The label of a registered task type; None for a type no handler is registered for."""
 
@@ -529,8 +748,8 @@ def create_app(
     stop is requested, before uvicorn waits for open streams to end (ADR-076 item 1).
     ``data_folder_lock`` is the lock the CLI already holds on ``config.data_dir``; the
     lifespan's open reuses it instead of locking the folder again (ADR-072).
-    ``task_registry`` (default: the practice task while fakes are allowed, else empty;
-    either way ``app.state.task_registry``, refusing
+    ``task_registry`` (default: the CV import task, and the practice task while fakes are
+    allowed; either way ``app.state.task_registry``, refusing
     timeouts not longer than ``TASK_TIMEOUT_FLOOR``, one provider run plus its close) maps
     task types to their handlers; whenever a workspace opens, its task service
     (``app.state.task_service``, None before) is handed to the runner, and its usage service
@@ -618,6 +837,7 @@ def create_app(
             app.state.task_service = task_service
             app.state.usage = UsageService(workspace.db, app_clock, app_ids, app_tz)
             app.state.provider_health = health[-1]
+            _publish_fact_services(app, workspace.db, clock=app_clock, ids=app_ids)
             app.state.workspace = workspace
             return workspace
 
@@ -697,6 +917,12 @@ def create_app(
                 clock=app_clock,
                 wiring=app_wiring,
             )
+            _publish_fact_services(
+                app,
+                workspace.db if workspace is not None else None,
+                clock=app_clock,
+                ids=app_ids,
+            )
             app.state.workspace = workspace
             app.state.open_workspace = open_workspace
             app.state.refresh_provider_health = refresh_provider_health
@@ -758,6 +984,23 @@ def create_app(
         handlers.register(
             PRACTICE, TaskTypeSpec(PRACTICE_TIMEOUT, PRACTICE_LABEL), practice_handler(practice)
         )
+    cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.cv_import = cv_import
+    app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
+    _publish_fact_screens(app, tz=app_tz, clock=app_clock, ids=app_ids)
+    fact_refine = _fact_refine(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.fact_refine = fact_refine
+    if task_registry is None:  # real task types: with or without fakes
+        handlers.register(
+            EXTRACT_CV,
+            TaskTypeSpec(CV_IMPORT_TIMEOUT, EXTRACT_CV_LABEL),
+            cv_import_handler(cv_import),
+        )
+        handlers.register(
+            REFINE_FACT,
+            TaskTypeSpec(REFINE_TIMEOUT, REFINE_FACT_LABEL),
+            fact_refine_handler(fact_refine),
+        )
     app.state.shutdown_signal = shutdown_signal
     app.state.task_events = task_events
     app.state.task_registry = handlers
@@ -780,6 +1023,12 @@ def create_app(
     register_settings_pages(app)
     register_usage_settings(app)
     register_task_routes(app)
+    register_fact_import_routes(app)
+    # Before the fact pages: their "{id:path}/discard" would also match ".../refine/discard".
+    register_fact_refine_routes(app)
+    register_fact_pages(app)
+    register_fact_editor_routes(app)
+    register_fact_capture_routes(app)
     register_setup_pages(app)
     register_events(
         app,

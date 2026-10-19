@@ -284,7 +284,7 @@ COVERAGE_TEST_COMMAND = (
 CRITICAL_COVERAGE_COMMAND = re.compile(
     r"uv run python scripts/check_critical_coverage\.py --from-progress"
 )
-VERIFY_SCRIPT = REPO_ROOT / ".claude" / "skills" / "verify" / "scripts" / "verify.sh"
+VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify.sh"
 
 
 def command_lines(job: dict[str, Any]) -> list[str]:

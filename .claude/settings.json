@@ -14,7 +14,9 @@
       "Bash(git diff*)",
       "Bash(git log*)",
       "Bash(git show*)",
-      "Bash(git branch*)"
+      "Bash(git branch*)",
+      "Bash(bash scripts/verify.sh *)",
+      "Bash(python3 scripts/next_task.py*)"
     ],
     "ask": [
       "Bash(uv add *)",
@@ -45,7 +47,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Read|Edit|Write|Bash",
+        "matcher": "Read|Edit|Write|NotebookEdit|Bash",
         "hooks": [
           {
             "type": "command",

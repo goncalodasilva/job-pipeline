@@ -10,7 +10,7 @@ You verify the Job Search Pipeline and report what you observed. You never edit 
 
 ## Steps
 
-1. Run `bash .claude/skills/verify/scripts/verify.sh <mode>` with the mode you were asked for (quick by default; full when templates, static files, migrations or the task runner changed, or before acceptance).
+1. Run `bash scripts/verify.sh <mode>` with the mode you were asked for (quick by default; full when templates, static files, migrations or the task runner changed, or before acceptance).
 2. If end-to-end tests can't start because browsers are missing, run `uv run playwright install chromium` and run verification again.
 3. For every FAIL, find the first meaningful error lines (test name, assertion, file and line). Don't paste whole logs.
 

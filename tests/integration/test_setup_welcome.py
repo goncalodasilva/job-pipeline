@@ -56,7 +56,7 @@ pytestmark = pytest.mark.integration
 
 WELCOME = "/setup/welcome"
 PROVIDER = "/setup/provider"
-NEXT_ANNOUNCEMENT = "Step 2 of 5: AI provider"
+NEXT_ANNOUNCEMENT = "Step 2 of 6: AI provider"
 DEMO_COMMAND = "uv run jobpipeline --demo"
 STEP_TITLES = [step.title for step in m1_registry().steps]
 

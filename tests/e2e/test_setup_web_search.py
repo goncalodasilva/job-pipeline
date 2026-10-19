@@ -3,15 +3,15 @@ AC-M1.7; spec 3.9; ADR-053, ADR-064, ADR-081).
 
 The app starts with steps 1 and 2 done and the fake provider saved (``running_app`` with
 ``"preferences_step"``). By keyboard only: from the AI provider step, "Continue" opens Web
-search (URL, step list, title, focus on the heading, "Step 3 of 5: Web search" announced);
-"Skip for now" moves on to Job preferences with focus on its heading, "Web search skipped."
-announced before the step, and the step list saying "Skipped". Back on the step the budget
-fields are folded away ("Set a monthly budget (optional)", a native disclosure): it is opened
-from the keyboard (Enter, and Space), a budget is typed field by field; a refused save keeps
-it open and moves focus to the first refused field, whose visible error is listed in its
-``aria-describedby``; the corrected budget is saved with Enter in a field (Enter saves, it
-never skips), the guide moves on ("Web search budget saved." announced), the list says "Done"
-and the step shows the budget, open, when opened again.
+search (URL, step list, title, focus on the heading, "Step 3 of 6: Web search" announced);
+"Skip for now" moves on to the next step, Import CV since M3.7, with focus on its heading, "Web
+search skipped." announced before the step, and the step list saying "Skipped". Back on the
+step the budget fields are folded away ("Set a monthly budget (optional)", a native
+disclosure): it is opened from the keyboard (Enter, and Space), a budget is typed field by
+field; a refused save keeps it open and moves focus to the first refused field, whose visible
+error is listed in its ``aria-describedby``; the corrected budget is saved with Enter in a
+field (Enter saves, it never skips), the guide moves on ("Web search budget saved." announced),
+the list says "Done" and the step shows the budget, open, when opened again.
 
 The step folded and open, its field-error state and its reload prompt (the budgets changed in
 another tab) cause no horizontal scroll at 390x844 and 360x740 and have no serious or critical
@@ -42,8 +42,11 @@ pytestmark = [
 
 STEP = "/setup/web_search"
 TITLE = "Web search"
-STEP_ANNOUNCEMENT = "Step 3 of 5: Web search"
-NEXT_ANNOUNCEMENT = "Step 4 of 5: Job preferences"
+STEP_ANNOUNCEMENT = "Step 3 of 6: Web search"
+# The step after web search: CV import (step 4, M3.7; ADR-089 item 4).
+NEXT_PATH = "/setup/cv_import"
+NEXT_TITLE = "Import CV"
+NEXT_ANNOUNCEMENT = "Step 4 of 6: Import CV"
 SECTION = "#setup-step"
 SAVE = f'{SECTION} button[name="action"][value="save"]'
 SKIP = f'{SECTION} button[name="action"][value="skip"]'
@@ -213,14 +216,14 @@ def assert_on_web_search(page: Page, app: RunningApp) -> None:
     expect(page.locator("h1")).to_have_count(1)
 
 
-def assert_moved_to_preferences(page: Page, app: RunningApp, said: str) -> None:
+def assert_moved_to_next_step(page: Page, app: RunningApp, said: str) -> None:
     """The htmx step change (ADR-053): URL, list, title, focus on the heading, and the
     announcement: ``said`` (what the submit did), then the step."""
-    expect(page).to_have_url(url(app, "/setup/preferences"))
+    expect(page).to_have_url(url(app, NEXT_PATH))
     expect(page.locator(CURRENT)).to_have_count(1)
-    expect(page.locator(CURRENT)).to_contain_text("Job preferences")
-    expect(page).to_have_title(re.compile(r"^Job preferences"))
-    expect(page.locator("#step-heading")).to_have_text("Job preferences")
+    expect(page.locator(CURRENT)).to_contain_text(NEXT_TITLE)
+    expect(page).to_have_title(re.compile(rf"^{NEXT_TITLE}"))
+    expect(page.locator("#step-heading")).to_have_text(NEXT_TITLE)
     expect(page.locator("#step-heading")).to_be_focused()
     expect(page.locator("#announcer")).to_have_text(f"{said} {NEXT_ANNOUNCEMENT}")
 
@@ -252,11 +255,11 @@ def test_web_search_keyboard_skip_then_save_a_budget(
         page.keyboard.press("Space")
         assert_folded(page)
 
-        # "Skip for now" by keyboard: on to job preferences, and the list says "Skipped".
+        # "Skip for now" by keyboard: on to the next step, and the list says "Skipped".
         tab_to(page, SKIP)
         expect(page.locator(SKIP)).to_have_text("Skip for now")
         page.keyboard.press("Enter")
-        assert_moved_to_preferences(page, app, SKIPPED_SAID)
+        assert_moved_to_next_step(page, app, SKIPPED_SAID)
         expect(step_status(page, TITLE)).to_have_text("· Skipped")
 
         # Back on the step: nothing was filled in, and it still offers the budget, folded.
@@ -288,7 +291,7 @@ def test_web_search_keyboard_skip_then_save_a_budget(
         # Corrected in place; Enter in the field saves (it never skips) and moves on.
         replace_text(page, "31")
         page.keyboard.press("Enter")
-        assert_moved_to_preferences(page, app, SAVED_SAID)
+        assert_moved_to_next_step(page, app, SAVED_SAID)
         expect(step_status(page, TITLE)).to_have_text("· Done")
 
         # The step shows the saved budget, unfolded, when opened again.
@@ -317,7 +320,7 @@ def test_web_search_skipped_is_listed_on_done_with_link_by_keyboard(
         open_app(page, app, STEP)
         tab_to(page, SKIP)
         page.keyboard.press("Enter")
-        assert_moved_to_preferences(page, app, SKIPPED_SAID)
+        assert_moved_to_next_step(page, app, SKIPPED_SAID)
 
         open_app(page, app, "/setup/done")
         row = page.locator("ul.setup-summary > li").filter(has_text=TITLE)
@@ -375,10 +378,10 @@ def test_web_search_axe_and_no_horizontal_scroll(
         assert_no_serious_violations(page)
         assert_fits(page, "web search with every field error")
 
-        # Saved: on to job preferences, and the list (with "· Done") still fits.
+        # Saved: on to the next step, and the list (with "· Done") still fits.
         fill_with_pointer(page, VALID)
         save.tap() if phone else save.click()
-        assert_moved_to_preferences(page, app, SAVED_SAID)
+        assert_moved_to_next_step(page, app, SAVED_SAID)
         expect(step_status(page, TITLE)).to_have_text("· Done")
         assert_fits(page, "preferences after saving a budget")
 
@@ -415,7 +418,7 @@ def test_web_search_stale_form_shows_reload_prompt(
         unfold_with_pointer(other, phone=False)
         fill_with_pointer(other, VALID)
         other.locator(SAVE).click()
-        expect(other).to_have_url(url(app, "/setup/preferences"))
+        expect(other).to_have_url(url(app, NEXT_PATH))
 
         unfold_with_pointer(page, phone=viewport["width"] < 768)
         fill_with_pointer(page, {**VALID, "allowance": "500", "block_at": "400"})

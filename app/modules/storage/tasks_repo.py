@@ -20,6 +20,11 @@ _SELECT_ACTIVE_BY_KEY = (
     "input_ref, result_ref, error, created_at, updated_at, finished_at, version "
     "FROM tasks WHERE dedupe_key = ? AND status IN ('queued', 'running')"
 )
+_SELECT_LATEST_BY_KEY = (
+    "SELECT id, type, status, dedupe_key, attempt, progress, heartbeat_at, cancel_requested, "
+    "input_ref, result_ref, error, created_at, updated_at, finished_at, version "
+    "FROM tasks WHERE dedupe_key = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1"
+)
 _SELECT_RECENT = (
     "SELECT id, type, status, dedupe_key, attempt, progress, heartbeat_at, cancel_requested, "
     "input_ref, result_ref, error, created_at, updated_at, finished_at, version "
@@ -194,6 +199,12 @@ def insert_or_get_active(conn: sqlite3.Connection, row: TaskRow) -> tuple[TaskRo
 def get_active(conn: sqlite3.Connection, key: str) -> TaskRow | None:
     """The queued or running task holding dedupe ``key``, if any (at most one, by index)."""
     row = conn.execute(_SELECT_ACTIVE_BY_KEY, (key,)).fetchone()
+    return None if row is None else _row(row)
+
+
+def get_latest(conn: sqlite3.Connection, key: str) -> TaskRow | None:
+    """The most recently changed task with dedupe ``key``, in any state, if any."""
+    row = conn.execute(_SELECT_LATEST_BY_KEY, (key,)).fetchone()
     return None if row is None else _row(row)
 
 

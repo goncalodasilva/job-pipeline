@@ -1,0 +1,3 @@
+{# One tab of the Fact bank: a plain link. Needs `tab` (a TabView) and `oob`: true in an
+   answer that changed the number of drafts, so the link on the page is replaced. #}
+<a id="facts-tab-{{ tab.id }}" href="/facts?tab={{ tab.id }}"{% if tab.current %} aria-current="page"{% endif %}{% if oob %} hx-swap-oob="true"{% endif %}>{{ tab.label }}</a>

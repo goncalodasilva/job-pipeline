@@ -1,0 +1,9 @@
+# Native shell approvals complement the project hook policy; no sandbox bypass.
+prefix_rule(pattern = ["git", "push"], decision = "prompt")
+prefix_rule(pattern = ["git", "reset", "--hard"], decision = "prompt")
+prefix_rule(pattern = ["git", "rebase"], decision = "prompt")
+prefix_rule(pattern = ["uv", "add"], decision = "prompt")
+prefix_rule(pattern = ["uv", "remove"], decision = "prompt")
+prefix_rule(pattern = ["pip", "install"], decision = "prompt")
+prefix_rule(pattern = ["pip3", "install"], decision = "prompt")
+prefix_rule(pattern = ["rm", "-rf"], decision = "prompt")

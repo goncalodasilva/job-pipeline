@@ -1,0 +1,70 @@
+{# The kept uploads (M3.5; ADR-092): every stored CV, newest first, never its file name.
+   Needs `cv_import` (uploads, list_status, list_error). One still to be imported has Start
+   ("Try again" after an attempt that ended), which goes through the budget gate and swaps
+   the whole section, and Remove; while its task is queued or running it has neither. A
+   finished one keeps Remove, so the stored file can go; its drafts stay.
+   The list is the one fetcher of itself, on the body's task events (ADR-077), so each
+   upload shows its task's status as it changes; that refresh moves no focus and announces
+   nothing, and every control has an id, so htmx keeps focus on one that had it. The request
+   carries the stamp of the drafts on the page (hx-include): see _drafts.html. A removal
+   answers this list with its result, which takes focus. Nothing of this is inherited by
+   the forms inside (hx-disinherit).
+   The task's element has an id of this list's own (cv-import-<import id>-task: the tasks
+   panel shows the same task as task-<id>) and no buttons: a running import is cancelled from
+   the Tasks panel, and its row says so. The reason is a fixed message chosen by the
+   server; nothing of the CV is shown here. #}
+<div id="cv-import-list" class="cv-import-list"
+     hx-get="/facts/imports" hx-trigger="tasks:resync from:body, tasks:updated from:body" hx-swap="outerHTML"
+     hx-include="#fact-drafts-stamp" hx-disinherit="*">
+  {% if cv_import.list_status %}
+  <p id="cv-import-list-status" class="fact-result" tabindex="-1" data-autofocus>{{ cv_import.list_status }}</p>
+  {% endif %}
+  {% if cv_import.list_error %}
+  <p id="cv-import-list-error" class="field-error" tabindex="-1" data-autofocus>{{ cv_import.list_error }}</p>
+  {% endif %}
+  {% if cv_import.uploads %}
+  <h3 id="cv-import-list-heading">Uploaded CVs</h3>
+  <ul class="upload-list">
+    {% for upload in cv_import.uploads %}
+    {% set prefix = "cv-import-" ~ upload.id %}
+    <li id="{{ prefix }}" class="upload">
+      <span id="{{ prefix }}-label" class="upload-label">{{ upload.label }}</span>
+      {% if upload.task %}
+      <div id="{{ prefix }}-task" class="task-item upload-task">
+        <span class="task-label">{{ upload.task.label }}</span>
+        <span class="task-status">{{ upload.task.status }}</span>
+        {% if upload.task.time %}
+        <span class="task-time">{% if upload.task.time.started %}<span class="visually-hidden">started </span>{% endif %}<time datetime="{{ upload.task.time.iso }}" title="{{ upload.task.time.exact }}">{{ upload.task.time.ago }}</time><span class="visually-hidden"> ({{ upload.task.time.exact }})</span></span>
+        {% endif %}
+        {% if upload.task.progress is not none %}
+        <progress value="{{ upload.task.progress }}" max="100" aria-label="{{ upload.task.label }} progress">{{ upload.task.progress }}%</progress>
+        {% endif %}
+        {% if upload.task.reason %}
+        <p class="task-reason">{{ upload.task.reason }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% if upload.note %}
+      <span class="upload-note">{{ upload.note }}</span>
+      {% endif %}
+      {% if upload.start_label or upload.can_remove %}
+      <div class="form-actions">
+        {% if upload.start_label %}
+        <form method="post" action="/facts/import/{{ upload.id }}/start" hx-post="/facts/import/{{ upload.id }}/start"
+              hx-target="#cv-import" hx-swap="outerHTML" hx-disabled-elt="find button">
+          <button type="submit" id="{{ prefix }}-start" class="button" aria-describedby="{{ prefix }}-label">{{ upload.start_label }}</button>
+        </form>
+        {% endif %}
+        {% if upload.can_remove %}
+        <form method="post" action="/facts/import/{{ upload.id }}/remove" hx-post="/facts/import/{{ upload.id }}/remove"
+              hx-target="#cv-import-list" hx-swap="outerHTML" hx-disabled-elt="find button">
+          <button type="submit" id="{{ prefix }}-remove" class="button" aria-describedby="{{ prefix }}-label">Remove</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>

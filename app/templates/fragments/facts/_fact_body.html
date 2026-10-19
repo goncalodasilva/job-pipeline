@@ -1,0 +1,35 @@
+{# What a fact says and what it belongs to, shared by the Library and the Drafts tab: text
+   badges (a status that isn't "confirmed", privacy, and "Practice data (fake provider)" for
+   what the fake provider made: ADR-089 item 8), the wording, the role and the skills.
+   Needs `item` (a FactItem). Everything here may be AI-made or come from a CV: it is always
+   escaped (spec 2.9 rule 4). #}
+{% if item.status != "confirmed" or item.privacy_badge or item.practice %}
+<ul class="badges">
+  {% if item.status != "confirmed" %}<li class="badge">{{ item.status_label }}</li>{% endif %}
+  {% if item.privacy_badge %}<li class="badge">{{ item.privacy_badge }}</li>{% endif %}
+  {% if item.practice %}<li class="badge badge-practice">Practice data (fake provider)</li>{% endif %}
+</ul>
+{% endif %}
+<div id="wording-{{ item.id }}" class="fact-wording"{% if wording_focus is defined and wording_focus %} tabindex="-1" data-autofocus{% endif %}>
+  {% if item.text %}
+  <p class="fact-text">{{ item.text }}</p>
+  {% endif %}
+  {% if item.parts %}
+  <dl class="story-parts">
+    {% for label, words in item.parts %}
+    <dt>{{ label }}</dt>
+    <dd>{{ words }}</dd>
+    {% endfor %}
+  </dl>
+  {% endif %}
+</div>
+{% if item.role %}
+<p class="fact-meta"><span class="visually-hidden">Role: </span>{{ item.role }}</p>
+{% endif %}
+{% if item.skills %}
+<ul class="skill-list" aria-label="Skills">
+  {% for skill in item.skills %}
+  <li>{{ skill }}</li>
+  {% endfor %}
+</ul>
+{% endif %}

@@ -1,0 +1,14 @@
+{
+  "data": {
+    "questions": [
+      "About how many invoices did the team handle each month?"
+    ],
+    "suggestion": {
+      "text": "Cut invoice processing time by 85% across 14 warehouses at Globex Corporation.",
+      "situation": null,
+      "action": null,
+      "result": null
+    },
+    "added_details": []
+  }
+}
