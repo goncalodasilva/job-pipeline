@@ -2,7 +2,7 @@
 
 A local, open-source web app for running a job search: collect postings, see honestly how well you fit, position yourself for each role with a growing bank of your own facts, draft tailored CVs and cover letters, track every application on a board, and prepare for interviews. You always submit applications yourself.
 
-**Status:** M0–M2 are accepted. M3 adds the fact bank, CV import and Refine with AI; acceptance is pending. Job intake and application tracking arrive from M4 on. See `docs/PROGRESS.md`.
+**Status:** M0–M3 are accepted. The fact bank, CV import and Refine with AI are available. M4 is next and not yet planned; job intake and application tracking arrive from M4 on. See `docs/PROGRESS.md`.
 
 ## How it works
 

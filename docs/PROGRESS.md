@@ -1,6 +1,6 @@
 # Progress
 
-Current milestone: M3
+Current milestone: M4
 
 How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/run-milestone` (or `/next-task`, one at a time) works through them, and `docs-keeper` ticks each task with evidence. Scripts parse this format, so keep it: a `Current milestone:` line, `## M<n> — Title` headings, and tasks written as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, plus optional `Checkpoint:` and `Blocked:` lines (ADR-065). Open technical debt, known limits and unverified items are listed in `docs/TECH_DEBT.md`.
 
@@ -318,7 +318,7 @@ Branch: `m2-task-runner`. Decisions for this plan: ADR-076 (stream authorisation
 
 ## M3 — Fact bank and CV import
 
-Status: planned
+Status: accepted (2026-10-19)
 
 Branch: `m3-fact-bank`. Decisions for this plan: ADR-089 (ten larger tasks, dependencies, the `app/modules/extract` module, AC-M3.8 and Today, the refine honesty check, never-use facts and refine, mechanical near-duplicates, per-task tier list to M9, fake label). Security review on M3.1, M3.4, M3.5, M3.8; prompt review on M3.4, M3.8; UX review on M3.5, M3.6, M3.7, M3.9. Split points if a task stalls: M3.3 (search and filters), M3.4 (routes), M3.8 (the refine task and service).
 
@@ -486,3 +486,4 @@ Status: not planned
 - 2026-10-19: M3.9 checkpoint accepted by the user without a full manual screen check ("I'll assume it works. And it can be imperfect"). The demo's fixed fake suggestion and the unflagged lower-case wording are recorded as TD-223 and TD-224, deferred. The user asked not to start M3.10 yet. Next M3.10 when the user says so.
 
 - 2026-10-19: M3.10 completed with Codex run-milestone: completed-turn context count and single refine completion announcements; cross-cutting privacy, never-use and failure-cleanup tests; desktop/phone keyboard import-to-refine journey; README/spec/shared-skill alignment and M3 acceptance report. Four announcement edge cases found during review were fixed with failing regressions first. Final `VERIFY full: PASS` (5,247 fast including smoke, 322 e2e, 97.46% coverage); explicit M3 critical coverage PASS; independent code, UX, security and prompt reviews approved. All ten M3 tasks are ticked. Run stops at user acceptance; Current milestone remains M3. Left for the user: the manual/live/audit/current-commit-CI checklist in `docs/acceptance/M3.md`; no parked questions. No push or merge. Next: review the report and confirm M3 acceptance.
+- 2026-10-19: M3 accepted by the user ("i accept") after reviewing the acceptance request for M3.10 (`99fd6c0`). Current milestone advanced to M4, which remains not planned. Manual/live-provider checks, the dependency audit and current-commit CI remain unverified in `docs/acceptance/M3.md`; acceptance does not imply those checks were performed. No push or merge. Next: plan M4 (`/plan-milestone M4`, or `$plan-milestone M4` in Codex) when requested.
