@@ -126,6 +126,17 @@ DOCX_VIOLATION_CASES: dict[str, ViolationCase] = {
     ),
 }
 
+# M4.1 (ADR-098 item 2): httpx is imported only by the guarded fetcher,
+# app/modules/fetch/providers/guarded.py; the guard, page text and the fake stay stdlib only.
+FETCH_VIOLATION_CASES: dict[str, ViolationCase] = {
+    "httpx_in_fetch_module_outside_providers": ViolationCase(
+        "app/modules/fetch/_violation.py", HTTPX
+    ),
+    "httpx_in_other_fetch_provider": ViolationCase(
+        "app/modules/fetch/providers/_violation.py", HTTPX
+    ),
+}
+
 
 def _lint_imports_executable() -> str:
     found = shutil.which("lint-imports", path=str(Path(sys.executable).parent))
@@ -210,6 +221,11 @@ def test_docx_library_outside_adapter_fails(case_id: str, tmp_path: Path) -> Non
     _assert_violation_detected(case_id, DOCX_VIOLATION_CASES[case_id], tmp_path)
 
 
+def test_httpx_in_fetch_module_outside_providers_fails(tmp_path: Path) -> None:
+    for case_id, case in sorted(FETCH_VIOLATION_CASES.items()):
+        _assert_violation_detected(case_id, case, tmp_path / case_id)
+
+
 def test_parsing_libraries_allowed_inside_their_adapters(tmp_path: Path) -> None:
     returncode, output = _lint_copy_with(
         tmp_path,
@@ -253,7 +269,7 @@ def test_vendor_sdks_allowed_inside_their_provider_packages(tmp_path: Path) -> N
         {
             "app/modules/ai/providers/claude_sdk.py": "import claude_agent_sdk\n",
             "app/modules/secrets/providers/keyring_store.py": "import keyring\n",
-            "app/modules/fetch/guard.py": "import httpx\n",
+            "app/modules/fetch/providers/guarded.py": "import httpx\n",
             "app/modules/ai/executor.py": "import jsonschema\n",
         },
     )

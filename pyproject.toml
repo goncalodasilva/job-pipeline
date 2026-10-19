@@ -15,6 +15,7 @@ classifiers = [
 dependencies = [
     "claude-agent-sdk==0.2.163",
     "fastapi>=0.142",
+    "httpx>=0.28.1",
     "jinja2>=3.1.6",
     "jsonschema>=4.26",
     "keyring>=25.7,<26",
@@ -33,7 +34,6 @@ jobpipeline = "app.cli:main"
 [dependency-groups]
 dev = [
     "hypothesis>=6.168",
-    "httpx>=0.28.1",
     "import-linter>=2.15",
     "mypy>=2.4",
     "playwright>=1.63",
@@ -208,7 +208,8 @@ name = "httpx only in the fetch module (spec 2.3 rule 3)"
 type = "forbidden"
 source_modules = ["app"]
 forbidden_modules = ["httpx"]
-ignore_imports = ["app.modules.fetch -> httpx", "app.modules.fetch.** -> httpx"]
+# Narrowed in M4.1 to the guarded fetcher (ADR-098 item 2).
+ignore_imports = ["app.modules.fetch.providers.guarded -> httpx"]
 unmatched_ignore_imports_alerting = "none"
 
 [[tool.importlinter.contracts]]

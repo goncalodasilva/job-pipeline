@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status as of 2026-10-19: M0–M3 limits and the M1/M2 acceptance follow-ups. M3.10 closes the specification-alignment items listed at the end; other entries retain their last recorded status.
+Status as of 2026-10-19: M0–M3 limits, the M1/M2 acceptance follow-ups and M4.1 fetch items. M3.10 closes the specification-alignment items listed at the end; other entries retain their last recorded status.
 
 ## What belongs here
 
@@ -29,6 +29,15 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-009 | `ANTHROPIC_AUTH_TOKEN` is blanked for SDK calls but is not registered with the redactor. The decision on registering it was left open. (status unclear: no decision found) | ADR-047 follow-up; M1.23 | low: the value could reach a log only if a library echoes it | Decide and record in a new ADR. |
 | TD-210 | Non-page fact routes keep `{fact_id:path}`. The `no_such_id` guard and the launch token still apply to them. | M3.6; ADR-094 item 1 | low: a wider path parameter, guarded | Use the id shape in these routes when they are next touched. |
 | TD-211 | A path ending in a newline (`%0A`) reaches page handlers, because Starlette's `$` anchor matches before a final newline. It is the same page, so there is no bypass. | M3.6 | low: an odd path reaches the same page | Anchor the id check at the true end of the string, with a test. |
+| TD-226 | The fetcher follows an https page's redirect to http, so the rest of that fetch travels in clear text. | M4.1 security review | low: only public pages are fetched and nothing secret is sent | Refuse the downgrade, or record it with the source. |
+| TD-227 | Any port is accepted on a global address, including unusual ones. | M4.1 security review | low: every target is already a global unicast address | Refuse port 0, or allow only 80, 443 and ports from 1024. |
+| TD-229 | `page_text` runs stdlib `html.parser` synchronously over up to 5 MB of hostile markup (twice when a JSON-LD description exists). | M4.1 security review | medium: called inline from the Add-job POST it would block the event loop | M4.3: call it through a worker thread with a time bound, or cap its input. |
+| TD-233 | In demo and test runs (fakes allowed), URLs outside `*.example.test` still go to the real guarded fetcher, so the demo can reach the network. | M4.1 security review | low: no real data involved; the guard still applies | Needs your confirmation; otherwise refuse non-fake hosts in demo runs. |
+| TD-225 | The fetcher sends httpx's default `User-Agent` (`python-httpx/…`) and `Accept: */*`; some job boards answer 403, which becomes the paste-text path. | M4.1 code and security reviews | medium: real postings may often need pasting | Check during M4.3 and the M4 manual acceptance; send a plain browser-like `Accept` and an honest app User-Agent if needed. |
+| TD-228 | The `httpx` and `httpcore` loggers are held at WARNING from the fetcher's constructor (process-wide). | M4.1 | low: nothing else in `app` uses httpx | M4.11: move it to `app/logging_config.py`. |
+| TD-230 | `app/modules/fetch/providers/guarded.py` (pinning, redirect re-checks, deadline) is not in the critical-coverage registry; only `guard.py` is. It has 100% branch coverage today. | M4.1 code review | medium: the SSRF path could regress below 95% unnoticed | Needs your OK and an ADR-098 note to add it. |
+| TD-231 | Only the first DNS answer is tried; there is no fallback from an unreachable IPv6 address to IPv4. | M4.1 code review | low: some hosts may fail to fetch, falling back to paste text | Try each checked answer in turn. |
+| TD-232 | Bytes after the end of the first gzip member are ignored, so a multi-member gzip page is cut short. | M4.1 | low: rare for web servers; safe | Decode further members within the same cap. |
 
 ## 2. Privacy and stored data
 

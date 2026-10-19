@@ -1,0 +1,2 @@
+# Deliberate violation of contract "httpx only in the fetch module (spec 2.3 rule 3)": a fetch provider other than app.modules.fetch.providers.guarded imports httpx (M4.1, ADR-098 item 2).
+import httpx

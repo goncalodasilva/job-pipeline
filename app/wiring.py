@@ -65,6 +65,10 @@ from app.modules.ai.providers.fake import (
 from app.modules.ai.providers.fake import KNOWN_MODELS as FAKE_MODELS
 from app.modules.ai.providers.fake_scripts import real_task_scripts
 from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS, TaskSpec
+from app.modules.fetch import JobPageFetcher
+from app.modules.fetch.providers.demo_pages import demo_pages
+from app.modules.fetch.providers.fake import FakeHostRouter, FakeJobPageFetcher
+from app.modules.fetch.providers.guarded import GuardedJobPageFetcher
 from app.modules.secrets import KNOWN_SECRET_KEYS
 from app.modules.secrets.providers.chained import ChainedSecretStore
 from app.modules.secrets.providers.env import EnvSecretStore
@@ -279,6 +283,16 @@ class Wiring:
         if not isinstance(provider, FakeAIProvider) or not self._is_allowed_fake(provider):
             raise ValueError("The practice task needs the fake provider.")
         provider.script(PRACTICE_TASK, *practice_responses(outcome, delay_seconds=delay_seconds))
+
+    def job_page_fetcher(self) -> JobPageFetcher:
+        """The fetcher for job pages: the SSRF-guarded one. While fakes are allowed (tests,
+        the demo), ``*.example.test`` URLs are served from the app's fictional demo pages
+        instead, and every other URL still goes through the guarded fetcher (ADR-098
+        item 2)."""
+        guarded = GuardedJobPageFetcher()
+        if not self.allow_fakes:
+            return guarded
+        return FakeHostRouter(fake=FakeJobPageFetcher(demo_pages()), real=guarded)
 
     def _is_allowed_fake(self, provider: AIProvider) -> bool:
         return self.allow_fakes and provider.name == FakeAIProvider.name

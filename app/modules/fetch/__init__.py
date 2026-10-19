@@ -1,11 +1,18 @@
 """Job page fetch interface (spec 2.4, 2.9.6, ADR-020, ADR-036).
 
 One user-supplied URL at a time, http(s) only, SSRF-guarded, never crawling. The fetched
-text is untrusted content (spec 3.3). The guarded implementation arrives in M4.
+text is untrusted content (spec 3.3). ``guard.py`` checks every URL and redirect hop;
+``providers/guarded.py`` is the real fetcher (the only ``httpx`` user) and
+``providers/fake.py`` serves fictional ``*.example.test`` pages for tests and the demo.
+``page_text`` turns a fetched page into readable text.
 """
 
 from dataclasses import dataclass
 from typing import Protocol
+
+from app.modules.fetch.text import page_text
+
+__all__ = ["FetchLimits", "FetchedPage", "JobPageFetcher", "page_text"]
 
 
 @dataclass(frozen=True)
