@@ -200,6 +200,10 @@ class RefinePanel:
     """The suggestion was made for an earlier version of the fact: Accept would be refused."""
     retry_start: bool = False
     """The first turn failed: Start may queue it again."""
+    context_count: int | None = None
+    """Other confirmed facts sent in the last completed turn, not the bank's count now."""
+    task_key: str | None = None
+    """The latest turn's id and attempt, for the panel's own completion announcement."""
 
 
 @dataclass(frozen=True)
@@ -652,6 +656,7 @@ class FactRefineService:
             row = _fact_row(conn, fact_id)
             session = refine_repo.get_open(conn, fact_id)
             waiting = session is not None and _turn_active(conn, fact_id)
+            latest = tasks_repo.get_latest(conn, dedupe_key(REFINE_FACT, fact_id))
         blocked: str | None = None
         try:
             _refinable(row)
@@ -683,6 +688,12 @@ class FactRefineService:
             changes=changes,
             unchanged=note is not None,
             claims=() if session is None else _panel_claims(session, suggestion),
+            context_count=(
+                max(0, len(turns[-1].fact_numbers) - 1)
+                if session is not None and (turns := _turns(session.turns))
+                else None
+            ),
+            task_key=None if latest is None else f"{latest.id}:{latest.attempt}",
         )
 
     # --- for the task handler -------------------------------------------------------------------

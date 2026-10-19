@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status as of 2026-10-16 (M0 to M3.6, with the M3.6 follow-ups of 2026-10-16, and the M2 and M1 acceptance reports).
+Status as of 2026-10-19: M0–M3 limits and the M1/M2 acceptance follow-ups. M3.10 closes the specification-alignment items listed at the end; other entries retain their last recorded status.
 
 ## What belongs here
 
@@ -247,8 +247,6 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 
 | ID | Item | Origin | Impact | When / fix |
 | --- | --- | --- | --- | --- |
-| TD-106 | Spec 2.11 has no rows for the seven document and upload errors: `UnsupportedDocumentType`, `UnreadableDocument`, `EncryptedDocument`, `NoTextFound`, `ParseTimedOut`, `UploadTooLarge`, `UploadNotAccepted`. | ADR-089 update (M3.1) | medium: spec and code disagree on error copy | M3.10. |
-| TD-107 | Spec 2.3, 2.12, 2.13, 4.3 and section 5 wait for their M3 updates. | ADR-089 Consequences | medium: the spec describes the code less well each milestone | M3.10. |
 | TD-108 | The `add-ai-task` skill does not show the ADR-080 `run_task` and `meter` signature. The `add-provider` skill (line 14) says "tokens when reported", but token budgets are deferred. | M2.27 Left (3) | medium: agents follow an out-of-date recipe | Before the next AI task. |
 | TD-109 | Spec 4.1 is not updated for the mixed-session fix and the failures package. It needs your approval under the spec rule. | M2.3 Evidence; M2 acceptance item 11 | low: test documentation is out of date | Your approval. |
 | TD-110 | `pypdf` and `python-multipart` have lower bounds only in the dependency declaration. | M3.1 Evidence | low: a future release could break unseen | At the next dependency review. Can share the audit in TD-001. |
@@ -256,11 +254,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-112 | AC-M2.10 says "provider" where ADR-076 item 4 says "service". | M2.27 Left (2) | low: wording | Next spec pass. |
 | TD-113 | Stale pointers: ADR-064 has no pointer to ADR-087. ADR-041 names `app/render.py`, which ADR-044 corrects to `app/api/templating.render`. | M2.27 Left (2); ADR-044 docs note | low: misleading references | Add the pointers in a new ADR or the next docs pass. Old ADRs are not rewritten. |
 | TD-114 | `m1_registry` was not renamed. Fourteen test modules import it. | ADR-087 item 4 | low: the name does not match its content | When the next registry test changes. |
-| TD-148 | Spec 2.11 has no rows for the four fact errors: `FactNotFound`, `FactTransitionRefused`, `SkillAliasTaken` and `FactInputInvalid`. | M3.3 Left | medium: spec and code disagree on error copy | M3.10. |
 | TD-149 | The four fact errors have no HTTP mapping yet, so no page can show a friendly message for them. | M3.3 Left | medium: a route would have no copy for these errors | M3.5 and M3.6. |
-| TD-174 | Spec 2.11 has no rows for the six new M3.4 errors: `CvTextTooLong`, `NothingExtracted`, `CvImportNotFound`, `CvImportBusy`, `CvImportAlreadyDone` and `ProviderNotConfigured`. | M3.4; ADR-092 Consequences | medium: spec and code disagree on error copy | M3.10. |
 | TD-197 | `app/api/facts.py` imports the `Form` type from `app.onboarding.registry`. | M3.5 | low: an API module depends on onboarding code for a type | Move the type to a neutral place when it is next touched. |
-| TD-198 | Spec 2.9 rules 11 and 12 and spec 2.10 wait for their lines: no-store on every non-static response, and access logs without query strings (ADR-093). | ADR-093 Consequences | medium: spec and code disagree | M3.10. |
 
 ## 10. Platform
 
@@ -299,3 +294,5 @@ So that nobody re-opens them by mistake:
 - The stream cap and the opt-in `data-events-url`: built in M2.18.
 - The "Keychain couldn't be read" copy for the environment fallback: built in M1.17.
 - Extraction running in a worker thread (TD-030, the M3.1 item): M3.4 runs it through the service.
+
+- M3 specification alignment (TD-106, TD-107, TD-148, TD-174, TD-198): M3.10 documents extraction boundaries/dependencies, fact pages and privacy, error copy, current AI contracts, coverage and deferred roadmap items.

@@ -44,7 +44,7 @@
       <button type="submit" class="button">Discard</button>
     </form>
 {% endmacro %}
-<section id="fact-refine" class="fact-refine" aria-labelledby="fact-refine-heading"{% if refine.oob %} hx-swap-oob="true"{% endif %}>
+<section id="fact-refine" class="fact-refine" aria-labelledby="fact-refine-heading"{% if panel.task_key and ((refreshes and phase == "waiting") or refine.announces_turn) %} data-task-announcement-key="{{ panel.task_key }}"{% endif %}{% if refine.oob %} hx-swap-oob="true"{% endif %}>
   <h2 id="fact-refine-heading">Refine with AI</h2>
   {% if refine.line %}
   <p id="fact-refine-status" class="fact-result" tabindex="-1"{% if refine.focus %} data-autofocus{% endif %}{% if refreshes %}
@@ -89,6 +89,9 @@
   {% endif %}
   {% endif %}
   {% if phase != "waiting" %}
+  {% if panel.context_count is not none %}
+  <p class="field-hint">Based on this fact, your answers and {{ panel.context_count }} other confirmed {{ "fact" if panel.context_count == 1 else "facts" }}.</p>
+  {% endif %}
   {% if view.practice %}
   <p class="badge badge-practice">Practice data (fake provider)</p>
   {% endif %}

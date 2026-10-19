@@ -764,6 +764,32 @@
   var ANNOUNCE_RECENT_S = 10;
   var announcedHere = [];
   var announcedBaseline = false;
+  var pendingRefineRequests = new Set();
+  var deferredFinished = [];
+  var deferredFinishedReceived = false;
+
+  // A fast turn can finish before its initiating POST has supplied the panel's task key.
+  // Wait for that response (or its failure) before deciding which component owns the words.
+  document.body.addEventListener("htmx:beforeSend", function (event) {
+    var detail = event.detail || {};
+    var from = detail.elt;
+    if (from instanceof Element && from.closest("#fact-refine") &&
+        detail.requestConfig && detail.requestConfig.verb === "post") {
+      var xhr = detail.xhr;
+      pendingRefineRequests.add(xhr);
+      // A save can detach the originating form. Failure events then cannot bubble to the
+      // body. loadend belongs to the request itself and follows htmx's onload/swap handler.
+      xhr.addEventListener("loadend", function () {
+        if (!pendingRefineRequests.delete(xhr) || pendingRefineRequests.size) return;
+        var tasks = deferredFinished;
+        var received = deferredFinishedReceived;
+        deferredFinished = [];
+        deferredFinishedReceived = false;
+        // No reply and a real empty reply have different baseline semantics.
+        if (received) finishedTasks(tasks);
+      }, { once: true });
+    }
+  });
 
   function storedAnnounced() {
     return storedKeys(ANNOUNCED_KEY);
@@ -785,9 +811,19 @@
     return message;
   }
 
-  document.body.addEventListener("tasks:finished", function (event) {
-    var tasks = event.detail && event.detail.tasks;
+  function finishedTasks(tasks) {
     if (!Array.isArray(tasks)) return;
+    if (pendingRefineRequests.size) {
+      deferredFinishedReceived = true;
+      tasks.forEach(function (task) {
+        if (task && typeof task.key === "string" &&
+            !deferredFinished.some(function (held) { return held.key === task.key; })) {
+          deferredFinished.push(task);
+        }
+      });
+      deferredFinished = deferredFinished.slice(-ANNOUNCED_MAX);
+      return;
+    }
     var known = storedAnnounced().concat(announcedHere);
     var fresh = tasks.filter(function (task) {
       return task && typeof task.key === "string" && typeof task.message === "string" &&
@@ -798,9 +834,19 @@
     if (!fresh.length) return;
     rememberAnnounced(known, fresh.map(function (task) { return task.key; }));
     var said = fresh.filter(function (task) {
-      return !first || (typeof task.age === "number" && task.age <= ANNOUNCE_RECENT_S);
+      // A panel that follows this exact turn announces its result itself. Mark its key
+      // above even when the indicator's answer wins the race with the panel's answer.
+      var owned = Array.from(document.querySelectorAll("[data-task-announcement-key]"))
+        .some(function (panel) {
+          return panel.getAttribute("data-task-announcement-key") === task.key;
+        });
+      return !owned && (!first || (typeof task.age === "number" && task.age <= ANNOUNCE_RECENT_S));
     });
     if (said.length) announce(said.map(function (task) { return pageWords(task.message); }).join(" "));
+  }
+
+  document.body.addEventListener("tasks:finished", function (event) {
+    finishedTasks(event.detail && event.detail.tasks);
   });
 
   // Live updates (ADR-076 item 1, ADR-077): the server streams events at the URL in

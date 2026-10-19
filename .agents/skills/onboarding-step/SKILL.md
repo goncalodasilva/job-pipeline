@@ -12,6 +12,7 @@ The setup guide is described in `docs/references/detailed-design.md` ("Today and
 3. **Detection** (`app/onboarding/detection.py`) must keep its four cases: no bootstrap config; config without a database; incomplete required steps; complete setup with a broken provider (banner, not wizard). Adding a required step means existing users with complete setup see a banner that links to it, not the whole wizard.
 4. **Secrets** entered in a step go straight to `SecretStore` and are never echoed back.
 5. **Done step** lists skipped steps with links (AC-M1.7; step 3 is the first real skipped step). Today will list them too once it shows the skipped-steps list in M5 (ADR-076 item 12); until then Today doesn't list them.
+   Step 4 uses the shared `CvImportService`, with actual-byte upload limits and parsing off the event loop. It marks itself done when facts or a stored import exist, including when the provider or budget prevents starting; its outcome tells the user to start the kept upload from the Fact bank. It offers no budget dialog in the guide (ADR-095). A bad upload stays on the step with a field error. Detection of an existing import/fact happens when the workspace opens, never as a GET side effect.
 6. **Tests:**
    - table-driven detection tests covering the four cases and the new step;
    - integration tests for submit, persistence, resume after restart and redirects (303 and `HX-Redirect`);

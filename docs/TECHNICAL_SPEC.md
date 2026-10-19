@@ -145,6 +145,7 @@ These rules are enforced by import-linter contracts in `pyproject.toml` and chec
 1. `app.domain` MUST be pure Python: no I/O, no framework imports, nothing from other `app` packages.
 2. `app.modules.*` MAY import `app.domain`. They MUST NOT import `app.services`, `app.api`, `app.onboarding` or `app.tasks`.
 3. Vendor SDKs MUST be imported only inside the provider package that wraps them. For example, `claude_agent_sdk` is imported only in `app.modules.ai.providers.claude_sdk`, and `keyring` only in `app.modules.secrets.providers.keyring_store`.
+   PDF and Word parsing follow the same rule: `pypdf` only in `app.modules.extract.providers.pdf`, `docx` only in `app.modules.extract.providers.docx` (ADR-089).
 4. `app.services` MAY import `app.domain` and the public interface of each module (`app.modules.<name>`, not its `providers` subpackage). Services MUST NOT import FastAPI, Starlette or Jinja2.
 5. `app.api` MAY import services, onboarding and the task runner's public functions. It MUST NOT import `app.modules.*` or `sqlite3`.
 6. `app.tasks` MAY import services and domain. Task handlers are thin: they call a service function. The runner reaches the AI module and storage only through services; the 2.5 diagram shows the logical flow (ADR-034).
@@ -241,6 +242,8 @@ class IdFactory(Protocol):
     def new(self) -> str: ...
 ```
 
+Text extraction (M3, ADR-089, ADR-092): `app.modules.extract` exports `DocumentKind`, the `TextExtractor` protocol, `sniff_type(data)`, `extractor_for(kind)` and `extract_text(path, kind, timeout)`. The composition root injects sniffing/extraction functions into the service, which calls them from a worker thread; services cannot import this module directly because it reaches its adapters (ADR-092 item 7). Extraction spawns a child process with a cleared environment and a deadline; PDF/Word libraries stay in their adapters. `app.api.uploads.read_upload` reads one file or pasted text in memory, caps actual bytes at 10 MB, and never trusts a client filename as a path.
+
 ### 2.5 Runtime flows
 
 Page and fragment requests: route → service → repository → template. Full pages render the app shell; htmx requests (`HX-Request: true`) receive fragments only.
@@ -324,16 +327,19 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 8. When the app calls the Agent SDK, it MUST isolate the call from any developer configuration: run in an empty temporary working directory and disable loading of filesystem settings (the SDK's `setting_sources` option at the time of writing; verify against the installed SDK version).
 9. Secrets live only in the keychain (or the environment fallback). They MUST NOT be stored in the database, written to logs, returned by any endpoint, or included in exports. A logging filter redacts configured secret values and token-shaped strings.
 10. The app sends no telemetry.
-11. Every HTTP response, rejections included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so no other site can frame the app and trick a click (ADR-039).
-12. Only routes the server registers as pages (`register_pages`, `tags=[PAGE_TAG]`) and that dispatch actually picks may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Token-free GETs return only full HTML pages. The M2 routes aren't pages either, so each needs the token: `GET /events` (the live-update stream, `text/event-stream`, still side-effect free; ADR-077), `GET /tasks/panel`, `GET /tasks/indicator`, `GET /tasks/{id}`, `GET /settings/usage`, `GET /settings/testing-tools`, and the POST routes `/tasks/practice`, `/tasks/{id}/cancel`, `/tasks/{id}/retry`, `/settings/usage/budgets` and `/settings/usage/concurrency`, which also need the origin (rule 3). The browser's reader for `GET /events` sends the token as a header; there is no cookie and no token in a URL (ADR-076 item 1, ADR-077). Never add CORS headers, and never put the token in a URL or log (ADR-039).
-13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it.
+11. Every HTTP response, rejections included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so no other site can frame the app and trick a click (ADR-039). Every non-static response also carries `Cache-Control: no-store`, including pages, fragments and refusals (ADR-093).
+12. Only routes the server registers as pages (`register_pages`, `tags=[PAGE_TAG]`) and that dispatch actually picks may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Successful token-free page GETs return full HTML; an unknown/unsafe fact id returns a fixed plain-text 404 that echoes nothing (ADR-094). The M2 routes aren't pages either, so each needs the token: `GET /events` (the live-update stream, `text/event-stream`, still side-effect free; ADR-077), `GET /tasks/panel`, `GET /tasks/indicator`, `GET /tasks/{id}`, `GET /settings/usage`, `GET /settings/testing-tools`, and the POST routes `/tasks/practice`, `/tasks/{id}/cancel`, `/tasks/{id}/retry`, `/settings/usage/budgets` and `/settings/usage/concurrency`, which also need the origin (rule 3). The browser's reader for `GET /events` sends the token as a header; there is no cookie and no token in a URL (ADR-076 item 1, ADR-077). Never add CORS headers, and never put the token in a URL or log (ADR-039).
+   Fact pages `/facts`, `/facts/new`, `/facts/{id}/edit` and `/facts/{id}/merge` can load without the token; they read only and return full HTML (ADR-093, ADR-094). A fact editor may prefill a capture note by safe id. Writes to fact wording and role data use POST bodies; GET filters are read-only. `/facts/library`, `/facts/drafts`, `/facts/{id}/history` and `/facts/{id}/refine` are protected fragments, never pages. Query strings are removed from access logs (2.10).
+13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it. Pages with a fact id in the path expose that fact locally, the same as the library; the id is not an authorization boundary (ADR-094).
 14. The data folder is locked while the app runs (ADR-072, ADR-076 item 9, M2.4). Before logging, the database, migrations or the AI temporary clean-up, the CLI and the app's start take `flock(LOCK_EX | LOCK_NB)` on `<data folder>/.lock`. The file is created with mode 0600 and refused unless it is a private regular file owned by the user with one link. A second copy gets `DataFolderInUse`, whose message names no path, and exits. The lock is POSIX only; where `fcntl` is missing it does nothing (ADR-061). The operating system releases it when the process exits or is killed.
 
 ### 2.10 Logging and diagnostics
 
-Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MiB; ADR-037). Prompt contents and personal data are not logged by default; a local debug setting can enable prompt logging and shows a warning while on. `GET /health` returns app version, database status and task runner status.
+Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MiB; ADR-037). Prompt contents and personal data are not logged. No prompt-debug switch is implemented; a future debug feature must preserve the CV/fact-text exclusions below (TD-151). `GET /health` returns app version, database status and task runner status.
 
 Task, service, AI-module and event-stream loggers write constant format strings. Their arguments are ids, task type names, counts and exception type names, never provider output, error text, prompts or row content. `tasks.error` stores the error kind only, and each event frame carries an id, a type and a status only (ADR-088, ADR-077). The leak scans of AC-M1.4 cover tasks, usage rows, events and logs (spec 5, M2).
+
+AC-M1.4 also covers CV text, fact wording and refine answers: these stay out of task/usage rows, events, logs and error copy. They belong in uploads, fact versions and local refine conversations/source snapshots (ADR-092, ADR-097). Uvicorn access records omit the complete query string before formatting, so a search cannot put fact text in a log (ADR-093).
 
 ### 2.11 Errors
 
@@ -359,6 +365,39 @@ Task, service, AI-module and event-stream loggers write constant format strings.
 | `PracticeNotOffered` | Practice service | "Practice tasks are only available while the fake provider is active." (M2.17) |
 | `BUDGET_MESSAGE` (a constant, never raised: the copy for a stored `BudgetBlocked` kind) | Returned by `message_for_kind` (`app/domain/errors.py`), used by task views | "A monthly usage limit was reached. Open Settings > Usage budgets to see when it resets." (a stored kind keeps no service, tier or date; M2.19) |
 
+M3 document, fact and refinement errors (ADR-089 to ADR-097):
+
+| Error | Raised by | User-facing message pattern |
+| --- | --- | --- |
+| `UnsupportedDocumentType` | Extraction/upload service | "This file type isn't supported. Upload a PDF or Word file, or paste the text instead." |
+| `UnreadableDocument` | Extraction/upload service | "This file couldn't be read. It may be damaged. Save it again, or paste the text instead." |
+| `EncryptedDocument` | Extraction/upload service | "This PDF is protected by a password. Save a copy without the password, or paste the text instead." |
+| `NoTextFound` | Extraction/upload service | "No text was found in this file. If it's a scan, paste the text instead." |
+| `ParseTimedOut` | Extraction/upload service | "Reading this file took too long. Try again, or paste the text instead." |
+| `UploadTooLarge` | Extraction/upload service | "This file is larger than 10 MB. Upload a smaller file, or paste the text instead." |
+| `UploadNotAccepted` | Extraction/upload service | "Upload one file (PDF, Word or plain text), or paste the text instead." |
+| `CvTextTooLong` | Extraction/upload service | "This CV has too much text to import in one go. Paste the part that matters most instead." |
+| `NothingExtracted` | Fact/import/refine services | "Nothing could be listed from this CV. Try again, or paste the text instead." |
+| `CvImportNotFound` | Fact/import/refine services | "This uploaded CV wasn't found. It may have been removed. Upload it again." |
+| `CvImportBusy` | Fact/import/refine services | "This CV is being read. Cancel the task or wait for it to finish, then remove it." |
+| `CvImportAlreadyDone` | Fact/import/refine services | "This CV was already imported. Its drafts are in your fact bank." |
+| `ProviderNotConfigured` | Fact/import/refine services | "No AI provider is connected. Connect one in Settings > Providers, then try again." |
+| `FactNotFound` | Fact/import/refine services | "This item wasn't found. Reload the page and try again." |
+| `FactTransitionRefused` | Fact/import/refine services | "This can't be done to this fact in its current state. Reload to see the latest version." |
+| `FactInputInvalid` | Fact/import/refine services | "This can't be saved as it is. Check what you typed and try again." |
+| `SkillAliasTaken` | Fact/import/refine services | "Another skill already uses this name. Choose a different name." |
+| `RefineNeverUse` | Fact/import/refine services | "This fact is marked "Never use in applications", so it is never sent to the AI. To refine it, change its privacy setting first." |
+| `RefineNotAvailable` | Fact/import/refine services | "Only drafts and confirmed facts can be refined. Restore this fact first." |
+| `RefineNotOpen` | Fact/import/refine services | "There is no open Refine with AI conversation for this fact. Start one first." |
+| `RefineBusy` | Fact/import/refine services | "The AI has no question waiting for an answer right now." |
+| `RefineTurnRunning` | Fact/import/refine services | "The AI hasn't answered yet. Wait for its answer, then try again." |
+| `RefineStopping` | Fact/import/refine services | "The previous conversation is still stopping. Try again in a moment." |
+| `RefineContextChanged` | Fact/import/refine services | "The privacy setting of a fact used earlier in this conversation has changed. Discard this conversation and start again." |
+| `RefineAnswersUsed` | Fact/import/refine services | "This conversation already has three answers. Accept the suggestion, edit the fact yourself or discard it." |
+| `RefineNoSuggestion` | Fact/import/refine services | "There is no suggested wording to accept yet." |
+| `RefineClaimsUnacknowledged` | Fact/import/refine services | "This isn't in your fact bank. Confirm each item below is true, or edit it out, before accepting." |
+| `RefineSuggestionStale` | Fact/import/refine services | "Your fact changed after this suggestion. Discard it and ask again, or keep editing it yourself." |
+
 Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
 Refusals of a start answer 409, for htmx and for a plain request, with the reason: a blocking point, a tier cap without a free Fast tier, or unreadable budgets (ADR-086). A warning that isn't confirmed answers 200 with the warning dialog for htmx, and 409 as text for a plain request (ADR-086). A stale version of a budget form, or of the guide's budget step, answers 409 with the reload prompt (`fragments/shell/_reload_prompt.html`, `role="alert"`): the form's own explanation, then a "Reload the page" link. In the usage budget forms the message is `VersionConflict`'s copy (ADR-081, ADR-087).
@@ -378,7 +417,7 @@ Refusals of a start answer 409, for htmx and for a plain request, with the reaso
 | Secrets | `keyring` | Env fallback |
 | Paths | `platformdirs` | Bootstrap config and default data folder |
 | Job page fetch | `httpx` with the SSRF guard | Text extraction with a lightweight HTML parser |
-| CV import | `pypdf` or `pdfplumber` for PDF, `python-docx` for Word | Chosen in M3 by fixture quality |
+| CV import | `pypdf`, `python-docx`, `python-multipart` | Approved in ADR-089; PDF fixtures passed. Word brings transitive `lxml`; parsing runs in a child process |
 | Rendering | PDF from HTML (WeasyPrint is the default candidate), Word via `python-docx` | M6 starts with a spike: WeasyPrint needs system libraries on some platforms |
 | HTML sanitizing | `nh3` | For rendered Markdown |
 | Calendar | `icalendar` | .ics generation |
@@ -402,6 +441,8 @@ The reader turns `resync` and `task-updated` into the body events `tasks:resync`
 - `tasks:updated`: for each task change;
 - `usage:changed`: sent by a budget save or removal once the swap has settled (`HX-Trigger-After-Settle`);
 - `tasks:finished`: every `GET /tasks/indicator` answer sends it in an `HX-Trigger` header, with the detail `{"tasks": [{"key", "message", "age"}]}` (the key is the task id and attempt, and age is whole seconds since the task finished). The page announces each once in the live region, keeps its key in localStorage (`jobpipeline-tasks-announced`, the newest 50), and on the first answer of a page announces only tasks that ended in the last 10 seconds.
+
+The refine panel owns the completion announcement for its turn, identified by task id and attempt in `data-task-announcement-key`. While a refine POST is in flight, indicator completions wait for its response or failure before choosing an owner. The indicator remembers the owned key without a second announcement, regardless of response order. Initial page markup for an already completed turn does not claim ownership: recent completions still announce on navigation. Other tasks still announce normally. A failed panel retaining an older editable suggestion does not claim the new turn's announcement (TD-222).
 
 Who refetches: the top-bar indicator and the tasks panel refetch on `tasks:resync` and `tasks:updated`; an open panel also asks every 2 seconds while it shows a task with a progress bar (queued or running), and once a minute when idle; each task row refetches on both events; the usage panel refetches on `usage:changed` and on `tasks:updated` (after a one-second delay); Testing tools refetches on `usage:changed`. A part that holds an open dialog doesn't refetch (ADR-086). A failed or interrupted task that the open panel hasn't shown yet counts on the closed Tasks button as "needs attention"; the keys seen are kept per browser origin in localStorage (`jobpipeline-tasks-seen`, ids and attempts only; ADR-088).
 
@@ -427,6 +468,8 @@ job-pipeline/
       secrets/      interface, providers/ (keyring_store.py, env.py, chained.py,
                     redacting.py, memory.py)
       fetch/        SSRF-guarded fetcher, HTML-to-text
+      extract/      public sniff/extract interface, killed parser child, providers/pdf.py,
+                    docx.py and text.py (M3; ADR-089)
     render/         CV and letter rendering (PDF, Word), country templates (planned, M6)
     tasks/          runner, handler registry, practice handler (the event publisher is api/events.py; ADR-077)
     templates/      Jinja2 pages and fragments
@@ -455,7 +498,8 @@ job-pipeline/
     live/           live tests against real Claude services (opt-in, M1+)
     fakes/          scripting helpers, the SDK replay transport and keyring backends
                     (app-selectable fakes live in app/modules/*/providers/)
-    fixtures/       ai/, prompts/, import_violations/, migration_hashes.json
+    fixtures/       ai/, prompts/, cv/ (fictional PDFs, Word and text),
+                    import_violations/, migration_hashes.json
     conftest.py     pytest configuration, keyring guard, session fixtures
     running_app.py  subprocess fixture (smoke and e2e)
     waiting.py      deadline-based waits (M2.3)
@@ -494,6 +538,7 @@ The AI draws facts out of the user and rephrases them; it never invents experien
    - numbers, percentages, years and money amounts that appear in the unit but in none of its cited facts are `needs_check`.
 4. The UI shows these flags inline. Approval is blocked until each flagged unit is edited, removed, or confirmed by the user, and a user confirmation saves the claim as a new confirmed fact (the user is asserting it is true).
 5. Feedback tasks (`answer_feedback`, `refine_fact`) may suggest wording but MUST NOT add claims; any claim not found in the fact bank is surfaced as "This isn't in your fact bank." with a checkbox per claim ("This is true; add it"). A ticked claim stays in the accepted wording of that fact and is recorded as the user's assertion on the conversation; it does not create a separate draft (ADR-089 item 5, ADR-097 update of 2026-10-19).
+   M3 refinement checks against the target fact/role, the user's answers and the confirmed context sent in that request. `facts_for_ai()` is the shared context selector: confirmed, current, non-never-use only. Names in generalized context cannot support named claims. The suggestion keeps a source/version snapshot; Accept rechecks its claims, the target version and context privacy. The checker flags quantities (including number words), capitalized name tokens, controlled skill names and the model's `added_details`. Lower-case non-numeric embellishment and a lone capitalized word at a sentence start may escape it; users review the whole diff. CV import checks digit quantities against each source quote and leaves every unit a draft (ADR-092, ADR-097).
 6. Tests MUST include adversarial fake outputs (invented employer, wrong id, inflated number, uncited paragraph) and prove each is flagged.
 
 ### 3.2 Drafts, approval and versions
@@ -558,6 +603,8 @@ Prompt files live in `prompts/<task>/` as `prompt.md` (YAML front matter plus te
 - Responses are parsed as JSON and validated against the schema; one automatic retry with the validation error appended, then `InvalidModelOutput`.
 
 The `practice` task (M2.17, ADR-076 item 2) is not in this table and not in `TASK_SPECS`: it is a fake-only vehicle for the task runner, offered only when fake providers are allowed and the fake is the saved provider. It never reaches a real model, produces no user-facing content and so cites no fact ids; this exemption is for that task alone.
+
+M3 registers `extract_cv` (extraction) and `refine_fact` (feedback). Extraction requires a `source_quote` per unit, no status field, and saves drafts atomically with task success. Refinement returns questions, an optional suggestion and `added_details`; it never writes a fact until explicit Accept. Both use the saved provider's service for the budget gate and usage meter, delimit untrusted text, and label fake output. A request-log case for every entry in `TASK_SPECS` proves never-use exclusion; new tasks must extend it. The settings list of tiers per task is deferred to M9 (ADR-089 item 9).
 
 ### 3.7 Tiers and usage
 
@@ -826,7 +873,9 @@ flowchart LR
 - AC-M3.5 Refine with AI: a fake response containing an invented claim is flagged and is never applied without explicit acceptance.
 - AC-M3.6 Full-text search and filters by role, skill and status return correct results.
 - AC-M3.7 Oversized, wrong-type and malformed uploads fail with friendly messages and leave no partial records.
-- AC-M3.8 Setup step 4 works and, when skipped, is listed on the Done screen and Today.
+- AC-M3.8 Setup step 4 works and, when skipped, is listed with a link on the Done screen. Today lists skipped steps from M5 (ADR-089 item 3).
+
+M3 notes (ADR-089): near-duplicates use mechanical similarity on demand; the controlled skills list starts empty. Typed facts are confirmed immediately; imported output is always draft. The Coverage tab, quality hints, tag filtering, fact shortcuts, application-use links and per-task tier settings arrive in later milestones. Fake output is visibly labelled; its fixed suggestions are practice data, not analysis of the user's text.
 
 **Test plan:** unit tests for extraction adapters with fictional fixture files and version logic; integration tests for the import pipeline with fake AI fixtures (including malformed output); e2e for import, review, confirm and refine, with axe and keyboard checks.
 
@@ -868,7 +917,7 @@ flowchart LR
 - AC-M5.3 Moving to Interviewing offers an optional date; moving to Rejected offers optional feedback.
 - AC-M5.4 Generated .ics files parse correctly and keep the right time zone.
 - AC-M5.5 With a frozen clock, due reminders appear on Today and in notifications; nothing runs while the app is closed.
-- AC-M5.6 Today shows its blocks in priority order, hides empty ones, and says plainly when nothing is due.
+- AC-M5.6 Today shows its blocks in priority order, hides empty ones, and says plainly when nothing is due. It lists skipped optional setup steps with links, including CV import (deferred from AC-M3.8, ADR-089 item 3).
 
 **Test plan:** unit tests for reminder rules and .ics generation; integration tests for status history and phases; e2e for the board (drag and keyboard), drawer and Today, with axe and phone viewport.
 
@@ -937,7 +986,7 @@ flowchart LR
 
 **Goal:** a complete, accessible, shareable first release.
 
-**Scope:** learning from removals (six-step design: mapping, explainable detection with a threshold, previewed suggestions, visible and reversible rules, no nagging, `group_removal_reasons` on request); prompts editor with overrides; lists and statuses editor; appearance settings; JSON export and import with a schema version (keys excluded); delete all data; demo dataset; full accessibility audit; performance pass; README and user guide; tag v1.0.
+**Scope:** learning from removals (six-step design: mapping, explainable detection with a threshold, previewed suggestions, visible and reversible rules, no nagging, `group_removal_reasons` on request); prompts editor with overrides; per-task tier list (deferred from M3, ADR-089); lists and statuses editor; appearance settings; JSON export and import with a schema version (keys excluded); delete all data; demo dataset; full accessibility audit; performance pass; README and user guide; tag v1.0.
 
 **Acceptance criteria:**
 

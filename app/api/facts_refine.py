@@ -253,6 +253,15 @@ def panel_context(
         "panel": panel,
         "view": panel.view,
         "line": said if blocked_open else _line(panel, said),
+        "announces_turn": said
+        in (
+            MSG_READY,
+            MSG_QUESTIONS_READY,
+            MSG_FAILED,
+            MSG_ACCEPTED,
+            MSG_DISCARDED,
+            MSG_STOPPED,
+        ),
         "focus": said is not None,
         "error": error,
         "error_field": _tied_field(panel, fields, error_field, blocked_open=blocked_open),
@@ -322,6 +331,7 @@ def show_refine(request: Request, fact_id: str) -> Response:
     ctx = {"refine": panel_context(panel)}
     if ready is not None:
         ctx["refine"]["line"] = ready
+        ctx["refine"]["announces_turn"] = True
     response = templates.TemplateResponse(request, FRAGMENT, ctx)
     return response if ready is None else _announcing(response, ready)
 
