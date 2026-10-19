@@ -493,7 +493,7 @@ The AI draws facts out of the user and rephrases them; it never invents experien
    - a content unit with no ids is `unsupported`;
    - numbers, percentages, years and money amounts that appear in the unit but in none of its cited facts are `needs_check`.
 4. The UI shows these flags inline. Approval is blocked until each flagged unit is edited, removed, or confirmed by the user, and a user confirmation saves the claim as a new confirmed fact (the user is asserting it is true).
-5. Feedback tasks (`answer_feedback`, `refine_fact`) may suggest wording but MUST NOT add claims; any claim not found in the fact bank is surfaced as "This isn't in your fact bank. Add it as a draft?".
+5. Feedback tasks (`answer_feedback`, `refine_fact`) may suggest wording but MUST NOT add claims; any claim not found in the fact bank is surfaced as "This isn't in your fact bank." with a checkbox per claim ("This is true; add it"). A ticked claim stays in the accepted wording of that fact and is recorded as the user's assertion on the conversation; it does not create a separate draft (ADR-089 item 5, ADR-097 update of 2026-10-19).
 6. Tests MUST include adversarial fake outputs (invented employer, wrong id, inflated number, uncited paragraph) and prove each is flagged.
 
 ### 3.2 Drafts, approval and versions
