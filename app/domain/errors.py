@@ -69,6 +69,10 @@ class ProviderNotInstalled(AppError):
     message = "Claude Code wasn't found. Install it, or choose Claude via API key."
 
 
+class CalendarSyncUnsupported(AppError):
+    message = "Download the calendar file and open it in your calendar app."
+
+
 class ProviderAuthError(AppError):
     kind = "ProviderAuthError"
     message = "The token or key was rejected. Create a new one and paste it again."

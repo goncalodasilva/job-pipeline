@@ -27,6 +27,7 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from types import MappingProxyType
 from typing import Final
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.domain.clock import Clock, SystemClock
 from app.domain.errors import ProviderNotInstalled
@@ -66,6 +67,8 @@ from app.modules.ai.providers.fake import KNOWN_MODELS as FAKE_MODELS
 from app.modules.ai.providers.fake_scripts import real_task_scripts
 from app.modules.ai.providers.job_scripts import fit_scripts, summary_scripts
 from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS, TaskSpec
+from app.modules.calendar import CalendarProvider
+from app.modules.calendar.providers.ics import IcsCalendarProvider
 from app.modules.fetch import JobPageFetcher
 from app.modules.fetch.providers.demo_pages import demo_pages
 from app.modules.fetch.providers.fake import FakeHostRouter, FakeJobPageFetcher
@@ -298,6 +301,10 @@ class Wiring:
     def _is_allowed_fake(self, provider: AIProvider) -> bool:
         return self.allow_fakes and provider.name == FakeAIProvider.name
 
+    def calendar_provider(self) -> CalendarProvider:
+        """The local file provider needs no credentials or settings."""
+        return IcsCalendarProvider(self.clock)
+
     def _offered(self) -> frozenset[ProviderKind]:
         return frozenset(choice.kind for choice in self.provider_choices())
 
@@ -378,6 +385,22 @@ def local_timezone() -> tzinfo:
     """The time zone budget cycles use: the computer's own (ADR-076 item 8). ``create_app``
     takes another one for tests."""
     return _LocalTimezone()
+
+
+def system_time_zone_name() -> str | None:
+    """Read only the system link's IANA name; copied files or unknown zones ask the user.
+
+    No shell, environment override, user configuration, or inferred fixed-offset name.
+    macOS's /var/db/timezone/zoneinfo links and relative Linux links work alike.
+    """
+    try:
+        parts = Path("/etc/localtime").readlink().parts
+        marker = parts.index("zoneinfo")
+        name = "/".join(parts[marker + 1 :])
+        ZoneInfo(name)
+    except (OSError, ValueError, ZoneInfoNotFoundError):
+        return None
+    return name
 
 
 def clear_ai_temp(data_dir: Path) -> Path:

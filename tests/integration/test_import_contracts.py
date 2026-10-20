@@ -37,6 +37,7 @@ JSONSCHEMA = "jsonschema only in the AI executor (spec 2.3 rule 3)"
 # M3.1: text extraction wraps one library per format (ADR-089 item 2).
 PYPDF = "pypdf only in the PDF extractor (spec 2.3 rule 3)"
 DOCX = "docx only in the Word extractor (spec 2.3 rule 3)"
+ICALENDAR = "icalendar only in the ICS provider (spec 2.3 rule 3)"
 
 EXPECTED_CONTRACTS = frozenset(
     {
@@ -53,6 +54,7 @@ EXPECTED_CONTRACTS = frozenset(
         JSONSCHEMA,
         PYPDF,
         DOCX,
+        ICALENDAR,
     }
 )
 
