@@ -1,0 +1,20 @@
+{# The "?" list of single-key shortcuts (WCAG 2.1.4). Always reachable; it says so when the
+   Settings switch has them off. #}
+<details id="inbox-help" class="inbox-help">
+  <summary>Keyboard shortcuts</summary>
+  {% if shortcuts.value.enabled %}
+  <dl class="shortcut-list">
+    <div><dt><kbd>J</kbd></dt><dd>Next job</dd></div>
+    <div><dt><kbd>K</kbd></dt><dd>Previous job</dd></div>
+    <div><dt><kbd>A</kbd></dt><dd>Mark the job to apply</dd></div>
+    <div><dt><kbd>R</kbd></dt><dd>Remove the job</dd></div>
+    <div><dt><kbd>Enter</kbd></dt><dd>Open the job details</dd></div>
+    <div><dt><kbd>Z</kbd></dt><dd>Undo the last move, while the Undo line is shown</dd></div>
+    <div><dt><kbd>Esc</kbd></dt><dd>Close what is open</dd></div>
+    <div><dt><kbd>?</kbd></dt><dd>Show or hide this list</dd></div>
+  </dl>
+  <p class="field-hint">Shortcuts are ignored while you type. You can turn them off in <a href="/settings#shortcuts-settings">Settings</a>.</p>
+  {% else %}
+  <p>Single-key shortcuts are off. You can turn them on in <a href="/settings#shortcuts-settings">Settings</a>.</p>
+  {% endif %}
+</details>

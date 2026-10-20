@@ -149,6 +149,11 @@ def claude_auth_mode(kind: ProviderKind | None) -> ClaudeAuthMode | None:
     return modes.get(kind) if kind is not None else None
 
 
+class ShortcutSettings(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+    enabled: bool = True
+
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -174,3 +179,4 @@ AI_PROVIDER = SettingSpec("ai_provider", AIProviderSettings, AIProviderSettings(
 JOB_PREFERENCES = OptionalSettingSpec("job_preferences", JobPreferences)
 TASK_RUNNER = SettingSpec("task_runner", TaskRunnerSettings, TaskRunnerSettings())
 USAGE_BUDGETS = SettingSpec("usage_budgets", UsageBudgets, UsageBudgets())
+SHORTCUTS = SettingSpec("shortcuts", ShortcutSettings, ShortcutSettings())

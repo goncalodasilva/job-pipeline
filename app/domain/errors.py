@@ -27,11 +27,17 @@ _MONTHS = (
     "November",
     "December",
 )
+_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def format_day(day: date) -> str:
     """Write a date the way the interface shows it, e.g. "1 November 2026"."""
     return f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
+
+
+def format_short_day(day: date) -> str:
+    """Write a date briefly, e.g. "Mon 26 Oct" (fixed English names, spec 3.10)."""
+    return f"{_WEEKDAYS[day.weekday()]} {day.day} {_MONTHS[day.month - 1][:3]}"
 
 
 def format_day_time(moment: datetime) -> str:
@@ -485,6 +491,19 @@ class TriageNotAllowed(AppError):
 
     kind = "TriageNotAllowed"
     message = "This job can't be changed that way now. Reload to see its current state."
+
+
+class JobTriageInputInvalid(TriageNotAllowed):
+    """A triage form value needing a field-specific correction."""
+
+    def __init__(self, field: str = "", message: str | None = None) -> None:
+        self.field = field
+        self._message = message
+        super().__init__()
+
+    @property
+    def user_message(self) -> str:
+        return self._message or self.message
 
 
 class SkillAliasTaken(AppError):

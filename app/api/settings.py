@@ -319,6 +319,11 @@ def _render(
             "guide_url": setup_step_path(registry.first.id),  # re-run the setup guide
             "usage": usage_context(request, usage) if shows_usage else None,
             "usage_panel": panel_context(request) if shows_panel else None,
+            # Keyboard shortcuts (M4.7): its own block, saved by app/api/inbox.py.
+            "shortcuts": request.app.state.inbox_views.shortcuts() if shows_panel else None,
+            "shortcuts_saved": False,
+            "shortcuts_conflict": False,
+            "conflict_message": "",
             # Testing tools (M2.17): shown only while the practice task is offered.
             "practice": _practice_context(
                 request,

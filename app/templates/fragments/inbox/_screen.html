@@ -1,0 +1,17 @@
+{# The job inbox's main content (M4.7): the heading and "+ Add job", the shortcut help, then
+   #inbox (the focused card beside the queue), the block every answer on the screen swaps.
+   data-shortcuts is the versioned Settings switch: shortcuts.js reads it, and also handles the
+   screen's dialogs, the undo timer and the card prefetch. #}
+<div id="inbox-page" class="inbox-page" data-shortcuts="{{ 'true' if shortcuts.value.enabled else 'false' }}">
+  <header class="inbox-header">
+    <h1 id="page-heading" data-autofocus>{{ area.name }}</h1>
+    <button type="button" id="inbox-add-toggle" class="button button-primary" aria-expanded="false" aria-controls="inbox-add">+ Add job</button>
+  </header>
+  <div id="inbox-add" class="inbox-add">
+    {% with url="", text="", error="", error_field="", said="", job_id="", source_job_id="", merged=false, summary=none %}
+    {% include "fragments/inbox/_intake.html" %}
+    {% endwith %}
+  </div>
+  {% include "fragments/inbox/_help.html" %}
+  {% include "fragments/inbox/_inbox.html" %}
+</div>

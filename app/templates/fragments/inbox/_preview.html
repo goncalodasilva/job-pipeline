@@ -1,0 +1,18 @@
+{# The details preview (M4.7): what the job says, in a modal that app.js opens after the swap
+   (focus on Close; Esc closes it and focus goes back to the card's title). The full drawer,
+   with the fit explained, editable fields and sources, replaces this in M4.8. Everything
+   shown is untrusted job text: escaped, never run. #}
+{% set job = card.job %}
+<dialog id="job-details" class="modal details-dialog"
+        aria-labelledby="job-details-heading" data-modal data-return-focus="#inbox-card-heading">
+  <h2 id="job-details-heading">Job details</h2>
+  <h3 class="details-title">{{ job.title }}</h3>
+  {% set about = [job.company, job.industry, job.department] | select | list %}
+  {% if about %}<p>{{ about | join(" · ") }}</p>{% endif %}
+  {% if card.summary %}<p>{{ card.summary.text }}</p>{% endif %}
+  <h3 id="job-details-text-heading">The posting</h3>
+  <div class="posting-text" role="region" tabindex="0" aria-labelledby="job-details-text-heading">{{ job.snapshot_text }}</div>
+  <div class="modal-actions">
+    <button type="button" class="button button-primary" data-modal-close autofocus>Close</button>
+  </div>
+</dialog>

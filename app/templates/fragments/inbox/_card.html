@@ -1,0 +1,141 @@
+{% from "fragments/inbox/_macros.html" import card_query, triage_fields, hint, keys with context %}
+{# The focused card (M4.7). Absent values are left out, never printed. The title is a button
+   that opens the details preview, like the Details button (Enter does the same). A New card
+   posts to /seen once it is displayed (hx-trigger="load"): a GET never marks it, and a
+   prefetched card is only text in the browser until it is swapped in. data-seen-pending
+   tells shortcuts.js to hold any action of the card until that answer is here, because the
+   answer carries the job's new version. While a summary or fit is being made the card asks
+   for itself again on the body's task events and every few seconds, so Processing follows the
+   task; shortcuts.js skips that refresh while a menu or dialog is open or a field is in use.
+   data-announce says "Job 2 of 3: ..." once, after the card was chosen from the queue.
+   Actions need the page's scripts (htmx, the launch token), so the forms have no fallback. #}
+{% set job = card.job %}
+{% set working = card.processing or card.active %}
+{% set ask = error.field if error else "" %}
+{% set can_triage = card.state in ("new", "seen", "snoozed") %}
+<article id="inbox-card" class="inbox-card" aria-labelledby="inbox-card-heading"
+         data-job-id="{{ job.id }}" data-state="{{ card.state }}"{% if card.processing %} data-processing{% endif %}{% if card.state == "new" %} data-seen-pending{% endif %}
+         {% if announce %}data-announce="Job {{ position }} of {{ total }}: {{ job.title }}"{% endif %}
+         {% if working %}hx-get="/inbox/jobs/{{ job.id }}/card?{{ card_query(position, previous_id, following_id) }}"
+         hx-trigger="tasks:resync from:body, tasks:updated from:body, every 3s" hx-swap="outerHTML settle:0ms"{% endif %}>
+  {% if card.state == "new" %}
+  <form id="inbox-seen" hx-post="/inbox/jobs/{{ job.id }}/seen" hx-trigger="load" hx-swap="none">
+    <input type="hidden" name="version" value="{{ job.version }}">
+  </form>
+  {% endif %}
+  <h2 class="card-title"><button type="button" id="inbox-card-heading" class="card-title-button" aria-haspopup="dialog"
+      hx-get="/inbox/jobs/{{ job.id }}/detail" hx-target="#inbox-details" hx-swap="innerHTML"
+      {% if focus and not error %}data-autofocus{% endif %}>{{ job.title }}</button></h2>
+  {% set about = [job.company, job.industry, job.department] | select | list %}
+  {% if about %}<p class="card-about">{{ about | join(" · ") }}</p>{% endif %}
+  {% if card.state == "snoozed" and card.snoozed_text %}<p class="card-state">Snoozed until {{ card.snoozed_text }}</p>{% endif %}
+  {% if card.state == "removed" %}<p class="card-state">Removed</p>{% endif %}
+  {% if card.state == "to_apply" %}<p class="card-state">To apply</p>{% endif %}
+  <ul class="card-facts">
+    {% if card.work_mode %}<li><span class="card-label">Work mode:</span> {{ card.work_mode }}</li>{% endif %}
+    {% if card.salary %}<li><span class="card-label">Salary:</span> {{ card.salary }}</li>{% endif %}
+    {% if card.experience %}<li><span class="card-label">Experience:</span> {{ card.experience }}</li>{% endif %}
+    {% if card.posted %}<li>{{ card.posted }}</li>{% endif %}
+    {% if card.source %}
+    <li><span class="card-label">Source:</span>
+      {% if card.source.url %}<a href="{{ card.source.url }}" target="_blank" rel="noopener noreferrer">{{ card.source.label }}<span class="visually-hidden"> (opens in a new tab)</span></a>{% else %}{{ card.source.label }}{% endif %}
+      {% if card.other_sites %}, also posted on {{ card.other_sites }} other {{ "site" if card.other_sites == 1 else "sites" }}{% endif %}
+    </li>
+    {% endif %}
+  </ul>
+  {% if job.fit_band %}<p class="card-fit"><strong>Fit: {{ job.fit_band | capitalize }}</strong></p>{% endif %}
+  {% if job.deal_breaker %}<p class="card-conflict">Conflicts with your preferences</p>{% endif %}
+  {% if (card.summary and card.summary.practice) or card.fit_practice %}<p><span class="badge badge-practice">Practice data</span></p>{% endif %}
+  {% if card.processing %}
+  <p class="card-status" role="status">Processing: summarizing this job.</p>
+  {% endif %}
+  {% if card.summary %}<p class="card-summary">{{ card.summary.text }}</p>{% endif %}
+  {% set judged = card.requirements | selectattr("met", "ne", none) | list %}
+  {% if judged %}
+  <ul class="chips" aria-label="Requirements">
+    {% for item in judged %}
+    <li class="chip {{ 'chip-met' if item.met else 'chip-missing' }}"><span class="chip-label">{{ "Met" if item.met else "Missing" }}:</span> {{ item.text }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if panel %}{% with summary = panel %}{% include "fragments/inbox/_summary.html" %}{% endwith %}{% endif %}
+  {% if error and ask == "picked" %}
+  <p id="snooze-error" class="field-error" role="alert">{{ error.user_message }}</p>
+  {% endif %}
+  <div class="card-actions">
+    {% if can_triage %}
+    <form hx-post="/inbox/jobs/{{ job.id }}/triage" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+      {{ triage_fields("to_apply") }}
+      <button type="submit" id="inbox-apply" class="button button-primary" {{ keys("A") }} data-action="apply">Apply{{ hint("A") }}</button>
+    </form>
+    <button type="button" id="inbox-remove" class="button" {{ keys("R") }} aria-haspopup="dialog" data-action="remove">Remove{{ hint("R") }}</button>
+    {% endif %}
+    {% if not can_triage or card.state == "snoozed" %}
+    <form hx-post="/inbox/jobs/{{ job.id }}/triage" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+      {{ triage_fields("restore" if card.state == "removed" else "undo") }}
+      {% if card.state == "removed" %}
+      <button type="submit" id="inbox-restore" class="button button-primary">Restore</button>
+      {% else %}
+      <button type="submit" id="inbox-restore" class="button">Back to queue</button>
+      {% endif %}
+    </form>
+    {% endif %}
+    <button type="button" id="inbox-details-button" class="button" aria-haspopup="dialog"
+            hx-get="/inbox/jobs/{{ job.id }}/detail" hx-target="#inbox-details" hx-swap="innerHTML">Details{{ hint("Enter") }}</button>
+    {% if previous_id %}<button type="button" id="inbox-previous" class="button" data-nav="previous" {{ keys("K") }}>Previous{{ hint("K") }}</button>{% endif %}
+    {% if following_id %}<button type="button" id="inbox-next" class="button" data-nav="next" {{ keys("J") }}>Next{{ hint("J") }}</button>{% endif %}
+  </div>
+  {% if can_triage %}
+  <details class="card-menu"{% if ask == "picked" %} open{% endif %}>
+    <summary id="inbox-menu">Card menu</summary>
+    <div class="menu-form">
+      <p class="menu-label" id="snooze-label">Snooze until</p>
+      <form class="menu-choices" role="group" aria-labelledby="snooze-label"
+            hx-post="/inbox/jobs/{{ job.id }}/triage" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+        {{ triage_fields("snooze") }}
+        <button type="submit" name="choice" value="tomorrow" class="button">Tomorrow</button>
+        <button type="submit" name="choice" value="next_week" class="button">Next week</button>
+        <button type="submit" name="choice" value="month" class="button">In a month</button>
+      </form>
+      {# Its own form, so Enter in the date can only mean "that date". #}
+      <form hx-post="/inbox/jobs/{{ job.id }}/triage" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+        {{ triage_fields("snooze") }}
+        <input type="hidden" name="choice" value="date">
+        <div class="field">
+          <label for="snooze-date">Or pick a date</label>
+          <input id="snooze-date" type="date" name="picked" value="{{ submitted.get('picked', '') }}"
+                 {% if ask == "picked" %}aria-invalid="true" aria-describedby="snooze-error" data-autofocus{% endif %}>
+        </div>
+        <button type="submit" class="button">Snooze until that date</button>
+      </form>
+    </div>
+  </details>
+  <dialog id="remove-dialog" class="modal remove-dialog"
+          aria-labelledby="remove-dialog-heading" aria-describedby="remove-dialog-note"
+          {% if ask in ("reason", "text") %}data-reopen{% endif %}>
+    <form hx-post="/inbox/jobs/{{ job.id }}/triage" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+      {{ triage_fields("remove") }}
+      <h2 id="remove-dialog-heading">Remove job</h2>
+      <p id="remove-dialog-note">Pick a reason, or skip it. You can undo this for a few seconds, and the job stays in Removed.</p>
+      {% if error and ask in ("reason", "text") %}<p id="remove-error" class="field-error" role="alert">{{ error.user_message }}</p>{% endif %}
+      <div class="chips reason-chips">
+        {% for key, label in [("too_junior", "Too junior"), ("too_senior", "Too senior"), ("location", "Location"), ("salary", "Salary"), ("industry", "Industry"), ("company", "Company"), ("not_interested", "Not interested")] %}
+        <button type="submit" name="reason" value="{{ key }}" class="button chip-button">{{ label }}</button>
+        {% endfor %}
+        {# Other is a real submit button: its first press opens the reason box (shortcuts.js),
+           a second one removes with that reason and the words. #}
+        <button type="submit" name="reason" value="other" class="button chip-button" data-other-reason aria-expanded="false" aria-controls="remove-other">Other</button>
+      </div>
+      <div id="remove-other" class="field" hidden>
+        <label for="remove-text">Reason (optional)</label>
+        <input id="remove-text" type="text" name="text" maxlength="500" value="{{ submitted.get('text', '') }}"
+               {% if ask == "text" %}aria-invalid="true" aria-describedby="remove-error"{% endif %}>
+      </div>
+      <div class="modal-actions">
+        <button type="submit" class="button button-primary" data-remove-plain>Remove job</button>
+        <button type="button" class="button" data-close-dialog>Cancel</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
+</article>

@@ -71,7 +71,10 @@ def _answer(
         },
     )
     response.status_code = status
-    response.headers["HX-Trigger"] = json.dumps({"announce": error or said})
+    triggers: dict[str, object] = {"announce": error or said}
+    if job_id:  # a job was saved or restored: the inbox screen counts its queue again
+        triggers["inbox:changed"] = True
+    response.headers["HX-Trigger"] = json.dumps(triggers)
     return response
 
 

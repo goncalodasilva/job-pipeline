@@ -9,8 +9,9 @@ from app.domain.jobs import local_today
 from app.modules.storage import Database
 from app.modules.storage import inbox_repo as repo
 
+PAGE_SIZE = 50
 # SQLite binds offsets as signed 64-bit integers. Keep the whole last page representable.
-MAX_PAGE = (2**63 - 1) // 50 + 1
+MAX_PAGE = (2**63 - 1) // PAGE_SIZE + 1
 
 
 class InboxQuery:

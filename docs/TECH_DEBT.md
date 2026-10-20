@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status as of 2026-10-19: M0–M3 limits, the M1/M2 acceptance follow-ups, M4.1 fetch items and M4.2 schema items. M3.10 closes the specification-alignment items listed at the end; other entries retain their last recorded status.
+Status as of 2026-10-20: M0–M3 limits, the M1/M2 acceptance follow-ups, M4.1 fetch items, M4.2 schema items and the M4.7 inbox items (TD-242 to TD-253). M3.10 closes the specification-alignment items listed at the end; other entries retain their last recorded status.
 
 ## What belongs here
 
@@ -38,6 +38,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-230 | `app/modules/fetch/providers/guarded.py` (pinning, redirect re-checks, deadline) is not in the critical-coverage registry; only `guard.py` is. It has 100% branch coverage today. | M4.1 code review | medium: the SSRF path could regress below 95% unnoticed | Needs your OK and an ADR-098 note to add it. |
 | TD-231 | Only the first DNS answer is tried; there is no fallback from an unreachable IPv6 address to IPv4. | M4.1 code review | low: some hosts may fail to fetch, falling back to paste text | Try each checked answer in turn. |
 | TD-232 | Bytes after the end of the first gzip member are ignored, so a multi-member gzip page is cut short. | M4.1 | low: rare for web servers; safe | Decode further members within the same cap. |
+| TD-247 | The origin check in the inbox prefetch route is dead code. | M4.7 re-review (should-fix, not done) | low: dead code suggests a check that never runs | Remove it, or test it with a GET that carries an `Origin` header. |
 
 ## 2. Privacy and stored data
 
@@ -226,6 +227,15 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-222 | A failed refine turn that still shows an earlier suggestion does not refresh after a Retry from Tasks until the page is reloaded (it does not refetch, to keep edited wording and ticks). | M3.9 Left (c); user agreed 2026-10-19 to leave it | low: needs a failed later turn plus a retry from elsewhere | Refresh only the status line, or show a "New answer ready, show it" button. |
 | TD-223 | The demo's fake refine answer is one fixed sentence ("Reduced invoice processing time by 35% across 4 warehouses.") whatever the fact says, so the demo looks absurd. Echoing the user's wording with a small rephrase would read better. | M3.9 checkpoint, 2026-10-19; user deferred | low: practice data only, badged | When the demo is next polished. |
 | TD-224 | Invented lower-case wording in a refine suggestion is not flagged (ADR-089 item 5 limit). The demo showed a suggestion about a different subject with only its numbers flagged. Proposed: a non-blocking note when most of the suggestion's words are absent from the sources. | M3.9 checkpoint, 2026-10-19; user deferred ("can be imperfect") | medium: relies on the prompt, the model's self-report and the user reading the diff | Needs the user's OK and an ADR line; candidate for M9 or when real-provider use shows it matters. |
+| TD-242 | Adding a job refreshes the whole `#inbox` screen (`inbox:changed`). That refresh does not use the open-menu and typed-text guard, and it is not retried. | M4.7 re-review (should-fix, not done) | medium: an open menu or typed text can be lost after adding a job | Use the guard and a retry on this refresh, with a test. |
+| TD-244 | A held action on a New card, waiting for its `/seen` answer, is dropped silently when a Processing refresh swaps the card. | M4.7 re-review (should-fix, not done) | medium: a keypress is lost with no message | Announce the drop, or keep the held action on the new card. |
+| TD-245 | Enter during IME composition in the reason box is not handled. | M4.7 re-review (should-fix, not done) | low: may submit a reason while the user is still composing | Ignore Enter while composing, with a test. |
+| TD-246 | An unknown snooze `choice` shows the date message. | M4.7 re-review (should-fix, not done) | low: wrong message for a bad request | Show a generic refusal for unknown choices, with a test. |
+| TD-248 | The details drawer is a minimal preview. It shows no match, sources or editable fields. | M4.7 limits (c) | medium: the drawer is not the M4.8 detail view yet | M4.8 replaces `app/templates/fragments/inbox/_preview.html`. |
+| TD-249 | The summary on a card is clamped to 3 lines. | M4.7 limits (c) | low: longer summaries are cut on the card | Decide with the UX reviewer. |
+| TD-250 | To-apply cards offer only Back to queue, because the domain forbids Remove and re-snooze from To apply. | M4.7 limits (c); M4.2 domain rules | low: a To-apply card cannot be removed from the card | Decide whether the domain allows Remove from To apply. |
+| TD-251 | Spacing at the phone fold is not settled. | M4.7 limits (c) | low: a cramped first screen on a phone | Review with the UX reviewer. |
+| TD-252 | Remove needs JavaScript. There is no no-script fallback. | M4.7 limits (c); TD-077 | medium: a no-script user cannot remove a job | Decide the no-script path with TD-077. |
 
 ## 8. Tests and CI
 
@@ -259,6 +269,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-218 | The no-JavaScript path of the "Your wording" box has no browser test. | M3.6 follow-up (2026-10-16); ADR-094 update (decision 2) | low: a regression in the no-script path would pass the browser suite | Add a browser test with JavaScript disabled. The no-script decision is TD-077. |
 | TD-219 | `tests/e2e/test_facts_page.py::test_ac_m3_2_confirm_edit_discard_batch_by_keyboard` failed once in a full e2e run and passed on reruns. Not investigated; possibly a flake. | M3.6 follow-up (2026-10-16) | medium: a flaky test can hide a real failure or block a run | Investigate the cause. Fix it, or record why it is not a flake. |
 | TD-220 | The docstring at the top of `tests/integration/test_fact_review_fixes.py` says origin comes from the "earliest version". The rule now follows the current wording (ADR-091 update, 2026-10-16). | M3.6 follow-up (2026-10-16) | low: a misleading description of the rule | Fix the docstring. |
+| TD-243 | No e2e test covers the 5 s seen-hold safety release, or a failed or 409 answer to a seen POST. | M4.7 re-review (should-fix, not done) | medium: the held-action release could regress unseen | Add e2e tests with a route abort and a 409 answer, or with a clock. |
 
 ## 9. Tooling and docs
 
@@ -273,6 +284,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-114 | `m1_registry` was not renamed. Fourteen test modules import it. | ADR-087 item 4 | low: the name does not match its content | When the next registry test changes. |
 | TD-149 | The four fact errors have no HTTP mapping yet, so no page can show a friendly message for them. | M3.3 Left | medium: a route would have no copy for these errors | M3.5 and M3.6. |
 | TD-197 | `app/api/facts.py` imports the `Form` type from `app.onboarding.registry`. | M3.5 | low: an API module depends on onboarding code for a type | Move the type to a neutral place when it is next touched. |
+| TD-253 | `GET /inbox` now loads without the token and shows stored job data. Spec 2.9 rule 12 does not yet name it, nor the new token routes (`/inbox/queue`, `/inbox/jobs/{id}/card`, `/inbox/jobs/{id}/detail`, `GET /settings/shortcuts`) and POSTs (`/inbox/jobs/{id}/seen`, `/inbox/jobs/{id}/triage`, `/settings/shortcuts`). | M4.7 limits (c) | medium: a token-free route with stored job data is not in the spec | Name them in spec 2.9 rule 12 in M4.11. |
 
 ## 10. Platform
 

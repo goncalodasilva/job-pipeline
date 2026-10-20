@@ -1,3 +1,6 @@
 {% extends "base.html" %}
 {% set live_updates = true %}
-{% block content %}{% include "fragments/shell/_placeholder.html" %}{% endblock %}
+{% block content %}
+{% include "fragments/inbox/_screen.html" %}
+<script src="{{ static('js/shortcuts.js') }}" defer></script>
+{% endblock %}

@@ -1733,3 +1733,399 @@ a.button {
     scroll-behavior: auto !important;
   }
 }
+
+/* Job inbox (M4.7): the focused card beside the queue; one column below 768 px, card first
+   (the order of the markup, so Tab follows what is seen). */
+.inbox-page {
+  max-width: 80rem;
+}
+
+.inbox-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.inbox-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+/* "+ Add job" opens its panel with scripts; without them the panel simply stays in view. */
+html:not(.js) #inbox-add-toggle {
+  display: none;
+}
+
+.js .inbox-add:not(.is-open) {
+  display: none;
+}
+
+.inbox-add {
+  max-width: 48rem;
+  margin-block: var(--space-4);
+  padding: 0 var(--space-4) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.inbox-help {
+  margin-block: var(--space-3);
+}
+
+.inbox-help summary,
+.card-menu summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+  cursor: pointer;
+}
+
+.shortcut-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-3);
+}
+
+.shortcut-list div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.shortcut-list dt,
+.shortcut-list dd {
+  margin: 0;
+}
+
+kbd,
+.key {
+  padding: 0 var(--space-1);
+  font-family: inherit;
+  font-size: 0.8rem;
+  border: 1px solid currentcolor;
+  border-radius: 0.25rem;
+}
+
+.key {
+  margin-left: var(--space-2);
+}
+
+/* The Settings switch turns the letters off with the shortcuts. */
+[data-shortcuts="false"] .key {
+  display: none;
+}
+
+.inbox-views ul,
+.queue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-views ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+
+.inbox-views a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.inbox-views a[aria-current="page"] {
+  font-weight: 700;
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  text-decoration: none;
+}
+
+.inbox-undo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+}
+
+.inbox-undo p {
+  margin: 0;
+}
+
+.inbox-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .inbox-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(14rem, 20rem);
+    align-items: start;
+  }
+}
+
+.inbox-card,
+.inbox-queue {
+  min-width: 0;
+  padding: var(--space-4);
+  overflow-wrap: anywhere;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.inbox-queue h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 1.1rem;
+}
+
+.card-title {
+  margin: 0 0 var(--space-2);
+  font-size: 1.35rem;
+}
+
+.card-title-button {
+  max-width: 100%;
+  padding: var(--space-1) 0;
+  font: inherit;
+  color: var(--color-accent);
+  text-align: left;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.card-about,
+.card-state {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.card-state {
+  font-weight: 600;
+}
+
+.card-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-label {
+  font-weight: 600;
+}
+
+.card-fit,
+.card-summary {
+  margin: var(--space-2) 0;
+}
+
+.card-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.card-conflict,
+.card-status {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  font-weight: 600;
+  background: var(--color-warning-bg);
+  border-left: 4px solid var(--color-warning-border);
+  border-radius: var(--radius);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.875rem;
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+}
+
+.chip-met {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.chip-missing {
+  border-style: dashed;
+  border-color: var(--color-warning-border);
+}
+
+.chip-label {
+  font-weight: 600;
+}
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-block: var(--space-4);
+}
+
+.card-menu {
+  margin-block: var(--space-2);
+}
+
+.menu-form {
+  max-width: 28rem;
+  padding: var(--space-2) 0;
+}
+
+.menu-label {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+
+.menu-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.reason-chips {
+  margin-bottom: var(--space-4);
+}
+
+.field.field-check {
+  flex-direction: row;
+  align-items: center;
+}
+
+.field.field-check input[type="checkbox"] {
+  flex: none;
+  width: var(--target-min);
+  padding: 0;
+}
+
+.details-dialog {
+  width: min(48rem, calc(100vw - 2 * var(--space-4)));
+}
+
+.posting-text {
+  max-height: 50vh;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.queue-list a {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.queue-list a[aria-current="true"] {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  box-shadow: inset 4px 0 0 var(--color-accent);
+}
+
+.queue-title {
+  font-weight: 600;
+}
+
+.queue-meta {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.queue-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.queue-pages a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+
+/* Disclosure summaries of the inbox (shortcut help, card menu): a marker that says they open. */
+.inbox-help summary,
+.card-menu summary {
+  color: var(--color-accent);
+  list-style: none;
+}
+
+.inbox-help summary::before,
+.card-menu summary::before {
+  content: "\25B8";
+  margin-right: var(--space-2);
+}
+
+.inbox-help[open] summary::before,
+.card-menu[open] summary::before {
+  content: "\25BE";
+}
+
+.queue-new {
+  align-self: flex-start;
+}
+
+/* The summary and fit panels inside a card that has no summary yet. */
+.inbox-card [data-job-analysis] h2 {
+  margin: var(--space-3) 0 var(--space-2);
+  font-size: 1.1rem;
+}
+
+/* The empty inbox and its views: the heading takes focus when no card is left. */
+.inbox .empty-state h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.1rem;
+}
+
+.inbox .empty-state h2:focus-visible {
+  outline-offset: 4px;
+}

@@ -266,3 +266,23 @@ def test_format_day_time_writes_the_day_and_a_24_hour_time() -> None:
         "10 October 2026, 14:05"
     )
     assert format_day_time(datetime(2026, 1, 3, 0, 0, tzinfo=UTC)) == "3 January 2026, 00:00"
+
+
+def test_format_short_day_writes_weekday_day_and_short_month() -> None:
+    """The snooze announcement's date, e.g. "Mon 26 Oct" (fixed English names, spec 3.10)."""
+    from app.domain.errors import format_short_day
+
+    assert format_short_day(date(2026, 10, 26)) == "Mon 26 Oct"
+    assert format_short_day(date(2026, 1, 4)) == "Sun 4 Jan"
+    assert format_short_day(date(2026, 12, 31)) == "Thu 31 Dec"
+
+
+def test_triage_input_invalid_carries_its_field_and_message() -> None:
+    """A triage value needing a correction is still a refused move (409 for callers that
+    don't know the field) and names the field and the words for the form."""
+    from app.domain.errors import JobTriageInputInvalid, TriageNotAllowed
+
+    error = JobTriageInputInvalid("text", "Keep the reason to 500 characters or fewer.")
+    assert isinstance(error, TriageNotAllowed)
+    assert error.field == "text"
+    assert error.user_message == "Keep the reason to 500 characters or fewer."

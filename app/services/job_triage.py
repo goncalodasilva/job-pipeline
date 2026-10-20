@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import date, timedelta, tzinfo
 
 from app.domain.clock import Clock
-from app.domain.errors import JobNotFound, TriageNotAllowed, VersionConflict
+from app.domain.errors import JobNotFound, JobTriageInputInvalid, VersionConflict
 from app.domain.ids import is_safe_id
 from app.domain.jobs import Triage, TriageAction, TriageState, apply, local_today
 from app.modules.storage import Database, jobs_repo
@@ -43,7 +43,12 @@ class JobTriageService:
         return self._move(job_id, TriageAction.RESTORE, expected_version=expected_version)
 
     def snooze(
-        self, job_id: str, *, expected_version: int, choice: str, picked: date | None = None
+        self,
+        job_id: str,
+        *,
+        expected_version: int,
+        choice: str,
+        picked: date | str | None = None,
     ) -> StoredJob:
         return self._move(
             job_id,
@@ -62,7 +67,7 @@ class JobTriageService:
         reason: str | None = None,
         text: str | None = None,
         choice: str = "",
-        picked: date | None = None,
+        picked: date | str | None = None,
     ) -> StoredJob:
         db = self._database()
         if db is None or not is_safe_id(job_id):
@@ -117,12 +122,16 @@ def _removal(reason: str | None, text: str | None) -> tuple[str | None, str | No
         "company",
         "not_interested",
         "other",
-    ) or (text is not None and (reason not in ("not_interested", "other") or len(text) > 500)):
-        raise TriageNotAllowed()
+    ):
+        raise JobTriageInputInvalid("reason", "Choose one of the listed reasons, or skip it.")
+    if text is not None and len(text) > 500:
+        raise JobTriageInputInvalid("text", "Keep the reason to 500 characters or fewer.")
+    if text is not None and reason not in ("not_interested", "other"):
+        raise JobTriageInputInvalid("text", "Add text only for Not interested or Other.")
     return reason, text
 
 
-def _snooze_date(today: date, choice: str, picked: date | None) -> date:
+def _snooze_date(today: date, choice: str, picked: date | str | None) -> date:
     if choice == "tomorrow":
         return today + timedelta(days=1)
     if choice == "next_week":
@@ -131,6 +140,14 @@ def _snooze_date(today: date, choice: str, picked: date | None) -> date:
         year = today.year + (today.month == 12)
         month = today.month % 12 + 1
         return date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
-    if choice == "date" and picked is not None:
-        return picked
-    raise TriageNotAllowed()
+    if choice == "date":
+        chosen = picked
+        if isinstance(picked, str):
+            # Typed text is read here, after the job was found, so an unknown job stays a 404.
+            try:
+                chosen = date.fromisoformat(picked)
+            except ValueError:
+                raise JobTriageInputInvalid("picked", "Choose a valid date after today.") from None
+        if isinstance(chosen, date) and chosen > today:
+            return chosen
+    raise JobTriageInputInvalid("picked", "Choose a date after today.")

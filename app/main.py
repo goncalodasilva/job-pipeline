@@ -37,6 +37,7 @@ from app.api.facts_capture import register_fact_capture_routes
 from app.api.facts_import import register_fact_import_routes
 from app.api.facts_refine import register_fact_refine_routes
 from app.api.health import router as health_router
+from app.api.inbox import register_inbox_routes
 from app.api.job_fit import register_job_fit_routes
 from app.api.job_intake import register_job_intake_routes
 from app.api.job_summary import register_job_summary_routes
@@ -115,9 +116,12 @@ from app.services.fact_refine import REFINE_FACT, REFINE_FACT_LABEL, FactRefineS
 from app.services.fact_views import FactBank, FactViews
 from app.services.facts import FactService
 from app.services.health import HealthService
+from app.services.inbox import InboxQuery
+from app.services.inbox_views import InboxViews
 from app.services.job_fit import ASSESS_FIT, FIT_LABEL, JobFitService
 from app.services.job_intake import JobIntakeService
 from app.services.job_summary import SUMMARIZE_JOB, SUMMARIZE_LABEL, JobSummaryService
+from app.services.job_triage import JobTriageService
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.roles import RoleService
@@ -1050,6 +1054,13 @@ def create_app(
     app.state.job_intake = JobIntakeService(
         lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()
     )
+    app.state.job_triage = JobTriageService(lambda: _current_db(app), app_clock, app_tz)
+    app.state.inbox_views = InboxViews(
+        lambda: _current_db(app),
+        InboxQuery(lambda: _current_db(app), app_clock, app_tz),
+        app_clock,
+        app_tz,
+    )
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
@@ -1095,6 +1106,7 @@ def create_app(
     register_fact_pages(app)
     register_fact_editor_routes(app)
     register_fact_capture_routes(app)
+    register_inbox_routes(app)
     register_job_intake_routes(app)
     register_job_summary_routes(app)
     register_job_fit_routes(app)

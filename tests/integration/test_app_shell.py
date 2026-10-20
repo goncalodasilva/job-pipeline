@@ -541,7 +541,9 @@ def test_placeholder_pages_have_empty_state(client: TestClient, path: str, area:
     assert len([e for e in elements if e.tag == "h1"]) == 1, "one <h1> per page"
     # Settings leads with its own <h1> and Providers; its empty state covers the later parts.
     # The Fact bank leads with its own <h1> and tabs; its empty state is the empty Library's.
-    own_page = area in ("Settings", "Fact bank")
+    # The Job inbox (M4.7) leads with its own <h1> and "+ Add job"; its empty state is the
+    # empty queue's (ADR-098 item 9).
+    own_page = area in ("Settings", "Fact bank", "Job inbox")
     headings = [e for e in elements if e.tag == "h1" and (own_page or e.within(state))]
     assert headings, "the empty state has no <h1>"
     assert area.lower() in headings[0].text.lower(), headings[0].text
@@ -591,9 +593,11 @@ def test_pages_link_a_served_svg_favicon(client: TestClient) -> None:
     assert "<script" not in response.text.lower()
 
 
-def test_inbox_placeholder_says_adding_jobs_comes_later(client: TestClient) -> None:
-    """Done's "Add a job" opens the inbox (ADR-064); until intake (M4) it says so plainly."""
+def test_inbox_empty_state_offers_adding_a_job(client: TestClient) -> None:
+    """Done's "Add a job" opens the inbox (ADR-064); with no jobs it says how to add one
+    (replaces the placeholder test, ADR-098 item 9)."""
     response = client.get("/inbox")
     assert response.status_code == 200
     text = " ".join(response.text.split())
-    assert "Adding jobs, by link or by pasting the ad, arrives in a later version." in text
+    assert "No jobs yet. Add one by link or by pasting the ad." in text
+    assert "+ Add job" in text
