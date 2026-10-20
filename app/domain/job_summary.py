@@ -8,6 +8,7 @@ from typing import Any, Final
 from app.domain.cv_checks import normalise
 from app.domain.errors import InvalidModelOutput
 from app.domain.honesty import Quantity, extract_quantities
+from app.domain.job_normalization import currency_key
 from app.domain.partial_dates import is_partial_date
 
 _UNSAFE: Final = re.compile(
@@ -103,14 +104,7 @@ def checked_summary(data: Mapping[str, Any], posting: str) -> dict[str, Any]:
                     re.I,
                 )
             ]
-            currency = checked["salary_currency"]
-            currency = (
-                {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}.get(
-                    str(currency), str(currency).upper()
-                )
-                if currency
-                else None
-            )
+            currency = currency_key(checked["salary_currency"])
             valid = any(
                 all(
                     value is None

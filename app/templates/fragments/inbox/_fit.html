@@ -1,0 +1,19 @@
+<section id="job-fit-{{ fit.view.job_id }}" data-job-analysis aria-labelledby="job-fit-heading-{{ fit.view.job_id }}"
+         hx-get="/inbox/jobs/{{ fit.view.job_id }}/fit" hx-trigger="{% if fit.refresh_once %}load, {% endif %}{% if fit.view.active %}every 2s, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML">
+  <h2 id="job-fit-heading-{{ fit.view.job_id }}" tabindex="-1"{% if fit.message and not fit.dialog %} data-autofocus{% endif %}>How you match</h2>
+  {% if fit.view.practice %}<p class="practice-badge">{{ fit.practice_notice }}</p>{% endif %}
+  {% if fit.view.band %}<p>Fit: {{ fit.view.band | capitalize }}</p>{% endif %}
+  {% if fit.view.flagged %}<p>Conflicts with your preferences</p>{% endif %}
+  {% for conflict in fit.view.conflicts %}<p>{{ conflict.preference }}: “{{ conflict.quote }}”</p>{% endfor %}
+  {% if fit.view.notice %}<p>{{ fit.view.notice }}{% if 'confirmed facts' in fit.view.notice %} <a href="/facts">Open facts</a>{% endif %}</p>{% endif %}
+  {% if fit.message %}<p role="status">{{ fit.message }}</p>{% endif %}
+  {% if fit.error %}<p role="alert">{{ fit.error }}</p>{% endif %}
+  {% if fit.budget_reason %}{% with budget_blocked = fit.budget_reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}{% endif %}
+  {% if fit.view.active %}<p role="status">Assessing fit…</p>{% elif not fit.view.notice %}
+  <form action="/inbox/jobs/{{ fit.view.job_id }}/assess-fit" method="post"
+        hx-post="/inbox/jobs/{{ fit.view.job_id }}/assess-fit" hx-target="#job-fit-{{ fit.view.job_id }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <button id="job-fit-start-{{ fit.view.job_id }}" class="button" type="submit"{% if fit.blocked %} aria-disabled="true" aria-describedby="{{ fit.budget_reason.id }}"{% endif %}>{% if fit.view.band %}Assess fit again{% else %}Assess fit{% endif %}</button>
+  </form>
+  {% endif %}
+  {% if fit.dialog %}{% with budget_dialog = fit.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}
+</section>

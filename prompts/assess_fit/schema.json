@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requirements", "conflicts"],
+  "properties": {
+    "requirements": {
+      "type": "array", "maxItems": 200,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["requirement_id", "met", "fact_ids"],
+        "properties": {
+          "requirement_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$"},
+          "met": {"type": "boolean"},
+          "fact_ids": {"type": "array", "maxItems": 200, "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^F[1-9][0-9]*@[1-9][0-9]*$"}}
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array", "maxItems": 40,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["kind", "line", "quote"],
+        "properties": {
+          "kind": {"enum": ["must_have", "deal_breaker"]},
+          "line": {"type": "integer", "minimum": 1, "maximum": 20},
+          "quote": {"type": "string", "minLength": 1, "maxLength": 2000}
+        }
+      }
+    }
+  }
+}

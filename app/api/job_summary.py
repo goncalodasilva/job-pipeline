@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.budget_gate import dialog_context, reason_context, refusal_message
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx, read_form
+from app.api.job_fit import fit_context
 from app.api.pages import AREAS, area
 from app.api.templating import render
 from app.domain.errors import JobNotFound, ProviderNotConfigured, message_for_kind
@@ -76,6 +77,7 @@ def summary_context(
             )
             reason.update({"limits_url": "/settings", "link": "Open Settings"})
     return {
+        "fit": fit_context(request, job_id),
         "view": summary,
         "message": message,
         "dialog": dialog,

@@ -42,3 +42,15 @@ def summary_scripts() -> KeywordScript:
             ("fake-job-status", ScriptedResponse(data={**ok, "status": "to_apply"})),
         ),
     )
+
+
+def fit_scripts() -> KeywordScript:
+    # Empty matches deliberately become Missing; the fake does not inspect facts or requirements.
+    ok: dict[str, Any] = {"requirements": [], "conflicts": []}
+    return KeywordScript(
+        default=ScriptedResponse(data=ok),
+        by_keyword=(
+            ("fake-fit-malformed", ScriptedResponse(raw_text="fictional malformed fit output")),
+            ("fake-fit-band", ScriptedResponse(data={**ok, "band": "strong"})),
+        ),
+    )

@@ -30,5 +30,6 @@ _SPECS: Final = (
     # and never changes the fact (spec 3.1 item 5; AC-M3.5).
     TaskSpec("refine_fact", kind="feedback"),
     TaskSpec("summarize_job", kind="summary"),
+    TaskSpec("assess_fit", kind="feedback"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

@@ -442,6 +442,47 @@
     line.focus();
   });
 
+  // Job-analysis refreshes can replace a focused start button, modal, or heading. Keep
+  // focus by id, falling back to that panel's heading; never take it from elsewhere.
+  // Keep the intent across an immediate refetch that arrives before the start swap settles.
+  var jobFocus = Object.create(null);
+  function isJobPanel(element) {
+    return element instanceof Element && element.hasAttribute("data-job-analysis");
+  }
+  document.body.addEventListener("htmx:beforeRequest", function (event) {
+    var detail = event.detail || {};
+    var panel = detail.target;
+    if (!isJobPanel(panel) || !detail.requestConfig || detail.requestConfig.verb !== "post") return;
+    // Disabling a submitting button blurs it before beforeSwap, especially on phone layouts.
+    var heading = panel.querySelector("h2[id]");
+    if (heading) jobFocus[panel.id] = heading.id;
+  });
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    var detail = event.detail || {};
+    var panel = detail.target;
+    if (!isJobPanel(panel) || detail.shouldSwap !== true) return;
+    var active = document.activeElement;
+    if (active instanceof Element && panel.contains(active)) {
+      var heading = panel.querySelector("h2[id]");
+      jobFocus[panel.id] = active.id || (heading ? heading.id : "");
+    } else if (active && active !== document.body) delete jobFocus[panel.id];
+  });
+  document.body.addEventListener("htmx:afterSettle", function (event) {
+    var detail = event.detail || {};
+    var old = isJobPanel(detail.target) ? detail.target : detail.elt;
+    if (!isJobPanel(old)) return;
+    var panel = document.getElementById(old.id);
+    if (!panel) return;
+    var target = null;
+    Object.keys(jobFocus).forEach(function (id) {
+      var region = document.getElementById(id);
+      if (!region || (panel !== region && !panel.contains(region))) return;
+      target = document.getElementById(jobFocus[id]) || region.querySelector("h2[id]");
+      delete jobFocus[id];
+    });
+    if (target && panel.contains(target) && document.activeElement === document.body) target.focus();
+  });
+
   // Its Accept (form[data-refine-accept]) is blocked (aria-disabled, its reason shown) while
   // a claim that isn't in the fact bank is neither ticked nor taken out of the wording; a
   // form for a suggestion made before the fact changed (data-refine-stale) stays blocked as

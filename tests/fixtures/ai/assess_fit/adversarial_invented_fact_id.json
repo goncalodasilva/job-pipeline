@@ -1,0 +1,12 @@
+{
+  "requirements": [
+    {
+      "requirement_id": "requirement-fictional",
+      "met": true,
+      "fact_ids": [
+        "F999@1"
+      ]
+    }
+  ],
+  "conflicts": []
+}

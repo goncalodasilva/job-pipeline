@@ -112,7 +112,8 @@ def store(
         "UPDATE jobs SET company_id=?,title=?,industry=?,department=?,work_mode=?,"
         "locations=?,employment_type=?,seniority=?,experience_min=?,experience_max=?,"
         "experience_text=?,salary_min=?,salary_max=?,salary_currency=?,salary_period=?,"
-        "posted_date=?,updated_at=?,version=version+1 WHERE id=? AND version=?",
+        "posted_date=?,fit_band=NULL,deal_breaker=0,updated_at=?,version=version+1 "
+        "WHERE id=? AND version=?",
         (
             company_id,
             merged["title"] or current["title"],

@@ -533,3 +533,7 @@ class JobLinkInvalid(AppError):
 
 class JobNotFound(AppError):
     message = "This job wasn't found. It may have been removed."
+
+
+class FitNotAvailable(AppError):
+    message = "Summarize the job and add confirmed facts to see how you match."

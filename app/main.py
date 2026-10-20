@@ -37,6 +37,7 @@ from app.api.facts_capture import register_fact_capture_routes
 from app.api.facts_import import register_fact_import_routes
 from app.api.facts_refine import register_fact_refine_routes
 from app.api.health import router as health_router
+from app.api.job_fit import register_job_fit_routes
 from app.api.job_intake import register_job_intake_routes
 from app.api.job_summary import register_job_summary_routes
 from app.api.pages import register_pages
@@ -114,6 +115,7 @@ from app.services.fact_refine import REFINE_FACT, REFINE_FACT_LABEL, FactRefineS
 from app.services.fact_views import FactBank, FactViews
 from app.services.facts import FactService
 from app.services.health import HealthService
+from app.services.job_fit import ASSESS_FIT, FIT_LABEL, JobFitService
 from app.services.job_intake import JobIntakeService
 from app.services.job_summary import SUMMARIZE_JOB, SUMMARIZE_LABEL, JobSummaryService
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
@@ -130,6 +132,7 @@ from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
 from app.tasks.cv_import import cv_import_handler
 from app.tasks.fact_refine import fact_refine_handler
+from app.tasks.job_fit import job_fit_handler
 from app.tasks.job_summary import job_summary_handler
 from app.tasks.practice import practice_handler
 from app.wiring import (
@@ -630,6 +633,26 @@ def _job_summary(
     )
 
 
+def _job_fit(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> JobFitService:
+    def workspace() -> Workspace | None:
+        return getattr(app.state, "workspace", None)
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
+
+    return JobFitService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=workspace,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None),
+        usage=_open_usage(app),
+        gate=lambda: app.state.budget_gate,
+    )
+
+
 def _cv_import(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> CvImportService:
     """The CV import service (M3.4): like the practice service, it reads the open workspace
     through the app's state at call time."""
@@ -1012,11 +1035,17 @@ def create_app(
             PRACTICE, TaskTypeSpec(PRACTICE_TIMEOUT, PRACTICE_LABEL), practice_handler(practice)
         )
     app.state.job_summary = _job_summary(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.job_fit = _job_fit(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     if task_registry is None:
         handlers.register(
             SUMMARIZE_JOB,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), SUMMARIZE_LABEL),
-            job_summary_handler(app.state.job_summary),
+            job_summary_handler(app.state.job_summary, app.state.job_fit.after_summary),
+        )
+        handlers.register(
+            ASSESS_FIT,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), FIT_LABEL),
+            job_fit_handler(app.state.job_fit),
         )
     app.state.job_intake = JobIntakeService(
         lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()
@@ -1068,6 +1097,7 @@ def create_app(
     register_fact_capture_routes(app)
     register_job_intake_routes(app)
     register_job_summary_routes(app)
+    register_job_fit_routes(app)
     register_setup_pages(app)
     register_events(
         app,

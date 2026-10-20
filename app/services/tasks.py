@@ -9,6 +9,7 @@ import logging
 import sqlite3
 from collections.abc import Callable
 from datetime import timedelta
+from typing import cast
 
 from app.domain.clock import Clock
 from app.domain.errors import AppError, TaskNotRetryable
@@ -88,6 +89,21 @@ class TaskService:
         """Queue a task; an active task with the same dedupe key is returned instead.
         ``ValueError`` for a task type that is not an id (the rule usage records follow): it is
         stored, shown and sent on the event stream, so it is never prose."""
+        return cast(
+            TaskRef,
+            self.enqueue_if(task_type, target, input_ref=input_ref, eligible=lambda _conn: True),
+        )
+
+    def enqueue_if(
+        self,
+        task_type: str,
+        target: str,
+        *,
+        input_ref: str | None = None,
+        eligible: Callable[[sqlite3.Connection], bool],
+    ) -> TaskRef | None:
+        """Check a short SQL predicate and enqueue in one transaction. Refusal writes no task
+        and publishes nothing; the predicate must not commit, await or do external work."""
         if not is_task_type(task_type):
             raise ValueError("a task type is 1 to 64 characters: a-z first, then a-z, 0-9 or _")
         now = self._now()
@@ -109,6 +125,8 @@ class TaskService:
             version=1,
         )
         with self._db.transaction() as conn:
+            if not eligible(conn):
+                return None
             row, created = tasks_repo.insert_or_get_active(conn, new)
         if created:
             self._publish(row)

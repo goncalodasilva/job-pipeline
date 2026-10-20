@@ -1,5 +1,5 @@
-<section id="job-summary-{{ summary.view.job_id }}" aria-labelledby="job-summary-heading-{{ summary.view.job_id }}"
-         hx-get="/inbox/jobs/{{ summary.view.job_id }}/summary" hx-trigger="{% if summary.refresh_once %}load, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML"
+<section id="job-summary-{{ summary.view.job_id }}" data-job-analysis aria-labelledby="job-summary-heading-{{ summary.view.job_id }}"
+         hx-get="/inbox/jobs/{{ summary.view.job_id }}/summary" hx-trigger="{% if summary.refresh_once %}load, {% endif %}{% if summary.view.active %}every 2s, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML"
          {% if summary.view.task_key %}data-task-announcement-key="{{ summary.view.task_key }}"{% endif %}
          {% if summary.view.task_key and not summary.view.active %} data-summary-finished-key="{{ summary.view.task_key }}" data-summary-finished-message="{% if summary.view.task_status == 'failed' %}Job summary failed. The reason is below the job summary.{% elif summary.view.task_status == 'succeeded' %}Job summary ready.{% else %}Job summary stopped. The job is still available.{% endif %}"{% endif %}>
   <h2 id="job-summary-heading-{{ summary.view.job_id }}" tabindex="-1"{% if summary.message and not summary.dialog %} data-autofocus{% endif %}>Job summary</h2>
@@ -18,4 +18,5 @@
   <p>Adding a job uses up to 2 requests.</p>
   {% with budget_dialog = summary.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}
   {% endif %}
+{% if summary.fit %}{% with fit = summary.fit %}{% include "fragments/inbox/_fit.html" %}{% endwith %}{% endif %}
 </section>

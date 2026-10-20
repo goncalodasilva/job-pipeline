@@ -40,3 +40,10 @@ def company_key(name: str) -> str:
     while len(parts) > 1 and parts[-1] in _SUFFIXES:
         parts.pop()
     return "".join(parts)
+
+
+def currency_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    key = value.strip().upper()
+    return {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}.get(key, key)
