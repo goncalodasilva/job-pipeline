@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% set live_updates = true %}
+{% block title %}Values to map{% endblock %}
+{% block content %}
+<p><a href="/inbox">Back to Job inbox</a></p>
+{% include "fragments/inbox/_values.html" %}
+{% endblock %}

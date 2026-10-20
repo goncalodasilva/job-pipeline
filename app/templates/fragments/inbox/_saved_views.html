@@ -1,0 +1,41 @@
+{# Saved views (M4.9): a name plus the filters applied when it was saved. Every answer swaps the
+   whole #saved-views block, which stays open while there is something to read or fix. #}
+{% set open_panel = organisation_message or organisation_error or organisation_conflict or undo_view %}
+<details id="saved-views"{% if open_panel %} open{% endif %}>
+  <summary>Saved views ({{ saved_views | length }})</summary>
+  {% if organisation_message %}<p role="status" id="saved-views-status">{{ organisation_message }}</p>{% endif %}
+  {% if undo_view %}
+  <form hx-post="/inbox/saved-views" hx-target="#saved-views" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+    <input type="hidden" name="name" value="{{ undo_view.name }}"><input type="hidden" name="filters" value="{{ undo_view.filters }}">
+    <button type="submit" class="button">Undo delete of {{ undo_view.name }}</button>
+  </form>
+  {% endif %}
+  {% if organisation_conflict %}{% with reload_id='view-reload', reload_message='This view changed or was deleted since you opened it.', reload_detail='Your last change was not saved.', reload_url='/inbox?' ~ selection_query %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}{% endif %}
+  <ul>
+    {% for item in saved_views %}<li>
+      <a href="{{ item.url }}">{{ item.name }}</a>
+      <details{% if error_view_id == item.id %} open{% endif %}><summary>Manage {{ item.name }}</summary>
+        <form hx-post="/inbox/saved-views/{{ item.id }}" hx-target="#saved-views" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+          <input type="hidden" name="version" value="{{ item.version }}"><input type="hidden" name="action" value="rename"><input type="hidden" name="filters" value="{{ selection_query }}">
+          <label for="view-name-{{ item.id }}">Name for {{ item.name }}</label>
+          <input id="view-name-{{ item.id }}" name="name" value="{{ view_name if error_view_id == item.id else item.name }}" maxlength="80"{% if error_view_id == item.id %} aria-invalid="true" aria-describedby="view-error-{{ item.id }}" data-autofocus{% endif %}>
+          {% if error_view_id == item.id %}<p id="view-error-{{ item.id }}" class="field-error">{{ organisation_error }}</p>{% endif %}
+          <button type="submit" class="button">Rename view</button>
+        </form>
+        <form hx-post="/inbox/saved-views/{{ item.id }}" hx-target="#saved-views" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+          <input type="hidden" name="version" value="{{ item.version }}"><input type="hidden" name="action" value="delete"><input type="hidden" name="filters" value="{{ selection_query }}">
+          <button type="submit" class="button">Delete view</button>
+        </form>
+      </details>
+    </li>{% else %}<li>No saved views yet.</li>{% endfor %}
+  </ul>
+  <form hx-post="/inbox/saved-views" hx-target="#saved-views" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+    <input type="hidden" name="filters" value="{{ selection_query }}">
+    <label for="save-view-name">Name this view</label>
+    <p id="save-view-hint" class="field-hint">Saves the filters and grouping now applied, not changes you have not applied yet.</p>
+    {% set create_error = organisation_error and not error_view_id %}
+    <input id="save-view-name" name="name" maxlength="80" value="{{ view_name if not error_view_id else '' }}" aria-describedby="save-view-hint{% if create_error %} saved-view-error{% endif %}"{% if create_error %} aria-invalid="true" data-autofocus{% endif %}>
+    {% if create_error %}<p id="saved-view-error" class="field-error">{{ organisation_error }}</p>{% endif %}
+    <button type="submit" class="button">Save view</button>
+  </form>
+</details>

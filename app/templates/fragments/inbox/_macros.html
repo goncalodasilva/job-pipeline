@@ -1,16 +1,16 @@
 {# Addresses for moving between cards. Imported "with context": they read view, page and
    total from the screen. Ids are safe ids (letters, digits, "_" and "-"). #}
 {% macro page_url(id) -%}
-/inbox?view={{ view }}&amp;selected={{ id }}&amp;page={{ page }}
+/inbox?view={{ view }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}&amp;selected={{ id }}&amp;page={{ page }}
 {%- endmacro %}
 
 {# The same place as the fragment that swaps the whole #inbox block (not a page). #}
 {% macro queue_url(id) -%}
-/inbox/queue?view={{ view }}&amp;selected={{ id }}&amp;page={{ page }}
+/inbox/queue?view={{ view }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}&amp;selected={{ id }}&amp;page={{ page }}
 {%- endmacro %}
 
 {% macro card_query(position, previous, following) -%}
-position={{ position }}&amp;total={{ total }}&amp;previous={{ previous }}&amp;next={{ following }}&amp;view={{ view }}&amp;page={{ page }}
+position={{ position }}&amp;total={{ total }}&amp;previous={{ previous }}&amp;next={{ following }}&amp;view={{ view }}&amp;page={{ page }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}
 {%- endmacro %}
 
 {# A link that shows the card of job `id` in place: the card alone is fetched, the queue stays
@@ -26,6 +26,7 @@ href="{{ page_url(id) }}" data-job-id="{{ id }}" hx-get="/inbox/jobs/{{ id }}/ca
 <input type="hidden" name="next_id" value="{{ following_id or previous_id }}">
 <input type="hidden" name="view" value="{{ view }}">
 <input type="hidden" name="page" value="{{ page }}">
+<input type="hidden" name="filters" value="{{ filter_query }}">
 {%- endmacro %}
 
 {# The letter of a shortcut, shown and announced only while shortcuts are on (WCAG 2.1.4):

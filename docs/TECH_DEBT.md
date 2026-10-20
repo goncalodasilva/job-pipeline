@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status as of 2026-10-20: M0–M3 limits, the M1/M2 acceptance follow-ups, M4.1 fetch items, M4.2 schema items and the M4.7 inbox items (TD-242 to TD-253). M3.10 closes the specification-alignment items listed at the end; other entries retain their last recorded status.
+Status as of 2026-10-20: M0–M3 limits, the M1/M2 acceptance follow-ups, M4.1 fetch items, M4.2 schema items, the M4.7 inbox items (TD-242 to TD-253), TD-254 and TD-255 (M4.9). M3.10 closes the specification-alignment items listed at the end; other entries retain their last recorded status.
 
 ## What belongs here
 
@@ -95,6 +95,7 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 | TD-237 | `jobs.locations` and `companies.locations` string-only content is checked only by the domain, because SQLite CHECK cannot test it. `NUMERIC` salary quietly accepts numeric strings. | M4.2 | low: odd values can be stored if a caller skips the domain | Enforce the types in the domain and test them at the repository. |
 | TD-238 | `update_job_triage` reports a missing job as `VersionConflict`. | M4.2 | low: a wrong message for a missing job | M4.6 and M4.8 call `get_job` first to answer 404. |
 | TD-239 | `JOB_FIELDS` has `company`, but `jobs` stores `company_id`. | M4.2 | low: a corrected company name cannot be written directly | M4.4 maps a corrected company name to `company_id`. |
+| TD-255 | "Add as new value" for work mode accepts any value. The seed list equals the `WorkMode` keys. | M4.9 | low: a non-standard work mode can become a controlled value | Restrict work mode to its keys and aliases, with a test, or record the choice in a new ADR. |
 | TD-240 | Summary source checks are conservative and bounded: experience uses source quotes and English context patterns, salary bounds require their own matching currency quantity, and posted dates require source-literal ISO dates. Prose quantity checks and instruction patterns do not prove complete semantic grounding. | M4.4 | medium: valid localized dates, experience or salary ranges may remain empty; a supported number alone does not establish the meaning of a claim | Review realistic fictional posting variants at M4 acceptance; use the snapshot and M4.8 corrections. Extend parsing with failing fixtures before broadening accepted values. |
 | TD-241 | Under the accepted fit policy, valid sent fact ids establish reference eligibility, not whether a model's match is semantically correct; quote and preference-line existence likewise do not prove a contradiction. | M4.5; ADR-098 item 6 | medium: an incorrect model judgment can affect the band or preference flag despite valid references | M4.8 shows the user's own fact wording and job evidence for review. The injected mixed-reference fixture tests unsent-reference demotion only; it does not establish general injection immunity. Any stronger semantic policy needs a user decision. |
 

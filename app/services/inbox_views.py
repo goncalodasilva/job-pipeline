@@ -4,6 +4,7 @@ Reads only: a card is marked seen by the triage service when the page posts to i
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import date, tzinfo
 from typing import Any
 from urllib.parse import urlsplit
@@ -50,7 +51,9 @@ class InboxViews:
             SHORTCUTS, ShortcutSettings(enabled=enabled), expected_version=expected_version
         )
 
-    def page(self, filters: InboxFilters, *, page: int = 1, selected: str = "") -> dict[str, Any]:
+    def page(
+        self, filters: InboxFilters, *, page: int = 1, selected: str = "", group_by: str = ""
+    ) -> dict[str, Any]:
         """One page of the queue and which card is focused. A ``selected`` id that is not on
         the page gives way to the first card."""
         results = self._query.page(filters, page=page)
@@ -58,12 +61,45 @@ class InboxViews:
             # Everything on this page was dealt with: show the last page that has jobs.
             page = (results.total + PAGE_SIZE - 1) // PAGE_SIZE
             results = self._query.page(filters, page=page)
+        groups = self._query.groups(filters, by=group_by) if group_by else ()
+        group_field = {"company": "company_id", "band": "fit_band"}.get(group_by, group_by)
+        if group_by:
+            results = replace(
+                results,
+                items=tuple(
+                    item
+                    for group in groups
+                    for item in results.items
+                    if item[group_field] == group.value
+                ),
+            )
         ids = [item["id"] for item in results.items]
         focused = selected if selected in ids else (ids[0] if ids else "")
         index = ids.index(focused) if focused else 0
         offset = (page - 1) * PAGE_SIZE
+        entries: tuple[dict[str, Any], ...] = tuple(
+            {
+                "job": item,
+                "before": ids[n - 1] if n else "",
+                "after": ids[n + 1] if n + 1 < len(ids) else "",
+                "position": offset + n + 1,
+            }
+            for n, item in enumerate(results.items)
+        )
+        sections: tuple[dict[str, Any], ...] = tuple(
+            {
+                "label": group.label,
+                "count": group.count,
+                "entries": tuple(
+                    entry for entry in entries if entry["job"][group_field] == group.value
+                ),
+            }
+            for group in groups
+        )
         return {
             "results": results,
+            "queue_entries": entries,
+            "queue_sections": tuple(section for section in sections if section["entries"]),
             "view": filters.view,
             "page": page,
             "selected": focused,

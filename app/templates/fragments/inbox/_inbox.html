@@ -16,6 +16,7 @@
       <input type="hidden" name="action" value="undo">
       <input type="hidden" name="view" value="{{ undo.view }}">
       <input type="hidden" name="page" value="{{ undo.page }}">
+      <input type="hidden" name="filters" value="{{ undo.filters }}">
       <button type="submit" class="button" {{ keys("Z") }}>Undo{{ hint("Z") }}</button>
     </form>
     {% endif %}
@@ -24,32 +25,38 @@
   <div class="inbox-views" role="group" aria-label="Inbox views">
     <ul>
       {% for key, label in views.items() %}
-      <li><a href="/inbox?view={{ key }}" hx-get="/inbox/queue?view={{ key }}&amp;focus=1" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-push-url="/inbox?view={{ key }}"{% if key == view %} aria-current="page"{% endif %}>{{ label }}</a></li>
+      <li><a href="/inbox?view={{ key }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" hx-get="/inbox/queue?view={{ key }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}&amp;focus=1" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-push-url="/inbox?view={{ key }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}"{% if key == view %} aria-current="page"{% endif %}>{{ label }}</a></li>
       {% endfor %}
     </ul>
+  </div>
+  <div class="inbox-organise">
+    {% if pending_count %}<p class="values-notice"><a href="/inbox/values">{{ pending_count }} new value{{ "s" if pending_count != 1 }} to map</a></p>{% endif %}
+    {% set active = filter_query.split("&") | length if filter_query else 0 %}
+    <details class="inbox-filters-panel"{% if filter_query and not after_action and not undo %} open{% endif %}>
+      <summary>Filters and grouping{% if active %} ({{ active }} active){% endif %}</summary>
+      {% include "fragments/inbox/_filters.html" %}
+    </details>
+    {% include "fragments/inbox/_saved_views.html" %}
   </div>
   {% if card %}
   <div class="inbox-layout">
     {% include "fragments/inbox/_card.html" %}
     <section id="inbox-queue" class="inbox-queue" aria-labelledby="inbox-queue-heading">
       <h2 id="inbox-queue-heading">{{ views[view] }} ({{ total }})</h2>
-      <ol class="queue-list">
-        {% for job in results.items %}
-        {% set before = results.items[loop.index0 - 1].id if not loop.first else "" %}
-        {% set after = results.items[loop.index].id if not loop.last else "" %}
-        <li>
-          <a {{ show_attrs(job.id, offset + loop.index, before, after) }}{% if job.id == selected %} aria-current="true"{% endif %}>
-            <span class="queue-title">{{ job.title }}</span>
-            <span class="queue-meta">{{ job.company or "" }}{% if job.fit_band %} · {{ job.fit_band | capitalize }} fit{% endif %}{% if job.deal_breaker %} · Conflicts{% endif %}</span>
-            {% if job.state == "new" %}<span class="badge queue-new">New</span>{% endif %}
-          </a>
-        </li>
-        {% endfor %}
-      </ol>
+      {% if group_by %}
+      {% for section in queue_sections %}
+      <section class="queue-group" aria-labelledby="queue-group-{{ loop.index }}">
+        <h3 id="queue-group-{{ loop.index }}">{{ (section.label | capitalize ~ " fit") if group_by == "band" else section.label }} ({% if section.entries | length < section.count %}{{ section.entries | length }} of {{ section.count }} on this page{% else %}{{ section.count }}{% endif %})</h3>
+        {% with entries=section.entries %}{% include "fragments/inbox/_queue_items.html" %}{% endwith %}
+      </section>
+      {% endfor %}
+      {% else %}
+      {% with entries=queue_entries %}{% include "fragments/inbox/_queue_items.html" %}{% endwith %}
+      {% endif %}
       {% if has_previous_page or has_next_page %}
       <div class="queue-pages" role="group" aria-label="Pages of the list">
-        {% if has_previous_page %}<a href="/inbox?view={{ view }}&amp;page={{ page - 1 }}" hx-get="/inbox/queue?view={{ view }}&amp;page={{ page - 1 }}" hx-target="#inbox" hx-swap="outerHTML settle:0ms">Earlier jobs</a>{% endif %}
-        {% if has_next_page %}<a href="/inbox?view={{ view }}&amp;page={{ page + 1 }}" hx-get="/inbox/queue?view={{ view }}&amp;page={{ page + 1 }}" hx-target="#inbox" hx-swap="outerHTML settle:0ms">More jobs</a>{% endif %}
+        {% if has_previous_page %}<a href="/inbox?view={{ view }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}&amp;page={{ page - 1 }}" hx-get="/inbox/queue?view={{ view }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}&amp;page={{ page - 1 }}" hx-target="#inbox" hx-swap="outerHTML settle:0ms">Earlier jobs</a>{% endif %}
+        {% if has_next_page %}<a href="/inbox?view={{ view }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}&amp;page={{ page + 1 }}" hx-get="/inbox/queue?view={{ view }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}&amp;page={{ page + 1 }}" hx-target="#inbox" hx-swap="outerHTML settle:0ms">More jobs</a>{% endif %}
       </div>
       {% endif %}
     </section>
@@ -58,7 +65,10 @@
   <section class="empty-state" aria-labelledby="inbox-empty-heading">
     {# After the last card was dealt with, focus lands here: there is no card to go to. #}
     <h2 id="inbox-empty-heading" tabindex="-1"{% if focus %} data-autofocus{% endif %}>{{ views[view] }}</h2>
-    {% if view == "queue" and after_action %}
+    {% if filter_query %}
+    <p>No jobs match these filters. Nothing was removed.</p>
+    <p><a href="/inbox?view={{ view }}" hx-get="/inbox/queue?view={{ view }}&amp;focus=1" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-push-url="/inbox?view={{ view }}">Clear filters</a></p>
+    {% elif view == "queue" and after_action %}
     <p>That was the last one. Add another by link or by pasting the ad.</p>
     {% elif view == "queue" %}
     <p>No jobs yet. Add one by link or by pasting the ad.</p>

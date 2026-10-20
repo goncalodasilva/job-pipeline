@@ -38,6 +38,7 @@ from app.api.facts_import import register_fact_import_routes
 from app.api.facts_refine import register_fact_refine_routes
 from app.api.health import router as health_router
 from app.api.inbox import register_inbox_routes
+from app.api.inbox_organisation import register_inbox_organisation_routes
 from app.api.job_detail import register_job_detail_routes
 from app.api.job_fit import register_job_fit_routes
 from app.api.job_intake import register_job_intake_routes
@@ -118,6 +119,7 @@ from app.services.fact_views import FactBank, FactViews
 from app.services.facts import FactService
 from app.services.health import HealthService
 from app.services.inbox import InboxQuery
+from app.services.inbox_organisation import InboxOrganisation
 from app.services.inbox_views import InboxViews
 from app.services.job_detail import JobDetailService
 from app.services.job_fit import ASSESS_FIT, FIT_LABEL, JobFitService
@@ -1066,6 +1068,7 @@ def create_app(
     app.state.job_detail = JobDetailService(
         lambda: _current_db(app), app_clock, app_ids, app.state.inbox_views
     )
+    app.state.inbox_organisation = InboxOrganisation(lambda: _current_db(app), app_clock, app_ids)
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
@@ -1112,6 +1115,7 @@ def create_app(
     register_fact_editor_routes(app)
     register_fact_capture_routes(app)
     register_inbox_routes(app)
+    register_inbox_organisation_routes(app)
     register_job_intake_routes(app)
     register_job_summary_routes(app)
     register_job_fit_routes(app)

@@ -32,6 +32,7 @@ Every unknown or unsafe job id answers the fixed 404 text, which never repeats t
 import json
 from datetime import date
 from typing import Any
+from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
@@ -52,6 +53,7 @@ from app.domain.errors import (
 )
 from app.domain.ids import is_safe_id
 from app.domain.inbox import InboxFilters
+from app.domain.inbox_options import InboxSelection, selection
 from app.services.inbox import MAX_PAGE
 from app.services.inbox_views import InboxViews
 from app.services.job_triage import JobTriageService
@@ -76,6 +78,7 @@ TRIAGE_FIELDS = {
     "view",
     "page",
     "next_id",
+    "filters",
 }
 MAX_VERSION = 2**63 - 1
 
@@ -137,6 +140,7 @@ def _card_context(
     following_id: str,
     error: JobTriageInputInvalid | None = None,
     submitted: dict[str, str] | None = None,
+    filter_query: str = "",
 ) -> dict[str, Any]:
     shown = _views(request).card(job_id)
     # A job with no summary and none being made offers the summary panel, which holds the
@@ -160,6 +164,7 @@ def _card_context(
         "following_id": following_id,
         "error": error,
         "submitted": submitted or {},
+        "filter_query": filter_query,
     }
 
 
@@ -175,8 +180,13 @@ def _inbox_context(
     undo: dict[str, Any] | None = None,
     error: JobTriageInputInvalid | None = None,
     submitted: dict[str, str] | None = None,
+    filters: InboxFilters | None = None,
+    group_by: str = "",
 ) -> dict[str, Any]:
-    shown = _views(request).page(InboxFilters(view=view), page=page, selected=selected)
+    filters = filters or InboxFilters(view=view)
+    selected_options = InboxSelection(filters, group_by)
+    shown = _views(request).page(filters, page=page, selected=selected, group_by=group_by)
+    organisation = request.app.state.inbox_organisation
     ctx = {
         **shown,
         "area": area("inbox"),
@@ -189,6 +199,18 @@ def _inbox_context(
         "shortcuts_on": shown["shortcuts"].value.enabled,
         "card": None,
         "panel": None,
+        "filters": filters,
+        "filter_query": selected_options.query(),
+        "selection_query": selected_options.query(include_view=True),
+        "group_by": group_by,
+        "saved_views": organisation.saved_views(),
+        "organisation_error": "",
+        "organisation_conflict": False,
+        "organisation_message": "",
+        "view_name": "",
+        "error_view_id": "",
+        "undo_view": None,
+        **organisation.options(),
     }
     if shown["selected"]:
         ctx.update(
@@ -205,6 +227,7 @@ def _inbox_context(
                 following_id=shown["following_id"],
                 error=error,
                 submitted=submitted,
+                filter_query=selected_options.query(),
             )
         )
     return ctx
@@ -224,10 +247,13 @@ def _view_message(view: str, total: int) -> str:
 
 def _queue_context(request: Request, *, focus: bool) -> dict[str, Any]:
     query = request.query_params
+    picked = selection(dict(query))
     return _inbox_context(
         request,
         selected=query.get("selected", ""),
-        view=_view(query.get("view", "queue")),
+        view=picked.filters.view,
+        filters=picked.filters,
+        group_by=picked.group_by,
         page=_page_number(query.get("page", "1")),
         focus=focus,
     )
@@ -244,8 +270,17 @@ def show_queue(request: Request) -> Response:
     focus = request.query_params.get("focus") == "1"
     ctx = _queue_context(request, focus=focus)
     response = templates.TemplateResponse(request, INBOX_FRAGMENT, ctx)
+    if request.query_params.get("push") == "1":
+        # The filter form is a plain GET to /inbox that htmx sends to this fragment route; the
+        # address bar must hold the page, which a reload, Back or a bookmark can open.
+        query = ctx["selection_query"]
+        response.headers["HX-Push-Url"] = "/inbox?" + query if query else "/inbox"
     if focus:
         message = _view_message(ctx["view"], ctx["total"])
+        if ctx["filter_query"]:
+            message += " Filtered" + (
+                f", grouped by {ctx['group_by']}." if ctx["group_by"] else "."
+            )
         response.headers["HX-Trigger-After-Settle"] = json.dumps({"announce": message})
     return response
 
@@ -265,6 +300,7 @@ def show_card(request: Request, job_id: str) -> Response:
             total=_page_number(query.get("total", "1")),
             previous_id=_safe(query.get("previous", "")),
             following_id=_safe(query.get("next", "")),
+            filter_query=selection(dict(query)).query(),
         )
     except JobNotFound:
         return _not_found()
@@ -356,6 +392,7 @@ def _triage_message(action: str, snooze_until: str | None) -> str:
 def _triage_answer(request: Request, job_id: str, form: dict[str, str], version: int) -> Response:
     service: JobTriageService = request.app.state.job_triage
     view = _view(form.get("view", "queue"))
+    picked = selection({**dict(parse_qsl(form.get("filters", ""))), "view": view})
     try:
         job = _perform(service, job_id, form, version)
     except JobNotFound:
@@ -372,6 +409,8 @@ def _triage_answer(request: Request, job_id: str, form: dict[str, str], version:
             message=error.user_message,
             error=error,
             submitted=typed,
+            filters=picked.filters,
+            group_by=picked.group_by,
         )
         response.status_code = 422
         return response
@@ -382,7 +421,13 @@ def _triage_answer(request: Request, job_id: str, form: dict[str, str], version:
     action = form["action"]
     page = _page_number(form.get("page", "1"))
     undo = (
-        {"id": job.id, "version": job.version, "view": view, "page": page}
+        {
+            "id": job.id,
+            "version": job.version,
+            "view": view,
+            "page": page,
+            "filters": picked.query(),
+        }
         if action in ("remove", "to_apply", "snooze")
         else None
     )
@@ -395,6 +440,8 @@ def _triage_answer(request: Request, job_id: str, form: dict[str, str], version:
         after_action=True,
         message=_triage_message(action, job.snooze_until),
         undo=undo,
+        filters=picked.filters,
+        group_by=picked.group_by,
     )
 
 

@@ -1,0 +1,10 @@
+{% from "fragments/inbox/_macros.html" import show_attrs with context %}
+<ol class="queue-list">
+  {% for entry in entries %}{% set job = entry.job %}
+  <li><a {{ show_attrs(job.id, entry.position, entry.before, entry.after) }}{% if job.id == selected %} aria-current="true"{% endif %}>
+    <span class="queue-title">{{ job.title }}</span>
+    <span class="queue-meta">{{ job.company or '' }}{% if job.fit_band %} · {{ job.fit_band | capitalize }} fit{% endif %}{% if job.deal_breaker %} · Conflicts{% endif %}</span>
+    {% if job.state == 'new' %}<span class="badge queue-new">New</span>{% endif %}
+  </a></li>
+  {% endfor %}
+</ol>

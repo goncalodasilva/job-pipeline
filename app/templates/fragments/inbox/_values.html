@@ -1,0 +1,24 @@
+<section id="inbox-values" aria-labelledby="inbox-values-heading">
+  <h1 id="inbox-values-heading" tabindex="-1"{% if value_message %} data-autofocus{% endif %}>Values to map</h1>
+  <p>These words did not match your lists. Map them, add a value, or keep them as written. Fields you corrected are kept.</p>
+  {% if value_message %}<p role="status">{{ value_message }}</p>{% endif %}
+  {% if value_conflict %}{% with reload_id='value-reload', reload_message='This value or its destination changed.', reload_detail='Your change was not saved.', reload_url='/inbox/values' %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}{% endif %}
+  {% for item in pending %}
+  <section class="value-choice" aria-labelledby="value-heading-{{ item.id }}">
+    <h2 id="value-heading-{{ item.id }}">{{ item.value }}</h2>
+    <p>{{ item.field | replace('_', ' ') | capitalize }} · {{ item.count }} jobs</p>
+    <form hx-post="/inbox/values/{{ item.id }}" hx-target="#inbox-values" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ item.version }}">
+      <label for="value-target-{{ item.id }}">Map {{ item.value }} to</label>
+      <select id="value-target-{{ item.id }}" name="target"{% if error_id == item.id %} aria-invalid="true" aria-describedby="value-error-{{ item.id }}" data-autofocus{% endif %}>
+        <option value="">Choose a value</option>
+        {% for choice in controlled if choice.field == item.field %}<option value="{{ choice.id }}@{{ choice.version }}">{{ choice.value | replace('_', ' ') }}</option>{% endfor %}
+      </select>
+      {% if error_id == item.id %}<p id="value-error-{{ item.id }}" class="field-error">{{ value_error }}</p>{% endif %}
+      <button type="submit" class="button" name="action" value="map" aria-describedby="value-heading-{{ item.id }}">Map value</button>
+      <button type="submit" class="button" name="action" value="new" aria-describedby="value-heading-{{ item.id }}">Add as new value</button>
+      <button type="submit" class="button" name="action" value="ignore" aria-describedby="value-heading-{{ item.id }}">Ignore</button>
+    </form>
+  </section>
+  {% else %}<p>No new values to map.</p>{% endfor %}
+</section>
