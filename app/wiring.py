@@ -64,6 +64,7 @@ from app.modules.ai.providers.fake import (
 )
 from app.modules.ai.providers.fake import KNOWN_MODELS as FAKE_MODELS
 from app.modules.ai.providers.fake_scripts import real_task_scripts
+from app.modules.ai.providers.job_scripts import summary_scripts
 from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS, TaskSpec
 from app.modules.fetch import JobPageFetcher
 from app.modules.fetch.providers.demo_pages import demo_pages
@@ -416,6 +417,7 @@ def _saved_fake() -> FakeAIProvider:
     scripts (ADR-088; ADR-089 item 8). The connection-test fake (``fake_for_key``) never
     does."""
     provider = FakeAIProvider(app_mode=True)
+    provider.script_keywords("summarize_job", summary_scripts())
     for task, script in real_task_scripts().items():
         provider.script_keywords(task, script)
     return provider

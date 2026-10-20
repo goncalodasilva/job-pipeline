@@ -1,0 +1,21 @@
+<section id="job-summary-{{ summary.view.job_id }}" aria-labelledby="job-summary-heading-{{ summary.view.job_id }}"
+         hx-get="/inbox/jobs/{{ summary.view.job_id }}/summary" hx-trigger="{% if summary.refresh_once %}load, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML"
+         {% if summary.view.task_key %}data-task-announcement-key="{{ summary.view.task_key }}"{% endif %}
+         {% if summary.view.task_key and not summary.view.active %} data-summary-finished-key="{{ summary.view.task_key }}" data-summary-finished-message="{% if summary.view.task_status == 'failed' %}Job summary failed. The reason is below the job summary.{% elif summary.view.task_status == 'succeeded' %}Job summary ready.{% else %}Job summary stopped. The job is still available.{% endif %}"{% endif %}>
+  <h2 id="job-summary-heading-{{ summary.view.job_id }}" tabindex="-1"{% if summary.message and not summary.dialog %} data-autofocus{% endif %}>Job summary</h2>
+  {% if summary.view.practice %}<p class="practice-badge">{{ summary.practice_notice }}</p>{% endif %}
+  {% if summary.view.text %}<p>{{ summary.view.text }}</p>{% endif %}
+  {% if summary.message %}<p id="job-summary-message-{{ summary.view.job_id }}" role="status">{{ summary.message }}</p>{% endif %}
+  {% if summary.error %}<p role="alert">{{ summary.error }}</p>{% endif %}
+  {% if summary.budget_reason %}{% with budget_blocked = summary.budget_reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}{% endif %}
+  {% if summary.view.active %}<p role="status">Summarizing the job…</p>{% else %}
+  <form action="/inbox/jobs/{{ summary.view.job_id }}/summarize" method="post"
+        hx-post="/inbox/jobs/{{ summary.view.job_id }}/summarize" hx-target="#job-summary-{{ summary.view.job_id }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <button id="job-summary-start-{{ summary.view.job_id }}" type="submit" class="button"{% if summary.blocked %} aria-disabled="true" aria-describedby="{{ summary.budget_reason.id }}"{% endif %}>{% if summary.view.text %}Summarize again{% else %}Summarize{% endif %}</button>
+  </form>
+  {% endif %}
+  {% if summary.dialog %}
+  <p>Adding a job uses up to 2 requests.</p>
+  {% with budget_dialog = summary.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}
+  {% endif %}
+</section>

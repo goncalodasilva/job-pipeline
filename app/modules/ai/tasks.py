@@ -29,5 +29,6 @@ _SPECS: Final = (
     # M3.8: sharpening questions and suggested wording for one fact; it never adds a claim
     # and never changes the fact (spec 3.1 item 5; AC-M3.5).
     TaskSpec("refine_fact", kind="feedback"),
+    TaskSpec("summarize_job", kind="summary"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

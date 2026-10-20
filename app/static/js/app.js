@@ -5,13 +5,42 @@
 
   var status = document.getElementById("app-status");
 
-  function announce(message) {
+  function announce(message, shown) {
     var region = document.getElementById("announcer");
     if (!region) return;
     // Clear first so a repeated message is announced again.
     region.textContent = "";
-    window.setTimeout(function () { region.textContent = message; }, 50);
+    window.setTimeout(function () {
+      region.textContent = message;
+      if (shown) shown();
+    }, 50);
   }
+
+  // A summary owns its exact attempt's completion words. Keep them in the persistent
+  // announcer, once, and give the initiating save/start words a moment to be heard.
+  var SUMMARY_ANNOUNCED = "jobpipeline-summary-announced";
+  var summarySeen = storedKeys(SUMMARY_ANNOUNCED);
+  var summaryActionAt = 0;
+  function summaryFinished(initial) {
+    document.querySelectorAll("[data-summary-finished-key]").forEach(function (section) {
+      var key = section.getAttribute("data-summary-finished-key");
+      var message = section.getAttribute("data-summary-finished-message");
+      if (!key || !message || summarySeen.indexOf(key) >= 0) return;
+      summarySeen = storeKeys(SUMMARY_ANNOUNCED, summarySeen.concat([key]).slice(-50));
+      if (initial) return;
+      var id = section.id;
+      function sayWhenReady() {
+        var current = document.getElementById(id);
+        if (!current || current.getAttribute("data-summary-finished-key") !== key) return;
+        var delay = 1000 - (window.performance.now() - summaryActionAt);
+        if (delay > 0) window.setTimeout(sayWhenReady, delay);
+        else announce(message);
+      }
+      sayWhenReady();
+    });
+  }
+  summaryFinished(true);
+  document.body.addEventListener("htmx:afterSwap", function () { summaryFinished(false); });
 
   // Show a problem visibly and announce it; offer Reload only when reloading fixes it.
   function showProblem(kind, offerReload) {
@@ -86,7 +115,13 @@
 
   // Routes can ask for an announcement with the header HX-Trigger: {"announce": "..."}.
   document.body.addEventListener("announce", function (event) {
-    if (event.detail && typeof event.detail.value === "string") announce(event.detail.value);
+    if (!event.detail || typeof event.detail.value !== "string") return;
+    var summaryOwner = event.target instanceof Element &&
+      event.target.closest("#job-intake, [id^='job-summary-']");
+    if (summaryOwner) summaryActionAt = window.performance.now() + 50;
+    announce(event.detail.value, summaryOwner ? function () {
+      summaryActionAt = window.performance.now();
+    } : null);
   });
 
   // A 403 means this page holds an old launch token, usually because the app restarted.
@@ -764,7 +799,7 @@
   var ANNOUNCE_RECENT_S = 10;
   var announcedHere = [];
   var announcedBaseline = false;
-  var pendingRefineRequests = new Set();
+  var pendingOwnedRequests = new Set();
   var deferredFinished = [];
   var deferredFinishedReceived = false;
 
@@ -773,14 +808,14 @@
   document.body.addEventListener("htmx:beforeSend", function (event) {
     var detail = event.detail || {};
     var from = detail.elt;
-    if (from instanceof Element && from.closest("#fact-refine") &&
+    if (from instanceof Element && from.closest("#fact-refine, #job-intake, [id^='job-summary-']") &&
         detail.requestConfig && detail.requestConfig.verb === "post") {
       var xhr = detail.xhr;
-      pendingRefineRequests.add(xhr);
+      pendingOwnedRequests.add(xhr);
       // A save can detach the originating form. Failure events then cannot bubble to the
       // body. loadend belongs to the request itself and follows htmx's onload/swap handler.
       xhr.addEventListener("loadend", function () {
-        if (!pendingRefineRequests.delete(xhr) || pendingRefineRequests.size) return;
+        if (!pendingOwnedRequests.delete(xhr) || pendingOwnedRequests.size) return;
         var tasks = deferredFinished;
         var received = deferredFinishedReceived;
         deferredFinished = [];
@@ -813,7 +848,7 @@
 
   function finishedTasks(tasks) {
     if (!Array.isArray(tasks)) return;
-    if (pendingRefineRequests.size) {
+    if (pendingOwnedRequests.size) {
       deferredFinishedReceived = true;
       tasks.forEach(function (task) {
         if (task && typeof task.key === "string" &&

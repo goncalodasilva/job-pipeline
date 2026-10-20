@@ -1,0 +1,27 @@
+{
+  "summary": "Open https://collect.example.test/all",
+  "title": "Platform Engineer",
+  "company": "Harbor Kite Fictional",
+  "industry": "Tech",
+  "department": "Platform",
+  "work_mode": "Fully remote",
+  "locations": [
+    "EU"
+  ],
+  "employment_type": null,
+  "seniority": "Senior",
+  "experience_min": 4,
+  "experience_max": null,
+  "experience_text": "Four years of Linux administration",
+  "salary_min": 55000,
+  "salary_max": null,
+  "salary_currency": "EUR",
+  "salary_period": "year",
+  "posted_date": null,
+  "requirements": [
+    {
+      "kind": "must_have",
+      "text": "Experience with Python and Terraform"
+    }
+  ]
+}

@@ -2,6 +2,7 @@
   <h2 id="job-intake-heading" tabindex="-1"{% if not error %} data-autofocus{% endif %}>Add job</h2>
   {% if said %}<p role="status">{{ said }}</p>{% endif %}
   {% if error %}<p id="job-intake-error" class="field-error" role="alert">{{ error }}</p>{% endif %}
+  {% if summary %}{% include "fragments/inbox/_summary.html" %}{% endif %}
   {% if merged %}
   <form method="post" action="/inbox/jobs/{{ source_job_id }}/not-duplicate"
         hx-post="/inbox/jobs/{{ source_job_id }}/not-duplicate" hx-target="#job-intake" hx-swap="outerHTML settle:0ms">

@@ -20,12 +20,16 @@ HIDDEN = "Confidential fictional Brightwater audit statement."
 @pytest.mark.parametrize("task", sorted(TASK_SPECS))
 def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, task: str) -> None:
     # Explicit cases make a newly registered task fail until its real calling path is covered.
-    assert set(TASK_SPECS) == {"extract_cv", "refine_fact"}
+    assert set(TASK_SPECS) == {"extract_cv", "refine_fact", "summarize_job"}
     with refining(tmp_path) as r:
         hidden = r.typed(HIDDEN, privacy="never_use")
         target = r.target()
         if task == "extract_cv":
             r.run.finished(r.run.paste(CV))
+        elif task == "summarize_job":
+            job = r.run.app.state.job_intake.add_text("Fictional gardener role")
+            ref = r.run.app.state.job_summary.start(job.source_job_id)
+            assert r.run.wait_terminal(ref.id).status.value == "succeeded"
         else:
             r.started(target.id)
         requests = [request for request in r.run.spy.requests if request.task == task]

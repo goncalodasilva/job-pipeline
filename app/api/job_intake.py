@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx
+from app.api.job_summary import summary_context
 from app.api.pages import AREAS, area
 from app.api.templating import render
 from app.domain.errors import (
@@ -64,6 +65,9 @@ def _answer(
             "area": area("inbox"),
             "areas": AREAS,
             "title": "Add job",
+            "summary": summary_context(request, source_job_id, start=True)
+            if source_job_id
+            else None,
         },
     )
     response.status_code = status
