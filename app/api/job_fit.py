@@ -77,6 +77,7 @@ def fit_context(
             )
             reason.update({"limits_url": "/settings", "link": "Open Settings"})
     return {
+        "matches": request.app.state.job_detail.matches(job_id),
         "view": view,
         "message": message,
         "dialog": dialog,

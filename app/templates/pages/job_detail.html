@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% set live_updates = true %}
+{% block content %}
+<h1>Job details</h1>
+<p><a href="/inbox">Back to Job inbox</a></p>
+{% include "fragments/inbox/_detail.html" %}
+{% endblock %}

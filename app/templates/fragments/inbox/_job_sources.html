@@ -1,0 +1,15 @@
+<section id="job-sources" aria-labelledby="job-sources-heading">
+  <h2 id="job-sources-heading" tabindex="-1"{% if saved %} data-autofocus{% endif %}>Sources</h2>
+  {% if saved %}<p role="status">Job restored as its own card.</p>{% endif %}
+  <ul class="job-sources">
+  {% for source in sources %}
+    <li>{{ source.title }} — {% if source.url %}<a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.url }}<span class="visually-hidden"> (opens in a new tab)</span></a>{% else %}Pasted text{% endif %}
+      {% if source.merged %}
+      <form hx-post="/inbox/jobs/{{ source.job_id }}/split" hx-target="#job-sources" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+        <input type="hidden" name="root" value="{{ job.id }}"><button type="submit" class="button">Not a duplicate</button>
+      </form>
+      {% endif %}
+    </li>
+  {% else %}<li>No source links saved.</li>{% endfor %}
+  </ul>
+</section>

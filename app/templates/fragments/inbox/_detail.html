@@ -1,0 +1,13 @@
+<article id="job-detail" data-detail-job="{{ job.id }}">
+  {% include "fragments/inbox/_detail_header.html" %}
+  {% include "fragments/inbox/_summary.html" %}
+  <section aria-labelledby="job-snapshot-heading">
+    <h2 id="job-snapshot-heading">Full posting</h2>
+    <p>Captured <time datetime="{{ job.captured_at }}">{{ job.captured_at[:10] }}</time>.</p>
+    {% set original = sources | selectattr('url') | first | default(none) %}
+    {% if original %}<p><a href="{{ original.url }}" target="_blank" rel="noopener noreferrer">Open original posting<span class="visually-hidden"> (opens in a new tab)</span></a></p>{% endif %}
+    <div class="posting-text" role="region" tabindex="0" aria-labelledby="job-snapshot-heading">{{ job.snapshot_text }}</div>
+  </section>
+  {% include "fragments/inbox/_job_edit.html" %}
+  {% include "fragments/inbox/_job_sources.html" %}
+</article>

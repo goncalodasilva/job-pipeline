@@ -1,0 +1,71 @@
+{% macro fields(action) -%}
+<input type="hidden" name="version" value="{{ job.version }}"><input type="hidden" name="action" value="{{ action }}">
+{%- endmacro %}
+{% set ask = triage_error.field if triage_error else '' %}
+{% set can_triage = card.state in ('new', 'seen', 'snoozed') %}
+<div class="card-actions">
+  {% if can_triage %}
+  <form hx-post="/inbox/jobs/{{ job.id }}/detail-triage" hx-target="#job-detail-header" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+    {{ fields('to_apply') }}<button type="submit" class="button button-primary">Apply</button>
+  </form>
+  <button type="button" class="button" id="detail-remove" data-detail-remove aria-haspopup="dialog">Remove</button>
+  {% endif %}
+  {% if not can_triage or card.state == 'snoozed' %}
+  <form hx-post="/inbox/jobs/{{ job.id }}/detail-triage" hx-target="#job-detail-header" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+    {{ fields('restore' if card.state == 'removed' else 'undo') }}
+    <button type="submit" class="button">{{ 'Restore' if card.state == 'removed' else 'Back to queue' }}</button>
+  </form>
+  {% endif %}
+</div>
+{% if can_triage %}
+<details class="card-menu"{% if ask == 'picked' %} open{% endif %}>
+  <summary>Card menu</summary>
+  <div class="menu-form">
+    <p>Snooze until{% if card.state == 'new' %} (mark seen first){% endif %}</p>
+    {% if card.state == 'new' %}
+    <form hx-post="/inbox/jobs/{{ job.id }}/detail-triage" hx-target="#job-detail-header" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+      {{ fields('show') }}<button type="submit" class="button">Mark seen</button>
+    </form>
+    {% else %}
+    <form hx-post="/inbox/jobs/{{ job.id }}/detail-triage" hx-target="#job-detail-header" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+      {{ fields('snooze') }}
+      <button type="submit" class="button" name="choice" value="tomorrow">Tomorrow</button>
+      <button type="submit" class="button" name="choice" value="next_week">Next week</button>
+      <button type="submit" class="button" name="choice" value="month">In a month</button>
+    </form>
+    <form hx-post="/inbox/jobs/{{ job.id }}/detail-triage" hx-target="#job-detail-header" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+      {{ fields('snooze') }}<input type="hidden" name="choice" value="date">
+      <div class="field"><label for="detail-picked">Or pick a date</label>
+        <input id="detail-picked" type="date" name="picked" value="{{ triage_submitted.get('picked', '') }}"{% if ask == 'picked' %} aria-invalid="true" aria-describedby="detail-picked-error" data-autofocus{% endif %}>
+        {% if ask == 'picked' %}<p id="detail-picked-error" class="field-error">{{ triage_error.user_message }}</p>{% endif %}
+      </div>
+      <button type="submit" class="button">Snooze until that date</button>
+    </form>
+    {% endif %}
+  </div>
+</details>
+<dialog id="detail-remove-dialog" class="modal" aria-labelledby="detail-remove-heading"{% if ask in ('reason', 'text') %} data-detail-reopen{% endif %}>
+  <h2 id="detail-remove-heading">Remove job</h2>
+  <p>Pick a reason, or skip it. The job stays in Removed, where you can restore it.</p>
+  <form hx-post="/inbox/jobs/{{ job.id }}/detail-triage" hx-target="#job-detail-header" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+    {{ fields('remove') }}
+    <div class="chips reason-chips">
+    {% for key, label in [('too_junior', 'Too junior'), ('too_senior', 'Too senior'), ('location', 'Location'), ('salary', 'Salary'), ('industry', 'Industry'), ('company', 'Company'), ('not_interested', 'Not interested')] %}
+      <button type="submit" class="button" name="reason" value="{{ key }}">{{ label }}</button>
+    {% endfor %}
+    </div>
+    <button type="button" class="button" data-detail-other aria-expanded="{{ 'true' if ask == 'text' else 'false' }}" aria-controls="detail-other">Other</button>
+    {% if ask == 'reason' %}<p role="alert" class="field-error">{{ triage_error.user_message }}</p>{% endif %}
+    <button type="submit" class="button">Remove without a reason</button>
+  </form>
+  <form id="detail-other"{% if ask != 'text' %} hidden{% endif %} hx-post="/inbox/jobs/{{ job.id }}/detail-triage" hx-target="#job-detail-header" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+    {{ fields('remove') }}<input type="hidden" name="reason" value="other">
+    <div class="field"><label for="detail-text">Reason (optional)</label>
+      <input id="detail-text" type="text" name="text" value="{{ triage_submitted.get('text', '') }}" maxlength="500"{% if ask == 'text' %} aria-invalid="true" aria-describedby="detail-text-error" data-autofocus{% endif %}>
+      {% if ask == 'text' %}<p id="detail-text-error" class="field-error">{{ triage_error.user_message }}</p>{% endif %}
+    </div>
+    <button type="submit" class="button">Remove with this reason</button>
+  </form>
+  <button type="button" class="button" data-detail-cancel autofocus>Cancel</button>
+</dialog>
+{% endif %}

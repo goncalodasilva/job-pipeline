@@ -3,6 +3,20 @@
   <h2 id="job-fit-heading-{{ fit.view.job_id }}" tabindex="-1"{% if fit.message and not fit.dialog %} data-autofocus{% endif %}>How you match</h2>
   {% if fit.view.practice %}<p class="practice-badge">{{ fit.practice_notice }}</p>{% endif %}
   {% if fit.view.band %}<p>Fit: {{ fit.view.band | capitalize }}</p>{% endif %}
+  <ul class="job-matches">
+  {% for match in fit.matches %}
+    <li><p><strong>{{ match.text }}</strong> <span class="card-label">({{ match.kind }})</span></p>
+      {% if match.met %}
+      <p>Cited facts:</p>
+      <ul>{% for citation in match.citations %}<li>
+        {% if citation.id %}<a href="/facts/{{ citation.id }}/edit">{{ citation.wording }}</a> <span class="card-label">{{ citation.ref }}</span>{% else %}{{ citation.wording }}{% endif %}
+        {% if citation.changed %}<p class="field-note">This fact changed since this assessment. Assess fit again to check the current wording.</p>{% endif %}
+        {% if citation.unavailable %}<p class="field-note">This fact is no longer available for AI use. Assess fit again to update the result.</p>{% endif %}
+      </li>{% endfor %}</ul>
+      {% else %}<p>{{ 'Missing' if match.assessed else 'Not assessed yet' }}</p>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
   {% if fit.view.flagged %}<p>Conflicts with your preferences</p>{% endif %}
   {% for conflict in fit.view.conflicts %}<p>{{ conflict.preference }}: “{{ conflict.quote }}”</p>{% endfor %}
   {% if fit.view.notice %}<p>{{ fit.view.notice }}{% if 'confirmed facts' in fit.view.notice %} <a href="/facts">Open facts</a>{% endif %}</p>{% endif %}

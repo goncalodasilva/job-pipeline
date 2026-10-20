@@ -91,7 +91,6 @@ def register_inbox_routes(app: FastAPI) -> None:
     )
     app.add_api_route("/inbox/queue", show_queue, methods=["GET"])
     app.add_api_route("/inbox/jobs/{job_id}/card", show_card, methods=["GET"])
-    app.add_api_route("/inbox/jobs/{job_id}/detail", show_detail, methods=["GET"])
     app.add_api_route("/inbox/jobs/{job_id}/seen", mark_seen, methods=["POST"])
     app.add_api_route("/inbox/jobs/{job_id}/triage", triage, methods=["POST"])
     app.add_api_route("/settings/shortcuts", show_shortcuts, methods=["GET"])
@@ -270,14 +269,6 @@ def show_card(request: Request, job_id: str) -> Response:
     except JobNotFound:
         return _not_found()
     return templates.TemplateResponse(request, CARD_FRAGMENT, ctx)
-
-
-def show_detail(request: Request, job_id: str) -> Response:
-    try:
-        ctx = {"card": _views(request).card(job_id)}
-    except JobNotFound:
-        return _not_found()
-    return templates.TemplateResponse(request, "fragments/inbox/_preview.html", ctx)
 
 
 def _reload_prompt(request: Request, *, detail: str, url: str, target: str = "") -> Response:

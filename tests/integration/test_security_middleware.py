@@ -620,6 +620,10 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
     visited: dict[str, str] = {}
     with TestClient(app, base_url=f"http://{HOST}") as client:
         known_params.update(seed_page_ids(app.state.facts))
+        from tests.job_fixtures import generate_jobs, seed_jobs
+
+        seed_jobs(app.state.workspace.db, generate_jobs(1))
+        known_params["job_id"] = "job-0001"
         for route in pages:
             path = route.path
             for name in route.param_convertors:
@@ -632,6 +636,7 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
             visited[route.path] = path
     assert visited["/facts/{fact_id}/edit"] == f"/facts/{known_params['fact_id']}/edit"
     assert visited["/facts/{draft_id}/merge"] == f"/facts/{known_params['draft_id']}/merge"
+    assert visited["/jobs/{job_id}"] == "/jobs/job-0001"
 
 
 # --- the fact pages' addresses (M3.6): one safe segment, nothing else exempted ----------------

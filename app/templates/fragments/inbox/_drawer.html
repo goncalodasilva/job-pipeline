@@ -1,0 +1,8 @@
+<dialog id="job-details" class="job-drawer" aria-labelledby="job-details-heading" aria-modal="true">
+  <div class="drawer-top">
+    <h2 id="job-details-heading">Job details</h2>
+    <button type="button" class="button" data-drawer-close autofocus>Close</button>
+  </div>
+  <p><a href="/jobs/{{ job.id }}">Open job page</a></p>
+  {% include "fragments/inbox/_detail.html" %}
+</dialog>

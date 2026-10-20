@@ -1,0 +1,9 @@
+<header id="job-detail-header" data-version="{{ job.version }}"
+        hx-get="/inbox/jobs/{{ job.id }}/header" hx-trigger="job:edited from:body, tasks:updated from:body, tasks:resync from:body" hx-swap="outerHTML">
+  <h2 tabindex="-1"{% if message %} data-autofocus{% endif %}>{{ job.title }}</h2>
+  {% if job.company and job.company_id %}<p><a href="/companies/{{ job.company_id }}">{{ job.company }}</a></p>{% endif %}
+  {% if job.fit_band %}<p><strong>Fit: {{ job.fit_band | capitalize }}</strong></p>{% endif %}
+  <p>State: {{ card.state | replace('_', ' ') | capitalize }}</p>
+  {% if message %}<p role="status">{{ message }}</p>{% endif %}
+  {% include "fragments/inbox/_detail_actions.html" %}
+</header>

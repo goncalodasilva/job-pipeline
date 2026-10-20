@@ -1,0 +1,29 @@
+{% set fields = [('title', 'Title'), ('company', 'Company'), ('industry', 'Industry'), ('department', 'Department or team'), ('work_mode', 'Work mode'), ('locations', 'Locations (one per line)'), ('employment_type', 'Employment type'), ('seniority', 'Seniority'), ('experience_min', 'Minimum years of experience'), ('experience_max', 'Maximum years of experience'), ('experience_text', 'Experience wording'), ('salary_min', 'Minimum salary'), ('salary_max', 'Maximum salary'), ('salary_currency', 'Salary currency'), ('salary_period', 'Salary period'), ('posted_date', 'Posted date'), ('notes', 'Notes')] %}
+<section id="job-edit" aria-labelledby="job-edit-heading" data-edit-version="{{ job.version }}">
+  <h2 id="job-edit-heading" tabindex="-1"{% if saved %} data-autofocus{% endif %}>Fields and notes</h2>
+  <p id="job-edit-draft" role="status" hidden>Unsaved changes restored. Save when you're ready.</p>
+  {% if saved %}<p role="status">Saved.</p>{% endif %}
+  {% if conflict %}
+    {% with reload_id='job-edit-reload', reload_message='This job changed since you opened it.', reload_detail='Your last change was not saved. Your typed values are below; copy them before reloading.', reload_url='/jobs/' ~ job.id %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}
+  {% endif %}
+  <form{% if errors or conflict %} data-unsaved{% endif %} hx-post="/inbox/jobs/{{ job.id }}/edit" hx-target="#job-edit" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+    <input type="hidden" name="version" value="{{ submitted.get('version', job.version) }}">
+    <div class="job-edit-grid">
+    {% for name, label in fields %}
+      {% set stored = job[name] | join('\n') if name == 'locations' else (job[name] if job[name] is not none else '') %}
+      {% set value = submitted.get(name, stored) %}
+      <div class="field{% if name in ('notes', 'locations') %} job-edit-wide{% endif %}">
+        <label for="job-edit-{{ name }}">{{ label }}{% if name in job.user_corrected %} <span class="correction-label">Corrected by you</span>{% endif %}</label>
+        {% if name in ('notes', 'locations') %}
+        <textarea id="job-edit-{{ name }}" name="{{ name }}" rows="{{ 4 if name == 'notes' else 2 }}"{% if name in errors %} aria-invalid="true" aria-describedby="job-edit-{{ name }}-error"{% if name == errors | first %} data-autofocus{% endif %}{% endif %}>{{ value }}</textarea>
+        {% else %}
+        <input id="job-edit-{{ name }}" name="{{ name }}" type="text" value="{{ value }}"{% if name in controlled %} list="job-values-{{ name }}"{% endif %}{% if name in errors %} aria-invalid="true" aria-describedby="job-edit-{{ name }}-error"{% if name == errors | first %} data-autofocus{% endif %}{% endif %}>
+        {% endif %}
+        {% if name in controlled %}<datalist id="job-values-{{ name }}">{% for choice in controlled[name] %}<option value="{{ choice }}">{% endfor %}</datalist>{% endif %}
+        {% if name in errors %}<p class="field-error" id="job-edit-{{ name }}-error">{{ errors[name] }}</p>{% endif %}
+      </div>
+    {% endfor %}
+    </div>
+    <button type="submit" class="button button-primary">Save fields and notes</button>
+  </form>
+</section>

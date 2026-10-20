@@ -429,9 +429,13 @@ def visit_every_page(session: Session) -> None:
     htmx, following one redirect, plus ``/health`` and a missing page."""
     step_ids = [step.id for step in m1_registry().steps]
     fact_ids = seed_page_ids(session.run.app.state.facts)
+    job = session.run.app.state.job_intake.add_text(
+        "Fictional greenhouse gardener. Maintain imaginary irrigation systems and flowers."
+    )
     fact_pages = {
         "/facts/{fact_id}/edit": f"/facts/{fact_ids['fact_id']}/edit",
         "/facts/{draft_id}/merge": f"/facts/{fact_ids['draft_id']}/merge",
+        "/jobs/{job_id}": f"/jobs/{job.job_id}",
     }
     paths: list[str] = []
     for route in session.run.app.routes:
