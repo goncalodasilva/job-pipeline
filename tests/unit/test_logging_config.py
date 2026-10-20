@@ -10,6 +10,7 @@ import json
 import logging
 import logging.handlers
 import os
+import socket
 import sys
 import threading
 from collections.abc import Callable, Iterator
@@ -1210,3 +1211,191 @@ def test_configure_logging_installs_sdk_reduction_and_close_restores_it(
     assert logging.getLogRecordFactory() is plain_record_factory
     setup.close()  # closing twice keeps it restored
     assert logging.getLogRecordFactory() is plain_record_factory
+
+
+# --- exception text and HTTP client records (M4.11 review; spec 2.10, TD-228) -------------------
+
+ERROR_MARKER = "FictionalErrorMarkerCormorant-5512"
+URL_MARKER = "FictionalLocationMarkerPlover-8840"
+
+
+def _log_surfaces(log_dir: Path, capsys: pytest.CaptureFixture[str]) -> str:
+    """Everything the log file, stdout and stderr hold, as one text."""
+    captured = capsys.readouterr()
+    return read_log_text(log_dir) + captured.out + captured.err
+
+
+def _raised_runtime_error() -> tuple[type[BaseException], BaseException, object]:
+    try:
+        raise RuntimeError(f"fictional failure {ERROR_MARKER}")
+    except RuntimeError:
+        exc_type, exc, tb = sys.exc_info()
+    assert exc_type is not None and exc is not None
+    return exc_type, exc, tb
+
+
+def test_uvicorn_exception_record_keeps_level_logger_and_exception_type_only(
+    make_logging: Callable[..., LoggingSetup],
+    log_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    make_logging("DEBUG")
+
+    # Exactly how uvicorn reports an unexpected error in a route.
+    logging.getLogger("uvicorn.error").error(
+        "Exception in ASGI application\n", exc_info=_raised_runtime_error()
+    )
+
+    seen = _log_surfaces(log_dir, capsys)
+    assert ERROR_MARKER not in seen
+    assert "Traceback" not in seen
+    record = read_log_records(log_dir)[-1]
+    assert record["level"] == "ERROR"
+    assert record["logger"] == "uvicorn.error"
+    assert record["message"] == "ERROR from uvicorn.error (RuntimeError)"
+    assert "exception" not in record
+
+
+def test_uvicorn_records_without_an_exception_are_unchanged(
+    make_logging: Callable[..., LoggingSetup], log_dir: Path
+) -> None:
+    make_logging("DEBUG")
+
+    logging.getLogger("uvicorn.error").info("Application startup complete.")
+
+    assert read_log_records(log_dir)[-1]["message"] == "Application startup complete."
+
+
+def test_uncaught_exception_hooks_log_the_exception_type_only(
+    make_logging: Callable[..., LoggingSetup],
+    log_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+    restore_hooks: None,
+) -> None:
+    from app.logging_config import install_exception_hooks
+
+    make_logging("DEBUG")
+    restore = install_exception_hooks("jobpipeline.test.hooks")
+    try:
+        exc_type, exc, tb = _raised_runtime_error()
+        sys.excepthook(exc_type, exc, tb)  # type: ignore[arg-type]
+
+        def fail() -> None:
+            raise ValueError(f"fictional thread failure {ERROR_MARKER}")
+
+        worker = threading.Thread(target=fail, name="fictional-worker")
+        worker.start()
+        worker.join(5.0)
+    finally:
+        restore()
+
+    assert ERROR_MARKER not in _log_surfaces(log_dir, capsys)
+    messages = [str(r["message"]) for r in read_log_records(log_dir)]
+    assert "CRITICAL from jobpipeline.test.hooks (RuntimeError)" in messages
+    assert "CRITICAL from jobpipeline.test.hooks (ValueError)" in messages
+
+
+def test_start_up_failure_traceback_is_still_kept_in_the_file(
+    make_logging: Callable[..., LoggingSetup], log_dir: Path
+) -> None:
+    """Only uvicorn and the uncaught-exception hooks are reduced: the CLI's start-up failure
+    (no job text exists yet) keeps its traceback for the developer."""
+    make_logging("DEBUG")
+
+    logging.getLogger("jobpipeline.cli").critical(
+        "Start-up failed", exc_info=_raised_runtime_error()
+    )
+
+    assert "fictional failure" in str(read_log_records(log_dir)[-1]["exception"])
+
+
+@pytest.mark.integration
+def test_a_route_error_under_real_uvicorn_never_logs_its_message(
+    make_logging: Callable[..., LoggingSetup],
+    log_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A route raising an unexpected RuntimeError whose text holds a marker, served by uvicorn
+    with the CLI's own config: the marker reaches no log file, stdout or stderr, the exception
+    type does."""
+    import time
+
+    import httpx
+    import uvicorn
+    from fastapi import FastAPI
+
+    from app.cli import server_config
+
+    app = FastAPI()
+
+    @app.get("/boom")
+    def boom() -> None:
+        raise RuntimeError(f"fictional job text {ERROR_MARKER}")
+
+    make_logging("DEBUG")
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    server = uvicorn.Server(server_config(app, port))
+    thread = threading.Thread(target=server.run)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not server.started and time.monotonic() < deadline and thread.is_alive():
+            time.sleep(0.02)
+        assert server.started
+        response = httpx.get(f"http://127.0.0.1:{port}/boom", timeout=5)
+        assert response.status_code == 500
+    finally:
+        server.should_exit = True
+        thread.join(10)
+
+    seen = _log_surfaces(log_dir, capsys)
+    assert ERROR_MARKER not in seen
+    messages = [str(r["message"]) for r in read_log_records(log_dir)]
+    assert "ERROR from uvicorn.error (RuntimeError)" in messages
+
+
+@pytest.mark.parametrize("name", ["httpx", "httpcore", "httpcore.connection", "httpcore.http11"])
+def test_http_client_records_below_warning_never_reach_a_handler(
+    name: str,
+    make_logging: Callable[..., LoggingSetup],
+    log_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    make_logging("DEBUG")
+    logger = logging.getLogger(name)
+    previous = logger.level
+    logger.setLevel(logging.NOTSET)  # as if nothing had silenced it
+    try:
+        logger.debug("connect_tcp.started host=%r", f"{URL_MARKER}.example.test")
+        logger.info('HTTP Request: GET https://x.example.test/%s "HTTP/1.1 302"', URL_MARKER)
+        logger.debug("response headers: Location: https://x.example.test/%s", URL_MARKER)
+    finally:
+        logger.setLevel(previous)
+
+    seen = _log_surfaces(log_dir, capsys)
+    assert URL_MARKER not in seen
+    assert f"{name}" not in "".join(str(r["logger"]) for r in read_log_records(log_dir))
+
+
+def test_http_client_records_from_warning_up_keep_level_logger_and_exception_type(
+    make_logging: Callable[..., LoggingSetup],
+    log_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    make_logging("DEBUG")
+    try:
+        raise ConnectionError(f"cannot connect to https://x.example.test/{URL_MARKER}")
+    except ConnectionError:
+        exc_info = sys.exc_info()
+
+    logging.getLogger("httpcore.connection").warning(
+        "retrying https://x.example.test/%s", URL_MARKER, exc_info=exc_info
+    )
+    logging.getLogger("httpx").error("failed https://x.example.test/%s", URL_MARKER)
+
+    assert URL_MARKER not in _log_surfaces(log_dir, capsys)
+    messages = {str(r["logger"]): str(r["message"]) for r in read_log_records(log_dir)}
+    assert messages["httpcore.connection"] == "WARNING from httpcore.connection (ConnectionError)"
+    assert messages["httpx"] == "ERROR from httpx"

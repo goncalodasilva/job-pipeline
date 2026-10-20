@@ -1,6 +1,6 @@
 ---
 name: background-task
-description: "Procedure for adding a background task type (anything that calls an AI or search provider, fetches a page, or runs longer than a moment), following the task-reliability rules, the real TaskContext API and the budget gate. Use whenever work touches app/tasks/ or adds a button that starts long-running work."
+description: "Procedure for adding a background task type (anything that calls an AI or search provider, or runs longer than a moment), following the task-reliability rules, the real TaskContext API and the budget gate. A single page fetch whose result decides the next screen is not a task: it runs inside the request (section 4a). Use whenever work touches app/tasks/ or adds a button that starts long-running work."
 ---
 
 # Add a background task type
@@ -11,7 +11,8 @@ The runner's rules are in spec section 5, milestone M2 (rules 1 to 10). Every ta
 - `app/tasks/handlers.py`: the `HandlerRegistry` class.
 - `app/tasks/runner.py`: claims, cancellation, the watchdog, outcomes.
 - `app/services/tasks.py`: the task rows (enqueue, cancel, retry, claim, finish).
-- `app/services/practice.py` and `app/tasks/practice.py`: the only task type so far, a worked example.
+- `app/services/practice.py` and `app/tasks/practice.py`: the smallest worked example (fake only).
+- `app/services/job_summary.py`, `app/services/job_fit.py` and their handlers `app/tasks/job_summary.py`, `app/tasks/job_fit.py` (M4): real AI task types that save new rows with provenance in `ctx.complete`, and a second task started after the first one succeeds (section 4a).
 
 ## 1. Write the work in a service
 
@@ -60,9 +61,9 @@ The executor reserves one record before each provider call and completes it afte
 
 **The budget service.** A real task type takes its service from the saved provider kind: `SERVICE_BY_PROVIDER_KIND[settings.kind]` (`app/domain/usage.py`; provider setup maps the kind the same way). Use that one service for the budget gate (section 4) and for the meter, so the check and the count always name the same budget. The practice task is the exception: it always counts on `fake` (`PRACTICE_SERVICE` in `app/services/practice.py`), and it runs only while fakes are allowed.
 
-**The provider and the runner.** The handler gets its runner from the factory that wiring injects: `factory.task_runner(provider, settings, data_dir=...)`, where `factory` is an `AIProviderFactory` (`app/modules/ai/__init__.py`) built in `app/wiring.py`. The provider comes from `factory.ai_provider(settings, data_dir=...)`. The AI task must be registered in `TASK_SPECS` (`app/modules/ai/tasks.py`, empty until M3). Use the `add-ai-task` skill for that: it also covers the prompt, schema, fixtures and tests. The practice task is not in `TASK_SPECS`; wiring adds it to the runner's specs only while fakes are allowed.
+**The provider and the runner.** The handler gets its runner from the factory that wiring injects: `factory.task_runner(provider, settings, data_dir=...)`, where `factory` is an `AIProviderFactory` (`app/modules/ai/__init__.py`) built in `app/wiring.py`. The provider comes from `factory.ai_provider(settings, data_dir=...)`. The AI task must be registered in `TASK_SPECS` (`app/modules/ai/tasks.py`). Use the `add-ai-task` skill for that: it also covers the prompt, schema, fixtures and tests. The practice task is not in `TASK_SPECS`; wiring adds it to the runner's specs only while fakes are allowed.
 
-**Fake output.** The fake provider can run any task while fakes are allowed. Output from the fake provider that a real task type stores must carry provider and model `fake` and be visibly labelled, so it is never taken for real output (honesty rule; ADR-088). ADR-088 requires this before any real task type stores fake output, and nothing stores it yet.
+**Fake output.** The fake provider can run any task while fakes are allowed. Output from the fake provider that a real task type stores must carry provider and model `fake` and be visibly labelled "Practice data (fake provider)", so it is never taken for real output (honesty rule; ADR-088). The M3 and M4 task types do this.
 
 **Web search.** A task with `allow_web_search` can't run yet. The Claude provider refuses web-search requests with `ProviderRequestRejected` until searches are counted (ADR-080, ADR-057). The task that wires the usage hook removes the refusal (before M8).
 
@@ -91,9 +92,22 @@ Retry: `TaskService.retry(task_id)` re-queues a failed, cancelled or interrupted
 
 Crash recovery (ADR-076 item 10): when a workspace opens, running tasks become interrupted and queued tasks stay queued. Nothing is retried.
 
+## 4a. Work done inside the request, and chained tasks (M4, ADR-098 items 4 and 5)
+
+**A page fetch the user is waiting on runs inside the request, not as a task.** Add job (`POST /inbox/intake`) awaits `JobIntakeService.add_url` in the route: the fetched result decides what the form shows next (saved, or "paste the job text instead"), the fetch uses no AI budget, and the guarded fetcher has its own 15 s deadline and 5 MB cap. The route is `async`; the form shows "Fetching the page…" while it waits (an `htmx-indicator` line with `role="status"`, text and not colour alone). Rules for work of this kind:
+
+- It must be bounded (a deadline and a size cap in the module, not in the route), user-supplied one item at a time, and free of provider calls. Anything that calls an AI provider is a task, even if it follows the fetch.
+- Call it through the injected interface (`JobPageFetcher`), never `httpx` from a route or service. CPU work on untrusted input (HTML parsing) runs in a worker thread with a bound (`asyncio.to_thread` with a timeout), because a thread can't be stopped by the timeout alone: cap the input first.
+- Store the result first (the snapshot and its source), then start the task. A failed or refused fetch keeps what the user typed, answers 422 with the paste-text message, and never logs the URL.
+- A GET never fetches.
+
+**A second step that may be blocked is its own task type.** `summarize_job:<job id>` writes the summary with `ctx.complete`; a successful summary then starts `assess_fit:<job id>` as a separate task, after its own budget-gate check, because `TaskContext.complete` runs once and a blocked fit must not lose a paid summary. The follow-up is started by the handler after `complete` through `TaskService.enqueue_if(type, target, input_ref=..., eligible=...)`, whose short SQL predicate (no commit, no await, no external work) is checked in the same transaction as the insert, so two overlapping callbacks can't both queue work that has already been done. Skip the second task, with no request, when its inputs aren't usable (fit with no confirmed fact). TD-055 stays open in a narrower form: the gate checks only the next request, so the warning says "Adding a job uses up to 2 requests". The Retry gap (TD-171) applies to these types too.
+
+**A card's "Processing" state is derived from the active task**, never stored in the row, so a failed, cancelled or interrupted task can't leave it stuck.
+
 ## 5. Save results as new rows
 
-Write the result inside `ctx.complete`, as new rows. Never overwrite an earlier result (rule 3). Until M3 has a results table, the practice task stores only the reference `practice:<steps>`.
+Write the result inside `ctx.complete`, as new rows. Never overwrite an earlier result (rule 3). `job_summaries` and `job_assessments` are the M4 examples: each run appends a row with provider, model, prompt id, prompt version and task id, together with the derived fields, in the one `ctx.complete` transaction. The practice task stores only the reference `practice:<steps>`.
 
 ## 6. Show the task
 

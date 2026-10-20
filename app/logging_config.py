@@ -4,6 +4,12 @@ Records are written as JSON lines to rotating files in the data folder's ``logs/
 plain text to stderr. Before the data folder exists (a first run, ADR-044 item 3) the file is
 replaced by a bounded in-memory buffer that is written out once the folder is attached.
 
+Records that carry an exception from uvicorn's loggers (an unexpected error in a route) and
+from the uncaught-exception hooks are reduced to level, logger name and exception type, because
+the exception text and traceback can hold job text, notes or a fetched link (``ErrorRecordFilter``).
+The ``httpx`` and ``httpcore`` loggers are dropped below WARNING and reduced from there, since
+their records hold URLs and redirect targets (``ClientRecordFilter``, TD-228).
+
 Records from the Claude Agent SDK's loggers can quote CLI output (prompt or answer text) and
 exception text (which can hold a key echoed on the CLI's stderr), so they are reduced to level,
 logger name and exception type as they are created (``install_sdk_record_reduction``, installed
@@ -41,9 +47,13 @@ LOG_BACKUP_COUNT = 4  # the live file plus 4 backups: 5 files in total
 ACCESS_LOGGER = "uvicorn.access"
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", ACCESS_LOGGER)
 SDK_LOGGER = "claude_agent_sdk"
+# The HTTP client libraries log URLs, hosts and redirect targets at DEBUG and INFO.
+CLIENT_LOGGERS = ("httpx", "httpcore")
 # Set on an SDK record once reduced, so a later pass (another handler's filter) keeps the
 # exception type it can no longer see. Internal: never treated as an extra or written out.
 SDK_REDUCED_ATTR = "jobpipeline_sdk_reduced"
+# Set (via ``extra``) by the uncaught-exception hooks: their records are reduced like uvicorn's.
+REDUCE_EXCEPTION_ATTR = "jobpipeline_reduce_exception"
 _LOG = logging.getLogger("jobpipeline.logging")
 
 # Attributes every LogRecord has; anything else on a record came from ``extra``.
@@ -52,6 +62,7 @@ _STANDARD_ATTRS = frozenset(vars(logging.LogRecord("", logging.INFO, "", 0, "", 
     "asctime",
     "taskName",
     SDK_REDUCED_ATTR,
+    REDUCE_EXCEPTION_ATTR,
 }
 
 _PLAIN_TYPES = (int, float, bool, type(None))
@@ -121,6 +132,48 @@ class SdkRecordFilter(logging.Filter):
         if _is_sdk_record(record):
             _reduce_sdk_record(record)
         return True
+
+
+class ErrorRecordFilter(logging.Filter):
+    """Reduce a uvicorn record that carries an exception, and the uncaught-exception hooks'
+    records, to level, logger name and exception type (spec 2.10).
+
+    The exception message and traceback of an unexpected error in a route can quote job text,
+    notes, removal reasons or a fetched link, which redaction can't recognise. The record is
+    still written, so an error is visible; other uvicorn records (access, start-up) pass
+    unchanged. A record already reduced by an earlier handler's filter is rebuilt the same.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if _is_error_source(record) and (
+            record.exc_info or record.exc_text or hasattr(record, SDK_REDUCED_ATTR)
+        ):
+            _reduce_sdk_record(record)
+        return True
+
+
+class ClientRecordFilter(logging.Filter):
+    """Drop ``httpx`` and ``httpcore`` records below WARNING and reduce the others to level,
+    logger name and exception type: their texts hold URLs, hosts and ``Location`` headers (the
+    fetched link is never logged; spec 2.10, TD-228)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not _named_in(record, CLIENT_LOGGERS):
+            return True
+        if record.levelno < logging.WARNING:
+            return False
+        _reduce_sdk_record(record)
+        return True
+
+
+def _named_in(record: logging.LogRecord, roots: tuple[str, ...]) -> bool:
+    name = record.name if isinstance(record.name, str) else ""
+    return any(name == root or name.startswith(root + ".") for root in roots)
+
+
+def _is_error_source(record: logging.LogRecord) -> bool:
+    flagged = getattr(record, REDUCE_EXCEPTION_ATTR, False) is True
+    return flagged or _named_in(record, UVICORN_LOGGERS)
 
 
 def _is_sdk_record(record: logging.LogRecord) -> bool:
@@ -193,6 +246,8 @@ def install_sdk_record_reduction() -> Callable[[], None]:
 def _add_filters(handler: logging.Handler, redactor: Redactor) -> None:
     handler.addFilter(SdkRecordFilter())
     handler.addFilter(AccessQueryFilter())
+    handler.addFilter(ErrorRecordFilter())
+    handler.addFilter(ClientRecordFilter())
     handler.addFilter(RedactionFilter(redactor))
 
 
@@ -418,6 +473,9 @@ def configure_logging(
     )
 
 
+_REDUCE_EXTRA: dict[str, object] = {REDUCE_EXCEPTION_ATTR: True}
+
+
 def install_exception_hooks(logger_name: str = "jobpipeline") -> Callable[[], None]:
     """Log uncaught exceptions (main and other threads) instead of printing them raw.
 
@@ -429,7 +487,7 @@ def install_exception_hooks(logger_name: str = "jobpipeline") -> Callable[[], No
     def log_uncaught(
         exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None
     ) -> None:
-        logger.critical("Uncaught exception", exc_info=(exc_type, exc, tb))
+        logger.critical("Uncaught exception", exc_info=(exc_type, exc, tb), extra=_REDUCE_EXTRA)
 
     def log_thread(args: threading.ExceptHookArgs) -> None:
         if args.exc_value is None:
@@ -439,6 +497,7 @@ def install_exception_hooks(logger_name: str = "jobpipeline") -> Callable[[], No
             "Uncaught exception in thread %s",
             name,
             exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+            extra=_REDUCE_EXTRA,
         )
 
     sys.excepthook = log_uncaught

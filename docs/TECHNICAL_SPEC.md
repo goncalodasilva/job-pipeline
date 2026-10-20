@@ -145,7 +145,7 @@ These rules are enforced by import-linter contracts in `pyproject.toml` and chec
 1. `app.domain` MUST be pure Python: no I/O, no framework imports, nothing from other `app` packages.
 2. `app.modules.*` MAY import `app.domain`. They MUST NOT import `app.services`, `app.api`, `app.onboarding` or `app.tasks`.
 3. Vendor SDKs MUST be imported only inside the provider package that wraps them. For example, `claude_agent_sdk` is imported only in `app.modules.ai.providers.claude_sdk`, and `keyring` only in `app.modules.secrets.providers.keyring_store`.
-   PDF and Word parsing follow the same rule: `pypdf` only in `app.modules.extract.providers.pdf`, `docx` only in `app.modules.extract.providers.docx` (ADR-089).
+   PDF and Word parsing follow the same rule: `pypdf` only in `app.modules.extract.providers.pdf`, `docx` only in `app.modules.extract.providers.docx` (ADR-089). Job page fetching too: `httpx` only in `app.modules.fetch.providers.guarded` (the contract is narrowed to that module; ADR-098 update of M4.1).
 4. `app.services` MAY import `app.domain` and the public interface of each module (`app.modules.<name>`, not its `providers` subpackage). Services MUST NOT import FastAPI, Starlette or Jinja2.
 5. `app.api` MAY import services, onboarding and the task runner's public functions. It MUST NOT import `app.modules.*` or `sqlite3`.
 6. `app.tasks` MAY import services and domain. Task handlers are thin: they call a service function. The runner reaches the AI module and storage only through services; the 2.5 diagram shows the logical flow (ADR-034).
@@ -185,8 +185,13 @@ class AIResponse:
     model: str
     usage: TokenUsage | None       # when the provider reports it
 
-# Task-level functions live in app/modules/ai/tasks.py, one per AI task (see 3.6),
-# e.g. async def summarize_job(ctx: AITaskContext, job_text: str, prefs: Preferences) -> JobSummary
+# Each AI task is registered in app/modules/ai/tasks.py (TASK_SPECS, see 3.6) and takes the
+# named inputs its prompt declares. As built in M4 (ADR-098 item 7, which amends the earlier
+# example that passed preferences to summarize_job):
+#   summarize_job: posting_context (JSON: the job text and the controlled lists with their
+#                  aliases, as one untrusted block) and job_id; no facts, no preferences
+#   assess_fit:    job_context (posting and requirements with ids), facts (the code-owned block
+#                  from facts_for_ai), preferences (the user's numbered lines) and job_id
 ```
 
 Added in M2 (ADR-078, ADR-080). `ProviderUsageSnapshot` (service, window, unit, used, limit, utilization, resets_at, observed_at) is validated when built. `UsageMeter` is implemented by the usage service (`ServiceUsageMeter`, `app/services/usage_meter.py`), never by a module. `run_task` requires `meter`, so a provider call can't run uncounted.
@@ -232,8 +237,10 @@ class Database:
     def transaction(self) -> ContextManager[Connection]: ...  # BEGIN IMMEDIATE ... COMMIT
 # Repositories are plain functions or small classes per aggregate (jobs, facts, applications...).
 
-# app/modules/fetch/__init__.py
-async def fetch_job_page(url: str, limits: FetchLimits) -> FetchedPage   # SSRF-guarded (2.9)
+# app/modules/fetch/__init__.py (ADR-036, ADR-098)
+class JobPageFetcher(Protocol):
+    async def fetch(self, url: str, limits: FetchLimits) -> FetchedPage   # SSRF-guarded (2.9)
+def page_text(page: FetchedPage) -> str                                   # readable text, no tags
 
 # app/domain/clock.py and ids.py
 class Clock(Protocol):
@@ -243,6 +250,13 @@ class IdFactory(Protocol):
 ```
 
 Text extraction (M3, ADR-089, ADR-092): `app.modules.extract` exports `DocumentKind`, the `TextExtractor` protocol, `sniff_type(data)`, `extractor_for(kind)` and `extract_text(path, kind, timeout)`. The composition root injects sniffing/extraction functions into the service, which calls them from a worker thread; services cannot import this module directly because it reaches its adapters (ADR-092 item 7). Extraction spawns a child process with a cleared environment and a deadline; PDF/Word libraries stay in their adapters. `app.api.uploads.read_upload` reads one file or pasted text in memory, caps actual bytes at 10 MB, and never trusts a client filename as a path.
+
+Job fetching and intake (M4, ADR-036, ADR-098):
+
+- `app.modules.fetch` exports `FetchLimits` (5 MB, 15 s, 5 redirects; an implementation clamps to these, so callers can only lower them), `FetchedPage`, the `JobPageFetcher` protocol and `page_text`. `guard.check_url` accepts only http and https, refuses numeric host spellings and userinfo tricks, and refuses a URL when any DNS answer is not a global unicast address (explicit address tables; IPv4-mapped, 6to4 and NAT64 forms included). `providers/guarded.py` (`GuardedJobPageFetcher`) is the only `httpx` user. It checks every redirect hop again, connects to the address it checked while keeping the original `Host` header and TLS server name, sends no cookies, ignores proxy and netrc settings (`trust_env=False`), reuses no connection, reads text content types only, counts the 5 MB cap on decoded bytes (one content coding, decoded with `zlib`), and applies one 15 s deadline that includes DNS. HTTP error statuses and refused URLs raise `FetchRefused`; connection failures and the deadline raise `NetworkUnavailable`. The URL is never logged or put into an error's detail.
+- `FakeJobPageFetcher` serves fictional `*.example.test` pages. `Wiring.job_page_fetcher()` returns it for those hosts only while fakes are allowed (tests, demo); every other URL still goes to the guarded fetcher.
+- The fetch runs inside the Add-job request (`POST /inbox/intake`), awaited, with "Fetching the page…" shown. It is not a background task: its result decides what the form shows next, and it uses no AI budget (ADR-098 item 4). `JobIntakeService.add_url` fetches, runs `page_text` in a worker thread (raw markup capped at 512 Ki characters, two-second await limit, parser depth and work limits), cleans control, bidi and zero-width characters, refuses text over 50,000 characters instead of cutting it, and treats fewer than twelve words as "no job text". A refused or failed fetch answers 422 with the paste-text message, opens the text box and keeps the URL as the link to the original. `add_text` stores pasted text with an optional http or https link, which is stored and never fetched.
+- The posting is stored before any AI request (snapshot, source with canonical URL, capture time). `summarize_job:<job id>` then starts as a background task through the budget gate, and `assess_fit:<job id>` runs after a successful summary as its own task (ADR-098 items 4 and 5). Duplicates are found by word-multiset similarity (0.80) and merged as another source; "Not a duplicate" splits them and remembers the pair.
 
 ### 2.5 Runtime flows
 
@@ -322,7 +336,7 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 3. State-changing requests MUST also carry an `Origin` or `Referer` matching the app's own origin.
 4. Jinja2 autoescaping stays on. AI output and job text MUST NOT be marked safe. Where Markdown from AI is rendered, it is converted and then sanitized with nh3.
 5. Uploads: 10 MB limit, type checked by content (PDF, DOCX, plain text), stored under the data folder with generated names, parsed with timeouts.
-6. Job URL fetching: http and https only; the resolved address MUST NOT be private, loopback, link-local or multicast, checked again after each redirect; 5 MB and 15 s limits; no cookies. This module never crawls: one user-supplied URL at a time.
+6. Job URL fetching: http and https only; the resolved address MUST NOT be private, loopback, link-local or multicast, checked again after each redirect; 5 MB and 15 s limits; no cookies. This module never crawls: one user-supplied URL at a time. As built (M4.1, ADR-098): a URL is refused when any of its DNS answers is not a global unicast address; at most 5 redirects, each checked again; the connection goes to the address that was checked, with the original host as `Host` and TLS server name; proxy settings and `.netrc` are ignored; the size cap counts decoded bytes; only text content types are read; the fetched URL is never logged. Fetched text is untrusted content (3.3). Known gaps are listed in `docs/TECH_DEBT.md` (TD-225 to TD-233).
 7. Untrusted content (job text, web results, CV text) is delimited and treated as data (3.3). Plain AI tasks run with no tools allowed; only explicitly requested web questions allow the provider's web search tool.
 8. When the app calls the Agent SDK, it MUST isolate the call from any developer configuration: run in an empty temporary working directory and disable loading of filesystem settings (the SDK's `setting_sources` option at the time of writing; verify against the installed SDK version).
 9. Secrets live only in the keychain (or the environment fallback). They MUST NOT be stored in the database, written to logs, returned by any endpoint, or included in exports. A logging filter redacts configured secret values and token-shaped strings.
@@ -330,7 +344,9 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 11. Every HTTP response, rejections included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so no other site can frame the app and trick a click (ADR-039). Every non-static response also carries `Cache-Control: no-store`, including pages, fragments and refusals (ADR-093).
 12. Only routes the server registers as pages (`register_pages`, `tags=[PAGE_TAG]`) and that dispatch actually picks may load without the token, and only without `HX-Request`; every other route needs it by default. GET and HEAD routes MUST NOT have side effects: no writes, tasks, provider calls, secret reads or exports, since they skip the origin check. Successful token-free page GETs return full HTML; an unknown/unsafe fact id returns a fixed plain-text 404 that echoes nothing (ADR-094). The M2 routes aren't pages either, so each needs the token: `GET /events` (the live-update stream, `text/event-stream`, still side-effect free; ADR-077), `GET /tasks/panel`, `GET /tasks/indicator`, `GET /tasks/{id}`, `GET /settings/usage`, `GET /settings/testing-tools`, and the POST routes `/tasks/practice`, `/tasks/{id}/cancel`, `/tasks/{id}/retry`, `/settings/usage/budgets` and `/settings/usage/concurrency`, which also need the origin (rule 3). The browser's reader for `GET /events` sends the token as a header; there is no cookie and no token in a URL (ADR-076 item 1, ADR-077). Never add CORS headers, and never put the token in a URL or log (ADR-039).
    Fact pages `/facts`, `/facts/new`, `/facts/{id}/edit` and `/facts/{id}/merge` can load without the token; they read only and return full HTML (ADR-093, ADR-094). A fact editor may prefill a capture note by safe id. Writes to fact wording and role data use POST bodies; GET filters are read-only. `/facts/library`, `/facts/drafts`, `/facts/{id}/history` and `/facts/{id}/refine` are protected fragments, never pages. Query strings are removed from access logs (2.10).
-13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it. Pages with a fact id in the path expose that fact locally, the same as the library; the id is not an authorization boundary (ADR-094).
+   Job and company pages (M4; ADR-094 pattern, ADR-098, ADR-099, ADR-100). These five GET routes are registered as pages, so they load without the token and read only: `/inbox` (its filter, view, group-by, saved-view and page values are query values of the same route), `/inbox/values`, `/jobs/{id}`, `/companies` and `/companies/{id}`. They show stored job data (snapshots, summaries, notes, removal reasons) to anyone on this computer who can load a page. A job or company id is one path segment of the safe shape (`is_safe_id`), checked before any lookup; any other shape or an unknown id answers a fixed plain-text 404 that echoes nothing. A GET never marks a card seen, starts a task or changes a filter or view: a card is marked seen by the POST it sends once it is displayed, and the next card is prefetched by GET without marking it. A filter form is a plain GET to `/inbox`; its fragment answer sets `HX-Push-Url` to the `/inbox` page address, never to a fragment route (a reload of a fragment route answers 403). The company list's sort and page values and its htmx fragment are the same routes with `HX-Request`, so the fragment needs the token.
+   Token-protected GET fragments added in M4 (never pages, no side effects): `/inbox/queue`, `/inbox/jobs/{id}/card`, `/inbox/jobs/{id}/detail` (the drawer), `/inbox/jobs/{id}/header`, `/inbox/jobs/{id}/summary`, `/inbox/jobs/{id}/fit` and `/settings/shortcuts`. Token-protected POST routes, which also need the origin (rule 3): `/inbox/intake`, `/inbox/jobs/{id}/not-duplicate`, `/inbox/jobs/{id}/seen`, `/inbox/jobs/{id}/triage` (snooze, remove, to apply, undo, restore), `/inbox/jobs/{id}/summarize`, `/inbox/jobs/{id}/assess-fit`, `/inbox/jobs/{id}/edit` (fields and notes), `/inbox/jobs/{id}/detail-triage`, `/inbox/jobs/{id}/split`, `/inbox/values/{id}` (map, add as new value, ignore), `/inbox/saved-views`, `/inbox/saved-views/{id}` (rename, delete), `/companies/{id}/edit` and `/settings/shortcuts`. Writes to an existing record (triage, field and note edits, value mapping, saved views, company edits, the shortcuts switch) carry the record's version and answer 409 with the reload prompt when it is stale. Form bodies are read with a size cap (a plain-text 413) and a fixed field list (a plain-text 400).
+13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it. Pages with a fact id in the path expose that fact locally, the same as the library; the id is not an authorization boundary (ADR-094). The same holds for `/inbox`, `/jobs/{id}` and `/companies/{id}`: job text, summaries, your notes and your removal reasons are readable by any local process that loads them.
 14. The data folder is locked while the app runs (ADR-072, ADR-076 item 9, M2.4). Before logging, the database, migrations or the AI temporary clean-up, the CLI and the app's start take `flock(LOCK_EX | LOCK_NB)` on `<data folder>/.lock`. The file is created with mode 0600 and refused unless it is a private regular file owned by the user with one link. A second copy gets `DataFolderInUse`, whose message names no path, and exits. The lock is POSIX only; where `fcntl` is missing it does nothing (ADR-061). The operating system releases it when the process exits or is killed.
 
 ### 2.10 Logging and diagnostics
@@ -340,6 +356,8 @@ Standard library logging with a JSON formatter, rotating files in `logs/` (5 fil
 Task, service, AI-module and event-stream loggers write constant format strings. Their arguments are ids, task type names, counts and exception type names, never provider output, error text, prompts or row content. `tasks.error` stores the error kind only, and each event frame carries an id, a type and a status only (ADR-088, ADR-077). The leak scans of AC-M1.4 cover tasks, usage rows, events and logs (spec 5, M2).
 
 AC-M1.4 also covers CV text, fact wording and refine answers: these stay out of task/usage rows, events, logs and error copy. They belong in uploads, fact versions and local refine conversations/source snapshots (ADR-092, ADR-097). Uvicorn access records omit the complete query string before formatting, so a search cannot put fact text in a log (ADR-093).
+
+M4 extends the same rule to job data: job text and snapshots, summaries, notes, removal reasons and company notes stay out of logs, `tasks` rows, usage rows, events and error copy (AC-M4.11 leak scans). The fetched URL is never logged, in a message, an error detail or a chained cause; the fetcher's errors name no address, and the `httpx` and `httpcore` loggers are dropped below WARNING and reduced to level, logger and exception type from there (`ClientRecordFilter`; the fetcher also holds those loggers at WARNING). The query string is removed from access records, so the inbox search and filters (`/inbox?search=`, `/inbox/queue?...`) and the company list values never reach a log. A uvicorn record that carries an exception (an unexpected error in a route) and the records of the uncaught-exception hooks are reduced to level, logger name and exception type (`ErrorRecordFilter`), because the exception text and traceback can quote the text being processed; the log still shows that an error happened and which kind. The CLI's start-up failure keeps its traceback in the log file, since no job text exists yet.
 
 ### 2.11 Errors
 
@@ -398,6 +416,20 @@ M3 document, fact and refinement errors (ADR-089 to ADR-097):
 | `RefineClaimsUnacknowledged` | Fact/import/refine services | "This isn't in your fact bank. Confirm each item below is true, or edit it out, before accepting." |
 | `RefineSuggestionStale` | Fact/import/refine services | "Your fact changed after this suggestion. Discard it and ask again, or keep editing it yourself." |
 
+M4 job and company errors (ADR-098 to ADR-100):
+
+| Error | Raised by | User-facing message pattern |
+| --- | --- | --- |
+| `JobTextNotFound` | Job intake service | "No job text was found. Paste the job text instead." (the page had fewer than twelve words, was too large to read safely, or was too complex to read) |
+| `JobTextTooLong` | Job intake service | "This job has more than 50,000 characters. Paste a shorter posting instead." (a plain-text 413; the text is refused, never cut) |
+| `JobLinkInvalid` | Job intake service | "Use an http or https link to the original posting." (a 422 tied to the link field) |
+| `JobNotFound` | Job services and routes | "This job wasn't found. It may have been removed." (the fixed plain-text 404, also for an unsafe id) |
+| `TriageNotAllowed` | Triage service | "This job can't be changed that way now. Reload to see its current state." |
+| `JobTriageInputInvalid` (a `TriageNotAllowed`) | Triage service | A message tied to the snooze date or the removal reason, as a 422 (for example text allowed only with the reasons that take it) |
+| `FitNotAvailable` | Fit service | "Summarize the job and add confirmed facts to see how you match." |
+
+In the Add-job form, a refused URL (`FetchRefused`), a failed fetch (`NetworkUnavailable`) and a page without usable text (`JobTextNotFound`) all answer 422 with one message, "This page couldn't be fetched. Paste the job text instead.", open the text box and keep the typed URL as the link to the original. The Add-job form therefore never shows the "No connection" copy of `NetworkUnavailable`, because pasting works offline. Corrections to a job's fields and company details are validated by `JobEditInvalid` and `CompanyEditInvalid`, which are not `AppError`s: they answer 422 with "Check the highlighted fields." and one message per field (for example "Another company is already called that."). A company that does not exist answers the fixed plain-text 404 "This company wasn't found."; a value to map that does not exist answers "This value wasn't found." A stale job, company, saved view, value or shortcuts version answers `VersionConflict` (409, reload prompt).
+
 Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
 Refusals of a start answer 409, for htmx and for a plain request, with the reason: a blocking point, a tier cap without a free Fast tier, or unreadable budgets (ADR-086). A warning that isn't confirmed answers 200 with the warning dialog for htmx, and 409 as text for a plain request (ADR-086). A stale version of a budget form, or of the guide's budget step, answers 409 with the reload prompt (`fragments/shell/_reload_prompt.html`, `role="alert"`): the form's own explanation, then a "Reload the page" link. In the usage budget forms the message is `VersionConflict`'s copy (ADR-081, ADR-087).
@@ -416,10 +448,10 @@ Refusals of a start answer 409, for htmx and for a plain request, with the reaso
 | AI | `claude-agent-sdk` (Python) | Behind the AI module |
 | Secrets | `keyring` | Env fallback |
 | Paths | `platformdirs` | Bootstrap config and default data folder |
-| Job page fetch | `httpx` with the SSRF guard | Text extraction with a lightweight HTML parser |
+| Job page fetch | `httpx` with the SSRF guard | Runtime dependency since M4.1. Text extraction with the standard library `html.parser` (ADR-098); no new dependency |
 | CV import | `pypdf`, `python-docx`, `python-multipart` | Approved in ADR-089; PDF fixtures passed. Word brings transitive `lxml`; parsing runs in a child process |
 | Rendering | PDF from HTML (WeasyPrint is the default candidate), Word via `python-docx` | M6 starts with a spike: WeasyPrint needs system libraries on some platforms |
-| HTML sanitizing | `nh3` | For rendered Markdown |
+| HTML sanitizing | `nh3` | For rendered Markdown. Not used in M4: summaries and job text are escaped plain text (ADR-098 item 2) |
 | Calendar | `icalendar` | .ics generation |
 | Validation | `pydantic` v2 | Settings, AI schemas, DTOs |
 | Tests | `pytest`, `pytest-asyncio`, `hypothesis`, `pytest-cov`, Playwright for Python, axe-core injected through Playwright | 4 |
@@ -435,12 +467,13 @@ The stream at `GET /events` (`text/event-stream`, `Cache-Control: no-store`) sen
 
 It ends when shutdown starts (the CLI sets the shutdown signal before uvicorn waits for open connections), and when its client stops reading (a bounded queue of 100 frames; the page then reconnects and resyncs). The reader reconnects with a backoff of 1, 2, 4, 8, 16 and then 30 seconds, and resyncs on every connect. A 403 shows the restart message and stops. A hidden tab closes its stream. Tabs of one browser share one stream through a Web Lock and a BroadcastChannel, both named `jobpipeline-task-events`; without them each visible tab reads its own.
 
-The reader turns `resync` and `task-updated` into the body events `tasks:resync` and `tasks:updated`, both with no detail. Listeners refetch and never read a status from an event, because events can arrive out of order. The other two body events come from HTTP answers, not from the stream:
+The reader turns `resync` and `task-updated` into the body events `tasks:resync` and `tasks:updated`, both with no detail. Listeners refetch and never read a status from an event, because events can arrive out of order. The other body events come from HTTP answers or page scripts, not from the stream:
 
 - `tasks:resync`: on every connect, and when a tab is shown again; the server also sends it in an `HX-Trigger` header after a cancel or retry;
 - `tasks:updated`: for each task change;
 - `usage:changed`: sent by a budget save or removal once the swap has settled (`HX-Trigger-After-Settle`);
 - `tasks:finished`: every `GET /tasks/indicator` answer sends it in an `HX-Trigger` header, with the detail `{"tasks": [{"key", "message", "age"}]}` (the key is the task id and attempt, and age is whole seconds since the task finished). The page announces each once in the live region, keeps its key in localStorage (`jobpipeline-tasks-announced`, the newest 50), and on the first answer of a page announces only tasks that ended in the last 10 seconds.
+- `inbox:changed` (M4, ADR-098 M4.7): sent in an `HX-Trigger` header by the Add-job and "Not a duplicate" answers, and dispatched by `app/static/js/job-detail.js` after a change in the drawer; the inbox screen refetches `GET /inbox/queue` on it and keeps the focused card. It is not sent by the stream.
 
 The refine panel owns the completion announcement for its turn, identified by task id and attempt in `data-task-announcement-key`. While a refine POST is in flight, indicator completions wait for its response or failure before choosing an owner. The indicator remembers the owned key without a second announcement, regardless of response order. Initial page markup for an already completed turn does not claim ownership: recent completions still announce on navigation. Other tasks still announce normally. A failed panel retaining an older editable suggestion does not claim the new turn's announcement (TD-222).
 
@@ -464,22 +497,28 @@ job-pipeline/
                     providers/ (claude_sdk.py, fake.py)
       search/       interface, providers/
       calendar/     interface, providers/
-      storage/      database.py, runner.py, migrations/, repositories
+      storage/      database.py, runner.py, migrations/ (0001 to 0004; 0004_jobs.sql adds companies,
+                    jobs, sources, summaries, assessments, requirements, controlled values,
+                    the unknown-value queue, saved views and jobs_fts), repositories
       secrets/      interface, providers/ (keyring_store.py, env.py, chained.py,
                     redacting.py, memory.py)
-      fetch/        SSRF-guarded fetcher, HTML-to-text
+      fetch/        guard.py (SSRF checks), text.py (page_text), content and codings helpers,
+                    providers/ (guarded.py, fake.py, demo_pages.py) (M4; ADR-098)
       extract/      public sniff/extract interface, killed parser child, providers/pdf.py,
                     docx.py and text.py (M3; ADR-089)
     render/         CV and letter rendering (PDF, Word), country templates (planned, M6)
-    tasks/          runner, handler registry, practice handler (the event publisher is api/events.py; ADR-077)
+    tasks/          runner, handler registry, practice, cv_import, fact_refine, job_summary and
+                    job_fit handlers (the event publisher is api/events.py; ADR-077)
     templates/      Jinja2 pages and fragments
-    static/         vendor/ (htmx and license only), js/, css/
+    static/         vendor/ (htmx and license only), js/ (app.js; shortcuts.js and job-detail.js
+                    for the job inbox, M4), css/
     wiring.py       builds providers and services from settings (ADR-047, ADR-059)
     config.py       runtime config and data folder resolution (ADR-025, ADR-030)
     logging_config.py  logging setup with redaction (ADR-030, ADR-070)
     cli.py          jobpipeline command
     main.py         app factory and lifespan
-  prompts/          default prompt templates and output schemas per task (3.6)
+  prompts/          default prompt templates and output schemas per task (3.6): extract_cv,
+                    refine_fact, summarize_job, assess_fit
   demo/             fictional persona, facts and jobs (planned, M9)
   docs/
     PROGRESS.md     milestone tracking and session log
@@ -498,8 +537,9 @@ job-pipeline/
     live/           live tests against real Claude services (opt-in, M1+)
     fakes/          scripting helpers, the SDK replay transport and keyring backends
                     (app-selectable fakes live in app/modules/*/providers/)
-    fixtures/       ai/, prompts/, cv/ (fictional PDFs, Word and text),
-                    import_violations/, migration_hashes.json
+    fixtures/       ai/, prompts/, cv/ (fictional PDFs, Word and text), jobs/ (fictional posting
+                    pages with a manifest of duplicate relations, M4), import_violations/,
+                    migration_hashes.json
     conftest.py     pytest configuration, keyring guard, session fixtures
     running_app.py  subprocess fixture (smoke and e2e)
     waiting.py      deadline-based waits (M2.3)
@@ -578,8 +618,8 @@ Each AI task has one prompt template, one output schema, a default tier, and fix
 | --- | --- | --- | --- |
 | `extract_cv` | Thorough | Draft roles, facts, stories, skills | M3 |
 | `refine_fact` | Fast | Sharpening questions, suggested wording, no new claims | M3 |
-| `summarize_job` | Fast | Summary, structured fields, requirements | M4 |
-| `assess_fit` | Fast | Band, matched requirements with fact ids, missing, deal-breaker flags | M4 |
+| `summarize_job` | Fast | 2 to 3 line summary, structured fields, requirements marked must-have, key or nice-to-have; no URL fields | M4 |
+| `assess_fit` | Fast | Each requirement met (with the fact ids it cites) or missing, and preference conflicts with a quote; no band and no prose about the user: the band is computed in code from the fact ids actually sent | M4 |
 | `gap_check` | Thorough | Requirement-to-fact map, gaps, honest framing, worth-applying note | M6 |
 | `propose_angles` | Thorough | 2–3 positioning angles with rationale | M6 |
 | `tailor_cv` | Thorough | CV units with fact ids | M6 |
@@ -605,6 +645,12 @@ Prompt files live in `prompts/<task>/` as `prompt.md` (YAML front matter plus te
 The `practice` task (M2.17, ADR-076 item 2) is not in this table and not in `TASK_SPECS`: it is a fake-only vehicle for the task runner, offered only when fake providers are allowed and the fake is the saved provider. It never reaches a real model, produces no user-facing content and so cites no fact ids; this exemption is for that task alone.
 
 M3 registers `extract_cv` (extraction) and `refine_fact` (feedback). Extraction requires a `source_quote` per unit, no status field, and saves drafts atomically with task success. Refinement returns questions, an optional suggestion and `added_details`; it never writes a fact until explicit Accept. Both use the saved provider's service for the budget gate and usage meter, delimit untrusted text, and label fake output. A request-log case for every entry in `TASK_SPECS` proves never-use exclusion; new tasks must extend it. The settings list of tiers per task is deferred to M9 (ADR-089 item 9).
+
+M4 registers `summarize_job` (kind summary) and `assess_fit` (kind feedback) (ADR-098, ADR-099):
+
+- `summarize_job` (Fast; `TaskSpec("summarize_job", kind="summary")`) reads the job text and the controlled lists with their aliases, and nothing else: no facts and no preferences (ADR-098 item 7). Both go into one untrusted block (`posting_context`), so stored list values are data too. Its closed schema has the title, company, industry, department or team, work mode, locations, employment type, seniority, experience (min, max and text), salary (min, max, currency, period), posted date, the summary and the requirements; it has no URL field and no status field. Salary and experience numbers are kept only when the posting states them (`extract_quantities`), a posted date only as a source-literal ISO date; an unsupported group is left empty. Values are normalized to the controlled lists by value or alias (case, spacing and accents ignored); an unknown value is stored as written and queued for the user to map. A user-corrected field is never replaced by a later summary. Each run adds a new `job_summaries` row with provider, model, prompt id, prompt version and task id, written with task success in one transaction.
+- `assess_fit` (Fast; `TaskSpec("assess_fit", kind="feedback")`) receives three delimited documents: the posting with its numbered requirements, the confirmed, current, non-never-use facts from `facts_for_ai` (versioned ids and wording; generalize-names policy kept), and the user's numbered preference lines. It returns, for each requirement, met or missing with the cited `fact_ids`, and conflicts with the numbered must-haves and deal-breakers with a quote from the posting. It returns no band. `app/domain/fit.py` computes the band: a requirement counts as met only if every fact id it cites was sent in that request; Strong = all must-haves and at least three quarters of the key requirements met; Stretch = any must-have missing or fewer than half the key requirements met; otherwise Possible. A conflict is kept only when its preference line exists and its quote occurs in the snapshot. One mechanical flag is added by code: the stated salary below the preferred minimum in the same currency and period. Jobs with conflicts are flagged, never hidden. Valid fact references prove which facts were sent, not that the match is true; the drawer therefore shows the user's own current fact wording, linked, and no AI-written explanation (TD-241). No request is made while no confirmed fact is usable. Each run adds a new `job_assessments` row with the fact versions used.
+- Both tasks label fake output "Practice data (fake provider)"; the fake summary also says the posting was not read (ADR-088, ADR-089 item 8). The never-use request-log test covers both through their calling services.
 
 ### 3.7 Tiers and usage
 
@@ -668,6 +714,7 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 
 - At least 85% line coverage across `app/`, excluding live-only provider code paths.
 - At least 95% branch coverage for critical modules: `app/domain/honesty.py` and `app/domain/fact_selection.py` (both from M3, ADR-089 item 5), `app/domain/budgets.py`, `app/services/usage.py`, `app/tasks/runner.py`, `app/onboarding/detection.py`, `app/modules/fetch/guard.py`, and the security middleware (`app/api/security.py`, ADR-039). `scripts/check_critical_coverage.py` enforces this with a registry of these modules and the milestone that introduces each (ADR-028).
+- M4 coverage facts (ADR-098): `guard.py` is registered from M4 and measured 100% branch coverage in M4.1. The fetcher that does the pinning, redirect re-checks and deadline (`app/modules/fetch/providers/guarded.py`) also measured 100% but is not in the registry: adding it needs the user's approval (TD-230). The registry is unchanged. The fetch tests use a fake resolver and `httpx.MockTransport`, so no coverage depends on the network. M4 acceptance runs `scripts/check_critical_coverage.py --milestone M4` against the final coverage run.
 
 ### 4.4 What every feature's tests must include
 
@@ -903,6 +950,17 @@ M3 notes (ADR-089): near-duplicates use mechanical similarity on demand; the con
 **Test plan:** unit and property tests for the SSRF guard, normalizer and dedupe similarity; integration tests for the intake pipeline with fake fixtures (including a job posting containing prompt-injection text, which must not change the task's behavior); e2e for triage on desktop and phone and by keyboard; a performance test with generated data.
 
 **Exit checks:** full verification; the user triages a few real postings locally.
+
+**Notes (decided during M4; the criteria above are unchanged; ADR-098 to ADR-100):**
+
+- Shipped in eleven tasks on one migration (`0004_jobs.sql`) and two AI tasks, with no new runtime dependency (`httpx` moved from the dev to the runtime group; text extraction uses the standard library). The sections that describe the result are 2.4 (fetching and intake), 2.9 rules 6, 12 and 13, 2.11, 2.13 and 3.6. The user screens are the Job inbox (`/inbox`, with the job drawer, filters, saved views and "values to map" at `/inbox/values`), the job page (`/jobs/{id}`) and Companies (`/companies`, `/companies/{id}`).
+- Scope moves and choices: Apply marks a job "To apply", with undo, and M5 creates the application from it (ADR-098 item 3). The page fetch runs inside the Add-job request, not as a task (item 4). One added job makes up to two requests through the budget gate, summary and then fit as separate tasks, so a blocked fit cannot lose a paid summary; the gate still checks only the next request, which keeps TD-055 open in a narrower form, and Retry from the task panel still skips the warning dialog (TD-171). "Processing" is derived from an active `summarize_job` task and never stored. Out of M4: learning from removals, removal rules, auto-hide and "Hidden by your rules" (M9); the command palette and global shortcuts (M9); company contacts and history (M5); the company brief (M8); the watch toggle (M10); merging companies and editing requirements (technical debt).
+- Fit: the model returns no band. The band comes from `app/domain/fit.py` (3.6). The only mechanical deal-breaker flag is salary below the preferred minimum in the same currency and period; the "employment type outside the preferences" flag was dropped by the user on 2026-10-19 because no preference holds employment type. Flagged jobs are never hidden and never auto-removed.
+- Keyboard: J and K move through the queue, A marks to apply, R opens the removal reasons, Enter opens the details, Z undoes, Esc closes and `?` lists them. They are ignored while typing, with a modifier key, or while a dialog is open, and a versioned Settings switch "Use single-key shortcuts" (default on; WCAG 2.1.4) turns them off, leaving `?` available. Snooze is reachable from a card menu. Every action moves focus on purpose and is announced.
+- Group-by counts are for the whole filter; the jobs listed are only the current page's, and a group shown in part reads "n of N on this page" (ADR-099). Company sort and paging load the whole company list per request, and a rename takes effect for later jobs (a later job for the old name creates a new company; ADR-100).
+- Acceptance-criteria-to-test mapping: each AC has named tests `test_ac_m4_<n>_...` (the report `docs/acceptance/M4.md` lists them). Facts worth knowing: AC-M4.1 is proven at three layers (the guard, the fetcher with a fake resolver and `httpx.MockTransport`, and the Add-job route's paste-text answer). AC-M4.3's "matched and missing requirements cite fact ids" means a met requirement cites ids and a requirement citing an id that was not sent counts as missing. AC-M4.8's data side is covered by the summary service test `test_summary_saves_fields_company_requirements_with_provenance` and its card side by `test_ac_m4_8_card_shows_industry_department_experience_salary`. AC-M4.9 is covered by the domain property test, the service test and the browser edit-then-summarize-again test. AC-M4.10 is a `slow`-marked integration test that takes the median of five runs over the queue, two cards, a filter, group-by and search with 1,000 generated fictional jobs.
+- AC-M1.4 is extended in M4.11 to job text, notes, removal reasons and fetched URLs: none of them appears in logs, `tasks` rows, the event stream or error text.
+- Real postings behave differently from fixtures. Whether job boards accept the fetcher's default User-Agent, how salary, experience and date checks cope with real wording, and the realism of the prompts are checked only in the user's manual acceptance (TD-225, TD-240, TD-241). A dependency advisory check for `httpx`, `httpcore` and `h11` was not available in the project's tooling (TD-001).
 
 ### M5 — Applications board, tracking and Today
 
@@ -1199,4 +1257,4 @@ Accepted shortcuts to revisit; each names its trigger.
 
 | Item | Why it is accepted now | Revisit when |
 | --- | --- | --- |
-| Tests use `httpx` with `starlette.testclient`, which Starlette deprecates in favour of `httpx2` (a `StarletteDeprecationWarning` in every test run). | Works with the versions locked in `uv.lock`; `httpx` stays anyway as the M4 fetch dependency; switching adds a dev dependency (user decision, 2026-10-03). | A Starlette or FastAPI upgrade drops `httpx` support in `TestClient`, or before M9 release hardening. |
+| Tests use `httpx` with `starlette.testclient`, which Starlette deprecates in favour of `httpx2` (a `StarletteDeprecationWarning` in every test run). | Works with the versions locked in `uv.lock`; `httpx` became a runtime dependency in M4.1 for the job page fetcher (ADR-032, ADR-098); switching adds a dev dependency (user decision, 2026-10-03). | A Starlette or FastAPI upgrade drops `httpx` support in `TestClient`, or before M9 release hardening. |

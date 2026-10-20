@@ -132,24 +132,39 @@ def test_query_strings_never_reach_the_log_files(running_app: RunningApp) -> Non
     """Spec 2.10: what the user types in a GET form (a Library search) is in the address,
     so access records keep the path only (ADR-093)."""
     marker = "fictionalsearchmarker0123"
+    inbox_marker = "fictionalinboxsearchmarker4471"
+    company_marker = "fictionalcompanyquerymarker9082"
     with running_app.client() as client:
         page = client.get(f"/facts?tab=library&q={marker}")
         assert page.status_code in (200, 303), (page.status_code, page.text[:200])
+        # M4: the inbox search and company filter, the inbox queue fragment (htmx, with the
+        # token) and the company list carry typed text in the address as well.
+        token = page_token(client.get("/").text)
+        inbox = client.get(f"/inbox?search={inbox_marker}&company={company_marker}")
+        queue = client.get(
+            f"/inbox/queue?search={inbox_marker}&company={company_marker}&push=1",
+            headers={"X-JP-Token": token, "HX-Request": "true"},
+        )
+        companies = client.get(f"/companies?q={company_marker}&sort={company_marker}")
+        for shown in (inbox, queue, companies):
+            assert shown.status_code == 200, (shown.request.url.path, shown.status_code)
 
     result = running_app.stop()
     assert result.returncode == 0 and not result.killed, running_app.output_tail()
     files = running_app.log_files()
     assert files, f"no log files in {running_app.log_dir}"
-    for path in files:
-        assert marker not in path.read_text(encoding="utf-8", errors="replace"), path.name
-    for text in (running_app.stdout_text(), running_app.stderr_text()):
-        assert marker not in text
+    for typed in (marker, inbox_marker, company_marker):
+        for path in files:
+            assert typed not in path.read_text(encoding="utf-8", errors="replace"), path.name
+        for text in (running_app.stdout_text(), running_app.stderr_text()):
+            assert typed not in text
     access = [
         str(record["message"])
         for record in _log_records(files)
         if record.get("logger") == "uvicorn.access"
     ]
-    assert any('"GET /facts HTTP/' in line for line in access), access
+    for path in ("/facts", "/inbox", "/inbox/queue", "/companies"):
+        assert any(f'"GET {path} HTTP/' in line for line in access), (path, access)
 
 
 @pytest.mark.parametrize("running_app", ["fresh"], indirect=True)

@@ -90,4 +90,33 @@ Server side: return `HX-Redirect: /setup` for htmx requests, a normal 303 redire
 
 ## Prefetching the next inbox card
 
-The queue fragment includes the next card's id; `app.js` fetches `/inbox/card/<next-id>` after the current card settles and keeps the HTML in memory, swapping it in when the user presses J.
+The queue fragment includes the next card's id; `app/static/js/shortcuts.js` fetches `GET /inbox/jobs/<next-id>/card` after the current card settles and keeps the HTML in memory for 30 seconds, swapping it in when the user presses J. It prefetches only same-origin `/inbox/jobs/` paths, and the GET marks nothing seen. The shown card sends its own `POST /inbox/jobs/<id>/seen` (`hx-trigger="load"`); a key pressed before that answer is held until it arrives, because the answer changes the job's version.
+
+## Filter form that pushes the page address
+
+```html
+<form action="/inbox" method="get" hx-get="/inbox/queue" hx-target="#inbox" hx-swap="outerHTML settle:0ms">
+  <input type="hidden" name="push" value="1">
+  <label for="filter-band">Fit</label>
+  <select id="filter-band" name="band">...</select>
+  <button type="submit">Apply filters</button>
+</form>
+<a href="/inbox?view=queue" hx-get="/inbox/queue?view=queue&amp;focus=1" hx-target="#inbox"
+   hx-push-url="/inbox?view=queue">Clear filters</a>
+```
+
+Without JavaScript the form loads `/inbox?...` as a page. With htmx the fragment route answers with `HX-Push-Url: /inbox?band=strong` (validated values, built on the server) when `push=1` is sent, never `/inbox/queue?...`: a reload of the fragment route answers 403. A link that changes the view carries `hx-push-url` with the page address.
+
+## Page with an id, no token
+
+```python
+app.add_api_route("/jobs/{job_id}", job_page, methods=["GET", "HEAD"], tags=[PAGE_TAG],
+                  response_class=HTMLResponse, name="page_job")
+
+def job_page(request: Request, job_id: str) -> Response:
+    if not is_safe_id(job_id):
+        return PlainTextResponse(JobNotFound.message, status_code=404)  # echoes nothing
+    ...  # read only; a GET never changes the job
+```
+
+The drawer, the header and every write for the same job are separate routes under `/inbox/jobs/{id}/...` that need the token.

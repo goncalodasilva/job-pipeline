@@ -38,6 +38,8 @@ __all__ = ["GuardedJobPageFetcher", "system_resolver"]
 REDIRECT_STATUSES: Final = frozenset({301, 302, 303, 307, 308})
 USER_AGENT: Final = f"python-httpx/{httpx.__version__}"
 # httpcore logs its connections (with the address) at DEBUG; httpx logs requests at INFO.
+# The log handlers also drop these records (``ClientRecordFilter``); holding the loggers at
+# WARNING as well means no record with a URL is even created, for any other handler or capture.
 _CLIENT_LOGGERS: Final = ("httpx", "httpcore")
 
 

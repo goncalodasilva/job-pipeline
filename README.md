@@ -2,7 +2,7 @@
 
 A local, open-source web app for running a job search: collect postings, see honestly how well you fit, position yourself for each role with a growing bank of your own facts, draft tailored CVs and cover letters, track every application on a board, and prepare for interviews. You always submit applications yourself.
 
-**Status:** M0–M3 are accepted. The fact bank, CV import and Refine with AI are available. M4 is next and not yet planned; job intake and application tracking arrive from M4 on. See `docs/PROGRESS.md`.
+**Status:** M0–M3 are accepted. The fact bank, CV import and Refine with AI are available. M4 (adding jobs, the Job inbox and Companies) is built and waiting for your acceptance; application tracking arrives from M5 on. See `docs/PROGRESS.md`.
 
 ## How it works
 
@@ -88,7 +88,7 @@ AI work runs as background tasks. The **Tasks** button in the top bar shows how 
 - **Retry** runs a failed, cancelled or interrupted task again.
 - If the app stopped while a task ran, for example after a crash, that task shows as **interrupted** when the app starts again. It runs again only when you press Retry. Queued tasks run after a restart.
 
-Failed and interrupted tasks retry only when you ask. CV import and Refine with AI use the runner; invalid AI output gets one automatic correction attempt. The practice task is offered only on the demo's own folder, or when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` is set. With `--data-dir` or `JOBPIPELINE_DATA_DIR`, even `--demo` needs that variable.
+Failed and interrupted tasks retry only when you ask. CV import, Refine with AI, job summaries and fit assessments use the runner (fetching a job page does not: it happens while you wait); invalid AI output gets one automatic correction attempt. The practice task is offered only on the demo's own folder, or when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` is set. With `--data-dir` or `JOBPIPELINE_DATA_DIR`, even `--demo` needs that variable.
 
 ## Fact bank and CV import
 
@@ -100,13 +100,37 @@ In a fact's editor, **Refine with AI** asks questions and offers a diff. Nothing
 
 The fake provider makes fixed fictional suggestions and labels them **Practice data (fake provider)**. It does not understand the CV or fact you give it. Use fictional text when practicing. Fact versions and closed conversations remain in the local database; discard and archive do not erase their history.
 
+## Job inbox
+
+**Add a job.** In the Job inbox, choose **+ Add job** and paste a link to the posting, or paste the job text (with the link to the original, if you like). A link is fetched once, when you press the button, with "Fetching the page…" shown while it works. If the page can't be fetched or has no readable job text, for example a page that needs JavaScript or a sign-in, or an address the app refuses, the form says so and opens the text box: paste the ad there and the link is kept as the link to the original. The app fetches only the one address you give it, never follows links on the page, and refuses addresses that point at your own computer or network. A pasted link is stored and never fetched. Job text over 50,000 characters is refused rather than cut. The same link again adds a source, not a second job, and a near-identical posting on another site is merged into the existing card ("also posted on N sites"); **Not a duplicate** in the job's Sources list splits it back and remembers the choice. The job is saved first, so you can triage it even when no AI provider is connected.
+
+**Triage.** The queue shows new jobs, then seen ones, beside one focused card. A card is marked seen once it is shown. On a card you can:
+
+- **Snooze** until tomorrow, next week, in a month or a date you pick. It returns as new on that date.
+- **Remove**, with an optional one-tap reason (too junior, too senior, location, salary, industry, company, not interested or other; the last two can take a few words). Undo stays for about 10 seconds, and the **Removed** view is the lasting way back.
+- **Apply** marks the job "To apply" (with undo). It does not send anything: you always submit applications yourself, and the board that tracks them arrives in M5.
+
+The views **Snoozed**, **Removed** and **To apply** sit beside the queue. You can filter by fit, work mode, industry, seniority, company and "conflicts with your preferences", search the text, sort, and group by company, industry, fit, work mode or seniority. A group's count covers the whole filter even when only part of it is on this page. **Saved views** keep a name plus filters. When a summary contains a value the app doesn't know yet (an industry, say), a notice "N new values to map" opens a page where you can map it to an existing value, add it as a new value, or ignore it.
+
+**Details.** Enter or the title opens the job's details: the summary, each requirement with your own current fact wording (linked to the fact) or "Missing", the saved text with its capture date, a link to the original, its sources and your notes. Fields such as industry, salary or seniority can be corrected; a field you corrected is marked "Corrected by you" and a later "Summarize again" never replaces it. A summary is made again only when you press Summarize again, and the fit is assessed again with "Assess fit again"; both go through the usage budget check.
+
+**Keyboard shortcuts.** **J** next job, **K** previous, **A** mark to apply, **R** remove, **Enter** open the details, **Z** undo, **Esc** close and **?** show the list. They are ignored while you type. Single keys can clash with speech input or assistive technology, so Settings > Keyboard shortcuts has a switch, "Use single-key shortcuts"; with it off every action still has a button, and **?** still lists the keys. Every action announces what happened to screen readers.
+
+**How you match.** After a summary, the app compares each requirement with your confirmed facts and shows the result as Strong, Possible or Stretch, with the requirements you meet and the ones you are missing. The band is worked out by the app, not by the AI: a requirement counts as met only if the AI cites facts that were actually sent in that request. Jobs that conflict with your preferences (a deal-breaker, or a stated salary below your minimum) are flagged "Conflicts with your preferences", never hidden. This is a guide, not a verdict: the app checks that references are real, not that every match is true, so read the linked facts yourself. Fit needs at least one usable confirmed fact; without one the card says "Add confirmed facts to see how you match" and no request is made.
+
+**What is sent to the AI.** Adding a job makes up to two requests, a summary and then a fit assessment, and both count toward your usage budget (the warning says "Adding a job uses up to 2 requests"). The summary request contains the job text and the app's lists of industries, work modes and so on, nothing else. The text is treated as data, not instructions: it is delimited and anything in it that looks like a command is ignored. The fit request contains the job text and its requirements, your confirmed facts (their wording and ids; facts marked "Never use in applications" are left out, and "Generalize names" is applied as in Refine with AI), and your saved job preferences, all of them as set in Settings: target roles, locations, work modes, minimum salary (amount and currency), must-haves, deal-breakers and CV country. The AI's answer is checked by the app before anything is saved. The fetched address is never written to the logs, and job text, your notes and removal reasons stay out of logs, task records and event messages. They remain in your local database. The practice provider labels its fixed fictional answers "Practice data (fake provider)".
+
+## Companies
+
+**Companies** lists every company your jobs came from, sortable by name, open roles, jobs marked to apply and last activity, 50 per page. A company page shows its website (shown as a link only if it is an http or https address), industry, size, locations and notes, which you can edit, and every job at the company with its state, each linking to the job's page. Companies are created when a summary names one, matched by name ignoring case, punctuation and endings such as "Inc" or "Ltd". **Renaming a company changes how it is matched:** a job added later under the old name creates a new company instead of joining the renamed one. Merging two companies is not available yet.
+
 ## Usage budgets
 
 Settings > Usage budgets sets a monthly limit for each service: Claude subscription, Claude API key, Web search and, in the demo, the practice provider. A service has no limit until you set one. A budget has an allowance, a first and a second warning, a blocking point (at most the allowance), a reset day, and optional caps for the Fast and Thorough tiers. Days 29 to 31 mean the last day of shorter months. Limits count requests; token counts are shown but not used for limits yet.
 
 Each warning appears once per cycle, in a dialog that asks you to continue. At the blocking point the action is disabled and says when the count resets. The usage panel above the forms shows each service's count, its reset date and any calls still running. Claude's own plan usage is shown for information only and never blocks an action. A connection test counts as one request and is never blocked.
 
-Connection tests, CV import, Refine with AI and practice calls count toward usage, including failed calls and AI correction attempts. Web search budgets take effect once web search is used. "Background tasks at once" sets how many tasks run together; a change applies the next time you start the app.
+Connection tests, CV import, Refine with AI, job summaries, fit assessments and practice calls count toward usage, including failed calls and AI correction attempts. Web search budgets take effect once web search is used. "Background tasks at once" sets how many tasks run together; a change applies the next time you start the app.
 
 ## Credentials and the keychain
 

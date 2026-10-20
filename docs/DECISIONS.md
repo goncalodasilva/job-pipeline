@@ -1050,3 +1050,12 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   7. Website: only http and https links; the scheme is lower-cased. A stored unsafe value is never rendered as a link.
   8. `/companies/{id}` is a token-free page route by safe id, like the `/facts` and `/jobs` pages, with the fixed 404. Spec 2.9 rules 6 and 12 are updated in M4.11.
 - Consequences: sort and paging load the whole company list on each request. This is fine for a local app and is recorded for TECH_DEBT in M4.11. The page title does not update after a rename until reload. Renaming changes which company a later job for the old name joins. M4.11 must add the spec 2.9 list update and a README line about renaming.
+
+## ADR-101 — Reduced exception logging (M4.11) (2026-10-20)
+
+- Context: M4 stores job text, notes, removal reasons and fetched URLs. Uvicorn error records and uncaught-exception records can carry exception text, and that text can include job text or URLs. httpx and httpcore records can log request URLs. The M4.11 criteria require that none of this reaches the logs. The security review found these paths; they were fixed before approval.
+- Decision: decided in the M4.11 run. This is not a user decision.
+  1. Uvicorn error records and uncaught-exception records keep only level, logger name and exception type, in the console and in the log file. Exception text is dropped (`ErrorRecordFilter` in `app/logging_config.py`).
+  2. Start-up tracebacks keep their full traceback.
+  3. httpx and httpcore records below WARNING are dropped by a handler-side filter (`ClientRecordFilter`). This closes TD-228.
+- Consequences: crash debugging from the log file shows only the exception type for errors raised while serving requests. This applies to TD-254 (the earlier unverified Internal Server Error on `/inbox`), which can be diagnosed only from the type unless the traceback is reproduced another way. Start-up failures keep the full traceback. Restoring tracebacks for non-job routes needs a new decision and a new ADR.
