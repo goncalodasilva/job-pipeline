@@ -37,6 +37,7 @@ from app.api.facts_capture import register_fact_capture_routes
 from app.api.facts_import import register_fact_import_routes
 from app.api.facts_refine import register_fact_refine_routes
 from app.api.health import router as health_router
+from app.api.job_intake import register_job_intake_routes
 from app.api.pages import register_pages
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.api.settings import register_settings_pages
@@ -112,6 +113,7 @@ from app.services.fact_refine import REFINE_FACT, REFINE_FACT_LABEL, FactRefineS
 from app.services.fact_views import FactBank, FactViews
 from app.services.facts import FactService
 from app.services.health import HealthService
+from app.services.job_intake import JobIntakeService
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.roles import RoleService
@@ -984,6 +986,9 @@ def create_app(
         handlers.register(
             PRACTICE, TaskTypeSpec(PRACTICE_TIMEOUT, PRACTICE_LABEL), practice_handler(practice)
         )
+    app.state.job_intake = JobIntakeService(
+        lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()
+    )
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
@@ -1029,6 +1034,7 @@ def create_app(
     register_fact_pages(app)
     register_fact_editor_routes(app)
     register_fact_capture_routes(app)
+    register_job_intake_routes(app)
     register_setup_pages(app)
     register_events(
         app,

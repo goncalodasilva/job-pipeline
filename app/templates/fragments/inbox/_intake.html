@@ -1,0 +1,26 @@
+<section id="job-intake" class="facts-section" aria-labelledby="job-intake-heading">
+  <h2 id="job-intake-heading" tabindex="-1"{% if not error %} data-autofocus{% endif %}>Add job</h2>
+  {% if said %}<p role="status">{{ said }}</p>{% endif %}
+  {% if error %}<p id="job-intake-error" class="field-error" role="alert">{{ error }}</p>{% endif %}
+  {% if merged %}
+  <form method="post" action="/inbox/jobs/{{ source_job_id }}/not-duplicate"
+        hx-post="/inbox/jobs/{{ source_job_id }}/not-duplicate" hx-target="#job-intake" hx-swap="outerHTML settle:0ms">
+    <button type="submit" class="button">Not a duplicate</button>
+  </form>
+  {% endif %}
+  <form class="step-form" method="post" action="/inbox/intake" hx-post="/inbox/intake"
+        hx-target="#job-intake" hx-swap="outerHTML settle:0ms" hx-indicator="#job-fetching" hx-disabled-elt="find button">
+    <div class="field">
+      <label for="job-url">Link to the original posting (optional with text)</label>
+      <input id="job-url" name="url" type="text" value="{{ url }}" maxlength="8192"
+             {% if error_field == 'url' %}aria-invalid="true" aria-describedby="job-intake-error" data-autofocus{% endif %}>
+    </div>
+    <div class="field">
+      <label for="job-text">Or paste the job text</label>
+      <textarea id="job-text" name="text" rows="8" maxlength="50000"
+                {% if error_field == 'text' %}aria-invalid="true" aria-describedby="job-intake-error" data-autofocus{% endif %}>{{ text }}</textarea>
+    </div>
+    <div class="form-actions"><button type="submit" class="button button-primary">Add job</button></div>
+    <p id="job-fetching" class="htmx-indicator" role="status">Fetching the page…</p>
+  </form>
+</section>

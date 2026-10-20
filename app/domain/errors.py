@@ -517,3 +517,19 @@ def message_for_kind(kind: str | None) -> str:
         if cls.kind == kind:
             return BUDGET_MESSAGE if issubclass(cls, BudgetBlocked) else cls.message
     return AppError.message
+
+
+class JobTextNotFound(AppError):
+    message = "No job text was found. Paste the job text instead."
+
+
+class JobTextTooLong(AppError):
+    message = "This job has more than 50,000 characters. Paste a shorter posting instead."
+
+
+class JobLinkInvalid(AppError):
+    message = "Use an http or https link to the original posting."
+
+
+class JobNotFound(AppError):
+    message = "This job wasn't found. It may have been removed."

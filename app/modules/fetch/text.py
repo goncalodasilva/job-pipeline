@@ -10,7 +10,7 @@ usually board chrome. A ``text/plain`` page comes back with its lines kept and t
 whitespace collapsed. A JavaScript-only shell has no text.
 
 The page is untrusted content (spec 3.3): nothing in it is followed or executed, and this
-never raises on malformed markup or JSON.
+never raises on malformed markup or JSON. Over-complex markup is refused whole.
 """
 
 import html
@@ -143,15 +143,24 @@ _PARAGRAPH_SCOPE: Final = frozenset(
 _PARAGRAPH: Final = frozenset({"p"})
 _JSON_LD: Final = "application/ld+json"
 _LIST_ITEM_PREFIX: Final = "- "
+_MAX_OPEN_ELEMENTS: Final = 256
+_MAX_STACK_STEPS: Final = 1_000_000
+
+
+class _MarkupTooComplex(Exception):
+    """The parser refuses deep trees and excessive stack scans, without partial text."""
 
 
 def page_text(page: "FetchedPage") -> str:
     """The page's text, one block per line; empty when it has none."""
     if page.content_type == PLAIN_TEXT:
         return "\n".join(_plain_lines(page.text))
-    parsed = _parse(page.text)
-    posting = _job_posting_lines(parsed.json_ld)
-    return "\n".join(posting if posting is not None else parsed.lines)
+    try:
+        parsed = _parse(page.text)
+        posting = _job_posting_lines(parsed.json_ld)
+        return "\n".join(posting if posting is not None else parsed.lines)
+    except _MarkupTooComplex:
+        return ""
 
 
 def _plain_lines(text: str) -> list[str]:
@@ -173,6 +182,7 @@ class _TextParser(HTMLParser):
         self._prefix = ""
         self._open: list[tuple[str, bool]] = []  # (tag, dropped) for every open element
         self._dropped_depth = 0
+        self._stack_steps = 0
         self._json_ld_parts: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -185,6 +195,8 @@ class _TextParser(HTMLParser):
         if tag == "script" and _attribute(attrs, "type").strip().lower() == _JSON_LD:
             self._json_ld_parts = []
         dropped = tag in _DROPPED or _is_hidden(attrs)
+        if len(self._open) >= _MAX_OPEN_ELEMENTS:
+            raise _MarkupTooComplex()
         self._open.append((tag, dropped))
         if dropped:
             self._dropped_depth += 1
@@ -244,6 +256,9 @@ class _TextParser(HTMLParser):
         """Close the innermost open element in ``names``, with everything inside it, unless
         an element in ``boundary`` comes first."""
         for index in range(len(self._open) - 1, -1, -1):
+            self._stack_steps += 1
+            if self._stack_steps > _MAX_STACK_STEPS:
+                raise _MarkupTooComplex()
             name = self._open[index][0]
             if name in names:
                 self._dropped_depth -= sum(dropped for _, dropped in self._open[index:])
