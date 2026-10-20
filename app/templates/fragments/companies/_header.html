@@ -1,0 +1,16 @@
+{# The company's name, a one-line read-only summary and its website (M4.10). The page includes
+   it; a saved edit sends it again out of band (oob), so a changed name, summary or website
+   shows without a reload. Only the page's own copy asks for focus. #}
+{% set oob = oob is defined and oob %}
+{% set summary = [
+  ("Industry: " ~ (company.industry | replace("_", " ") | capitalize)) if company.industry else "",
+  ("Size: " ~ company.size) if company.size else "",
+  ("Locations: " ~ (company.locations | join(", "))) if company.locations else "",
+] | select | list %}
+<div id="company-header"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <h1 id="company-name" tabindex="-1"{% if not oob %} data-autofocus{% endif %}>{{ company.name }}</h1>
+  {% if summary %}<p id="company-summary" class="company-summary">{{ summary | join(" · ") }}</p>{% endif %}
+  {% if company.link %}
+  <p>Website: <a href="{{ company.link }}" target="_blank" rel="noopener noreferrer">{{ company.link }}<span class="visually-hidden"> (opens in a new tab)</span></a></p>
+  {% endif %}
+</div>

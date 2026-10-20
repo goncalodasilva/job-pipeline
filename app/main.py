@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
 
 from app import __version__
+from app.api.companies import register_company_routes
 from app.api.errors import register_error_handlers
 from app.api.events import (
     DEFAULT_EVENT_QUEUE_SIZE,
@@ -100,6 +101,7 @@ from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.budget_gate import BudgetGate
 from app.services.capture import CaptureService
+from app.services.companies import CompaniesService
 from app.services.cv_import import (
     EXTRACT_CV,
     EXTRACT_CV_LABEL,
@@ -1069,6 +1071,7 @@ def create_app(
         lambda: _current_db(app), app_clock, app_ids, app.state.inbox_views
     )
     app.state.inbox_organisation = InboxOrganisation(lambda: _current_db(app), app_clock, app_ids)
+    app.state.companies = CompaniesService(lambda: _current_db(app), app_clock, app_tz)
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
@@ -1120,6 +1123,7 @@ def create_app(
     register_job_summary_routes(app)
     register_job_fit_routes(app)
     register_job_detail_routes(app)
+    register_company_routes(app)
     register_setup_pages(app)
     register_events(
         app,

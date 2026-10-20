@@ -436,6 +436,7 @@ def visit_every_page(session: Session) -> None:
         "/facts/{fact_id}/edit": f"/facts/{fact_ids['fact_id']}/edit",
         "/facts/{draft_id}/merge": f"/facts/{fact_ids['draft_id']}/merge",
         "/jobs/{job_id}": f"/jobs/{job.job_id}",
+        "/companies/{company_id}": "/companies/fictional-company",  # the fixed 404 is enough
     }
     paths: list[str] = []
     for route in session.run.app.routes:

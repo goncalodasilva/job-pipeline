@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.domain.job_normalization import company_key
 from app.modules.storage import Database
 from app.modules.storage.jobs_repo import insert_company, insert_job
 
@@ -41,7 +42,7 @@ def seed_jobs(database: Database, rows: tuple[dict[str, Any], ...]) -> None:
         companies = {r["company_id"]: r["company_name"] for r in rows}
         stamp = "2026-10-20T09:00:00+00:00"
         for id, name in companies.items():
-            insert_company(conn, id=id, name=name, name_key=name.casefold(), now=stamp)
+            insert_company(conn, id=id, name=name, name_key=company_key(name), now=stamp)
         for r in rows:
             insert_job(
                 conn,

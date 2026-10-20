@@ -1036,3 +1036,17 @@ Architecture decision records, newest last. Each entry: context, decision, conse
   3. "Ignore" keeps the value's text as written and sets its queue status to ignored.
   4. A saved view stores only validated filter query values.
 - Consequences: a group's count can be higher than the jobs listed on the page; the label says so. Filter addresses reload the `/inbox` page. A stored view that no longer validates does not break the inbox. An ignored value keeps its text on its jobs. The job count on the values page includes jobs the user corrected; those keep their text as written. "Add as new value" for work mode accepts any value (TD-255).
+
+## ADR-100 — Companies (M4.10) (2026-10-20)
+
+- Context: M4.10 adds the companies list (`/companies`) and the company page (`/companies/{id}`). ADR-098 sets the scope but not these rules. They came up while the task was built and reviewed.
+- Decision: decided in the M4.10 run. This is not a user decision.
+  1. Open roles = the company's jobs that are not removed and not merged into another card. A snoozed job counts; a due snooze counts as New.
+  2. To apply = the company's jobs in state `to_apply`.
+  3. Last activity = the latest of the company's own `updated_at` and the `updated_at` of any non-merged job. It is shown as a local date and computed on read.
+  4. Sorting is case-insensitive and done in Python after one aggregate query. The whole list is paged at 50. This is a follow-up if lists grow.
+  5. Name collisions compare `company_key`: a name collision is a different company with the same key. A company's own name in another form is allowed. Renaming changes the name key, so a later job for the old name creates a new company.
+  6. Industry comes from `controlled_values`. A stored industry outside the list is kept.
+  7. Website: only http and https links; the scheme is lower-cased. A stored unsafe value is never rendered as a link.
+  8. `/companies/{id}` is a token-free page route by safe id, like the `/facts` and `/jobs` pages, with the fixed 404. Spec 2.9 rules 6 and 12 are updated in M4.11.
+- Consequences: sort and paging load the whole company list on each request. This is fine for a local app and is recorded for TECH_DEBT in M4.11. The page title does not update after a rename until reload. Renaming changes which company a later job for the old name joins. M4.11 must add the spec 2.9 list update and a README line about renaming.

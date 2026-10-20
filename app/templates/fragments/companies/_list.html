@@ -1,0 +1,45 @@
+{# The companies list (M4.10): the heading and one sortable table, 50 to a page. The sort links
+   and page links are plain links that htmx enhances: they swap this block and push the same
+   address, so a reload or Back opens the same view. A sort asks for focus=sort, which puts focus
+   on the column's link in the new block and announces the order. A page link asks for
+   focus=page: focus goes to the table and "Page 2 of 3." is announced. #}
+<div id="companies">
+{% if total == 0 %}
+  <section class="empty-state" aria-labelledby="page-heading">
+    <h1 id="page-heading" data-autofocus>{{ area.name }}</h1>
+    <p>No companies yet.</p>
+    <p>A company is added with its first job. <a href="/inbox">Add a job in the Job inbox</a> and it is listed here with its open roles.</p>
+  </section>
+{% else %}
+  <h1 id="page-heading" tabindex="-1"{% if not focus_sort and not focus_page %} data-autofocus{% endif %}>{{ area.name }}</h1>
+  <div class="table-scroll" role="region" tabindex="0" aria-labelledby="companies-caption"{% if focus_page %} data-autofocus{% endif %}>
+    <table id="companies-table" class="companies-table">
+      <caption id="companies-caption" class="visually-hidden">Companies. {{ sort_text }}</caption>
+      <thead>
+        <tr>
+        {% for column in columns %}
+          <th scope="col" aria-sort="{{ column.aria_sort }}"><a id="companies-sort-{{ column.key }}" href="{{ column.href }}" hx-get="{{ column.href }}&amp;focus=sort" hx-target="#companies" hx-swap="outerHTML settle:0ms" hx-push-url="{{ column.href }}"{% if focus_sort and column.active %} data-autofocus{% endif %}>{{ column.label }}{% if column.active %} <span aria-hidden="true">{{ "▲" if dir == "asc" else "▼" }}</span>{% endif %}</a></th>
+        {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for company in companies %}
+        <tr>
+          <td>{% if is_safe_id(company.id) %}<a href="/companies/{{ company.id }}">{{ company.name }}</a>{% else %}{{ company.name }}{% endif %}</td>
+          <td class="count">{{ company.open_roles }}</td>
+          <td class="count">{{ company.to_apply }}</td>
+          <td class="when"><time datetime="{{ company.last_activity }}">{{ company.last_day }}</time></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if pages > 1 %}
+  <nav class="pager" aria-label="Companies pages">
+    {% if previous_href %}<a class="button" href="{{ previous_href }}" hx-get="{{ previous_href }}&amp;focus=page" hx-target="#companies" hx-swap="outerHTML settle:0ms" hx-push-url="{{ previous_href }}">Previous page</a>{% endif %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    {% if next_href %}<a class="button" href="{{ next_href }}" hx-get="{{ next_href }}&amp;focus=page" hx-target="#companies" hx-swap="outerHTML settle:0ms" hx-push-url="{{ next_href }}">Next page</a>{% endif %}
+  </nav>
+  {% endif %}
+{% endif %}
+</div>

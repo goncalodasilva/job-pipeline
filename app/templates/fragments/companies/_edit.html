@@ -1,0 +1,36 @@
+{# The company's edit form (M4.10); the answer to a save replaces this block. A refused save
+   keeps the typed values and ties each error to its field; a stale version shows the reload
+   prompt. A save also replaces the page header (name, summary and website link) out of band. #}
+{% set fields = [('name', 'Name'), ('website', 'Website'), ('industry', 'Industry'), ('size', 'Size'), ('locations', 'Locations (one per line)'), ('notes', 'Notes')] %}
+<section id="company-edit" aria-labelledby="company-edit-heading">
+  <h2 id="company-edit-heading" tabindex="-1"{% if saved %} data-autofocus{% endif %}>Edit company</h2>
+  {% if saved %}<p role="status">Saved.</p>{% endif %}
+  {% if conflict %}
+    {% with reload_id='company-edit-reload', reload_message='This company changed since you opened it.', reload_detail='Your last change was not saved. Your typed values are below; copy them before reloading.', reload_url='/companies/' ~ company.id %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}
+  {% endif %}
+  <form hx-post="/companies/{{ company.id }}/edit" hx-target="#company-edit" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
+    <input type="hidden" name="version" value="{{ submitted.get('version', company.version) }}">
+    {% for name, label in fields %}
+      {% set stored = company[name] | join('\n') if name == 'locations' else (company[name] if company[name] is not none else '') %}
+      {% set value = submitted.get(name, stored) %}
+      {% set invalid = name in errors %}
+      <div class="field">
+        <label for="company-edit-{{ name }}">{{ label }}</label>
+        {% if name in ('notes', 'locations') %}
+        <textarea id="company-edit-{{ name }}" name="{{ name }}" rows="{{ 5 if name == 'notes' else 3 }}"{% if invalid %} aria-invalid="true" aria-describedby="company-edit-{{ name }}-error"{% if name == errors | first %} data-autofocus{% endif %}{% endif %}>{{ value }}</textarea>
+        {% elif name == 'industry' %}
+        <select id="company-edit-industry" name="industry"{% if invalid %} aria-invalid="true" aria-describedby="company-edit-industry-error"{% if name == errors | first %} data-autofocus{% endif %}{% endif %}>
+          <option value=""{% if not value %} selected{% endif %}>Not set</option>
+          {% for choice in industries %}<option value="{{ choice }}"{% if value == choice %} selected{% endif %}>{{ choice | replace("_", " ") | capitalize }}</option>{% endfor %}
+          {% if value and value not in industries %}<option value="{{ value }}" selected>{{ value }}</option>{% endif %}
+        </select>
+        {% else %}
+        <input id="company-edit-{{ name }}" name="{{ name }}" type="text"{% if name == 'website' %} inputmode="url" autocomplete="off"{% endif %} value="{{ value }}"{% if invalid %} aria-invalid="true" aria-describedby="company-edit-{{ name }}-error"{% if name == errors | first %} data-autofocus{% endif %}{% endif %}>
+        {% endif %}
+        {% if invalid %}<p class="field-error" id="company-edit-{{ name }}-error">{{ errors[name] }}</p>{% endif %}
+      </div>
+    {% endfor %}
+    <button type="submit" class="button button-primary">Save company</button>
+  </form>
+</section>
+{% if saved %}{% with oob = true %}{% include "fragments/companies/_header.html" %}{% endwith %}{% endif %}

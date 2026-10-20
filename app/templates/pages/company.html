@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% set live_updates = true %}
+{% block title %}{{ company.name }}{% endblock %}
+{% block content %}{% include "fragments/companies/_detail.html" %}{% endblock %}

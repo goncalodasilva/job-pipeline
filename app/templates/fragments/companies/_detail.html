@@ -1,0 +1,18 @@
+{# One company (M4.10): its name, summary, website, every job there with its state, and the edit form. #}
+<article id="company-detail" aria-labelledby="company-name">
+  <p><a href="/companies">Back to Companies</a></p>
+  {% include "fragments/companies/_header.html" %}
+  <section aria-labelledby="company-roles-heading">
+    <h2 id="company-roles-heading">Jobs at this company</h2>
+    {% if jobs %}
+    <ul id="company-roles" class="company-roles">
+      {% for job in jobs %}
+      <li>{% if is_safe_id(job.id) %}<a href="/jobs/{{ job.id }}">{{ job.title }}</a>{% else %}{{ job.title }}{% endif %} <span class="role-state">{{ job.state | replace("_", " ") | capitalize }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No jobs at this company yet.</p>
+    {% endif %}
+  </section>
+  {% include "fragments/companies/_edit.html" %}
+</article>

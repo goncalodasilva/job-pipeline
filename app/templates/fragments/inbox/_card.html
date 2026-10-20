@@ -26,8 +26,8 @@
   <h2 class="card-title"><button type="button" id="inbox-card-heading" class="card-title-button" aria-haspopup="dialog"
       hx-get="/inbox/jobs/{{ job.id }}/detail" hx-target="#inbox-details" hx-swap="innerHTML"
       {% if focus and not error %}data-autofocus{% endif %}>{{ job.title }}</button></h2>
-  {% set about = [job.company, job.industry, job.department] | select | list %}
-  {% if about %}<p class="card-about">{{ about | join(" · ") }}</p>{% endif %}
+  {% set about = [job.industry, job.department] | select | list %}
+  {% if job.company or about %}<p class="card-about">{% if job.company %}{% if job.company_id and is_safe_id(job.company_id) %}<a href="/companies/{{ job.company_id }}">{{ job.company }}</a>{% else %}{{ job.company }}{% endif %}{% if about %} · {% endif %}{% endif %}{{ about | join(" · ") }}</p>{% endif %}
   {% if card.state == "snoozed" and card.snoozed_text %}<p class="card-state">Snoozed until {{ card.snoozed_text }}</p>{% endif %}
   {% if card.state == "removed" %}<p class="card-state">Removed</p>{% endif %}
   {% if card.state == "to_apply" %}<p class="card-state">To apply</p>{% endif %}

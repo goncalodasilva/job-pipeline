@@ -624,6 +624,7 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
 
         seed_jobs(app.state.workspace.db, generate_jobs(1))
         known_params["job_id"] = "job-0001"
+        known_params["company_id"] = "company-0001"  # made by the job fixtures (M4.10)
         for route in pages:
             path = route.path
             for name in route.param_convertors:
@@ -637,6 +638,7 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
     assert visited["/facts/{fact_id}/edit"] == f"/facts/{known_params['fact_id']}/edit"
     assert visited["/facts/{draft_id}/merge"] == f"/facts/{known_params['draft_id']}/merge"
     assert visited["/jobs/{job_id}"] == "/jobs/job-0001"
+    assert visited["/companies/{company_id}"] == "/companies/company-0001"
 
 
 # --- the fact pages' addresses (M3.6): one safe segment, nothing else exempted ----------------

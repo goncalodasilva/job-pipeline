@@ -16,6 +16,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from starlette.templating import Jinja2Templates
 
 from app.api.security import TOKEN_HEADER
+from app.domain.ids import is_safe_id
 from app.onboarding.registry import PROVIDER, StepRegistry
 from app.onboarding.startup import OnboardingState
 from app.services.task_views import NONE_RUNNING, TaskViews, TopBarView
@@ -38,6 +39,7 @@ def _environment() -> Environment:
         undefined=StrictUndefined,
     )
     env.globals["static"] = static
+    env.globals["is_safe_id"] = is_safe_id
     return env
 
 
