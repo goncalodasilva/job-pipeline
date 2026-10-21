@@ -6,6 +6,13 @@ from datetime import date
 from app.domain.fts import fts_query
 from app.domain.inbox import InboxFilters, InboxGroup, InboxPage
 
+# A To apply job whose application has moved on from Preparing is on the Board, not here.
+# A job with no application (marked before applications existed) still counts.
+_MOVED_ON = (
+    "EXISTS (SELECT 1 FROM applications a JOIN application_statuses s ON s.key=a.status_key "
+    "WHERE a.job_id=j.id AND s.phase<>'preparing')"
+)
+
 
 def _where(filters: InboxFilters, today: date) -> tuple[str, list[object]]:
     clauses = ["j.merged_into_job_id IS NULL"]
@@ -18,6 +25,8 @@ def _where(filters: InboxFilters, today: date) -> tuple[str, list[object]]:
     elif filters.view == "snoozed":
         clauses.append("j.triage_state='snoozed' AND j.snooze_until>?")
         params.append(today.isoformat())
+    elif filters.view == "to_apply":
+        clauses.append(f"j.triage_state='to_apply' AND NOT {_MOVED_ON}")
     else:
         clauses.append("j.triage_state=?")
         params.append(filters.view)

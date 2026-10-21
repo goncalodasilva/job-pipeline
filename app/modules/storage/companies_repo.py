@@ -15,7 +15,9 @@ from app.modules.storage import job_summary_repo
 _LISTING = (
     "SELECT c.id, c.name, c.updated_at, "
     "COALESCE(SUM(CASE WHEN j.triage_state <> 'removed' THEN 1 END), 0), "
-    "COALESCE(SUM(CASE WHEN j.triage_state = 'to_apply' THEN 1 END), 0), "
+    "COALESCE(SUM(CASE WHEN j.triage_state = 'to_apply' AND NOT EXISTS ("
+    "SELECT 1 FROM applications a JOIN application_statuses s ON s.key = a.status_key "
+    "WHERE a.job_id = j.id AND s.phase <> 'preparing') THEN 1 END), 0), "
     "MAX(j.updated_at) "
     "FROM companies c LEFT JOIN jobs j ON j.company_id = c.id AND j.merged_into_job_id IS NULL "
     "GROUP BY c.id"
@@ -70,12 +72,23 @@ def get(conn: sqlite3.Connection, company_id: str) -> dict[str, Any] | None:
 
 
 def jobs(conn: sqlite3.Connection, company_id: str) -> list[dict[str, Any]]:
-    """Every job at the company, newest found first (removed ones too)."""
+    """Every job at the company, newest found first (removed ones too). ``moved_on`` is the
+    label of the status of a To apply job whose application has left Preparing."""
     return [
-        {"id": id_, "title": title, "triage_state": state, "snooze_until": until}
-        for id_, title, state, until in conn.execute(
-            "SELECT id, title, triage_state, snooze_until FROM jobs "
-            "WHERE company_id = ? AND merged_into_job_id IS NULL ORDER BY found_at DESC, id",
+        {
+            "id": id_,
+            "title": title,
+            "triage_state": state,
+            "snooze_until": until,
+            "moved_on": label if state == "to_apply" else None,
+        }
+        for id_, title, state, until, label in conn.execute(
+            "SELECT j.id, j.title, j.triage_state, j.snooze_until, "
+            "CASE WHEN s.phase <> 'preparing' THEN s.label END "
+            "FROM jobs j LEFT JOIN applications a ON a.job_id = j.id "
+            "LEFT JOIN application_statuses s ON s.key = a.status_key "
+            "WHERE j.company_id = ? AND j.merged_into_job_id IS NULL "
+            "ORDER BY j.found_at DESC, j.id",
             (company_id,),
         )
     ]

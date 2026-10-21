@@ -3,6 +3,7 @@
 {%- endmacro %}
 {% set ask = triage_error.field if triage_error else '' %}
 {% set can_triage = card.state in ('new', 'seen', 'snoozed') %}
+{% set moved_on = card.moved_on if card.state == 'to_apply' else none %}
 <div class="card-actions">
   {% if can_triage %}
   <form hx-post="/inbox/jobs/{{ job.id }}/detail-triage" hx-target="#job-detail-header" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
@@ -10,7 +11,10 @@
   </form>
   <button type="button" class="button" id="detail-remove" data-detail-remove aria-haspopup="dialog">Remove</button>
   {% endif %}
-  {% if not can_triage or card.state == 'snoozed' %}
+  {% if moved_on %}
+  <a class="button" href="/board">Open the Board</a>
+  {% endif %}
+  {% if (not can_triage and not moved_on) or card.state == 'snoozed' %}
   <form hx-post="/inbox/jobs/{{ job.id }}/detail-triage" hx-target="#job-detail-header" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
     {{ fields('restore' if card.state == 'removed' else 'undo') }}
     <button type="submit" class="button">{{ 'Restore' if card.state == 'removed' else 'Back to queue' }}</button>

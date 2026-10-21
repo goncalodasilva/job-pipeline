@@ -300,6 +300,7 @@ def test_inbox_sorts_are_deterministic_and_nulls_last(desk, sort):
         InboxFilters(sort="posting_age"),
         InboxFilters(sort="band"),
         InboxFilters(view="snoozed"),
+        InboxFilters(view="to_apply"),
     ],
 )
 def test_inbox_queries_use_indexes(desk, filters):

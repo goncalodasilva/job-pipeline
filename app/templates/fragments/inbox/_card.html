@@ -13,6 +13,9 @@
 {% set working = card.processing or card.active %}
 {% set ask = error.field if error else "" %}
 {% set can_triage = card.state in ("new", "seen", "snoozed") %}
+{# A To apply job whose application left Preparing shows that status and the Board instead of
+   Back to queue (Undo would be refused). #}
+{% set moved_on = card.moved_on if card.state == "to_apply" else none %}
 <article id="inbox-card" class="inbox-card" aria-labelledby="inbox-card-heading"
          data-job-id="{{ job.id }}" data-state="{{ card.state }}"{% if card.processing %} data-processing{% endif %}{% if card.state == "new" %} data-seen-pending{% endif %}
          {% if announce %}data-announce="Job {{ position }} of {{ total }}: {{ job.title }}"{% endif %}
@@ -30,7 +33,7 @@
   {% if job.company or about %}<p class="card-about">{% if job.company %}{% if job.company_id and is_safe_id(job.company_id) %}<a href="/companies/{{ job.company_id }}">{{ job.company }}</a>{% else %}{{ job.company }}{% endif %}{% if about %} · {% endif %}{% endif %}{{ about | join(" · ") }}</p>{% endif %}
   {% if card.state == "snoozed" and card.snoozed_text %}<p class="card-state">Snoozed until {{ card.snoozed_text }}</p>{% endif %}
   {% if card.state == "removed" %}<p class="card-state">Removed</p>{% endif %}
-  {% if card.state == "to_apply" %}<p class="card-state">To apply</p>{% endif %}
+  {% if card.state == "to_apply" %}<p class="card-state">{{ moved_on or "To apply" }}</p>{% endif %}
   <ul class="card-facts">
     {% if card.work_mode %}<li><span class="card-label">Work mode:</span> {{ card.work_mode }}</li>{% endif %}
     {% if card.salary %}<li><span class="card-label">Salary:</span> {{ card.salary }}</li>{% endif %}
@@ -70,7 +73,10 @@
     </form>
     <button type="button" id="inbox-remove" class="button" {{ keys("R") }} aria-haspopup="dialog" data-action="remove">Remove{{ hint("R") }}</button>
     {% endif %}
-    {% if not can_triage or card.state == "snoozed" %}
+    {% if moved_on %}
+    <a class="button" href="/board">Open the Board</a>
+    {% endif %}
+    {% if (not can_triage and not moved_on) or card.state == "snoozed" %}
     <form hx-post="/inbox/jobs/{{ job.id }}/triage" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button">
       {{ triage_fields("restore" if card.state == "removed" else "undo") }}
       {% if card.state == "removed" %}
