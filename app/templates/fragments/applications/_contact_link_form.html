@@ -1,0 +1,15 @@
+{# Link one of the company's contacts to this application (M5.6). Set cf_errors after a
+   refusal. Only listed contacts can be chosen, so no typed value is kept. #}
+{% set errs = cf_errors | default({}) %}
+<form id="contact-link-form" aria-label="Link a contact" method="post" action="/applications/{{ application.id }}/contacts" hx-post="/applications/{{ application.id }}/contacts" hx-target="#application-detail" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button" data-detail-editor{% if errs %} data-unsaved{% endif %}>
+  <p data-editor-draft hidden>Your newer typing is kept below. This response applies to the earlier submission.</p>
+  <div class="field">
+    <label for="contact-link-select">Contact to link</label>
+    <select id="contact-link-select" name="contact_id"{% if errs.get('contact_id') %} aria-invalid="true" aria-describedby="contact-link-error" data-autofocus{% endif %}>
+      <option value="">Choose a contact</option>
+      {% for contact in unlinked_contacts %}<option value="{{ contact.id }}">{{ contact.name }}{% if contact.role %} ({{ contact.role }}){% endif %}</option>{% endfor %}
+    </select>
+    {% if errs.get('contact_id') %}<p class="field-error" id="contact-link-error">{{ errs['contact_id'] }}</p>{% endif %}
+  </div>
+  <button class="button" type="submit">Link contact</button>
+</form>

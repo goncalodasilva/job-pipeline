@@ -4,6 +4,7 @@ lock (spec 2.4, 2.7; ADR-072)."""
 from app.modules.storage import (
     applications_repo,
     capture_repo,
+    contacts_repo,
     cv_imports_repo,
     fact_pairs_repo,
     facts_repo,
@@ -46,6 +47,7 @@ __all__ = [
     "applications_repo",
     "apply_migrations",
     "capture_repo",
+    "contacts_repo",
     "cv_imports_repo",
     "fact_pairs_repo",
     "facts_repo",

@@ -16,6 +16,8 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from starlette.templating import Jinja2Templates
 
 from app.api.security import TOKEN_HEADER
+from app.domain.contacts import LIMITS as CONTACT_LIMITS
+from app.domain.contacts import NOTE_LIMIT
 from app.domain.ids import is_safe_id
 from app.onboarding.registry import PROVIDER, StepRegistry
 from app.onboarding.startup import OnboardingState
@@ -40,6 +42,7 @@ def _environment() -> Environment:
     )
     env.globals["static"] = static
     env.globals["is_safe_id"] = is_safe_id
+    env.globals["contact_limits"] = {**CONTACT_LIMITS, "interaction_note": NOTE_LIMIT}
     return env
 
 

@@ -286,8 +286,6 @@ def test_company_page_has_no_placeholder_for_unbuilt_features(tmp_path):
             shown = response.text
             main = shown.split("<main", 1)[-1].lower()
             for absent in (
-                "contact",
-                "history",
                 "brief",
                 "watch",
                 "coming soon",
@@ -295,7 +293,6 @@ def test_company_page_has_no_placeholder_for_unbuilt_features(tmp_path):
                 "will appear",
             ):
                 assert absent not in main, absent
-            assert "application" not in re.sub(r"to apply", "", main)
 
 
 def test_company_gets_change_nothing(tmp_path):

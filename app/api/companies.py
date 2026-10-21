@@ -129,7 +129,7 @@ def companies_page(request: Request) -> Response:
     return response
 
 
-def _detail_context(request: Request, company_id: str) -> dict[str, Any]:
+def detail_context(request: Request, company_id: str) -> dict[str, Any]:
     return {
         **_service(request).view(company_id),
         "area": area("companies"),
@@ -138,12 +138,13 @@ def _detail_context(request: Request, company_id: str) -> dict[str, Any]:
         "errors": {},
         "submitted": {},
         "conflict": False,
+        "contact_message": "",
     }
 
 
 def company_page(request: Request, company_id: str) -> Response:
     try:
-        ctx = _detail_context(request, company_id)
+        ctx = detail_context(request, company_id)
     except LookupError:
         return _not_found()
     return render(request, page="pages/company.html", fragment=DETAIL_FRAGMENT, ctx=ctx)
@@ -174,7 +175,7 @@ def _save(request: Request, company_id: str, form: dict[str, str], version: int)
     except LookupError:
         return _not_found()
     try:
-        ctx = _detail_context(request, company_id)
+        ctx = detail_context(request, company_id)
     except LookupError:
         return _not_found()
     ctx.update(

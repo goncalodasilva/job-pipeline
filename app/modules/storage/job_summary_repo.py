@@ -9,7 +9,7 @@ from app.domain.errors import JobNotFound, VersionConflict
 from app.domain.ids import IdFactory
 from app.domain.job_normalization import company_key, normalize_value
 from app.domain.jobs import merge_fields
-from app.modules.storage import job_intake_repo, jobs_repo
+from app.modules.storage import contacts_repo, job_intake_repo, jobs_repo
 
 
 def job(conn: sqlite3.Connection, job_id: str) -> dict[str, Any]:
@@ -73,7 +73,11 @@ def store(
                 merged[low] = None
     company_id = None
     name = merged.get("company")
-    if isinstance(name, str) and name.strip() and company_key(name):
+    if contacts_repo.job_has_contact_links(conn, job_id):
+        # Contacts tie the application to this company (migration 0005): a generated summary
+        # never moves the job to another one.
+        company_id = current["company_id"]
+    elif isinstance(name, str) and name.strip() and company_key(name):
         key = company_key(name)
         row = conn.execute("SELECT id FROM companies WHERE name_key=?", (key,)).fetchone()
         company_id = row[0] if row else ids.new()

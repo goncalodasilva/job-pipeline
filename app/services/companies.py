@@ -6,7 +6,7 @@ nothing here logs it.
 """
 
 from collections.abc import Callable, Mapping
-from datetime import date, datetime, tzinfo
+from datetime import UTC, date, datetime, tzinfo
 from typing import Any
 
 from app.domain.clock import Clock
@@ -18,11 +18,18 @@ from app.domain.companies import (
     ordered,
     safe_website,
 )
+from app.domain.company_history import (
+    ordered_history,
+    reapply_note,
+    recent_applications,
+    status_words,
+)
+from app.domain.contacts import mailto_link
 from app.domain.errors import VersionConflict
 from app.domain.ids import is_safe_id
 from app.domain.job_normalization import company_key
 from app.domain.jobs import Triage, TriageState, effective_state, local_today
-from app.modules.storage import Database
+from app.modules.storage import Database, contacts_repo
 from app.modules.storage import companies_repo as repo
 
 
@@ -81,10 +88,34 @@ class CompaniesService:
                 raise LookupError
             jobs = repo.jobs(conn, company_id)
             industries = repo.industries(conn)
+            contacts = contacts_repo.for_company(conn, company_id)
+            applications = contacts_repo.history(conn, company_id)
+        now = self._clock.now()
+        applied = {a["id"]: _instant(a["applied_at"]) for a in applications}
         return {
             "company": {**company, "link": safe_website(company["website"])},
             "jobs": tuple({**job, "state": _state(job, today)} for job in jobs),
             "industries": tuple(industries),
+            "contacts": tuple(
+                {
+                    **contact,
+                    "link": mailto_link(contact["email"]),
+                    "last_day": contact["last_contact"][:10],
+                }
+                for contact in sorted(
+                    contacts, key=lambda c: (c["name"].casefold(), c["name"], c["id"])
+                )
+            ),
+            "history": tuple(
+                {
+                    "id": a["id"],
+                    "title": a["title"],
+                    "status": status_words(a["label"], a["phase"]),
+                    "applied_day": self._day(a["applied_at"]) if a["applied_at"] else "",
+                }
+                for a in ordered_history(applications)
+            ),
+            "reapply_note": reapply_note(recent_applications(applied.values(), now)),
         }
 
     def edit(self, company_id: str, values: Mapping[str, str], *, expected_version: int) -> int:
@@ -115,6 +146,14 @@ class CompaniesService:
                 now=self._clock.now().isoformat(),
             )
             return expected_version + 1
+
+
+def _instant(stamp: str | None) -> datetime | None:
+    try:
+        when = datetime.fromisoformat(stamp) if stamp else None
+    except ValueError:
+        return None
+    return when if when is None or when.tzinfo else when.replace(tzinfo=UTC)
 
 
 def _state(job: Mapping[str, Any], today: date) -> str:

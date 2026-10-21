@@ -23,9 +23,11 @@ from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
 
 from app import __version__
+from app.api.application_contacts import register_application_contact_routes
 from app.api.application_detail import register_application_detail_routes
 from app.api.board import register_board_routes
 from app.api.companies import register_company_routes
+from app.api.company_contacts import register_company_contact_routes
 from app.api.errors import register_error_handlers
 from app.api.events import (
     DEFAULT_EVENT_QUEUE_SIZE,
@@ -108,6 +110,7 @@ from app.services.board_views import BoardViews
 from app.services.budget_gate import BudgetGate
 from app.services.capture import CaptureService
 from app.services.companies import CompaniesService
+from app.services.contacts import ContactsService
 from app.services.cv_import import (
     EXTRACT_CV,
     EXTRACT_CV_LABEL,
@@ -1095,6 +1098,7 @@ def create_app(
     )
     app.state.inbox_organisation = InboxOrganisation(lambda: _current_db(app), app_clock, app_ids)
     app.state.companies = CompaniesService(lambda: _current_db(app), app_clock, app_tz)
+    app.state.contacts = ContactsService(lambda: _current_db(app), app_clock, app_ids)
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
@@ -1147,8 +1151,10 @@ def create_app(
     register_job_fit_routes(app)
     register_job_detail_routes(app)
     register_company_routes(app)
+    register_company_contact_routes(app)
     register_board_routes(app)
     register_application_detail_routes(app)
+    register_application_contact_routes(app)
     register_setup_pages(app)
     register_events(
         app,

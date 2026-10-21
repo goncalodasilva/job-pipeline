@@ -8,11 +8,13 @@ from zoneinfo import ZoneInfo
 from app.domain.application_detail import EVENT_TYPES, DetailInvalid, checked_event, checked_note
 from app.domain.clock import Clock
 from app.domain.companies import safe_website
+from app.domain.contacts import CHANNELS
 from app.domain.errors import ApplicationNotFound, EventTimeInvalid, VersionConflict
 from app.domain.events import all_day_range, wall_time_to_utc
 from app.domain.ids import IdFactory, is_safe_id
+from app.domain.jobs import local_today
 from app.modules.calendar import CalendarFile, CalendarProvider, EventData, EventType
-from app.modules.storage import Database, applications_repo
+from app.modules.storage import Database, applications_repo, contacts_repo
 from app.modules.storage import application_detail_repo as repo
 from app.services.applications import _zone
 from app.services.board_views import zone_names
@@ -46,6 +48,12 @@ class ApplicationDetail:
             history = repo.history(conn, aid)
             interactions = repo.interactions(conn, aid)
             statuses = applications_repo.list_statuses(conn)
+            company_id = application["company_id"]
+            on_file = contacts_repo.for_company(conn, company_id) if company_id else []
+            linked = set(contacts_repo.linked_ids(conn, aid))
+        company_contacts = sorted(on_file, key=lambda c: (c["name"].casefold(), c["name"], c["id"]))
+        for interaction in interactions:
+            interaction["channel_label"] = CHANNELS.get(interaction["channel"], "Other")
         application["applied_date"] = (
             datetime.fromisoformat(application["applied_at"])
             .astimezone(self._zone)
@@ -77,12 +85,18 @@ class ApplicationDetail:
             "timeline": timeline,
             "next_event": next_event,
             "statuses": statuses,
+            "contacts": [c for c in company_contacts if c["id"] in linked],
+            "company_contacts": company_contacts,
+            "unlinked_contacts": [c for c in company_contacts if c["id"] not in linked],
+            "channels": CHANNELS,
+            "today": local_today(self._clock.now(), self._zone).isoformat(),
             "zone_names": zone_names(),
             "default_zone": default_zone or "",
             "errors": {},
             "submitted": {},
             "message": "",
             "follow_up": None,
+            "focus": "",
         }
 
     def note(

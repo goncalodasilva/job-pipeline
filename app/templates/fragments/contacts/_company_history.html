@@ -1,0 +1,15 @@
+{# A company's applications (M5.6), newest first, each with its applied date and its status in
+   words. The re-apply note is information only; nothing here blocks applying. #}
+<section id="company-history" aria-labelledby="company-history-heading">
+  <h2 id="company-history-heading">History</h2>
+  {% if reapply_note %}<p id="company-reapply-note">{{ reapply_note }}</p>{% endif %}
+  {% if history %}
+  <ul id="company-history-list" class="company-roles">
+    {% for application in history %}
+    <li data-application-id="{{ application.id }}">{% if is_safe_id(application.id) %}<a href="/applications/{{ application.id }}">{{ application.title }}</a>{% else %}{{ application.title }}{% endif %} <span class="role-state">Applied: {{ application.applied_day or 'Not yet' }}</span> <span>Status: {{ application.status }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No applications yet. Each one you start for this company is listed here.</p>
+  {% endif %}
+</section>

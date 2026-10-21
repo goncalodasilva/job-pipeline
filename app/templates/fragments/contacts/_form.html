@@ -1,0 +1,34 @@
+{# One contact form (M5.6): the company page's add and edit forms and the drawer's inline add
+   form. Set cf_scope ('company' or 'application'), cf_key (the contact's id when editing, else
+   empty), cf_item (the stored contact when editing), cf_typed, cf_errors and cf_conflict. A
+   refused save is answered with this form alone, keeping what was typed and tying each error to
+   its field; a stale version also shows the reload prompt. #}
+{% set key = cf_key | default('') %}
+{% set item = cf_item | default({}) %}
+{% set typed = cf_typed | default({}) %}
+{% set errs = cf_errors | default({}) %}
+{% set in_drawer = cf_scope == 'application' %}
+{% set form_id = 'application-contact-form' if in_drawer else 'contact-form-' ~ (key if key else 'new') %}
+{% set action = ('/applications/' ~ application.id ~ '/contacts/new') if in_drawer else ('/companies/' ~ company.id ~ '/contacts' ~ ('/' ~ key if key else '')) %}
+{% set labels = {'name': 'Contact name', 'role': 'Role', 'email': 'Email', 'phone': 'Phone', 'relationship': 'How you know them', 'notes': 'Contact notes'} %}
+<form id="{{ form_id }}" class="contact-form"{% if key %} aria-label="Edit {{ item.name }}"{% else %} aria-labelledby="{{ 'application-contact-add-heading' if in_drawer else 'company-contact-add-heading' }}"{% endif %} method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="{{ '#application-detail' if in_drawer else '#company-contacts' }}" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button"{% if in_drawer %} data-detail-editor{% if errs or cf_conflict | default(false) %} data-unsaved{% endif %}{% endif %}>
+  {% if key %}<input type="hidden" name="version" value="{{ typed.get('version', item.version) }}">{% endif %}
+  {% if in_drawer %}<p data-editor-draft hidden>Your newer typing is kept below. This response applies to the earlier submission.</p>{% endif %}
+  {% if cf_conflict | default(false) %}
+    {% with reload_id=form_id ~ '-reload', reload_message='This contact changed since you opened it.', reload_detail='Your last change was not saved. Your typed values are below; copy them before reloading.', reload_url='/companies/' ~ company.id %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}
+  {% endif %}
+  {% for name in ['name', 'role', 'email', 'phone', 'relationship', 'notes'] %}
+    {% set value = typed.get(name, item.get(name, '')) %}
+    {% set invalid = name in errs %}
+    <div class="field">
+      <label for="{{ form_id }}-{{ name }}">{{ labels[name] }}</label>
+      {% if name == 'notes' %}
+      <textarea id="{{ form_id }}-{{ name }}" name="notes" rows="3" maxlength="{{ contact_limits.notes }}"{% if invalid %} aria-invalid="true" aria-describedby="{{ form_id }}-{{ name }}-error"{% if name == errs | first %} data-autofocus{% endif %}{% endif %}>{{ value }}</textarea>
+      {% else %}
+      <input id="{{ form_id }}-{{ name }}" name="{{ name }}" type="{{ 'tel' if name == 'phone' else 'text' }}"{% if name == 'email' %} inputmode="email" spellcheck="false"{% endif %} autocomplete="off" maxlength="{{ contact_limits[name] }}" value="{{ value }}"{% if name == 'name' %} required{% endif %}{% if invalid %} aria-invalid="true" aria-describedby="{{ form_id }}-{{ name }}-error"{% if name == errs | first %} data-autofocus{% endif %}{% endif %}>
+      {% endif %}
+      {% if invalid %}<p class="field-error" id="{{ form_id }}-{{ name }}-error">{{ errs[name] }}</p>{% endif %}
+    </div>
+  {% endfor %}
+  <button class="button{{ '' if key and not in_drawer else ' button-primary' }}" type="submit">{{ 'Add and link contact' if in_drawer else 'Save contact' if key else 'Add contact' }}</button>
+</form>

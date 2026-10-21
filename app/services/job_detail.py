@@ -1,5 +1,6 @@
 """Local job detail reads and edits, with no provider calls or GET writes."""
 
+import sqlite3
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -11,6 +12,12 @@ from app.domain.job_intake import checked_link
 from app.domain.job_normalization import company_key
 from app.modules.storage import Database, job_detail_repo, job_summary_repo
 from app.services.inbox_views import InboxViews
+
+_CONTACT_GUARD = "application contacts keep their company"
+COMPANY_HAS_CONTACTS = (
+    "Contacts are tied to this job's application, so its company can't change. "
+    "Unlink linked contacts first; a contact with a logged interaction keeps the company."
+)
 
 
 class JobDetailService:
@@ -57,12 +64,17 @@ class JobDetailService:
             checked = checked_edits(values, current)
             if checked.get("company") and not company_key(checked["company"]):
                 raise JobEditInvalid({"company": "Enter a company name with letters or numbers."})
-            job_detail_repo.update(
-                conn,
-                job_id,
-                expected_version=expected_version,
-                values=checked,
-                ids=self._ids,
-                now=self._clock.now().isoformat(),
-            )
+            try:
+                job_detail_repo.update(
+                    conn,
+                    job_id,
+                    expected_version=expected_version,
+                    values=checked,
+                    ids=self._ids,
+                    now=self._clock.now().isoformat(),
+                )
+            except sqlite3.IntegrityError as error:
+                if _CONTACT_GUARD not in str(error):
+                    raise
+                raise JobEditInvalid({"company": COMPANY_HAS_CONTACTS}) from None
             return int(job_summary_repo.job(conn, job_id)["version"])

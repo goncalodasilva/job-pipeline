@@ -1,0 +1,20 @@
+{# Log an interaction on this application (M5.6): the day, how you were in touch, a note and
+   optionally which contact. Set cf_typed and cf_errors after a refusal; the typed values stay. #}
+{% set typed = cf_typed | default({}) %}
+{% set errs = cf_errors | default({}) %}
+{% macro error_attrs(name) %}{% if errs.get(name) %} aria-invalid="true" aria-describedby="interaction-{{ name }}-error"{% if name == errs | first %} data-autofocus{% endif %}{% endif %}{% endmacro %}
+{% macro error_line(name) %}{% if errs.get(name) %}<p class="field-error" id="interaction-{{ name }}-error">{{ errs[name] }}</p>{% endif %}{% endmacro %}
+<form id="interaction-form" aria-labelledby="log-interaction-heading" method="post" action="/applications/{{ application.id }}/interactions" hx-post="/applications/{{ application.id }}/interactions" hx-target="#application-detail" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button" data-detail-editor{% if errs %} data-unsaved{% endif %}>
+  <p data-editor-draft hidden>Your newer typing is kept below. This response applies to the earlier submission.</p>
+  <div class="field"><label for="interaction-date">Interaction date</label>
+    <input id="interaction-date" name="date" type="date" required value="{{ typed.get('date', today) }}"{{ error_attrs('date') }}>{{ error_line('date') }}</div>
+  <div class="field"><label for="interaction-channel">Channel</label>
+    <select id="interaction-channel" name="channel"{{ error_attrs('channel') }}>{% for key, label in channels.items() %}<option value="{{ key }}"{% if typed.get('channel', 'email') == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>{{ error_line('channel') }}</div>
+  <div class="field"><label for="interaction-note">Interaction note</label>
+    <textarea id="interaction-note" name="note" rows="3" maxlength="{{ contact_limits.interaction_note }}"{{ error_attrs('note') }}>{{ typed.get('note', '') }}</textarea>{{ error_line('note') }}</div>
+  <div class="field"><label for="interaction-contact">Contact (optional)</label>
+    <select id="interaction-contact" name="contact_id"{{ error_attrs('contact_id') }}><option value="">No one in particular</option>{% for contact in company_contacts %}<option value="{{ contact.id }}"{% if typed.get('contact_id') == contact.id %} selected{% endif %}>{{ contact.name }}</option>{% endfor %}</select>{{ error_line('contact_id') }}
+    {% if not company_contacts %}<p class="field-hint">{% if application.company_id %}Add a contact above to pick one.{% else %}This job has no company, so there is no contact to pick.{% endif %}</p>{% endif %}</div>
+  <p class="field-hint">Interactions can't be edited yet.</p>
+  <button class="button" type="submit">Log interaction</button>
+</form>

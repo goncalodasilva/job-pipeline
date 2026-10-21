@@ -67,7 +67,9 @@ def history(conn: sqlite3.Connection, application_id: str) -> list[dict[str, Any
 def interactions(conn: sqlite3.Connection, application_id: str) -> list[dict[str, Any]]:
     return _rows(
         conn.execute(
-            "SELECT * FROM interactions WHERE application_id=? ORDER BY happened_at DESC, id DESC",
+            "SELECT i.*, c.name AS contact_name FROM interactions i "
+            "LEFT JOIN contacts c ON c.id=i.contact_id WHERE i.application_id=? "
+            "ORDER BY i.happened_at DESC, i.id DESC",
             (application_id,),
         )
     )

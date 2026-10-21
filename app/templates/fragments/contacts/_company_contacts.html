@@ -1,0 +1,34 @@
+{# A company's contacts (M5.6): each with its details, last contact date and linked
+   applications, an edit form behind a disclosure, and the add form. The answer to an add or
+   edit replaces this whole block; a refused one replaces only the form (see _form.html).
+   Contact text is untrusted: everything is escaped, and an email is a link only with a valid
+   shape. #}
+<section id="company-contacts" aria-labelledby="company-contacts-heading">
+  <h2 id="company-contacts-heading" tabindex="-1"{% if contact_message %} data-autofocus{% endif %}>Contacts</h2>
+  {% if contact_message %}<p>{{ contact_message }}</p>{% endif %}
+  {% if contacts %}
+  <ul id="company-contact-list" class="contact-list">
+    {% for contact in contacts %}
+    <li data-contact-id="{{ contact.id }}">
+      <h3>{{ contact.name }}</h3>
+      {% if contact.role %}<p>{{ contact.role }}</p>{% endif %}
+      {% if contact.email %}<p>Email: {% if contact.link %}<a href="{{ contact.link }}">{{ contact.email }}</a>{% else %}{{ contact.email }}{% endif %}</p>{% endif %}
+      {% if contact.phone %}<p>Phone: {{ contact.phone }}</p>{% endif %}
+      {% if contact.relationship %}<p>How you know them: {{ contact.relationship }}</p>{% endif %}
+      {% if contact.notes %}<p class="contact-notes">{{ contact.notes }}</p>{% endif %}
+      {% if contact.last_day %}<p>Last contact: {{ contact.last_day }}</p>{% endif %}
+      {% if contact.applications %}<p>Applications: {% for linked in contact.applications %}{% if is_safe_id(linked.id) %}<a href="/applications/{{ linked.id }}">{{ linked.title }}</a>{% else %}{{ linked.title }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+      {% if is_safe_id(contact.id) %}
+      <details><summary>Edit {{ contact.name }}</summary>
+        {% with cf_scope='company', cf_key=contact.id, cf_item=contact, cf_typed={}, cf_errors={}, cf_conflict=false %}{% include "fragments/contacts/_form.html" %}{% endwith %}
+      </details>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No contacts yet. Add the people you talk to at {{ company.name }} and note how you know them.</p>
+  {% endif %}
+  <h3 id="company-contact-add-heading">Add a contact</h3>
+  {% with cf_scope='company', cf_key='', cf_item={}, cf_typed={}, cf_errors={}, cf_conflict=false %}{% include "fragments/contacts/_form.html" %}{% endwith %}
+</section>

@@ -81,9 +81,11 @@ def drawer(request: Request, application_id: str) -> Response:
         return _not_found()
 
 
-def answer(request: Request, aid: str, *, message: str = "", follow_up: Any = None) -> Response:
+def answer(
+    request: Request, aid: str, *, message: str = "", follow_up: Any = None, focus: str = ""
+) -> Response:
     ctx = context(request, aid)
-    ctx.update(message=message, follow_up=follow_up)
+    ctx.update(message=message, follow_up=follow_up, focus=focus)
     response = templates.TemplateResponse(request, DETAIL, ctx)
     response.headers["HX-Trigger-After-Settle"] = json.dumps(
         {"announce": message, "board:changed": {}, "application:saved": {"id": aid}}

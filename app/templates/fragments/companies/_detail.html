@@ -1,4 +1,4 @@
-{# One company (M4.10): its name, summary, website, every job there with its state, and the edit form. #}
+{# One company (M4.10, M5.6): its name, summary, website, every job there with its state, its contacts and application history, and the edit form. #}
 <article id="company-detail" aria-labelledby="company-name">
   <p><a href="/companies">Back to Companies</a></p>
   {% include "fragments/companies/_header.html" %}
@@ -14,5 +14,7 @@
     <p>No jobs at this company yet.</p>
     {% endif %}
   </section>
+  {% include "fragments/contacts/_company_contacts.html" %}
+  {% include "fragments/contacts/_company_history.html" %}
   {% include "fragments/companies/_edit.html" %}
 </article>

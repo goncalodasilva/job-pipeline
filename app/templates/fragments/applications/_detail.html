@@ -1,5 +1,5 @@
 <article id="application-detail" data-application="{{ application.id }}" aria-labelledby="application-title">
-  <h2 id="application-title" tabindex="-1"{% if message %} data-autofocus{% endif %}>{{ application.title }}</h2>
+  <h2 id="application-title" tabindex="-1"{% if message and focus != 'contacts' %} data-autofocus{% endif %}>{{ application.title }}</h2>
   <p><a href="/jobs/{{ application.job_id }}">Open job</a>{% if application.company %} · {% if application.company_id and is_safe_id(application.company_id) %}<a href="/companies/{{ application.company_id }}">{{ application.company }}</a>{% else %}{{ application.company }}{% endif %}{% endif %}</p>
   <p><a class="button" href="#application-event-editor" data-section-link>Add event</a></p>
   {% if message %}<p class="save-message">{{ message }}</p>{% endif %}
@@ -17,14 +17,38 @@
   <p>Applied: {{ application.applied_date or 'Not yet' }}</p>
   <h3>Next event</h3>
   {% if next_event %}<p>{{ next_event.label }}: {{ next_event.local_text }}</p>{% else %}<p>No upcoming event. Add one when you have a date.</p>{% endif %}
+  <section id="application-contacts" aria-labelledby="application-contacts-heading">
+    <h3 id="application-contacts-heading" tabindex="-1"{% if message and focus == 'contacts' %} data-autofocus{% endif %}>Contacts</h3>
+    {% if not application.company_id %}
+    <p>This job has no company yet, so contacts can't be added.</p>
+    {% else %}
+    {% if contacts %}
+    <ul class="contact-list">
+      {% for contact in contacts %}
+      <li data-contact-id="{{ contact.id }}"><strong>{{ contact.name }}</strong>{% if contact.role %} · {{ contact.role }}{% endif %}
+        {% if is_safe_id(contact.id) %}<form hx-post="/applications/{{ application.id }}/contacts/{{ contact.id }}/unlink" hx-target="#application-detail" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button" method="post" action="/applications/{{ application.id }}/contacts/{{ contact.id }}/unlink"><button type="submit" class="button" aria-label="Unlink {{ contact.name }}">Unlink</button></form>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No contacts linked yet.</p>
+    {% endif %}
+    {% if unlinked_contacts %}
+      {% with cf_errors={} %}{% include "fragments/applications/_contact_link_form.html" %}{% endwith %}
+    {% endif %}
+    <details id="application-contact-add"><summary><h4 id="application-contact-add-heading">Add a contact</h4></summary>
+      {% with cf_scope='application', cf_key='', cf_item={}, cf_typed={}, cf_errors={}, cf_conflict=false %}{% include "fragments/contacts/_form.html" %}{% endwith %}
+    </details>
+    {% endif %}
+  </section>
   <h3>Timeline</h3>
   <ol class="application-timeline">
   {% for entry in timeline %}{% set item = entry.item %}
-    <li data-timeline-kind="{{ entry.kind }}"><time datetime="{{ entry.at }}">{{ entry.at[:10] }} {{ entry.at[11:16] }} UTC</time>
+    <li data-timeline-kind="{{ entry.kind }}"><time datetime="{{ entry.at }}">{% if entry.kind == 'interaction' %}{{ entry.at[:10] }}{% else %}{{ entry.at[:10] }} {{ entry.at[11:16] }} UTC{% endif %}</time>
       {% if entry.kind == 'status' %}<p>{{ 'Application created' if item.source in ('created', 'backfill') else 'Status changed' }}: {% if item.from_label %}{{ item.from_label }} → {% endif %}{{ item.to_label }}</p>
       {% elif entry.kind in ('note', 'feedback') %}<p><strong>{{ 'Feedback' if entry.kind == 'feedback' else 'Note' }}</strong>: {{ item.text }}</p>
         <details><summary>Edit {{ 'feedback' if entry.kind == 'feedback' else 'note' }}</summary>{% with editor=item, editor_id=item.id, submitted={}, errors={} %}{% include "fragments/applications/_note_form.html" %}{% endwith %}</details>
-      {% elif entry.kind == 'interaction' %}<p>Interaction ({{ item.channel }}): {{ item.note }}</p>
+      {% elif entry.kind == 'interaction' %}<p><strong>Interaction</strong> ({{ item.channel_label }}){% if item.contact_name %} with {{ item.contact_name }}{% endif %}</p>{% if item.note %}<p>{{ item.note }}</p>{% endif %}
       {% elif entry.kind == 'event' %}<p><strong>{{ 'Cancelled · ' if item.status == 'cancelled' else '' }}{{ item.label }}</strong>: {{ item.local_text }}</p>
         {% if item.round %}<p>Round: {{ item.round }}</p>{% endif %}{% if item.format %}<p>Format: {{ item.format }}</p>{% endif %}{% if item.interviewers %}<p>Interviewers: {{ item.interviewers }}</p>{% endif %}
         {% if item.location %}<p>{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener noreferrer">{{ item.location }}</a>{% else %}{{ item.location }}{% endif %}</p>{% endif %}
@@ -40,6 +64,7 @@
   {% endfor %}
   </ol>
   <section aria-labelledby="add-note-heading"><h3 id="add-note-heading">Add a note</h3>{% with editor={}, editor_id='', submitted={}, errors={} %}{% include "fragments/applications/_note_form.html" %}{% endwith %}</section>
+  <section id="application-interactions"><details><summary><h3 id="log-interaction-heading">Log an interaction</h3></summary>{% with cf_typed={}, cf_errors={} %}{% include "fragments/applications/_interaction_form.html" %}{% endwith %}</details></section>
   <section id="application-event-editor" data-hash-focus aria-labelledby="add-event-heading" tabindex="-1"><h3 id="add-event-heading">Add an event</h3>{% with editor={}, editor_id='', submitted={}, errors={} %}{% include "fragments/applications/_event_form.html" %}{% endwith %}</section>
   <datalist id="application-zone-list">{% for name in zone_names %}<option value="{{ name }}"></option>{% endfor %}</datalist>
   {% if follow_up %}{% set followup_target = '#application-detail' %}{% set followup_return = '#detail-status-button' %}{% include "fragments/board/_followup.html" %}{% endif %}
