@@ -12,7 +12,13 @@ from app.api.job_summary import summary_context
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
 from app.api.templating import render, templates
-from app.domain.errors import JobNotFound, JobTriageInputInvalid, TriageNotAllowed, VersionConflict
+from app.domain.errors import (
+    JobNotFound,
+    JobTriageInputInvalid,
+    StatusNotAllowed,
+    TriageNotAllowed,
+    VersionConflict,
+)
 from app.domain.job_edit import EDIT_FIELDS, JobEditInvalid
 from app.services.job_detail import JobDetailService
 
@@ -166,7 +172,7 @@ async def triage(request: Request, job_id: str) -> Response:
             committed = (
                 request.app.state.job_triage.mark_seen(job_id, expected_version=version)
                 if form["action"] == "show"
-                else _perform(request.app.state.job_triage, job_id, form, version)
+                else _perform(request.app.state, job_id, form, version)
             )
         except JobNotFound:
             return _not_found()
@@ -183,6 +189,13 @@ async def triage(request: Request, job_id: str) -> Response:
                     "triage_submitted": {k: v.replace("\x00", "") for k, v in form.items()},
                 },
                 status_code=422,
+            )
+        except StatusNotAllowed as refused:
+            return _reload_prompt(
+                request,
+                detail="Nothing was changed.",
+                url=f"/jobs/{job_id}",
+                message=refused.user_message,
             )
         except (VersionConflict, TriageNotAllowed):
             return _reload_prompt(

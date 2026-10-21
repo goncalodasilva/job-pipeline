@@ -99,6 +99,8 @@ from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
+from app.services.applications import ApplicationService, ApplicationStatuses
+from app.services.board import BoardQuery
 from app.services.budget_gate import BudgetGate
 from app.services.capture import CaptureService
 from app.services.companies import CompaniesService
@@ -1061,6 +1063,13 @@ def create_app(
         lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()
     )
     app.state.job_triage = JobTriageService(lambda: _current_db(app), app_clock, app_tz)
+    app.state.applications = ApplicationService(
+        lambda: _current_db(app), app_clock, app_ids, app_tz
+    )
+    app.state.application_statuses = ApplicationStatuses(
+        lambda: _current_db(app), app_clock, app_ids
+    )
+    app.state.board = BoardQuery(lambda: _current_db(app), app_clock)
     app.state.inbox_views = InboxViews(
         lambda: _current_db(app),
         InboxQuery(lambda: _current_db(app), app_clock, app_tz),

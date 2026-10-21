@@ -510,6 +510,49 @@ class JobTriageInputInvalid(TriageNotAllowed):
         return self._message or self.message
 
 
+class ApplicationNotFound(AppError):
+    """The id names no application (never stored, or unsafe). Routes answer a fixed 404."""
+
+    kind = "ApplicationNotFound"
+    message = "This application wasn't found. It may have been removed."
+
+
+class StatusNotAllowed(AppError):
+    """A status or application change the rules refuse (a status without a phase, a taken
+    name, deleting a built-in or used status, or Undo of an application that has changes).
+    A specific ``message`` replaces the class message in the interface only."""
+
+    kind = "StatusNotAllowed"
+    message = "This can't be done to this status now. Reload to see the latest statuses."
+
+    def __init__(self, message: str | None = None, *, detail: str | None = None) -> None:
+        self._message = message
+        super().__init__(detail=detail)
+
+    @property
+    def user_message(self) -> str:
+        return self._message if self._message is not None else self.message
+
+
+class EventTimeInvalid(AppError):
+    """An event time that cannot be saved, tied to its form field (``starts_at``,
+    ``time_zone`` or ``duration_minutes``); without a message it reads as the class message."""
+
+    kind = "EventTimeInvalid"
+    message = "This date or time can't be saved. Check it and try again."
+
+    def __init__(
+        self, field: str = "", message: str | None = None, *, detail: str | None = None
+    ) -> None:
+        self.field = field
+        self._message = message
+        super().__init__(detail=detail)
+
+    @property
+    def user_message(self) -> str:
+        return self._message if self._message is not None else self.message
+
+
 class SkillAliasTaken(AppError):
     kind = "SkillAliasTaken"
     message = "Another skill already uses this name. Choose a different name."

@@ -47,6 +47,7 @@ from app.api.templating import render, templates
 from app.domain.errors import (
     JobNotFound,
     JobTriageInputInvalid,
+    StatusNotAllowed,
     TriageNotAllowed,
     VersionConflict,
     format_short_day,
@@ -307,10 +308,17 @@ def show_card(request: Request, job_id: str) -> Response:
     return templates.TemplateResponse(request, CARD_FRAGMENT, ctx)
 
 
-def _reload_prompt(request: Request, *, detail: str, url: str, target: str = "") -> Response:
+def _reload_prompt(
+    request: Request,
+    *,
+    detail: str,
+    url: str,
+    target: str = "",
+    message: str = VersionConflict.message,
+) -> Response:
     ctx = {
         "reload_id": "inbox-reload",
-        "reload_message": VersionConflict.message,
+        "reload_message": message,
         "reload_detail": detail,
         "reload_url": url,
     }
@@ -360,8 +368,16 @@ async def mark_seen(request: Request, job_id: str) -> Response:
     return JSONResponse({"version": job.version, "state": job.triage_state})
 
 
-def _perform(service: JobTriageService, job_id: str, form: dict[str, str], version: int) -> Any:
+def _perform(state: Any, job_id: str, form: dict[str, str], version: int) -> Any:
+    """Run the posted triage action on the app's services, looked up now rather than at
+    start-up. To apply and Undo go through the application service, so the application is made
+    or removed with the job's move; every other action is the triage service's."""
+    service: JobTriageService = state.job_triage
     action = form["action"]
+    if action == "to_apply":
+        return state.applications.apply_to_job(job_id, expected_job_version=version).job
+    if action == "undo":
+        return state.applications.undo_apply(job_id, expected_job_version=version)
     if action == "remove":
         return service.remove(
             job_id,
@@ -374,8 +390,7 @@ def _perform(service: JobTriageService, job_id: str, form: dict[str, str], versi
         # The typed date is read by the service once the job is found; a quick choice ignores it.
         picked = form.get("picked", "") if choice == "date" else None
         return service.snooze(job_id, expected_version=version, choice=choice, picked=picked)
-    moves = {"to_apply": service.to_apply, "undo": service.undo, "restore": service.restore}
-    return moves[action](job_id, expected_version=version)
+    return service.restore(job_id, expected_version=version)
 
 
 def _triage_message(action: str, snooze_until: str | None) -> str:
@@ -390,13 +405,20 @@ def _triage_message(action: str, snooze_until: str | None) -> str:
 
 
 def _triage_answer(request: Request, job_id: str, form: dict[str, str], version: int) -> Response:
-    service: JobTriageService = request.app.state.job_triage
     view = _view(form.get("view", "queue"))
     picked = selection({**dict(parse_qsl(form.get("filters", ""))), "view": view})
     try:
-        job = _perform(service, job_id, form, version)
+        job = _perform(request.app.state, job_id, form, version)
     except JobNotFound:
         return _not_found()
+    except StatusNotAllowed as refused:
+        return _reload_prompt(
+            request,
+            detail="Nothing was changed.",
+            url="/inbox",
+            target="#inbox-notice",
+            message=refused.user_message,
+        )
     except JobTriageInputInvalid as error:
         # The values typed so far come back (autoescaped; NUL cannot be in HTML).
         typed = {name: form.get(name, "").replace("\x00", "") for name in ("text", "picked")}
