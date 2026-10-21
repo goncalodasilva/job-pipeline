@@ -38,7 +38,7 @@ from app.logging_config import SDK_REDUCED_ATTR, UVICORN_LOGGERS, configure_logg
 from app.main import LOG_FOLDER, create_app
 from app.modules.ai import AIProvider, ConnectionResult
 from app.modules.ai.providers.claude_sdk import ClaudeSdkProvider
-from app.modules.storage import jobs_repo
+from app.modules.storage import applications_repo, jobs_repo
 from app.onboarding.registry import m1_registry
 from app.wiring import AI_TEMP_FOLDER, Wiring
 from tests.fact_bank import seed_page_ids
@@ -433,11 +433,21 @@ def visit_every_page(session: Session) -> None:
     job = session.run.app.state.job_intake.add_text(
         "Fictional greenhouse gardener. Maintain imaginary irrigation systems and flowers."
     )
+    state = session.run.app.state
+    with state.workspace.db.read() as conn:
+        stored = jobs_repo.get_job(conn, job.job_id)
+        application = applications_repo.get_application_for_job(conn, job.job_id)
+    assert stored is not None
+    if application is None:
+        application = state.applications.apply_to_job(
+            job.job_id, expected_job_version=stored.version
+        ).application
     fact_pages = {
         "/facts/{fact_id}/edit": f"/facts/{fact_ids['fact_id']}/edit",
         "/facts/{draft_id}/merge": f"/facts/{fact_ids['draft_id']}/merge",
         "/jobs/{job_id}": f"/jobs/{job.job_id}",
         "/companies/{company_id}": "/companies/fictional-company",  # the fixed 404 is enough
+        "/applications/{application_id}": f"/applications/{application.id}",
     }
     paths: list[str] = []
     for route in session.run.app.routes:

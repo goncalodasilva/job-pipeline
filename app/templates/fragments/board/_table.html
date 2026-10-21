@@ -17,7 +17,7 @@
     {% for row in table.rows %}
       <tr data-application-id="{{ row.application_id }}">
         <td>{{ row.company }}</td>
-        <td>{{ row.role }}</td>
+        <td>{% if is_safe_id(row.application_id) %}<a href="/applications/{{ row.application_id }}" hx-get="/applications/{{ row.application_id }}/detail" hx-target="#application-details" hx-swap="innerHTML">{{ row.role }}</a>{% else %}{{ row.role }}{% endif %}</td>
         <td>{{ row.status }}</td>
         <td class="when">{% if row.applied_at %}<time datetime="{{ row.applied_at }}">{{ row.applied_text }}</time>{% else %}{{ row.applied_text }}{% endif %}</td>
         <td class="when"><time datetime="{{ row.activity_at }}">{{ row.activity }}</time></td>

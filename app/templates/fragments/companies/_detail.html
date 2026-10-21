@@ -7,7 +7,7 @@
     {% if jobs %}
     <ul id="company-roles" class="company-roles">
       {% for job in jobs %}
-      <li>{% if is_safe_id(job.id) %}<a href="/jobs/{{ job.id }}">{{ job.title }}</a>{% else %}{{ job.title }}{% endif %} <span class="role-state">{{ job.moved_on or (job.state | replace("_", " ") | capitalize) }}</span></li>
+      <li>{% if is_safe_id(job.id) %}<a href="/jobs/{{ job.id }}">{{ job.title }}</a>{% else %}{{ job.title }}{% endif %} <span class="role-state">{{ job.moved_on or (job.state | replace("_", " ") | capitalize) }}</span>{% if job.application_id and is_safe_id(job.application_id) %} · <a href="/applications/{{ job.application_id }}">Open application</a>{% endif %}</li>
       {% endfor %}
     </ul>
     {% else %}

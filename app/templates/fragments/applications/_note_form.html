@@ -1,0 +1,17 @@
+{% set key = editor_id | default('') %}
+{% set item = editor | default({}) %}
+{% set typed = submitted | default({}) %}
+<form id="note-form{{ '-' ~ key if key else '' }}" method="post" action="/applications/{{ application.id }}/notes{{ '/' ~ key if key else '' }}" hx-post="/applications/{{ application.id }}/notes{{ '/' ~ key if key else '' }}" hx-target="#application-detail" hx-swap="outerHTML settle:0ms" data-detail-editor{% if errors or conflict | default(false) %} data-unsaved{% endif %}>
+  {% if key %}<input type="hidden" name="version" value="{{ typed.get('version', item.version) }}">{% endif %}
+  <p data-editor-draft hidden>Your newer typing is kept below. This response applies to the earlier submission.</p>
+  {% if conflict | default(false) %}
+    {% set reload_id = 'note-reload-' ~ key %}{% set reload_message = 'This item changed elsewhere.' %}{% set reload_detail = 'Your note has not been saved. Your typing is kept below.' %}{% set reload_url = '/applications/' ~ application.id %}
+    {% include "fragments/shell/_reload_prompt.html" %}
+  {% endif %}
+  <div class="field">
+  <label for="note-text-{{ key }}">{{ 'Edit feedback' if item.get('kind') == 'feedback' else 'Edit note' if key else 'Note' }}</label>
+  <textarea id="note-text-{{ key }}" name="text" rows="3" required maxlength="10000"{% if errors.get('text') %} aria-invalid="true" aria-describedby="note-error-{{ key }}" data-autofocus{% endif %}>{{ typed.get('text', item.get('text', '')) }}</textarea>
+  {% if errors.get('text') %}<p id="note-error-{{ key }}" class="field-error">{{ errors.text }}</p>{% endif %}
+  </div>
+  <button class="button" type="submit">{{ 'Save changes' if key else 'Add note' }}</button>
+</form>

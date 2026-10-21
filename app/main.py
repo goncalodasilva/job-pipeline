@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
 
 from app import __version__
+from app.api.application_detail import register_application_detail_routes
 from app.api.board import register_board_routes
 from app.api.companies import register_company_routes
 from app.api.errors import register_error_handlers
@@ -100,6 +101,7 @@ from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
+from app.services.application_detail import ApplicationDetail
 from app.services.applications import ApplicationService, ApplicationStatuses
 from app.services.board import BoardQuery
 from app.services.board_views import BoardViews
@@ -1072,6 +1074,9 @@ def create_app(
     app.state.application_statuses = ApplicationStatuses(
         lambda: _current_db(app), app_clock, app_ids
     )
+    app.state.application_detail = ApplicationDetail(
+        lambda: _current_db(app), app_clock, app_ids, app_wiring.calendar_provider(), app_tz
+    )
     app.state.board = BoardQuery(lambda: _current_db(app), app_clock)
     app.state.board_views = BoardViews(
         app.state.applications, app.state.application_statuses, app.state.board, app_clock, app_tz
@@ -1143,6 +1148,7 @@ def create_app(
     register_job_detail_routes(app)
     register_company_routes(app)
     register_board_routes(app)
+    register_application_detail_routes(app)
     register_setup_pages(app)
     register_events(
         app,

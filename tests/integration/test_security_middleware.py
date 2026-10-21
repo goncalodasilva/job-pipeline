@@ -625,6 +625,9 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
         seed_jobs(app.state.workspace.db, generate_jobs(1))
         known_params["job_id"] = "job-0001"
         known_params["company_id"] = "company-0001"  # made by the job fixtures (M4.10)
+        known_params["application_id"] = app.state.applications.apply_to_job(
+            "job-0001", expected_job_version=1
+        ).application.id
         for route in pages:
             path = route.path
             for name in route.param_convertors:

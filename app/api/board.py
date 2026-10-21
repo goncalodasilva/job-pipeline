@@ -27,6 +27,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from app.api.application_detail import answer as detail_answer
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import posted_version, single_value_form
 from app.api.pages import AREAS, area
@@ -209,7 +210,9 @@ def _said(ctx: dict[str, Any]) -> str:
 
 def _announce(response: Response, message: str) -> Response:
     if message:
-        response.headers["HX-Trigger-After-Settle"] = json.dumps({"announce": message})
+        events = json.loads(response.headers.get("HX-Trigger-After-Settle", "{}"))
+        events["announce"] = message
+        response.headers["HX-Trigger-After-Settle"] = json.dumps(events)
     return response
 
 
@@ -243,9 +246,12 @@ def _content(
     focus_id: str,
     follow_up: Any = None,
     status_code: int = 200,
+    message: str = "Saved.",
 ) -> Response:
     """The board after a move or a follow-up: the card keeps focus (or, when it is in the
     collapsed Closed column, the Closed button)."""
+    if request.headers.get("HX-Target") == "application-detail":
+        return detail_answer(request, focus_id, message=message, follow_up=follow_up)
     ctx = _context(
         request,
         view="board",
@@ -270,7 +276,11 @@ def _reload_prompt(request: Request) -> Response:
         request, "fragments/shell/_reload_prompt.html", ctx, status_code=409
     )
     # The rest of the board stays as it is; only the notice above it changes.
-    response.headers["HX-Retarget"] = "#board-notice"
+    response.headers["HX-Retarget"] = (
+        "#application-notice"
+        if request.headers.get("HX-Target") == "application-detail"
+        else "#board-notice"
+    )
     response.headers["HX-Reswap"] = "innerHTML"
     return response
 
@@ -298,7 +308,12 @@ def _move_answer(
 ) -> Response:
     views = _views(request)
     try:
-        outcome = views.move(application_id, status, version=version, source=source)
+        outcome = views.move(
+            application_id,
+            status,
+            version=version,
+            source="drawer" if request.headers.get("HX-Target") == "application-detail" else source,
+        )
     except ApplicationNotFound:
         return _not_found()
     except StatusNotAllowed:
@@ -315,7 +330,9 @@ def _move_answer(
         if outcome.follow_up
         else None
     )
-    response = _content(request, focus_id=application_id, follow_up=follow_up)
+    response = _content(
+        request, focus_id=application_id, follow_up=follow_up, message=f"Moved to {outcome.label}."
+    )
     return _announce(response, f"Moved to {outcome.label}.")
 
 
@@ -337,9 +354,10 @@ def _refused(
         submitted=typed,
         errors=error.errors,
     )
-    response = templates.TemplateResponse(
-        request, template, {"follow_up": follow_up}, status_code=422
-    )
+    ctx: dict[str, Any] = {"follow_up": follow_up}
+    if request.headers.get("HX-Target") == "application-detail":
+        ctx["followup_target"] = "#application-detail"
+    response = templates.TemplateResponse(request, template, ctx, status_code=422)
     response.headers["HX-Retarget"] = (
         "#interview-form" if kind == "interview_date" else "#feedback-form"
     )

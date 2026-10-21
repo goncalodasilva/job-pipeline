@@ -2,6 +2,7 @@
         hx-get="/inbox/jobs/{{ job.id }}/header" hx-trigger="job:edited from:body, tasks:updated from:body, tasks:resync from:body" hx-swap="outerHTML">
   <h2 tabindex="-1"{% if message %} data-autofocus{% endif %}>{{ job.title }}</h2>
   {% if job.company and job.company_id and is_safe_id(job.company_id) %}<p><a href="/companies/{{ job.company_id }}">{{ job.company }}</a></p>{% endif %}
+  {% if card.application_id and is_safe_id(card.application_id) %}<p><a href="/applications/{{ card.application_id }}">Open application</a></p>{% endif %}
   {% if job.fit_band %}<p><strong>Fit: {{ job.fit_band | capitalize }}</strong></p>{% endif %}
   <p>State: {{ (card.moved_on if card.state == 'to_apply' else none) or (card.state | replace('_', ' ') | capitalize) }}</p>
   {% if message %}<p role="status">{{ message }}</p>{% endif %}

@@ -2618,3 +2618,13 @@ kbd,
     margin-top: var(--space-3);
   }
 }
+
+/* Application timeline and event editor (M5.5). */
+.application-drawer { width: min(52rem, 100vw); }
+#application-detail { overflow-wrap: anywhere; }
+.application-timeline { padding-inline-start: 1.5rem; }
+.application-timeline > li { padding-block: .75rem; border-bottom: 1px solid var(--color-border); }
+#application-detail form[data-detail-editor] { display: grid; gap: .75rem; margin-block: .75rem; }
+#application-detail input:not([type='checkbox']), #application-detail select, #application-detail textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+#application-detail label { display: block; }
+#application-detail summary { min-height: 24px; cursor: pointer; padding-block: .4rem; }

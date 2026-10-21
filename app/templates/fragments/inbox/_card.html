@@ -31,6 +31,7 @@
       {% if focus and not error %}data-autofocus{% endif %}>{{ job.title }}</button></h2>
   {% set about = [job.industry, job.department] | select | list %}
   {% if job.company or about %}<p class="card-about">{% if job.company %}{% if job.company_id and is_safe_id(job.company_id) %}<a href="/companies/{{ job.company_id }}">{{ job.company }}</a>{% else %}{{ job.company }}{% endif %}{% if about %} · {% endif %}{% endif %}{{ about | join(" · ") }}</p>{% endif %}
+  {% if card.application_id and is_safe_id(card.application_id) %}<p><a href="/applications/{{ card.application_id }}">Open application</a></p>{% endif %}
   {% if card.state == "snoozed" and card.snoozed_text %}<p class="card-state">Snoozed until {{ card.snoozed_text }}</p>{% endif %}
   {% if card.state == "removed" %}<p class="card-state">Removed</p>{% endif %}
   {% if card.state == "to_apply" %}<p class="card-state">{{ moved_on or "To apply" }}</p>{% endif %}

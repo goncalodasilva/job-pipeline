@@ -5,7 +5,7 @@
    Esc and Skip close it and send nothing). Save posts the answer; a refused one answers 422 and
    only the form is replaced, with the error tied to its field. When it closes without saving,
    focus returns to the moved card's title. #}
-<dialog id="board-followup" class="modal" role="dialog" aria-modal="true" aria-labelledby="board-followup-heading" aria-describedby="board-followup-description" data-modal data-return-focus='li.board-card[data-application-id="{{ follow_up.application_id }}"] .board-card-title'>
+<dialog id="board-followup" class="modal" role="dialog" aria-modal="true" aria-labelledby="board-followup-heading" aria-describedby="board-followup-description" data-modal data-return-focus='{% if followup_return is defined %}{{ followup_return }}{% else %}li.board-card[data-application-id="{{ follow_up.application_id }}"] .board-card-title{% endif %}'>
   {% if follow_up.kind == "interview_date" %}
   <h2 id="board-followup-heading">Add the interview date?</h2>
   <p id="board-followup-description">{% if follow_up.moved_to %}Moved to {{ follow_up.moved_to }}. {% endif %}It shows on the card and goes into the calendar file you can download. You can skip this and add it later.</p>

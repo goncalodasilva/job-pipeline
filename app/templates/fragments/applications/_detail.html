@@ -1,0 +1,45 @@
+<article id="application-detail" data-application="{{ application.id }}" aria-labelledby="application-title">
+  <h2 id="application-title" tabindex="-1"{% if message %} data-autofocus{% endif %}>{{ application.title }}</h2>
+  <p><a href="/jobs/{{ application.job_id }}">Open job</a>{% if application.company %} · {% if application.company_id and is_safe_id(application.company_id) %}<a href="/companies/{{ application.company_id }}">{{ application.company }}</a>{% else %}{{ application.company }}{% endif %}{% endif %}</p>
+  {% if message %}<p class="save-message">{{ message }}</p>{% endif %}
+  <div id="application-notice"></div>
+  <h3 id="application-status-heading">Status: {{ application.label }}</h3>
+  <div class="board-menu">
+    <button id="detail-status-button" type="button" class="button board-menu-button" aria-haspopup="menu" aria-expanded="false" aria-controls="detail-status-menu">Move to…</button>
+    <form hx-post="/applications/{{ application.id }}/status" hx-target="#application-detail" hx-swap="outerHTML settle:0ms" method="post" action="/applications/{{ application.id }}/status">
+      <input type="hidden" name="version" value="{{ application.version }}"><input type="hidden" name="source" value="menu">
+      <div id="detail-status-menu" class="board-menu-items" role="menu" aria-labelledby="detail-status-button" hidden>
+        {% for status in statuses if status.key != application.status_key %}<button type="submit" role="menuitem" class="board-menu-item" name="status" value="{{ status.key }}" tabindex="-1">{{ status.label }}</button>{% endfor %}
+      </div>
+    </form>
+  </div>
+  <p>Applied: {{ application.applied_date or 'Not yet' }}</p>
+  <h3>Next event</h3>
+  {% if next_event %}<p>{{ next_event.label }}: {{ next_event.local_text }}</p>{% else %}<p>No upcoming event. Add one when you have a date.</p>{% endif %}
+  <h3>Timeline</h3>
+  <ol class="application-timeline">
+  {% for entry in timeline %}{% set item = entry.item %}
+    <li data-timeline-kind="{{ entry.kind }}"><time datetime="{{ entry.at }}">{{ entry.at[:10] }} {{ entry.at[11:16] }} UTC</time>
+      {% if entry.kind == 'status' %}<p>{{ 'Application created' if item.source in ('created', 'backfill') else 'Status changed' }}: {% if item.from_label %}{{ item.from_label }} → {% endif %}{{ item.to_label }}</p>
+      {% elif entry.kind in ('note', 'feedback') %}<p><strong>{{ 'Feedback' if entry.kind == 'feedback' else 'Note' }}</strong>: {{ item.text }}</p>
+        <details><summary>Edit {{ 'feedback' if entry.kind == 'feedback' else 'note' }}</summary>{% with editor=item, editor_id=item.id, submitted={}, errors={} %}{% include "fragments/applications/_note_form.html" %}{% endwith %}</details>
+      {% elif entry.kind == 'interaction' %}<p>Interaction ({{ item.channel }}): {{ item.note }}</p>
+      {% elif entry.kind == 'event' %}<p><strong>{{ 'Cancelled · ' if item.status == 'cancelled' else '' }}{{ item.label }}</strong>: {{ item.local_text }}</p>
+        {% if item.round %}<p>Round: {{ item.round }}</p>{% endif %}{% if item.format %}<p>Format: {{ item.format }}</p>{% endif %}{% if item.interviewers %}<p>Interviewers: {{ item.interviewers }}</p>{% endif %}
+        {% if item.location %}<p>{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener noreferrer">{{ item.location }}</a>{% else %}{{ item.location }}{% endif %}</p>{% endif %}
+        {% if item.details %}<p>{{ item.details }}</p>{% endif %}
+        <button type="button" class="button" data-calendar-download="/applications/{{ application.id }}/events/{{ item.id }}/ics" hidden>Download calendar file</button>
+        <p data-calendar-status></p>
+        {% if item.status != 'cancelled' %}
+          <details><summary>Edit event</summary>{% with editor=item, editor_id=item.id, submitted={}, errors={} %}{% include "fragments/applications/_event_form.html" %}{% endwith %}</details>
+          <form hx-post="/applications/{{ application.id }}/events/{{ item.id }}/cancel" hx-target="#application-detail" hx-swap="outerHTML settle:0ms" method="post" action="/applications/{{ application.id }}/events/{{ item.id }}/cancel"><input type="hidden" name="version" value="{{ item.version }}"><button type="submit" class="button">Cancel event</button></form>
+        {% endif %}
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ol>
+  <section aria-labelledby="add-note-heading"><h3 id="add-note-heading">Add a note</h3>{% with editor={}, editor_id='', submitted={}, errors={} %}{% include "fragments/applications/_note_form.html" %}{% endwith %}</section>
+  <section aria-labelledby="add-event-heading"><h3 id="add-event-heading">Add an event</h3>{% with editor={}, editor_id='', submitted={}, errors={} %}{% include "fragments/applications/_event_form.html" %}{% endwith %}</section>
+  <datalist id="application-zone-list">{% for name in zone_names %}<option value="{{ name }}"></option>{% endfor %}</datalist>
+  {% if follow_up %}{% set followup_target = '#application-detail' %}{% set followup_return = '#detail-status-button' %}{% include "fragments/board/_followup.html" %}{% endif %}
+</article>

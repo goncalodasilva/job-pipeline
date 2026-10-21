@@ -1,0 +1,27 @@
+{% set key = editor_id | default('') %}
+{% set item = editor | default({}) %}
+{% set typed = submitted | default({}) %}
+{% set prefix = 'event-' ~ key ~ '-' %}
+{% set all_day = typed.get('all_day', item.get('all_day', false)) %}
+{% macro error_attrs(name) %}{% if errors.get(name) %} aria-invalid="true" aria-describedby="{{ prefix }}{{ name }}-error"{% endif %}{% endmacro %}
+{% macro error_line(name) %}{% if errors.get(name) %}<p id="{{ prefix }}{{ name }}-error" class="field-error">{{ errors[name] }}</p>{% endif %}{% endmacro %}
+<form id="event-form{{ '-' ~ key if key else '' }}" class="application-event-form" method="post" action="/applications/{{ application.id }}/events{{ '/' ~ key if key else '' }}" hx-post="/applications/{{ application.id }}/events{{ '/' ~ key if key else '' }}" hx-target="#application-detail" hx-swap="outerHTML settle:0ms" data-detail-editor{% if errors or conflict | default(false) %} data-unsaved{% endif %}>
+  {% if key %}<input type="hidden" name="version" value="{{ typed.get('version', item.version) }}">{% endif %}
+  <p data-editor-draft hidden>Your newer typing is kept below. This response applies to the earlier submission.</p>
+  {% if conflict | default(false) %}
+    {% set reload_id = 'event-reload-' ~ key %}{% set reload_message = 'This item changed elsewhere.' %}{% set reload_detail = 'The event was not saved. Your typing is kept below.' %}{% set reload_url = '/applications/' ~ application.id %}
+    {% include "fragments/shell/_reload_prompt.html" %}
+  {% endif %}
+  <div class="field"><label for="{{ prefix }}type">Event type</label>
+  <select id="{{ prefix }}type" name="type"{{ error_attrs('type') }}>{% for kind, label in [('interview', 'Interview'), ('follow_up', 'Follow-up'), ('deadline', 'Deadline'), ('offer_deadline', 'Offer deadline')] %}<option value="{{ kind }}"{% if typed.get('type', item.get('type', 'interview')) == kind %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>{{ error_line('type') }}</div>
+  {% for name, label, type in [('date', 'Date', 'date'), ('time', 'Time', 'time'), ('duration_minutes', 'Duration (minutes)', 'number'), ('time_zone', 'Time zone', 'text')] %}
+  <div class="field"><label for="{{ prefix }}{{ name }}">{{ label }}</label>
+    <input id="{{ prefix }}{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ typed.get(name, item.get(name, default_zone if name == 'time_zone' else '60' if name == 'duration_minutes' else '')) }}"{% if name in ('date', 'time_zone') %} required{% endif %}{% if name in ('time', 'duration_minutes') and all_day %} disabled{% endif %}{% if name == 'time_zone' %} list="application-zone-list" autocomplete="off"{% endif %}{% if name == 'duration_minutes' %} min="1" max="1440"{% endif %}{{ error_attrs(name) }}>{{ error_line(name) }}
+  </div>{% endfor %}
+  <div class="field field-check"><input id="{{ prefix }}all-day" type="checkbox" name="all_day" value="1"{% if all_day %} checked{% endif %}{{ error_attrs('all_day') }}><label for="{{ prefix }}all-day">All day (deadlines only)</label>{{ error_line('all_day') }}</div>
+  {% for name, label in [('round', 'Round'), ('format', 'Format'), ('interviewers', 'Interviewers'), ('location', 'Location or link'), ('details', 'Event details')] %}
+  <div class="field"><label for="{{ prefix }}{{ name }}">{{ label }}</label><input id="{{ prefix }}{{ name }}" name="{{ name }}" value="{{ typed.get(name, item.get(name, '')) }}" maxlength="10000"{{ error_attrs(name) }}>{{ error_line(name) }}</div>
+  {% endfor %}
+  <div class="field field-check"><input id="{{ prefix }}thank-you" type="checkbox" name="thank_you_reminder" value="1"{% if typed.get('thank_you_reminder', item.get('thank_you_reminder', false)) %} checked{% endif %}{{ error_attrs('thank_you_reminder') }}><label for="{{ prefix }}thank-you">Remind me to send a thank-you note</label>{{ error_line('thank_you_reminder') }}</div>
+  <button class="button button-primary" type="submit">{{ 'Save event changes' if key else 'Save event' }}</button>
+</form>

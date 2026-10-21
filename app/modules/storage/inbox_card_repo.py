@@ -45,6 +45,7 @@ def card(conn: sqlite3.Connection, job_id: str) -> dict[str, Any]:
         "WHERE a.job_id=? AND s.phase<>'preparing'",
         (job_id,),
     ).fetchone()
+    application = conn.execute("SELECT id FROM applications WHERE job_id=?", (job_id,)).fetchone()
     matches: dict[str, bool] = {}
     if assessment:
         matches = {
@@ -53,6 +54,7 @@ def card(conn: sqlite3.Connection, job_id: str) -> dict[str, Any]:
         }
     return {
         "job": job,
+        "application_id": application[0] if application else None,
         "summary": {"text": summary[1], "practice": summary[2] == "fake"} if summary else None,
         "requirements": tuple(
             {"text": text, "met": matches.get(id_) if assessment else None}

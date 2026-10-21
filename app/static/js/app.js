@@ -1157,3 +1157,38 @@
     startEvents();
   }
 })();
+
+// A calendar download sends the launch token as a header, never in its URL.
+(function () {
+  "use strict";
+  function reveal() { document.querySelectorAll("[data-calendar-download]").forEach(function (button) { button.hidden = false; }); }
+  function say(words) { document.body.dispatchEvent(new CustomEvent("announce", {detail: {value: words}})); }
+  function feedback(button, words) {
+    var status = button.nextElementSibling;
+    if (status && status.hasAttribute("data-calendar-status")) status.textContent = words;
+    say(words);
+  }
+  reveal();
+  document.body.addEventListener("htmx:afterSettle", reveal);
+  document.addEventListener("click", function (event) {
+    var button = event.target instanceof Element ? event.target.closest("[data-calendar-download]") : null;
+    if (!button || button.disabled) return;
+    var path = button.getAttribute("data-calendar-download");
+    if (!/^\/applications\/[A-Za-z0-9_-]+\/events\/[A-Za-z0-9_-]+\/ics$/.test(path)) return;
+    var headers;
+    try { headers = JSON.parse(document.body.getAttribute("hx-headers")); }
+    catch (_) { feedback(button, "Calendar file could not be downloaded. Reload the page and try again."); return; }
+    button.disabled = true;
+    feedback(button, "Preparing calendar file…");
+    fetch(path, {headers: headers, credentials: "same-origin", cache: "no-store", redirect: "error"}).then(function (response) {
+      if (!response.ok || !(response.headers.get("Content-Type") || "").startsWith("text/calendar")) throw new Error("download");
+      return response.blob();
+    }).then(function (blob) {
+      var url = URL.createObjectURL(blob), link = document.createElement("a");
+      link.href = url; link.download = "jobpipeline-event.ics";
+      document.body.appendChild(link); link.click(); link.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      feedback(button, "Calendar file downloaded.");
+    }).catch(function () { feedback(button, "Calendar file could not be downloaded. Try again."); }).finally(function () { button.disabled = false; });
+  });
+}());

@@ -2,7 +2,7 @@
    form alone, with the error tied to the field and the text kept. #}
 {% set typed = follow_up.submitted %}
 {% set errors = follow_up.errors %}
-<form id="feedback-form" class="board-followup-form" method="post" action="/applications/{{ follow_up.application_id }}/feedback" hx-post="/applications/{{ follow_up.application_id }}/feedback" hx-target="#board-content" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button[type='submit']">
+<form id="feedback-form" class="board-followup-form" method="post" action="/applications/{{ follow_up.application_id }}/feedback" hx-post="/applications/{{ follow_up.application_id }}/feedback" hx-target="{{ followup_target | default('#board-content') }}" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button[type='submit']">
   <div class="field">
     <label for="feedback-text">Feedback</label>
     <textarea id="feedback-text" name="text" rows="4" required{% if errors.get('text') %} aria-invalid="true" aria-describedby="feedback-text-error" data-autofocus{% else %} autofocus{% endif %}>{{ typed.get('text', '') }}</textarea>

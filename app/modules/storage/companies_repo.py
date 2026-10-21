@@ -81,10 +81,11 @@ def jobs(conn: sqlite3.Connection, company_id: str) -> list[dict[str, Any]]:
             "triage_state": state,
             "snooze_until": until,
             "moved_on": label if state == "to_apply" else None,
+            "application_id": application_id,
         }
-        for id_, title, state, until, label in conn.execute(
+        for id_, title, state, until, label, application_id in conn.execute(
             "SELECT j.id, j.title, j.triage_state, j.snooze_until, "
-            "CASE WHEN s.phase <> 'preparing' THEN s.label END "
+            "CASE WHEN s.phase <> 'preparing' THEN s.label END, a.id "
             "FROM jobs j LEFT JOIN applications a ON a.job_id = j.id "
             "LEFT JOIN application_statuses s ON s.key = a.status_key "
             "WHERE j.company_id = ? AND j.merged_into_job_id IS NULL "

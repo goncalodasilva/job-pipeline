@@ -4,7 +4,7 @@
    is unknown it is empty and asked for. #}
 {% set typed = follow_up.submitted %}
 {% set errors = follow_up.errors %}
-<form id="interview-form" class="board-followup-form" method="post" action="/applications/{{ follow_up.application_id }}/interview-date" hx-post="/applications/{{ follow_up.application_id }}/interview-date" hx-target="#board-content" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button[type='submit']">
+<form id="interview-form" class="board-followup-form" method="post" action="/applications/{{ follow_up.application_id }}/interview-date" hx-post="/applications/{{ follow_up.application_id }}/interview-date" hx-target="{{ followup_target | default('#board-content') }}" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button[type='submit']">
   <div class="field">
     <label for="interview-date">Date</label>
     <input id="interview-date" name="date" type="date" required value="{{ typed.get('date', '') }}"{% if errors.get('starts_at') %} aria-invalid="true" aria-describedby="interview-starts_at-error" data-autofocus{% else %} autofocus{% endif %}>

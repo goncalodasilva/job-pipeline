@@ -2,7 +2,7 @@
    links are plain links that htmx enhances: they swap this block and the server pushes the page
    address (HX-Push-Url), so a reload or Back opens the same view. focus=view puts focus on the
    link that was used and says which view is shown. #}
-<section id="board" class="board">
+<section id="board" class="board" hx-get="{{ address }}" hx-trigger="board:refresh from:body" hx-target="this" hx-swap="outerHTML settle:0ms">
   <div class="board-header">
     <h1 id="board-heading" tabindex="-1">Board</h1>
     {% if not empty %}
@@ -16,4 +16,5 @@
     {% endif %}
   </div>
   {% include "fragments/board/_content.html" %}
+  <div id="application-details"></div>
 </section>
