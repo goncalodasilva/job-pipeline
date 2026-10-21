@@ -1,6 +1,7 @@
 <article id="application-detail" data-application="{{ application.id }}" aria-labelledby="application-title">
   <h2 id="application-title" tabindex="-1"{% if message %} data-autofocus{% endif %}>{{ application.title }}</h2>
   <p><a href="/jobs/{{ application.job_id }}">Open job</a>{% if application.company %} · {% if application.company_id and is_safe_id(application.company_id) %}<a href="/companies/{{ application.company_id }}">{{ application.company }}</a>{% else %}{{ application.company }}{% endif %}{% endif %}</p>
+  <p><a class="button" href="#application-event-editor" data-section-link>Add event</a></p>
   {% if message %}<p class="save-message">{{ message }}</p>{% endif %}
   <div id="application-notice"></div>
   <h3 id="application-status-heading">Status: {{ application.label }}</h3>
@@ -39,7 +40,7 @@
   {% endfor %}
   </ol>
   <section aria-labelledby="add-note-heading"><h3 id="add-note-heading">Add a note</h3>{% with editor={}, editor_id='', submitted={}, errors={} %}{% include "fragments/applications/_note_form.html" %}{% endwith %}</section>
-  <section aria-labelledby="add-event-heading"><h3 id="add-event-heading">Add an event</h3>{% with editor={}, editor_id='', submitted={}, errors={} %}{% include "fragments/applications/_event_form.html" %}{% endwith %}</section>
+  <section id="application-event-editor" data-hash-focus aria-labelledby="add-event-heading" tabindex="-1"><h3 id="add-event-heading">Add an event</h3>{% with editor={}, editor_id='', submitted={}, errors={} %}{% include "fragments/applications/_event_form.html" %}{% endwith %}</section>
   <datalist id="application-zone-list">{% for name in zone_names %}<option value="{{ name }}"></option>{% endfor %}</datalist>
   {% if follow_up %}{% set followup_target = '#application-detail' %}{% set followup_return = '#detail-status-button' %}{% include "fragments/board/_followup.html" %}{% endif %}
 </article>

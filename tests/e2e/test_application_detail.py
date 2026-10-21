@@ -237,3 +237,51 @@ def test_typing_after_submission_survives_delayed_refusal(running_app, browser, 
         )
         if stale:
             expect(form.locator("[name=version]")).to_have_value("99")
+
+
+@pytest.mark.parametrize("viewport", [DESKTOP, PHONE])
+def test_add_event_action_visible_before_long_timeline(running_app, browser, viewport):
+    with desk(running_app) as seed:
+        a = seed.application("event-entry-job", "Seed Buyer", "Fictional Orchard", "applied")
+        for number in range(20):
+            seed.applications.add_feedback(a.id, f"Fictional orchard feedback {number}.")
+    with new_page(browser, viewport) as page:
+        open_board(page, running_app)
+        press_by_keyboard(page, card(page, a.id).get_by_role("link", name="Open application"))
+        drawer = page.get_by_role("dialog", name="Application details")
+        action = drawer.get_by_role("link", name="Add event", exact=True)
+        expect(action).to_be_visible()
+        expect(action).to_be_in_viewport()
+        press_by_keyboard(page, action)
+        expect(drawer.get_by_role("heading", name="Add an event", exact=True)).to_be_focused()
+        form = drawer.locator("#event-form")
+        expect(form.get_by_label("Date", exact=True)).to_be_in_viewport()
+        form.get_by_label("Date", exact=True).fill("2027-01-12")
+        form.get_by_label("Time", exact=True).fill("14:00")
+        form.get_by_label("Time zone", exact=True).fill("Europe/Paris")
+        press_by_keyboard(page, form.get_by_role("button", name="Save event", exact=True))
+        expect(drawer.locator(".save-message")).to_have_text("Event saved.")
+        expect(drawer.get_by_role("button", name="Download calendar file")).to_be_visible()
+        assert_no_serious_violations(page)
+
+
+@pytest.mark.parametrize("source", ["board", "job"])
+def test_add_event_directly_from_board_and_job_details(running_app, browser, source):
+    a = made(running_app)
+    with new_page(browser, PHONE) as page:
+        if source == "board":
+            open_board(page, running_app)
+            container = card(page, a.id)
+        else:
+            open_app(page, running_app, "/jobs/detail-job")
+            container = page.locator("#job-detail-header")
+        link = container.get_by_role("link", name="Add event")
+        if source == "board":
+            expect(link).to_have_accessible_name("Add event, Fictional Orchard, Seed Buyer")
+        press_by_keyboard(page, link)
+        expect(page).to_have_url(
+            running_app.base_url + f"/applications/{a.id}#application-event-editor"
+        )
+        expect(page.get_by_role("heading", name="Add an event", exact=True)).to_be_focused()
+        expect(page.locator("#event-form").get_by_label("Date", exact=True)).to_be_in_viewport()
+        assert_no_serious_violations(page)

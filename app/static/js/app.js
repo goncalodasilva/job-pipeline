@@ -172,6 +172,19 @@
     element.focus();
   }
 
+  // Arriving on a page at a section marked data-hash-focus (an "Add event" link from the Board
+  // or a job) puts keyboard focus on that section's heading, as the in-page link does.
+  function focusHashSection() {
+    var section = window.location.hash ? document.getElementById(window.location.hash.slice(1)) : null;
+    if (!section || !section.hasAttribute("data-hash-focus")) return;
+    var labelledBy = section.getAttribute("aria-labelledby");
+    focusQuietly((labelledBy && document.getElementById(labelledBy)) || section);
+  }
+  // After the load: the browser's own jump to the fragment would otherwise take focus back.
+  function focusHashSectionSoon() { window.setTimeout(focusHashSection, 0); }
+  if (document.readyState === "complete") focusHashSectionSoon();
+  else window.addEventListener("load", focusHashSectionSoon);
+
   document.addEventListener("click", function (event) {
     var target = event.target instanceof Element ? event.target : null;
     var link = target ? target.closest("a[data-section-link]") : null;

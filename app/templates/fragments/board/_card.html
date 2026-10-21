@@ -23,5 +23,5 @@
       </div>
     </form>
   </div>
-  {% if is_safe_id(card.application_id) %}<p><a href="/applications/{{ card.application_id }}" hx-get="/applications/{{ card.application_id }}/detail" hx-target="#application-details" hx-swap="innerHTML">Open application</a></p>{% endif %}
+  {% if is_safe_id(card.application_id) %}<p><a href="/applications/{{ card.application_id }}" hx-get="/applications/{{ card.application_id }}/detail" hx-target="#application-details" hx-swap="innerHTML">Open application</a></p><p><a class="button" href="/applications/{{ card.application_id }}#application-event-editor" aria-label="Add event, {{ card.company }}, {{ card.role }}">Add event</a></p>{% endif %}
 </li>
