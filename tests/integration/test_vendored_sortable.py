@@ -23,4 +23,10 @@ def test_vendored_sortable_matches_pinned_version_and_hash() -> None:
     license_text = (VENDOR / "Sortable.LICENSE").read_text()
     assert "MIT License" in license_text and "Permission is hereby granted" in license_text
     templates = Path(__file__).resolve().parents[2] / "app" / "templates"
-    assert all("Sortable.min.js" not in p.read_text() for p in templates.rglob("*.html"))
+    # SortableJS is loaded by the board page only (ADR-102 item 2).
+    loaders = {
+        p.relative_to(templates).as_posix()
+        for p in templates.rglob("*.html")
+        if "Sortable.min.js" in p.read_text()
+    }
+    assert loaders == {"pages/board.html"}

@@ -1,0 +1,35 @@
+{# The interview-date form inside the follow-up dialog. A refused answer (422) replaces this
+   form alone: each error is tied to its field (aria-describedby, aria-invalid) and the first
+   invalid field takes focus. What was typed stays. The zone starts as the computer's; when that
+   is unknown it is empty and asked for. #}
+{% set typed = follow_up.submitted %}
+{% set errors = follow_up.errors %}
+<form id="interview-form" class="board-followup-form" method="post" action="/applications/{{ follow_up.application_id }}/interview-date" hx-post="/applications/{{ follow_up.application_id }}/interview-date" hx-target="#board-content" hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button[type='submit']">
+  <div class="field">
+    <label for="interview-date">Date</label>
+    <input id="interview-date" name="date" type="date" required value="{{ typed.get('date', '') }}"{% if errors.get('starts_at') %} aria-invalid="true" aria-describedby="interview-starts_at-error" data-autofocus{% else %} autofocus{% endif %}>
+  </div>
+  <div class="field">
+    <label for="interview-time">Time</label>
+    <input id="interview-time" name="time" type="time" required value="{{ typed.get('time', '') }}"{% if errors.get('starts_at') %} aria-invalid="true" aria-describedby="interview-starts_at-error"{% endif %}>
+    {% if errors.get('starts_at') %}<p id="interview-starts_at-error" class="field-error">{{ errors.get('starts_at') }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="interview-time-zone">Time zone</label>
+    <input id="interview-time-zone" name="time_zone" type="text" required list="interview-zone-list" autocomplete="off" spellcheck="false" value="{{ typed.get('time_zone', follow_up.time_zone) }}" aria-describedby="interview-time_zone-hint{% if errors.get('time_zone') %} interview-time_zone-error{% endif %}"{% if errors.get('time_zone') %} aria-invalid="true"{% if not errors.get('starts_at') %} data-autofocus{% endif %}{% endif %}>
+    <datalist id="interview-zone-list">
+    {% for name in follow_up.zone_names %}<option value="{{ name }}"></option>{% endfor %}
+    </datalist>
+    <p id="interview-time_zone-hint" class="field-hint">Use a name such as Europe/Lisbon. Start typing a city to see matches.</p>
+    {% if errors.get('time_zone') %}<p id="interview-time_zone-error" class="field-error">{{ errors.get('time_zone') }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="interview-duration">Duration (minutes)</label>
+    <input id="interview-duration" name="duration_minutes" type="number" inputmode="numeric" min="1" max="1440" step="1" required value="{{ typed.get('duration_minutes', follow_up.duration) }}"{% if errors.get('duration_minutes') %} aria-invalid="true" aria-describedby="interview-duration_minutes-error"{% if not errors.get('starts_at') and not errors.get('time_zone') %} data-autofocus{% endif %}{% endif %}>
+    {% if errors.get('duration_minutes') %}<p id="interview-duration_minutes-error" class="field-error">{{ errors.get('duration_minutes') }}</p>{% endif %}
+  </div>
+  <div class="modal-actions">
+    <button type="submit" class="button button-primary">Save</button>
+    <button type="button" class="button" data-modal-close>Skip</button>
+  </div>
+</form>

@@ -257,6 +257,9 @@ class CardRow:
     status_key: str
     updated_at: str
     next_event_at: str | None
+    next_event_type: str | None = None
+    next_event_zone: str | None = None
+    version: int = 1
 
 
 @dataclass(frozen=True)
@@ -265,6 +268,8 @@ class TableRow:
     company: str
     role: str
     status_key: str
+    applied_at: str | None = None
+    updated_at: str = ""
 
 
 def status_counts(conn: sqlite3.Connection) -> list[StatusCount]:
@@ -281,14 +286,15 @@ def status_counts(conn: sqlite3.Connection) -> list[StatusCount]:
 
 def board_cards(conn: sqlite3.Connection, *, now: str, include_closed: bool) -> list[CardRow]:
     """Cards of preparing and active statuses, and of closed ones only when asked; each with
-    its next scheduled event not yet over at ``now``."""
+    its next scheduled event not yet over at ``now`` (its start, type and time zone)."""
     rows = conn.execute(
         "SELECT a.id, a.job_id, COALESCE(c.name, ''), j.title, a.status_key, a.updated_at, "
-        "(SELECT e.starts_at FROM events e WHERE e.application_id = a.id "
-        "AND e.status = 'scheduled' AND julianday(e.ends_at) >= julianday(?) "
-        "ORDER BY julianday(e.starts_at), e.id LIMIT 1) "
+        "e.starts_at, e.type, e.time_zone, a.version "
         "FROM applications a JOIN application_statuses s ON s.key = a.status_key "
         "JOIN jobs j ON j.id = a.job_id LEFT JOIN companies c ON c.id = j.company_id "
+        "LEFT JOIN events e ON e.id = (SELECT n.id FROM events n WHERE n.application_id = a.id "
+        "AND n.status = 'scheduled' AND julianday(n.ends_at) >= julianday(?) "
+        "ORDER BY julianday(n.starts_at), n.id LIMIT 1) "
         "WHERE s.phase <> 'closed' OR ? = 1",
         (now, 1 if include_closed else 0),
     ).fetchall()
@@ -304,41 +310,49 @@ def count_applications(conn: sqlite3.Connection) -> int:
 # Company: companies are read through their name index, and company-less jobs join the result
 # as a second arm that sorts as an empty name (first ascending, last descending).
 _PAGE_COMPANY_ASC = (
-    "SELECT a.id, c.name, j.title, a.status_key, c.id FROM companies c "
+    "SELECT a.id, c.name, j.title, a.status_key, a.applied_at, a.updated_at, c.id "
+    "FROM companies c "
     "CROSS JOIN jobs j ON j.company_id = c.id CROSS JOIN applications a ON a.job_id = j.id "
-    "UNION ALL SELECT a.id, NULL, j.title, a.status_key, NULL FROM jobs j "
+    "UNION ALL SELECT a.id, NULL, j.title, a.status_key, a.applied_at, a.updated_at, NULL "
+    "FROM jobs j "
     "CROSS JOIN applications a ON a.job_id = j.id WHERE j.company_id IS NULL "
-    "ORDER BY 2 COLLATE NOCASE, 5, 1 LIMIT ? OFFSET ?"
+    "ORDER BY 2 COLLATE NOCASE, 7, 1 LIMIT ? OFFSET ?"
 )
 _PAGE_COMPANY_DESC = (
-    "SELECT a.id, c.name, j.title, a.status_key, c.id FROM companies c "
+    "SELECT a.id, c.name, j.title, a.status_key, a.applied_at, a.updated_at, c.id "
+    "FROM companies c "
     "CROSS JOIN jobs j ON j.company_id = c.id CROSS JOIN applications a ON a.job_id = j.id "
-    "UNION ALL SELECT a.id, NULL, j.title, a.status_key, NULL FROM jobs j "
+    "UNION ALL SELECT a.id, NULL, j.title, a.status_key, a.applied_at, a.updated_at, NULL "
+    "FROM jobs j "
     "CROSS JOIN applications a ON a.job_id = j.id WHERE j.company_id IS NULL "
-    "ORDER BY 2 COLLATE NOCASE DESC, 5 DESC, 1 DESC LIMIT ? OFFSET ?"
+    "ORDER BY 2 COLLATE NOCASE DESC, 7 DESC, 1 DESC LIMIT ? OFFSET ?"
 )
 _PAGE_ROLE_ASC = (
-    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key FROM jobs j "
+    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key, a.applied_at, a.updated_at "
+    "FROM jobs j "
     "INDEXED BY jobs_title_application_sort CROSS JOIN applications a ON a.job_id = j.id "
     "LEFT JOIN companies c ON c.id = j.company_id "
     "ORDER BY j.title COLLATE NOCASE, j.id LIMIT ? OFFSET ?"
 )
 _PAGE_ROLE_DESC = (
-    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key FROM jobs j "
+    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key, a.applied_at, a.updated_at "
+    "FROM jobs j "
     "INDEXED BY jobs_title_application_sort CROSS JOIN applications a ON a.job_id = j.id "
     "LEFT JOIN companies c ON c.id = j.company_id "
     "ORDER BY j.title COLLATE NOCASE DESC, j.id DESC LIMIT ? OFFSET ?"
 )
 # Status: pipeline order (phase, then position), then the application's own activity order.
 _PAGE_STATUS_ASC = (
-    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key FROM application_statuses s "
+    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key, a.applied_at, a.updated_at "
+    "FROM application_statuses s "
     "CROSS JOIN applications a ON a.status_key = s.key JOIN jobs j ON j.id = a.job_id "
     "LEFT JOIN companies c ON c.id = j.company_id "
     "ORDER BY CASE s.phase WHEN 'preparing' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, "
     "s.position, s.key, a.updated_at, a.id LIMIT ? OFFSET ?"
 )
 _PAGE_STATUS_DESC = (
-    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key FROM application_statuses s "
+    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key, a.applied_at, a.updated_at "
+    "FROM application_statuses s "
     "CROSS JOIN applications a ON a.status_key = s.key JOIN jobs j ON j.id = a.job_id "
     "LEFT JOIN companies c ON c.id = j.company_id "
     "ORDER BY CASE s.phase WHEN 'preparing' THEN 0 WHEN 'active' THEN 1 ELSE 2 END DESC, "
@@ -346,22 +360,26 @@ _PAGE_STATUS_DESC = (
 )
 # Applied: an application never applied for has no date and sorts as the smallest value.
 _PAGE_APPLIED_ASC = (
-    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key FROM applications a "
+    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key, a.applied_at, a.updated_at "
+    "FROM applications a "
     "JOIN jobs j ON j.id = a.job_id LEFT JOIN companies c ON c.id = j.company_id "
     "ORDER BY a.applied_at, a.id LIMIT ? OFFSET ?"
 )
 _PAGE_APPLIED_DESC = (
-    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key FROM applications a "
+    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key, a.applied_at, a.updated_at "
+    "FROM applications a "
     "JOIN jobs j ON j.id = a.job_id LEFT JOIN companies c ON c.id = j.company_id "
     "ORDER BY a.applied_at DESC, a.id DESC LIMIT ? OFFSET ?"
 )
 _PAGE_ACTIVITY_ASC = (
-    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key FROM applications a "
+    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key, a.applied_at, a.updated_at "
+    "FROM applications a "
     "JOIN jobs j ON j.id = a.job_id LEFT JOIN companies c ON c.id = j.company_id "
     "ORDER BY a.updated_at, a.id LIMIT ? OFFSET ?"
 )
 _PAGE_ACTIVITY_DESC = (
-    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key FROM applications a "
+    "SELECT a.id, COALESCE(c.name, ''), j.title, a.status_key, a.applied_at, a.updated_at "
+    "FROM applications a "
     "JOIN jobs j ON j.id = a.job_id LEFT JOIN companies c ON c.id = j.company_id "
     "ORDER BY a.updated_at DESC, a.id DESC LIMIT ? OFFSET ?"
 )
@@ -389,4 +407,4 @@ def table_page(
     if statement is None:
         raise ValueError("unknown table sort")
     rows = conn.execute(statement, (limit, offset)).fetchall()
-    return [TableRow(row[0], row[1] or "", row[2], row[3]) for row in rows]
+    return [TableRow(row[0], row[1] or "", row[2], row[3], row[4], row[5]) for row in rows]

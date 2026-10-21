@@ -26,6 +26,8 @@ class BoardStatus:
 @dataclass(frozen=True)
 class NextEvent:
     starts_at: datetime
+    event_type: str = "interview"
+    time_zone: str = "UTC"
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class BoardCard:
     status_key: str
     next_event: NextEvent | None
     days_since_activity: int
+    version: int = 1
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,8 @@ class TableRow:
     company: str
     role: str
     status_key: str
+    applied_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -117,7 +122,17 @@ class BoardQuery:
             found = applications_repo.table_page(
                 conn, sort, descending=descending, limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE
             )
-        rows = tuple(TableRow(r.application_id, r.company, r.role, r.status_key) for r in found)
+        rows = tuple(
+            TableRow(
+                r.application_id,
+                r.company,
+                r.role,
+                r.status_key,
+                _instant(r.applied_at) if r.applied_at else None,
+                _instant(r.updated_at) if r.updated_at else None,
+            )
+            for r in found
+        )
         return TablePage(rows, total, page, PAGE_SIZE)
 
 
@@ -134,8 +149,15 @@ def _cards(rows: list[CardRow], now: datetime) -> list[BoardCard]:
             row.company,
             row.role,
             row.status_key,
-            NextEvent(_instant(row.next_event_at)) if row.next_event_at else None,
+            NextEvent(
+                _instant(row.next_event_at),
+                row.next_event_type or "interview",
+                row.next_event_zone or "UTC",
+            )
+            if row.next_event_at
+            else None,
             max(0, (now - updated).days),
+            row.version,
         )
         for updated, row in stamped
     ]

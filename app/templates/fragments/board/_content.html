@@ -1,0 +1,22 @@
+{# #board-content: what a move, a follow-up answer or the Closed button replaces. With no
+   applications it holds the empty state and nothing else. #board-notice takes a refused move's
+   reload prompt (HX-Retarget), so the rest of the board stays as it is. #}
+<div id="board-content">
+{% if empty %}
+  <div class="empty-state">
+    <p>No applications yet. When you decide to apply for a job, it appears here, ready to track.</p>
+    <p><a href="/inbox">Go to the Job inbox</a> to review jobs and choose what to apply for.</p>
+  </div>
+{% else %}
+  <div id="board-notice"></div>
+  {% if view == "table" %}
+    {% include "fragments/board/_table.html" %}
+  {% else %}
+    {% include "fragments/board/_columns.html" %}
+    {% if board.follow_up %}
+      {% set follow_up = board.follow_up %}
+      {% include "fragments/board/_followup.html" %}
+    {% endif %}
+  {% endif %}
+{% endif %}
+</div>

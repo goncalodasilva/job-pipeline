@@ -545,7 +545,9 @@ def test_placeholder_pages_have_empty_state(client: TestClient, path: str, area:
     # empty queue's (ADR-098 item 9).
     # The Companies page (M4.10) leads with its own <h1> and the table; its empty state is the
     # empty list's (ADR-098 item 9).
-    own_page = area in ("Settings", "Fact bank", "Job inbox", "Companies")
+    # The Board (M5.4) leads with its own <h1> and the Board/Table toggle; its empty state is
+    # the empty board's, with a link to the inbox (ADR-102 item 11).
+    own_page = area in ("Settings", "Fact bank", "Job inbox", "Companies", "Board")
     headings = [e for e in elements if e.tag == "h1" and (own_page or e.within(state))]
     assert headings, "the empty state has no <h1>"
     assert area.lower() in headings[0].text.lower(), headings[0].text

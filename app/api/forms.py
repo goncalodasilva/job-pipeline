@@ -10,10 +10,13 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import Request
+from fastapi.responses import PlainTextResponse, Response
 
+from app.api.errors import INVALID_REQUEST
 from app.onboarding.registry import Form
 
 MAX_FORM_BYTES = 64 * 1024  # these forms are a few short fields
+MAX_VERSION = 2**63 - 1
 
 
 async def read_form(request: Request) -> Form | None:
@@ -46,3 +49,22 @@ def echo_submitted(form: dict[str, Any], handler: object, submitted: Form) -> No
 
 def is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request") == "true"
+
+
+async def single_value_form(request: Request, allowed: set[str]) -> dict[str, str] | Response:
+    """The form's fields, each given once; anything else is a 400, a huge body a 413."""
+    form = await read_form(request)
+    if form is None:
+        return PlainTextResponse(INVALID_REQUEST, status_code=413)
+    if set(form) - allowed or any(len(values) != 1 for values in form.values()):
+        return PlainTextResponse(INVALID_REQUEST, status_code=400)
+    return {name: values[0] for name, values in form.items()}
+
+
+def posted_version(form: dict[str, str], *, minimum: int) -> int | None:
+    """The form's ``version`` as a whole number from ``minimum`` up, else None."""
+    try:
+        value = int(form.get("version", ""))
+    except ValueError:
+        return None
+    return value if minimum <= value <= MAX_VERSION else None

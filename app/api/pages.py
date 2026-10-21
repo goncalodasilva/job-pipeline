@@ -8,7 +8,8 @@ they return only the main-content fragment, which needs the token.
 Until each area is built, its page is a placeholder with an empty state (ADR-029). Settings
 has a page of its own (``app/api/settings.py``, M1.21), with a small empty state for its parts
 still to come, and so have the Fact bank (``app/api/facts.py``, M3.5), the Job inbox
-(``app/api/inbox.py``, M4.7) and Companies (``app/api/companies.py``, M4.10).
+(``app/api/inbox.py``, M4.7), Companies (``app/api/companies.py``, M4.10) and the Board
+(``app/api/board.py``, M5.4).
 """
 
 from collections.abc import Callable
@@ -54,6 +55,7 @@ AREAS: tuple[Area, ...] = (
         "/board",
         "Board",
         "Your applications will appear here, arranged by where each one stands.",
+        placeholder=False,
     ),
     Area(
         "facts",

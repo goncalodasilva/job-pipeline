@@ -1,0 +1,26 @@
+{# One application card (M5.4). The title takes focus after its move (data-autofocus). The
+   menu is a disclosure of menu items that board.js opens: Enter opens it on its first item, the
+   arrows choose, Enter moves, Esc closes. Each item is a submit button of the move form, which
+   htmx posts like a drop does (the same three fields). A closed card says which way it closed. #}
+<li class="board-card" data-application-id="{{ card.application_id }}" data-version="{{ card.version }}" data-status="{{ card.status_key }}">
+  <h3 class="board-card-title" tabindex="-1"{% if card.focus %} data-autofocus{% endif %}>{{ card.company }}</h3>
+  <p class="board-card-role">{{ card.role }}</p>
+  {% if card.closed_label %}<p class="board-card-state">{{ card.closed_label }}</p>{% endif %}
+  {% if card.event_at %}
+  <p class="board-card-next">{{ card.event_label }}: <time datetime="{{ card.event_at }}">{{ card.event_text }}</time></p>
+  {% else %}
+  <p class="board-card-next">Last activity {{ card.activity }}</p>
+  {% endif %}
+  <div class="board-menu">
+    <button type="button" id="board-menu-button-{{ card.application_id }}" class="button board-menu-button" aria-haspopup="menu" aria-expanded="false" aria-controls="board-menu-{{ card.application_id }}" aria-label="Move to… {{ card.company }}, {{ card.role }}">Move to…</button>
+    <form method="post" action="/applications/{{ card.application_id }}/status" hx-post="/applications/{{ card.application_id }}/status" hx-target="#board-content" hx-swap="outerHTML settle:0ms">
+      <input type="hidden" name="version" value="{{ card.version }}">
+      <input type="hidden" name="source" value="menu">
+      <div id="board-menu-{{ card.application_id }}" class="board-menu-items" role="menu" aria-labelledby="board-menu-button-{{ card.application_id }}" hidden>
+      {% for status in board.statuses if status.key != card.status_key %}
+        <button type="submit" role="menuitem" class="board-menu-item" name="status" value="{{ status.key }}" tabindex="-1">{{ status.label }}</button>
+      {% endfor %}
+      </div>
+    </form>
+  </div>
+</li>

@@ -178,6 +178,14 @@ class ApplicationService:
                 raise ApplicationNotFound()
             return MoveResult(saved, transition.follow_up)
 
+    def exists(self, application_id: str) -> bool:
+        """Whether the id names a stored application (an unsafe id names none). Reads only."""
+        db = self._database()
+        if db is None or not is_safe_id(application_id):
+            return False
+        with db.read() as conn:
+            return applications_repo.get_application(conn, application_id) is not None
+
     def add_interview_date(
         self,
         application_id: str,
@@ -304,6 +312,17 @@ class ApplicationStatuses:
         self._database = database
         self._clock = clock
         self._ids = ids
+
+    def listing(self) -> tuple[StoredStatus, ...]:
+        """Every status in pipeline order: preparing, then active, then closed, each by
+        position. Reads only."""
+        db = self._database()
+        if db is None:
+            return ()
+        with db.read() as conn:
+            found = applications_repo.list_statuses(conn)
+        rank = {phase.value: number for number, phase in enumerate(ApplicationPhase)}
+        return tuple(sorted(found, key=lambda s: (rank.get(s.phase, len(rank)), s.position, s.key)))
 
     def add(self, label: str, phase: str | None) -> StoredStatus:
         db = self._database()

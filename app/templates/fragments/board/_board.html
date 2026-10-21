@@ -1,0 +1,19 @@
+{# The Board screen (M5.4): the heading, the Board/Table toggle and #board-content. The toggle
+   links are plain links that htmx enhances: they swap this block and the server pushes the page
+   address (HX-Push-Url), so a reload or Back opens the same view. focus=view puts focus on the
+   link that was used and says which view is shown. #}
+<section id="board" class="board">
+  <div class="board-header">
+    <h1 id="board-heading" tabindex="-1">Board</h1>
+    {% if not empty %}
+    <nav class="board-views" aria-label="Board view">
+      <ul>
+      {% for link in view_links %}
+        <li><a href="{{ link.href }}" hx-get="{{ link.request }}" hx-target="#board" hx-swap="outerHTML settle:0ms"{% if link.current %} aria-current="true"{% endif %}{% if focus == "view" and link.current %} data-autofocus{% endif %}>{{ link.label }}</a></li>
+      {% endfor %}
+      </ul>
+    </nav>
+    {% endif %}
+  </div>
+  {% include "fragments/board/_content.html" %}
+</section>

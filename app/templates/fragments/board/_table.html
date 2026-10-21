@@ -1,0 +1,35 @@
+{# The table view: every application, closed ones too, sortable by each column and 50 a page.
+   The sort and page links are plain links that htmx enhances (they swap #board and the server
+   pushes the page address). A sort asks for focus=sort: focus goes to the column's link and the
+   order is announced. A page link asks for focus=page: focus goes to the table's region and
+   "Page 2 of 3." is announced. The table scrolls inside its own region, never the page. #}
+<div class="table-scroll" role="region" tabindex="0" aria-labelledby="board-table-caption"{% if focus == "page" %} data-autofocus{% endif %}>
+  <table id="board-table" class="board-table">
+    <caption id="board-table-caption" class="visually-hidden">Applications. {{ sort_text }}</caption>
+    <thead>
+      <tr>
+      {% for column in columns %}
+        <th scope="col" aria-sort="{{ column.aria_sort }}"><a id="board-sort-{{ column.key }}" href="{{ column.href }}" hx-get="{{ column.request }}" hx-target="#board" hx-swap="outerHTML settle:0ms"{% if focus == "sort" and column.active %} data-autofocus{% endif %}>{{ column.label }}{% if column.active %} <span aria-hidden="true">{{ "▲" if dir == "asc" else "▼" }}</span>{% endif %}</a></th>
+      {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in table.rows %}
+      <tr data-application-id="{{ row.application_id }}">
+        <td>{{ row.company }}</td>
+        <td>{{ row.role }}</td>
+        <td>{{ row.status }}</td>
+        <td class="when">{% if row.applied_at %}<time datetime="{{ row.applied_at }}">{{ row.applied_text }}</time>{% else %}{{ row.applied_text }}{% endif %}</td>
+        <td class="when"><time datetime="{{ row.activity_at }}">{{ row.activity }}</time></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if pages > 1 %}
+<nav class="pager" aria-label="Board pages">
+  {% if previous_href %}<a class="button" href="{{ previous_href }}" hx-get="{{ previous_href }}&amp;focus=page" hx-target="#board" hx-swap="outerHTML settle:0ms">Previous page</a>{% endif %}
+  <span>Page {{ page }} of {{ pages }}</span>
+  {% if next_href %}<a class="button" href="{{ next_href }}" hx-get="{{ next_href }}&amp;focus=page" hx-target="#board" hx-swap="outerHTML settle:0ms">Next page</a>{% endif %}
+</nav>
+{% endif %}

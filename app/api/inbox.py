@@ -39,7 +39,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Res
 from starlette.concurrency import run_in_threadpool
 
 from app.api.errors import INVALID_REQUEST
-from app.api.forms import read_form
+from app.api.forms import posted_version, single_value_form
 from app.api.job_summary import summary_context
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
@@ -81,7 +81,6 @@ TRIAGE_FIELDS = {
     "next_id",
     "filters",
 }
-MAX_VERSION = 2**63 - 1
 
 
 def register_inbox_routes(app: FastAPI) -> None:
@@ -315,8 +314,10 @@ def _reload_prompt(
     url: str,
     target: str = "",
     message: str = VersionConflict.message,
+    link: str = "Reload the page",
 ) -> Response:
     ctx = {
+        "reload_link": link,
         "reload_id": "inbox-reload",
         "reload_message": message,
         "reload_detail": detail,
@@ -331,29 +332,11 @@ def _reload_prompt(
     return response
 
 
-async def _form(request: Request, allowed: set[str]) -> dict[str, str] | Response:
-    """The form's fields, each given once; anything else is a 400, a huge body a 413."""
-    form = await read_form(request)
-    if form is None:
-        return PlainTextResponse(INVALID_REQUEST, status_code=413)
-    if set(form) - allowed or any(len(values) != 1 for values in form.values()):
-        return PlainTextResponse(INVALID_REQUEST, status_code=400)
-    return {name: values[0] for name, values in form.items()}
-
-
-def _version(form: dict[str, str], *, minimum: int) -> int | None:
-    try:
-        value = int(form.get("version", ""))
-    except ValueError:
-        return None
-    return value if minimum <= value <= MAX_VERSION else None
-
-
 async def mark_seen(request: Request, job_id: str) -> Response:
-    form = await _form(request, {"version"})
+    form = await single_value_form(request, {"version"})
     if isinstance(form, Response):
         return form
-    version = _version(form, minimum=1)
+    version = posted_version(form, minimum=1)
     if version is None:
         return PlainTextResponse(INVALID_REQUEST, status_code=400)
     service: JobTriageService = request.app.state.job_triage
@@ -412,6 +395,15 @@ def _triage_answer(request: Request, job_id: str, form: dict[str, str], version:
     except JobNotFound:
         return _not_found()
     except StatusNotAllowed as refused:
+        if form["action"] == "undo":  # a worked-on application: the Board is where it goes on
+            return _reload_prompt(
+                request,
+                detail="The job stays in To apply.",
+                url="/board",
+                target="#inbox-notice",
+                message=refused.user_message,
+                link="Open the Board",
+            )
         return _reload_prompt(
             request,
             detail="Nothing was changed.",
@@ -468,10 +460,10 @@ def _triage_answer(request: Request, job_id: str, form: dict[str, str], version:
 
 
 async def triage(request: Request, job_id: str) -> Response:
-    form = await _form(request, TRIAGE_FIELDS)
+    form = await single_value_form(request, TRIAGE_FIELDS)
     if isinstance(form, Response):
         return form
-    version = _version(form, minimum=1)
+    version = posted_version(form, minimum=1)
     if version is None or form.get("action") not in ACTIONS:
         return PlainTextResponse(INVALID_REQUEST, status_code=400)
     return await run_in_threadpool(_triage_answer, request, job_id, form, version)
@@ -494,10 +486,10 @@ def show_shortcuts(request: Request) -> Response:
 
 
 async def save_shortcuts(request: Request) -> Response:
-    form = await _form(request, {"version", "enabled"})
+    form = await single_value_form(request, {"version", "enabled"})
     if isinstance(form, Response):
         return form
-    version = _version(form, minimum=0)
+    version = posted_version(form, minimum=0)
     if version is None or form.get("enabled", "") not in ("", "1"):
         return PlainTextResponse(INVALID_REQUEST, status_code=400)
     views = _views(request)

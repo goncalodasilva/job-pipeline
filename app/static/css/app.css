@@ -2276,11 +2276,14 @@ kbd,
   border-radius: var(--radius);
 }
 
+.board-table,
 .companies-table {
   width: 100%;
   border-collapse: collapse;
 }
 
+.board-table th,
+.board-table td,
 .companies-table th,
 .companies-table td {
   padding: var(--space-1) var(--space-3);
@@ -2289,10 +2292,12 @@ kbd,
   border-bottom: 1px solid var(--color-border);
 }
 
+.board-table tbody tr:last-child td,
 .companies-table tbody tr:last-child td {
   border-bottom: 0;
 }
 
+.board-table th a,
 .companies-table th a,
 .companies-table td a {
   display: inline-flex;
@@ -2306,6 +2311,7 @@ kbd,
 }
 
 /* A date is never broken across lines; the table scrolls in its region instead. */
+.board-table .when,
 .companies-table .when {
   white-space: nowrap;
 }
@@ -2356,4 +2362,259 @@ kbd,
 #company-edit {
   max-width: 40rem;
   margin-top: var(--space-6);
+}
+
+/* Board (M5.4): a column per status that scrolls sideways inside its own area on a wide screen
+   and stacks on a phone; cards with a "Move to..." menu; the table view shares the Companies
+   table's look. Status is always said in words (the column heading, "Closed: rejected"), never
+   by colour alone. */
+#board {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.board-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.board-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.board-views ul {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board-views a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.board-views a[aria-current="true"] {
+  font-weight: 700;
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  text-decoration: none;
+}
+
+#board-notice:empty {
+  display: none;
+}
+
+#board-notice {
+  margin-bottom: var(--space-4);
+}
+
+/* The status columns scroll sideways inside their own region on a narrow window; Closed has its
+   own full-width row below them, so it is always in sight. */
+.board-scroll {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(12rem, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+}
+
+#board-closed {
+  margin-top: var(--space-3);
+}
+
+.board-column {
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.board-column h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 1rem;
+}
+
+/* An empty list is still a place to drop a card. */
+.board-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 4.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board-cards:not(:has(.board-card)) {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+}
+
+.board-cards:not(:has(.board-card))::before {
+  content: "No applications";
+  padding: var(--space-3);
+  color: var(--color-text-muted);
+}
+
+/* Closed is a full-width row: its cards sit side by side, not squeezed into one column. */
+#board-closed .board-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+}
+
+.board-card {
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.board-card.is-ghost {
+  opacity: 0.5;
+}
+
+.board-card.is-chosen {
+  border-color: var(--color-accent);
+}
+
+.board-card-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.board-card-title:focus {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.board-card-role,
+.board-card-state,
+.board-card-next {
+  margin: var(--space-1) 0 0;
+}
+
+.board-card-state {
+  font-weight: 600;
+}
+
+.board-card-next {
+  color: var(--color-text-muted);
+}
+
+.board-menu {
+  margin-top: var(--space-2);
+}
+
+.board-menu-button {
+  width: 100%;
+}
+
+.board-menu-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.board-menu-item {
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  text-align: left;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.board-menu-item:hover,
+.board-menu-item:focus {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.board-closed-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-weight: 700;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+/* The chevron is a drawn shape, not text, so it stays out of the button's name. */
+.board-closed-toggle::before {
+  content: "";
+  width: 0.5em;
+  height: 0.5em;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.board-closed-toggle[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+
+#board-closed .board-cards {
+  margin-top: var(--space-3);
+}
+
+/* Dragging works from the window width where the lists are side by side. */
+@media (min-width: 768px) {
+  .board-scroll .board-card {
+    cursor: grab;
+  }
+
+  .board-scroll .board-card.is-chosen {
+    cursor: grabbing;
+  }
+
+  .board-card .board-menu {
+    cursor: default;
+  }
+}
+
+/* The follow-up questions: the dialog's fields and their notes sit close to the field. */
+.board-followup-form .field-hint,
+.board-followup-form .field-error {
+  margin: 0;
+}
+
+/* Phone: the columns stack, each full width under the last; the menu is the way to move. */
+@media (max-width: 767.98px) {
+  .board-scroll {
+    display: block;
+    overflow-x: visible;
+  }
+
+  .board-scroll > .board-column + .board-column {
+    margin-top: var(--space-3);
+  }
 }

@@ -1,0 +1,18 @@
+{# A follow-up question after a move (M5.4; the dialog's description starts with "Moved to ...", since
+   focus moves in and the header announcement may be missed), the same for a drop and for the menu: "Add the
+   interview date?" after Interviewing, "Any feedback worth noting?" after Rejected. A modal
+   dialog like the budget question (app.js opens it with showModal() once the swap settles;
+   Esc and Skip close it and send nothing). Save posts the answer; a refused one answers 422 and
+   only the form is replaced, with the error tied to its field. When it closes without saving,
+   focus returns to the moved card's title. #}
+<dialog id="board-followup" class="modal" role="dialog" aria-modal="true" aria-labelledby="board-followup-heading" aria-describedby="board-followup-description" data-modal data-return-focus='li.board-card[data-application-id="{{ follow_up.application_id }}"] .board-card-title'>
+  {% if follow_up.kind == "interview_date" %}
+  <h2 id="board-followup-heading">Add the interview date?</h2>
+  <p id="board-followup-description">{% if follow_up.moved_to %}Moved to {{ follow_up.moved_to }}. {% endif %}It shows on the card and goes into the calendar file you can download. You can skip this and add it later.</p>
+  {% include "fragments/board/_interview_form.html" %}
+  {% else %}
+  <h2 id="board-followup-heading">Any feedback worth noting?</h2>
+  <p id="board-followup-description">{% if follow_up.moved_to %}Moved to {{ follow_up.moved_to }}. {% endif %}It is kept with the application. You can skip this.</p>
+  {% include "fragments/board/_feedback_form.html" %}
+  {% endif %}
+</dialog>

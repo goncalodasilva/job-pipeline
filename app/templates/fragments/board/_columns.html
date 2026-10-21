@@ -1,0 +1,33 @@
+{# The board view: a column per preparing or active status, then the collapsed Closed column.
+   Each list is a SortableJS drop target (board.js); every card has the "Move to..." menu, the
+   keyboard way to do the same move. Closed cards are only moved with their menu. The status
+   columns scroll sideways inside their own region when the window is narrow; Closed has its
+   own full-width row below them. #}
+<div id="board-columns" class="board-columns">
+  <div class="board-scroll" role="region" tabindex="0" aria-label="Board columns">
+{% for column in board.columns %}
+  <section class="board-column" data-status="{{ column.key }}">
+    <h2 id="board-column-{{ column.key }}">{{ column.label }} ({{ column.count }})</h2>
+    <ul class="board-cards" data-sortable data-status="{{ column.key }}">
+    {% for card in column.cards %}
+      {% include "fragments/board/_card.html" %}
+    {% endfor %}
+    </ul>
+  </section>
+{% endfor %}
+  </div>
+  <section id="board-closed" class="board-column">
+    <h2 id="board-closed-heading">
+      <button type="button" id="board-closed-toggle" class="board-closed-toggle" aria-expanded="{{ 'true' if board.closed.expanded else 'false' }}"{% if board.closed.expanded %} aria-controls="board-closed-cards"{% endif %}
+              hx-get="{{ closed_shut_get if board.closed.expanded else closed_get }}" hx-target="#board-content" hx-swap="outerHTML settle:0ms"
+              hx-push-url="{{ '/board' if board.closed.expanded else closed_open }}"{% if board.focus_closed %} data-autofocus{% endif %}>Closed: {{ board.closed.count }}</button>
+    </h2>
+  {% if board.closed.expanded %}
+    <ul id="board-closed-cards" class="board-cards">
+    {% for card in board.closed.cards %}
+      {% include "fragments/board/_card.html" %}
+    {% endfor %}
+    </ul>
+  {% endif %}
+  </section>
+</div>

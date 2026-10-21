@@ -1,3 +1,8 @@
 {% extends "base.html" %}
 {% set live_updates = true %}
-{% block content %}{% include "fragments/shell/_placeholder.html" %}{% endblock %}
+{% block content %}
+{% include "fragments/board/_board.html" %}
+{# SortableJS and the board's script belong to this page only; the library comes first. #}
+<script src="{{ static('vendor/Sortable.min.js') }}" defer></script>
+<script src="{{ static('js/board.js') }}" defer></script>
+{% endblock %}

@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from app.api.errors import INVALID_REQUEST
-from app.api.inbox import _form, _version
+from app.api.forms import posted_version, single_value_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
 from app.api.templating import render, renders_fragment, templates
@@ -152,10 +152,10 @@ def company_page(request: Request, company_id: str) -> Response:
 async def edit_company(request: Request, company_id: str) -> Response:
     if not await run_in_threadpool(_service(request).exists, company_id):
         return _not_found()
-    form = await _form(request, {"version", *COMPANY_FIELDS})
+    form = await single_value_form(request, {"version", *COMPANY_FIELDS})
     if isinstance(form, Response):
         return form
-    version = _version(form, minimum=1)
+    version = posted_version(form, minimum=1)
     if version is None:
         return PlainTextResponse(INVALID_REQUEST, status_code=400)
     return await run_in_threadpool(_save, request, company_id, form, version)

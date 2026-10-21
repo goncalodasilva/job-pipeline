@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from app.api.inbox import _form, _version
+from app.api.forms import posted_version, single_value_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
 from app.api.templating import render, templates
@@ -66,7 +66,7 @@ def _saved(
 
 
 async def save_view(request: Request) -> Response:
-    form = await _form(request, {"name", "filters"})
+    form = await single_value_form(request, {"name", "filters"})
     if isinstance(form, Response):
         return form
 
@@ -89,10 +89,10 @@ async def save_view(request: Request) -> Response:
 
 
 async def change_view(request: Request, view_id: str) -> Response:
-    form = await _form(request, {"name", "action", "version", "filters"})
+    form = await single_value_form(request, {"name", "action", "version", "filters"})
     if isinstance(form, Response):
         return form
-    version = _version(form, minimum=1)
+    version = posted_version(form, minimum=1)
     if version is None or form.get("action") not in ("rename", "delete"):
         return PlainTextResponse("Invalid request.", status_code=400)
 
@@ -149,10 +149,10 @@ def values_page(request: Request) -> Response:
 
 
 async def decide_value(request: Request, value_id: str) -> Response:
-    form = await _form(request, {"action", "version", "target"})
+    form = await single_value_form(request, {"action", "version", "target"})
     if isinstance(form, Response):
         return form
-    version = _version(form, minimum=1)
+    version = posted_version(form, minimum=1)
     if version is None or form.get("action") not in ("map", "new", "ignore"):
         return PlainTextResponse("Invalid request.", status_code=400)
 

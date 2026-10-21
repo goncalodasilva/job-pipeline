@@ -38,6 +38,7 @@ from app.logging_config import SDK_REDUCED_ATTR, UVICORN_LOGGERS, configure_logg
 from app.main import LOG_FOLDER, create_app
 from app.modules.ai import AIProvider, ConnectionResult
 from app.modules.ai.providers.claude_sdk import ClaudeSdkProvider
+from app.modules.storage import jobs_repo
 from app.onboarding.registry import m1_registry
 from app.wiring import AI_TEMP_FOLDER, Wiring
 from tests.fact_bank import seed_page_ids
@@ -451,6 +452,23 @@ def visit_every_page(session: Session) -> None:
         else:
             assert "{" not in route.path, f"unknown page parameter in {route.path}"
             paths.append(route.path)
+    # The board (M5.4) lists applications: apply for the job so a card is rendered, then read
+    # the board's variants. ``/board`` itself is a page without parameters, so it is in ``paths``.
+    state = session.run.app.state
+    with state.workspace.db.read() as conn:
+        stored = jobs_repo.get_job(conn, job.job_id)
+    assert stored is not None
+    if stored.triage_state != "to_apply":  # a second visit finds it applied for already
+        state.applications.apply_to_job(job.job_id, expected_job_version=stored.version)
+    paths.extend(
+        [
+            "/board?view=table&sort=company&dir=desc",
+            "/board?closed=1",
+            "/board/columns",
+            "/board/columns?view=table&sort=role",
+        ]
+    )
+    assert "/board" in paths, paths
     assert "/settings" in paths and "/" in paths and GUIDE in paths, paths
     assert set(fact_pages.values()) <= set(paths), paths
     for path in [*paths, "/health", "/no-such-page-m123"]:

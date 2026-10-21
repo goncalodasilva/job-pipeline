@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from types import MappingProxyType
 from typing import Final
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from app.domain.clock import Clock, SystemClock
 from app.domain.errors import ProviderNotInstalled
@@ -388,7 +388,7 @@ def local_timezone() -> tzinfo:
 
 
 def system_time_zone_name() -> str | None:
-    """Read only the system link's IANA name; copied files or unknown zones ask the user.
+    """Read only the system link's IANA name; copied files, unknown or unlisted zones ask the user.
 
     No shell, environment override, user configuration, or inferred fixed-offset name.
     macOS's /var/db/timezone/zoneinfo links and relative Linux links work alike.
@@ -400,7 +400,8 @@ def system_time_zone_name() -> str | None:
         ZoneInfo(name)
     except (OSError, ValueError, ZoneInfoNotFoundError):
         return None
-    return name
+    # Only a name the interview form's own check accepts: the default is never refused.
+    return name if name in available_timezones() else None
 
 
 def clear_ai_temp(data_dir: Path) -> Path:

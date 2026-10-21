@@ -8,11 +8,11 @@ from app import wiring
 
 
 @pytest.mark.parametrize(
-    "mode", ["link", "relative_link", "copied_file", "unknown_name", "missing"]
+    "mode", ["link", "relative_link", "copied_file", "unknown_name", "missing", "unlisted_name"]
 )
 def test_system_time_zone_name(mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     link = tmp_path / "localtime"
-    if mode in {"link", "relative_link", "unknown_name"}:
+    if mode in {"link", "relative_link", "unknown_name", "unlisted_name"}:
         name = "Europe/Lisbon" if mode != "unknown_name" else "Unknown/Fictional"
         target = tmp_path / "zoneinfo" / name
         target.parent.mkdir(parents=True)
@@ -20,6 +20,8 @@ def test_system_time_zone_name(mode: str, tmp_path: Path, monkeypatch: pytest.Mo
         link.symlink_to(target if mode != "relative_link" else Path("zoneinfo") / name)
     elif mode == "copied_file":
         link.write_bytes(b"fixture only")
+    if mode == "unlisted_name":  # a name the zone database opens but the zone list lacks
+        monkeypatch.setattr(wiring, "available_timezones", lambda: {"Europe/Paris"})
     original = Path.readlink
     monkeypatch.setattr(
         Path,

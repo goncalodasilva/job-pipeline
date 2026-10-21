@@ -138,3 +138,20 @@ def test_app_state_exposes_the_application_services(tmp_path):
         state.applications.apply_to_job("job-0001", expected_job_version=1)
         view = state.board.board()
         assert [card.job_id for column in view.columns for card in column.cards] == ["job-0001"]
+
+
+def test_refused_undo_offers_the_board_not_a_reload(tmp_path):
+    with refining(tmp_path) as r:
+        seeded(r, 2)
+        service = r.run.app.state.applications
+        for job_id, route in (("job-0001", CARD), ("job-0002", DRAWER)):
+            post(r, CARD.format(job_id), version="1", action="to_apply")
+            [application] = [row for row in applications(r) if row[1] == job_id]
+            service.move(application[0], "applied", expected_version=1, source="board")
+            refused = post(r, route.format(job_id), version="2", action="undo")
+            assert refused.status_code == 409 and 'role="alert"' in refused.text, route
+            assert UNDO_REFUSED in refused.text, route
+            assert 'href="/board"' in refused.text and "Open the Board" in refused.text, route
+            assert "Reload the page" not in refused.text, route
+            assert "The job stays in To apply." in refused.text, route
+            assert "Nothing was changed." not in refused.text, route

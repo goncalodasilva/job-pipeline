@@ -7,7 +7,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from app.api.inbox import _form, _not_found, _perform, _reload_prompt, _version
+from app.api.forms import posted_version, single_value_form
+from app.api.inbox import _not_found, _perform, _reload_prompt
 from app.api.job_summary import summary_context
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
@@ -109,10 +110,10 @@ def _changed(response: Response, job_id: str, message: str, **details: Any) -> R
 
 
 async def edit(request: Request, job_id: str) -> Response:
-    form = await _form(request, {"version", *EDIT_FIELDS})
+    form = await single_value_form(request, {"version", *EDIT_FIELDS})
     if isinstance(form, Response):
         return form
-    version = _version(form, minimum=1)
+    version = posted_version(form, minimum=1)
     if version is None:
         return PlainTextResponse("Invalid request.", status_code=400)
 
@@ -153,10 +154,12 @@ async def edit(request: Request, job_id: str) -> Response:
 
 
 async def triage(request: Request, job_id: str) -> Response:
-    form = await _form(request, {"version", "action", "reason", "text", "choice", "picked"})
+    form = await single_value_form(
+        request, {"version", "action", "reason", "text", "choice", "picked"}
+    )
     if isinstance(form, Response):
         return form
-    version = _version(form, minimum=1)
+    version = posted_version(form, minimum=1)
     if version is None or form.get("action") not in (
         "remove",
         "to_apply",
@@ -191,6 +194,14 @@ async def triage(request: Request, job_id: str) -> Response:
                 status_code=422,
             )
         except StatusNotAllowed as refused:
+            if form["action"] == "undo":  # a worked-on application: the Board is where it goes on
+                return _reload_prompt(
+                    request,
+                    detail="The job stays in To apply.",
+                    url="/board",
+                    message=refused.user_message,
+                    link="Open the Board",
+                )
             return _reload_prompt(
                 request,
                 detail="Nothing was changed.",
@@ -233,7 +244,7 @@ async def triage(request: Request, job_id: str) -> Response:
 
 
 async def split(request: Request, job_id: str) -> Response:
-    form = await _form(request, {"root"})
+    form = await single_value_form(request, {"root"})
     if isinstance(form, Response):
         return form
 

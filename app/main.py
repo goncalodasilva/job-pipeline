@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
 
 from app import __version__
+from app.api.board import register_board_routes
 from app.api.companies import register_company_routes
 from app.api.errors import register_error_handlers
 from app.api.events import (
@@ -101,6 +102,7 @@ from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.applications import ApplicationService, ApplicationStatuses
 from app.services.board import BoardQuery
+from app.services.board_views import BoardViews
 from app.services.budget_gate import BudgetGate
 from app.services.capture import CaptureService
 from app.services.companies import CompaniesService
@@ -153,6 +155,7 @@ from app.wiring import (
     build_wiring,
     clear_ai_temp,
     local_timezone,
+    system_time_zone_name,
 )
 
 _log = logging.getLogger(__name__)
@@ -1070,6 +1073,12 @@ def create_app(
         lambda: _current_db(app), app_clock, app_ids
     )
     app.state.board = BoardQuery(lambda: _current_db(app), app_clock)
+    app.state.board_views = BoardViews(
+        app.state.applications, app.state.application_statuses, app.state.board, app_clock, app_tz
+    )
+    # The computer's IANA time zone (a name, or None when it can't be read safely): read once
+    # here, it is the interview dialog's default (ADR-102 item 6).
+    app.state.system_time_zone = system_time_zone_name()
     app.state.inbox_views = InboxViews(
         lambda: _current_db(app),
         InboxQuery(lambda: _current_db(app), app_clock, app_tz),
@@ -1133,6 +1142,7 @@ def create_app(
     register_job_fit_routes(app)
     register_job_detail_routes(app)
     register_company_routes(app)
+    register_board_routes(app)
     register_setup_pages(app)
     register_events(
         app,
