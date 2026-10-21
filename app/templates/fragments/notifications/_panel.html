@@ -1,0 +1,7 @@
+<div id="notifications-panel">
+  <h2 id="notifications-heading" tabindex="-1"{% if focus %} data-autofocus{% endif %}>Notifications</h2>
+  <div id="notifications-notice"></div>
+  {% if attention %}<p><a href="#tasks-toggle" data-open-tasks>{{ attention }} {{ 'task needs' if attention == 1 else 'tasks need' }} attention</a></p>{% endif %}
+  {% if notifications.items %}{% include "fragments/notifications/_items.html" %}
+  {% else %}<p class="empty-state">Nothing due. Reminders appear here while the app is open.</p>{% endif %}
+</div>

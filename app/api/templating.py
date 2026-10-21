@@ -21,6 +21,7 @@ from app.domain.contacts import NOTE_LIMIT
 from app.domain.ids import is_safe_id
 from app.onboarding.registry import PROVIDER, StepRegistry
 from app.onboarding.startup import OnboardingState
+from app.services.reminders import Notifications, ReminderService
 from app.services.task_views import NONE_RUNNING, TaskViews, TopBarView
 
 _APP_DIR = Path(__file__).resolve().parent.parent
@@ -63,8 +64,14 @@ def render(request: Request, *, page: str, fragment: str, ctx: dict[str, Any]) -
         "hx_headers": hx_headers,
         "banners": _banners(request),
         "tasks_indicator": _tasks_indicator,
+        "notifications": _notifications(request),
     }
     return templates.TemplateResponse(request, page, {**ctx, **shell})
+
+
+def _notifications(request: Request) -> Notifications:
+    service: ReminderService | None = getattr(request.app.state, "reminders", None)
+    return service.notifications() if service else Notifications()
 
 
 def renders_fragment(request: Request) -> bool:

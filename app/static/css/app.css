@@ -173,6 +173,12 @@ a {
   display: none;
 }
 
+.reminder-list { list-style: none; padding: 0; }
+.reminder-item { padding-block: var(--space-3); border-bottom: 1px solid var(--color-border); }
+.reminder-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.reminder-actions form { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.follow-up-due { font-weight: 600; }
+
 /* Background tasks (M2.20): the indicator button sits at the end of the top bar; its panel
    hangs under the bar, over the page, and scrolls by itself. Not modal. */
 .topbar {
@@ -1668,7 +1674,21 @@ a.button {
 
 /* Small phones: the count alone is the button's visible label; "Tasks:" stays in its name. */
 @media (max-width: 429.98px) {
+  .sidebar-toggle, .tasks-toggle, #notifications-toggle { padding-inline: var(--space-2); }
   .tasks-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+/* The notification count keeps the full name for assistive technology at phone widths. */
+@media (max-width: 767.98px) {
+  .notifications-word {
     position: absolute;
     width: 1px;
     height: 1px;

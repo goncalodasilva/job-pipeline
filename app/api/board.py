@@ -142,6 +142,7 @@ def _context(
         "closed_open": address("board", closed=True),
         "closed_get": "/board/columns?closed=1&focus=closed",
         "closed_shut_get": "/board/columns?focus=closed",
+        "due_application_ids": request.app.state.reminders.notifications().application_ids,
     }
 
 
@@ -333,6 +334,9 @@ def _move_answer(
     response = _content(
         request, focus_id=application_id, follow_up=follow_up, message=f"Moved to {outcome.label}."
     )
+    events = json.loads(response.headers.get("HX-Trigger-After-Settle", "{}"))
+    events["reminders:changed"] = True
+    response.headers["HX-Trigger-After-Settle"] = json.dumps(events)
     return _announce(response, f"Moved to {outcome.label}.")
 
 

@@ -1,0 +1,2 @@
+<span id="notifications-count"{% if oob %} data-due-applications='{{ notifications.items | map(attribute="application_id") | list | tojson }}'{% endif %}><span class="notifications-word">Notifications: </span>{{ notifications.unseen }} new</span>
+{% if oob %}<span id="today-due" hx-swap-oob="true">{% if notifications.due %}, {{ notifications.due }} due{% endif %}</span>{% endif %}

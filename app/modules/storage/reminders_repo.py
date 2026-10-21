@@ -2,8 +2,10 @@
 on, and the facts due reminders are computed from. Callers own the transaction. Reads write
 nothing: a reminder that was never acted on has no row (ADR-013)."""
 
+import json
 import sqlite3
 from dataclasses import dataclass
+from typing import Any
 
 from app.domain.errors import VersionConflict
 
@@ -190,3 +192,40 @@ def event_rows(conn: sqlite3.Connection) -> list[EventRow]:
         )
         for r in rows
     ]
+
+
+def notification_snapshot(conn: sqlite3.Connection) -> dict[str, list[Any]]:
+    """One statement/snapshot for both badges and the list; indexed parent joins, no N+1.
+
+    JSON arrays carry the different row shapes through one compound SELECT. SQLite JSON
+    functions are already used by storage; no schema or persisted notification is added.
+    """
+    rows = conn.execute(
+        "SELECT 'rules', json_array(status_key, days, enabled, version) FROM reminder_rules "
+        "UNION ALL SELECT 'apps', json_array(a.id, a.status_key, j.title, c.name) "
+        "FROM applications a JOIN jobs j ON j.id=a.job_id "
+        "LEFT JOIN companies c ON c.id=j.company_id "
+        "UNION ALL SELECT 'history', json_array(h.id, h.application_id, h.from_status, "
+        "h.to_status, h.changed_at) FROM status_history h "
+        "JOIN applications a ON a.id=h.application_id "
+        "JOIN reminder_rules r ON r.status_key=a.status_key AND r.enabled=1 "
+        "UNION ALL SELECT 'events', json_array(id, application_id, type, starts_at, ends_at, "
+        "all_day, status, thank_you_reminder) FROM events WHERE status='scheduled' "
+        "AND (type<>'interview' OR thank_you_reminder=1) "
+        "UNION ALL SELECT 'states', json_array(occurrence_key, state, snooze_until, version, "
+        "seen_at) FROM reminder_states"
+    ).fetchall()
+    result: dict[str, list[Any]] = {k: [] for k in ("rules", "apps", "history", "events", "states")}
+    for kind, payload in rows:
+        result[kind].append(json.loads(payload))
+    return result
+
+
+def mark_seen(conn: sqlite3.Connection, *, id: str, key: str, now: str) -> None:
+    """Seen is metadata: preserve an existing action version, including concurrent actions."""
+    conn.execute(
+        "INSERT INTO reminder_states (id, occurrence_key, state, seen_at, created_at, updated_at) "
+        "VALUES (?, ?, 'open', ?, ?, ?) ON CONFLICT(occurrence_key) DO UPDATE SET "
+        "seen_at=excluded.seen_at WHERE reminder_states.seen_at IS NULL",
+        (id, key, now, now, now),
+    )

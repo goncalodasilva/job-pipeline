@@ -36,5 +36,14 @@
       </div>
     </div>
   </div>
-  <span class="topbar-slot" data-slot="notifications"></span>
+  <div class="topbar-slot" id="notifications-slot" data-slot="notifications">
+    <button type="button" id="notifications-toggle" class="button" aria-expanded="false" aria-controls="notifications-popover"
+            hx-get="/notifications/count" hx-trigger="reminders:changed from:body, notifications:seen" hx-target="#notifications-count" hx-swap="outerHTML">{% with oob = false %}{% include "fragments/notifications/_count.html" %}{% endwith %}</button>
+    <div id="notifications-popover" class="tasks-popover" role="group" aria-label="Notifications" tabindex="0" hidden
+         hx-get="/notifications/panel" hx-trigger="notifications:refresh, reminders:changed from:body, tasks:updated from:body, tasks:resync from:body"
+         hx-target="#notifications-panel" hx-swap="outerHTML settle:0ms" hx-disinherit="*">
+      <p id="notifications-error" role="status" hidden>Couldn't load notifications. Close and reopen this panel to try again.</p>
+      <div id="notifications-panel"><p>Loading notifications…</p></div>
+    </div>
+  </div>
 </header>

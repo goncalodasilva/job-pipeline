@@ -48,6 +48,7 @@ from app.api.job_detail import register_job_detail_routes
 from app.api.job_fit import register_job_fit_routes
 from app.api.job_intake import register_job_intake_routes
 from app.api.job_summary import register_job_summary_routes
+from app.api.notifications import register_notification_routes
 from app.api.pages import register_pages
 from app.api.reminders import register_reminder_routes
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
@@ -1163,6 +1164,7 @@ def create_app(
     register_application_detail_routes(app)
     register_application_contact_routes(app)
     register_reminder_routes(app)
+    register_notification_routes(app)
     register_setup_pages(app)
     register_events(
         app,

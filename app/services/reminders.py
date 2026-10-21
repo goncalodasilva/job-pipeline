@@ -48,6 +48,44 @@ class ReminderStateView:
     version: int
 
 
+@dataclass(frozen=True)
+class NotificationItem:
+    key: str
+    application_id: str
+    label: str
+    company: str
+    role: str
+    due_at: str
+    version: int
+    unseen: bool
+
+
+@dataclass(frozen=True)
+class Notifications:
+    items: tuple[NotificationItem, ...] = ()
+
+    @property
+    def unseen(self) -> int:
+        return sum(item.unseen for item in self.items)
+
+    @property
+    def due(self) -> int:
+        return len(self.items)
+
+    @property
+    def application_ids(self) -> frozenset[str]:
+        return frozenset(item.application_id for item in self.items)
+
+
+LABELS = {
+    "rule": "Follow-up due",
+    "follow_up": "Follow-up due",
+    "deadline": "Deadline due",
+    "offer_deadline": "Offer deadline due",
+    "thank_you": "Thank-you reminder",
+}
+
+
 class ReminderService:
     def __init__(
         self,
@@ -85,6 +123,77 @@ class ReminderService:
     def done(self, key: str, *, expected_version: int) -> ReminderStateView:
         return self._act(key, expected_version, lambda now: domain.done(key))
 
+    def notifications(self) -> Notifications:
+        db = self._database()
+        if db is None:
+            return Notifications()
+        with db.read() as conn:
+            return self._notifications(conn)
+
+    def _notifications(self, conn: sqlite3.Connection) -> Notifications:
+        snapshot = reminders_repo.notification_snapshot(conn)
+        history: dict[str, list[domain.StatusEntry]] = defaultdict(list)
+        for id, app, before, after, stamp in snapshot["history"]:
+            history[app].append(
+                domain.StatusEntry(id, before, after, datetime.fromisoformat(stamp))
+            )
+        occurrences = domain.build_occurrences(
+            applications=tuple(
+                domain.ApplicationFacts(a, s, tuple(history[a]))
+                for a, s, _r, _c in snapshot["apps"]
+            ),
+            rules=tuple(domain.ReminderRule(s, d, bool(e)) for s, d, e, _v in snapshot["rules"]),
+            events=tuple(
+                domain.EventFacts(
+                    i,
+                    a,
+                    t,
+                    datetime.fromisoformat(s),
+                    datetime.fromisoformat(e),
+                    bool(day),
+                    status,
+                    bool(thanks),
+                )
+                for i, a, t, s, e, day, status, thanks in snapshot["events"]
+            ),
+            zone=self._zone,
+        )
+        stored = {r[0]: r for r in snapshot["states"]}
+        states = {
+            key: domain.ReminderState(key, r[1], date.fromisoformat(r[2]) if r[2] else None)
+            for key, r in stored.items()
+        }
+        due = domain.due_reminders(occurrences, states, now=self._clock.now(), zone=self._zone)
+        names = {a: (role, company or "No company") for a, _s, role, company in snapshot["apps"]}
+        return Notifications(
+            tuple(
+                NotificationItem(
+                    o.key,
+                    o.application_id,
+                    LABELS[o.kind],
+                    names[o.application_id][1],
+                    names[o.application_id][0],
+                    o.due_at.astimezone(self._zone).isoformat(),
+                    stored[o.key][3] if o.key in stored else 0,
+                    o.key not in stored or stored[o.key][4] is None,
+                )
+                for o in due
+                if o.application_id in names and is_safe_id(o.application_id)
+            )
+        )
+
+    def seen(self, keys: tuple[str, ...]) -> None:
+        db = self._database()
+        if db is None or any(not is_safe_id(key) for key in keys):
+            raise ValueError("Invalid reminder keys")
+        with db.transaction() as conn:
+            current = {item.key for item in self._notifications(conn).items}
+            if not set(keys) <= current:
+                raise ValueError("Invalid reminder keys")
+            stamp = self._clock.now().astimezone(UTC).isoformat()
+            for key in set(keys):
+                reminders_repo.mark_seen(conn, id=self._ids.new(), key=key, now=stamp)
+
     def dismiss(self, key: str, *, expected_version: int) -> ReminderStateView:
         return self._act(key, expected_version, lambda now: domain.dismiss(key))
 
@@ -113,7 +222,10 @@ class ReminderService:
             if key not in {o.key for o in self._occurrences(conn)}:
                 raise ReminderNotFound()
             current = reminders_repo.get_state(conn, key)
-            if (current.version if current else 0) != expected_version:
+            seen_only = current is not None and current.state == "open" and current.version == 1
+            if (current.version if current else 0) != expected_version and not (
+                seen_only and expected_version == 0
+            ):
                 raise VersionConflict()
             new = change(now)
             until = new.snooze_until.isoformat() if new.snooze_until else None
@@ -133,7 +245,7 @@ class ReminderService:
                     state=new.state,
                     snooze_until=until,
                     now=stamp,
-                    expected_version=expected_version,
+                    expected_version=current.version,
                 )
             saved = reminders_repo.get_state(conn, key)
             if saved is None:

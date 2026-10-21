@@ -1,7 +1,7 @@
 <nav id="sidebar" class="sidebar" aria-label="Main">
   <ul class="sidebar-areas">
     {% for item in areas if not item.pinned %}
-    <li><a href="{{ item.path }}"{% if item == area %} aria-current="page"{% endif %}>{{ item.name }}</a></li>
+    <li><a href="{{ item.path }}"{% if item == area %} aria-current="page"{% endif %}{% if item.slug == 'today' %} id="today-link"{% endif %}>{{ item.name }}{% if item.slug == 'today' %}<span id="today-due">{% if notifications.due %}, {{ notifications.due }} due{% endif %}</span>{% endif %}</a></li>
     {% endfor %}
   </ul>
   <ul class="sidebar-pinned">

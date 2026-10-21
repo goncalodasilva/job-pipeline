@@ -5,6 +5,7 @@
 <li class="board-card" data-application-id="{{ card.application_id }}" data-version="{{ card.version }}" data-status="{{ card.status_key }}">
   <h3 class="board-card-title" tabindex="-1"{% if card.focus %} data-autofocus{% endif %}>{{ card.company }}</h3>
   <p class="board-card-role">{{ card.role }}</p>
+  <p class="follow-up-due" data-due-marker="{{ card.application_id }}"{% if card.application_id not in due_application_ids %} hidden{% endif %}>Follow-up due</p>
   {% if card.closed_label %}<p class="board-card-state">{{ card.closed_label }}</p>{% endif %}
   {% if card.event_at %}
   <p class="board-card-next">{{ card.event_label }}: <time datetime="{{ card.event_at }}">{{ card.event_text }}</time></p>

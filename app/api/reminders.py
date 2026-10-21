@@ -16,11 +16,12 @@ import json
 from collections.abc import Callable
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx, posted_version, single_value_form
+from app.api.notifications import panel_response
 from app.api.templating import templates
 from app.domain.errors import ReminderNotFound, VersionConflict, format_short_day
 from app.domain.reminders import SNOOZE_CHOICES
@@ -101,7 +102,7 @@ async def _act(
             return _conflict(request)
         if not is_htmx(request):
             return RedirectResponse(HOME, status_code=303)
-        response = HTMLResponse("")
+        response = panel_response(request, focus=True)
         response.headers["HX-Trigger"] = json.dumps(
             {REMINDERS_CHANGED: True, "announce": said(state)}
         )
@@ -118,4 +119,8 @@ def _conflict(request: Request) -> Response:
         "reload_url": HOME,
         "reload_link": "Reload",
     }
-    return templates.TemplateResponse(request, RELOAD_PROMPT, ctx, status_code=409)
+    response = templates.TemplateResponse(request, RELOAD_PROMPT, ctx, status_code=409)
+    if request.headers.get("HX-Target") == "notifications-panel":
+        response.headers["HX-Retarget"] = "#notifications-notice"
+        response.headers["HX-Reswap"] = "innerHTML"
+    return response

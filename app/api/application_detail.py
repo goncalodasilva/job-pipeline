@@ -88,7 +88,12 @@ def answer(
     ctx.update(message=message, follow_up=follow_up, focus=focus)
     response = templates.TemplateResponse(request, DETAIL, ctx)
     response.headers["HX-Trigger-After-Settle"] = json.dumps(
-        {"announce": message, "board:changed": {}, "application:saved": {"id": aid}}
+        {
+            "announce": message,
+            "board:changed": {},
+            "reminders:changed": True,
+            "application:saved": {"id": aid},
+        }
     )
     return response
 
