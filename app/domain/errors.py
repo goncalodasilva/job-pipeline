@@ -520,13 +520,22 @@ class ApplicationNotFound(AppError):
 class StatusNotAllowed(AppError):
     """A status or application change the rules refuse (a status without a phase, a taken
     name, deleting a built-in or used status, or Undo of an application that has changes).
-    A specific ``message`` replaces the class message in the interface only."""
+    A specific ``message`` replaces the class message in the interface only. ``fields`` holds
+    one message per form field (``label``, ``phase``) when a form value was refused, in form
+    order; ``message`` is then the one the status rules name first."""
 
     kind = "StatusNotAllowed"
     message = "This can't be done to this status now. Reload to see the latest statuses."
 
-    def __init__(self, message: str | None = None, *, detail: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        detail: str | None = None,
+        fields: dict[str, str] | None = None,
+    ) -> None:
         self._message = message
+        self.fields: dict[str, str] = dict(fields or {})
         super().__init__(detail=detail)
 
     @property
@@ -540,6 +549,33 @@ class EventTimeInvalid(AppError):
 
     kind = "EventTimeInvalid"
     message = "This date or time can't be saved. Check it and try again."
+
+    def __init__(
+        self, field: str = "", message: str | None = None, *, detail: str | None = None
+    ) -> None:
+        self.field = field
+        self._message = message
+        super().__init__(detail=detail)
+
+    @property
+    def user_message(self) -> str:
+        return self._message if self._message is not None else self.message
+
+
+class ReminderNotFound(AppError):
+    """The key names no current reminder (never made, unsafe, ended by a status change or by a
+    cancelled event). Routes answer a fixed 404 and never echo the key."""
+
+    kind = "ReminderNotFound"
+    message = "This reminder wasn't found. It may have been dealt with or removed."
+
+
+class ReminderRuleInvalid(AppError):
+    """A reminder rule value that cannot be saved, tied to its form field (``days``); without
+    a message it reads as the class message."""
+
+    kind = "ReminderRuleInvalid"
+    message = "This reminder can't be saved as it is. Check the number of days."
 
     def __init__(
         self, field: str = "", message: str | None = None, *, detail: str | None = None

@@ -33,12 +33,13 @@ from app.domain.errors import (
 from app.domain.events import wall_time_to_utc
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.jobs import Triage, TriageAction, TriageState, apply, local_today
-from app.modules.storage import Database, applications_repo, jobs_repo
+from app.modules.storage import Database, applications_repo, jobs_repo, reminders_repo
 from app.modules.storage.applications_repo import StoredApplication, StoredStatus
 from app.modules.storage.jobs_repo import StoredJob
 
 UNDO_REFUSED = "This application already has changes. Withdraw it on the board instead."
 _UNDO_GUARD = "this application already has changes"
+PHASE_REQUIRED = "Choose Preparing, Active or Closed for the status."
 _MAX_DURATION_MINUTES = 24 * 60
 # ``created`` and ``backfill`` are written by the system only, never by a move.
 _MOVE_SOURCES: dict[str, HistorySource] = {"board": "board", "menu": "menu", "drawer": "drawer"}
@@ -411,6 +412,7 @@ class ApplicationStatuses:
                 )
             except ValueError as error:
                 raise StatusNotAllowed(str(error)) from None
+            reminders_repo.delete_rule_for_status(conn, key)
             applications_repo.delete_status(conn, key, expected_version=expected_version)
 
 
@@ -439,19 +441,33 @@ def _checked(
     taken: list[str],
     built_in: bool = False,
 ) -> ApplicationStatus:
-    if phase not in {member.value for member in ApplicationPhase}:
-        raise StatusNotAllowed("Choose Preparing, Active or Closed for the status.")
+    """Validate a name and a phase together, so a form can mark every refused field."""
+    chosen = _phase_of(phase)
+    errors: dict[str, str] = {}
+    status: ApplicationStatus | None = None
     try:
-        return create_status(
+        status = create_status(
             key=key,
             label=label,
-            phase=phase,
+            phase=(chosen or ApplicationPhase.PREPARING).value,
             position=position,
             built_in=built_in,
             existing_labels=taken,
         )
     except ValueError as error:
-        raise StatusNotAllowed(str(error)) from None
+        errors["label"] = str(error)
+    if chosen is None:
+        errors["phase"] = PHASE_REQUIRED
+    if status is None or chosen is None:
+        raise StatusNotAllowed(errors.get("phase") or errors["label"], fields=errors)
+    return status
+
+
+def _phase_of(value: str | None) -> ApplicationPhase | None:
+    try:
+        return ApplicationPhase(value) if value is not None else None
+    except ValueError:
+        return None
 
 
 def _domain_status(status: StoredStatus) -> ApplicationStatus:

@@ -50,6 +50,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from app.api.board_settings_forms import BoardSettingsState, board_context
 from app.api.budget_gate import dialog_context, reason_context, refusal_message
 from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.pages import AREAS, area
@@ -82,6 +83,7 @@ PROVIDERS_FRAGMENT = "fragments/settings/_providers.html"
 PROVIDERS_TARGET = "#providers"
 PROVIDERS_SAVED_FRAGMENT = "fragments/settings/_providers_saved.html"
 TESTING_TOOLS_FRAGMENT = "fragments/settings/_testing_tools.html"
+BOARD_FRAGMENT = "fragments/settings/_board.html"
 TESTING_TOOLS_ID = "testing-tools"
 TESTING_TOOLS_PATH = f"{SETTINGS_PATH}/testing-tools"  # the section alone (M2.24)
 # The section shows a blocked action: it fetches itself again when a budget changes.
@@ -248,6 +250,12 @@ def render_settings(request: Request, *, fragment: str, usage: UsageFormState) -
     return _render(request, fragment=fragment, usage=usage)
 
 
+def render_board_settings(request: Request, state: BoardSettingsState) -> HTMLResponse:
+    """The answer to one of the Settings > Board forms: the section for htmx, the full Settings
+    page otherwise, with ``state`` saying what happened. Blocking."""
+    return _render(request, fragment=BOARD_FRAGMENT, board=state)
+
+
 # --- helpers ---------------------------------------------------------------------------------
 
 
@@ -279,6 +287,7 @@ def _render(
     practice_note: str | None = None,
     practice_refusal: Refusal | None = None,
     usage: UsageFormState | None = None,
+    board: BoardSettingsState | None = None,
 ) -> HTMLResponse:
     """The full Settings page, or for htmx the Providers section (after a POST), the main
     content (a page GET) or ``fragment``. Blocking."""
@@ -294,6 +303,10 @@ def _render(
     )
     # The usage panel (M2.23) comes with the whole section only, never with a form's answer.
     shows_panel = fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
+    # Settings > Board (M5.7): read only when this answer shows the section.
+    shows_board = (
+        board is not None or fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
+    )
     form: dict[str, Any] = dict(handler.context())
     if submitted:
         echo_submitted(form, handler, submitted)
@@ -319,6 +332,7 @@ def _render(
             "guide_url": setup_step_path(registry.first.id),  # re-run the setup guide
             "usage": usage_context(request, usage) if shows_usage else None,
             "usage_panel": panel_context(request) if shows_panel else None,
+            "board": board_context(request, board) if shows_board else None,
             # Keyboard shortcuts (M4.7): its own block, saved by app/api/inbox.py.
             "shortcuts": request.app.state.inbox_views.shortcuts() if shows_panel else None,
             "shortcuts_saved": False,

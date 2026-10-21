@@ -3,7 +3,7 @@
    that arrive later. #}
 {# One focus target: a result, an error, a saved status, a confirmation or a saved tier map in
    Providers takes it instead. #}
-<h1 id="page-heading"{% if not (connection or errors or stayed or step_view or tiers_saved or practice.status or practice.error or usage.target) %} data-autofocus{% endif %}>{{ area.name }}</h1>
+<h1 id="page-heading"{% if not (connection or errors or stayed or step_view or tiers_saved or practice.status or practice.error or usage.target or board.attention) %} data-autofocus{% endif %}>{{ area.name }}</h1>
 {% include "fragments/settings/_providers.html" %}
 {% include "fragments/settings/_testing_tools.html" %}
 <section id="setup-guide-again" class="settings-section" aria-labelledby="setup-guide-heading">
@@ -13,6 +13,7 @@
 </section>
 {% include "fragments/settings/_usage.html" %}
 {% include "fragments/settings/_shortcuts.html" %}
+{% include "fragments/settings/_board.html" %}
 <section class="empty-state settings-later" aria-labelledby="later-heading">
   <h2 id="later-heading">Coming later</h2>
   <p>{{ area.explanation }}</p>

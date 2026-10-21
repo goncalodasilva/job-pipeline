@@ -2641,3 +2641,21 @@ kbd,
 #company-contacts summary { min-height: var(--target-min); display: flex; align-items: center; cursor: pointer; }
 .contact-list a { display: inline-flex; align-items: center; min-height: 24px; }
 #application-detail summary > h3, #application-detail summary > h4 { display: inline; margin: 0; font-size: inherit; }
+
+/* Settings > Board (M5.7): the status rows and the reminder rules. Forms stack on phones. */
+.board-settings-list { margin: var(--space-3) 0 var(--space-4); padding: 0; list-style: none; }
+.board-settings-list > li { padding-block: var(--space-3); border-bottom: 1px solid var(--color-border); }
+.board-status-line { margin: 0 0 var(--space-2); }
+.board-status-name { font-weight: 600; }
+.board-status-phase { margin-inline-start: var(--space-2); color: var(--color-text-muted); }
+.board-status-forms { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.board-status-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); margin: 0; min-width: 0; }
+.board-status-form .field { margin-bottom: 0; min-width: 0; flex: 1 1 12rem; }
+.board-rule-form { display: grid; gap: var(--space-2); max-width: 100%; }
+.board-rule-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+.board-rule-line .field { margin-bottom: 0; }
+.board-rule-days { display: flex; align-items: center; gap: var(--space-2); }
+.board-rule-days input { width: 6rem; min-height: var(--target-min); padding: var(--space-2) var(--space-3); font: inherit; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-text-muted); border-radius: var(--radius); }
+.board-rule-days input[aria-invalid="true"] { border-color: var(--color-error); box-shadow: 0 0 0 1px var(--color-error); }
+.board-rule-form .field-error { margin: 0; }
+#status-add-form h4 { margin: 0 0 var(--space-3); }

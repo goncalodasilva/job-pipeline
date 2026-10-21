@@ -221,12 +221,12 @@ def set_status_position(
 
 
 def status_in_use(conn: sqlite3.Connection, key: str) -> bool:
-    """Whether an application, its history or a reminder rule names the status."""
+    """Whether an application or its history names the status. A reminder rule does not count:
+    it is configuration, removed with the status (``reminders_repo.delete_rule_for_status``)."""
     row = conn.execute(
         "SELECT EXISTS (SELECT 1 FROM applications WHERE status_key = ?) "
-        "OR EXISTS (SELECT 1 FROM status_history WHERE to_status = ? OR from_status = ?) "
-        "OR EXISTS (SELECT 1 FROM reminder_rules WHERE status_key = ?)",
-        (key, key, key, key),
+        "OR EXISTS (SELECT 1 FROM status_history WHERE to_status = ? OR from_status = ?)",
+        (key, key, key),
     ).fetchone()
     return bool(row[0])
 

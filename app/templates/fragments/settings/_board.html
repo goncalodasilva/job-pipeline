@@ -1,0 +1,120 @@
+{# Settings > Board (M5.7; AC-M5.1): the status list (add with a phase, rename, move inside the
+   phase, delete unused custom ones) and a reminder rule per open status. Every form posts to its
+   own route and swaps this whole section (outerHTML). After a success the changed row takes
+   focus (the Statuses heading after a delete) and a line says what was done; after a refused
+   value the first refused field takes focus and each error is tied to its field; after a stale
+   version the reload prompt takes focus. Exactly one element of an answer is marked
+   data-autofocus. Names and typed text are escaped; the phase is written in words. #}
+{% set add_active = board.scope == 'add' %}
+<section id="board-settings" class="settings-section" aria-labelledby="board-settings-heading">
+  <h2 id="board-settings-heading" tabindex="-1">Board</h2>
+  {% if board.conflict %}
+  {% set reload_id = "board-settings-conflict" %}
+  {% set reload_message = board.conflict_message %}
+  {% set reload_detail = "Your change was not saved. This list changed in another tab and now shows the latest. Check it and try again." %}
+  {% set reload_url = "/settings" %}
+  {% set reload_link = "Reload" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% endif %}
+  <h3 id="board-statuses-heading" tabindex="-1"{% if board.focus == 'statuses' %} data-autofocus{% endif %}>Statuses</h3>
+  {% if board.message and board.focus == 'statuses' %}<p id="board-settings-done" class="budget-done">{{ board.message }}</p>{% endif %}
+  <p class="field-hint">Each status belongs to a phase: Preparing, Active or Closed. Moving a status up or down changes its place inside the phase only, and the Board shows its columns in this order. Built-in statuses can be renamed and moved but not deleted. A custom status can be deleted only while no application is or was in it.</p>
+  <ul id="status-list" class="board-settings-list">
+    {% for s in board.statuses %}
+    {% set rename_active = board.scope == 'rename' and board.key == s.key %}
+    {% set name_error = board.errors.get('label') if rename_active else none %}
+    {% set delete_error = board.errors.get('delete') if (board.scope == 'delete' and board.key == s.key) else none %}
+    {% set here = board.key == s.key and not board.scope and board.focus in ['status', 'name', 'up', 'down'] %}
+    <li id="status-{{ s.key }}" data-status-key="{{ s.key }}" data-phase="{{ s.phase }}"{% if here and board.focus == 'status' %} data-autofocus{% endif %}>
+      <p class="board-status-line"><span class="board-status-name">{{ s.label }}</span> <span class="board-status-phase">Phase: {{ s.phase_label }}</span></p>
+      {% if here and board.message %}<p id="board-settings-done" class="budget-done">{{ board.message }}</p>{% endif %}
+      <div class="board-status-forms">
+        <form class="board-status-form" method="post" action="{{ board.statuses_url }}/{{ s.key }}/rename"
+              hx-post="{{ board.statuses_url }}/{{ s.key }}/rename" hx-target="#board-settings" hx-swap="outerHTML"
+              hx-disabled-elt="find button" novalidate>
+          <input type="hidden" name="version" value="{{ s.version }}">
+          <div class="field">
+            <label for="status-name-{{ s.key }}">Name of {{ s.label }}</label>
+            <input id="status-name-{{ s.key }}" name="label" type="text" autocomplete="off" maxlength="100" value="{{ board.typed.get('label', s.label) if rename_active else s.label }}"{% if name_error %} aria-invalid="true" aria-describedby="status-name-{{ s.key }}-error" data-autofocus{% endif %}{% if here and board.focus == 'name' %} data-autofocus{% endif %}>
+            {% if name_error %}<p id="status-name-{{ s.key }}-error" class="field-error">{{ name_error }}</p>{% endif %}
+          </div>
+          <button type="submit" class="button" aria-label="Rename {{ s.label }}">Rename</button>
+        </form>
+        <form class="board-status-form" method="post" action="{{ board.statuses_url }}/{{ s.key }}/move"
+              hx-post="{{ board.statuses_url }}/{{ s.key }}/move" hx-target="#board-settings" hx-swap="outerHTML"
+              hx-disabled-elt="find button" novalidate>
+          <input type="hidden" name="version" value="{{ s.version }}">
+          <button type="submit" class="button" name="direction" value="up" aria-label="Move up {{ s.label }}"{% if s.first %} aria-disabled="true" aria-describedby="status-move-up-{{ s.key }}-reason"{% endif %}{% if here and board.focus == 'up' %} data-autofocus{% endif %}>Move up</button>
+          <button type="submit" class="button" name="direction" value="down" aria-label="Move down {{ s.label }}"{% if s.last %} aria-disabled="true" aria-describedby="status-move-down-{{ s.key }}-reason"{% endif %}{% if here and board.focus == 'down' %} data-autofocus{% endif %}>Move down</button>
+          {% if s.first %}<span id="status-move-up-{{ s.key }}-reason" class="visually-hidden">{{ s.label }} is already first in {{ s.phase_label }}.</span>{% endif %}
+          {% if s.last %}<span id="status-move-down-{{ s.key }}-reason" class="visually-hidden">{{ s.label }} is already last in {{ s.phase_label }}.</span>{% endif %}
+        </form>
+        {% if not s.built_in %}
+        <form class="board-status-form" method="post" action="{{ board.statuses_url }}/{{ s.key }}/delete"
+              hx-post="{{ board.statuses_url }}/{{ s.key }}/delete" hx-target="#board-settings" hx-swap="outerHTML"
+              hx-disabled-elt="find button" novalidate>
+          <input type="hidden" name="version" value="{{ s.version }}">
+          <button type="submit" class="button" aria-label="Delete {{ s.label }}"{% if delete_error %} aria-describedby="status-{{ s.key }}-error"{% endif %}>Delete</button>
+        </form>
+        {% endif %}
+      </div>
+      {% if delete_error %}<p id="status-{{ s.key }}-error" class="field-error" tabindex="-1" data-autofocus>{{ delete_error }}</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% set label_error = board.errors.get('label') if add_active else none %}
+  {% set phase_error = board.errors.get('phase') if add_active else none %}
+  {% set typed_phase = board.typed.get('phase', '') if add_active else '' %}
+  <form id="status-add-form" class="step-form" method="post" action="{{ board.statuses_url }}"
+        hx-post="{{ board.statuses_url }}" hx-target="#board-settings" hx-swap="outerHTML"
+        hx-disabled-elt="find button" aria-labelledby="status-add-heading" novalidate>
+    <h4 id="status-add-heading">Add a status</h4>
+    <div class="field">
+      <label for="status-add-label">New status name</label>
+      <input id="status-add-label" name="label" type="text" autocomplete="off" maxlength="100" value="{{ board.typed.get('label', '') if add_active else '' }}"{% if label_error %} aria-invalid="true" aria-describedby="status-add-label-error"{% if board.first_invalid == 'label' %} data-autofocus{% endif %}{% endif %}>
+      {% if label_error %}<p id="status-add-label-error" class="field-error">{{ label_error }}</p>{% endif %}
+    </div>
+    <div class="field">
+      <label for="status-add-phase">Phase</label>
+      <select id="status-add-phase" name="phase"{% if not phase_error %} aria-describedby="status-add-phase-hint"{% endif %}{% if phase_error %} aria-invalid="true" aria-describedby="status-add-phase-error status-add-phase-hint"{% if board.first_invalid == 'phase' %} data-autofocus{% endif %}{% endif %}>
+        <option value=""{% if not typed_phase %} selected{% endif %}>Choose a phase</option>
+        {% for value, text in board.phases %}
+        <option value="{{ value }}"{% if typed_phase == value %} selected{% endif %}>{{ text }}</option>
+        {% endfor %}
+      </select>
+      <p id="status-add-phase-hint" class="field-hint">You can't change a status's phase later. Preparing: before you apply. Active: in progress. Closed: finished.</p>
+      {% if phase_error %}<p id="status-add-phase-error" class="field-error">{{ phase_error }}</p>{% endif %}
+    </div>
+    <div class="form-actions"><button type="submit" class="button button-primary">Add status</button></div>
+  </form>
+
+  <h3 id="board-reminders-heading" tabindex="-1">Reminders</h3>
+  <p class="field-hint">A reminder shows when an application has stayed in a status for the number of days you choose, counted in calendar days. Moving the application to another status ends it. Closed statuses have no reminder. Due reminders appear on Today.</p>
+  <ul id="reminder-list" class="board-settings-list">
+    {% for r in board.rules %}
+    {% set rule_active = board.scope == 'rule' and board.key == r.key %}
+    {% set days_error = board.errors.get('days') if rule_active else none %}
+    {% set on = ('enabled' in board.typed) if rule_active else r.enabled %}
+    <li id="reminder-{{ r.key }}" data-rule-status="{{ r.key }}"{% if board.key == r.key and not board.scope and board.focus == 'rule' %} data-autofocus{% endif %}>
+      {% if board.key == r.key and not board.scope and board.focus == 'rule' and board.message %}<p id="board-settings-done" class="budget-done">{{ board.message }}</p>{% endif %}
+      <form class="board-rule-form" method="post" action="{{ board.reminders_url }}/{{ r.key }}"
+            hx-post="{{ board.reminders_url }}/{{ r.key }}" hx-target="#board-settings" hx-swap="outerHTML"
+            hx-disabled-elt="find button" novalidate>
+        <input type="hidden" name="version" value="{{ r.version }}">
+        <div class="board-rule-line">
+          <div class="field field-check">
+            <input id="rule-enabled-{{ r.key }}" type="checkbox" name="enabled" value="1"{% if on %} checked{% endif %}>
+            <label for="rule-enabled-{{ r.key }}" id="rule-label-{{ r.key }}">Remind me if an application stays in {{ r.label }} for</label>
+          </div>
+          <div class="board-rule-days">
+            <input id="rule-days-{{ r.key }}" name="days" type="number" inputmode="numeric" min="{{ board.min_days }}" max="{{ board.max_days }}" step="1" aria-label="Days in {{ r.label }}" value="{{ board.typed.get('days', '') if rule_active else r.days }}"{% if days_error %} aria-invalid="true" aria-describedby="rule-days-{{ r.key }}-error" data-autofocus{% endif %}>
+            <span aria-hidden="true">days</span>
+          </div>
+        </div>
+        {% if days_error %}<p id="rule-days-{{ r.key }}-error" class="field-error">{{ days_error }}</p>{% endif %}
+        <button type="submit" class="button" aria-label="Save reminder for {{ r.label }}" aria-describedby="rule-label-{{ r.key }}">Save</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</section>

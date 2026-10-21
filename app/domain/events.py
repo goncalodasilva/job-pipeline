@@ -44,6 +44,11 @@ def all_day_range(day: date, zone: tzinfo, *, days: int = 1) -> tuple[datetime, 
     return start, end
 
 
+def first_instant(day: date, zone: tzinfo) -> datetime:
+    """The first instant of a local date; ``ValueError`` when the zone skipped the date."""
+    return _date_boundary(day, zone)
+
+
 def _date_boundary(day: date, zone: tzinfo) -> datetime:
     """Find the first real instant on a date, choosing the first repeated midnight.
 

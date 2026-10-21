@@ -49,8 +49,10 @@ from app.api.job_fit import register_job_fit_routes
 from app.api.job_intake import register_job_intake_routes
 from app.api.job_summary import register_job_summary_routes
 from app.api.pages import register_pages
+from app.api.reminders import register_reminder_routes
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.api.settings import register_settings_pages
+from app.api.settings_board import register_board_settings_routes
 from app.api.settings_usage import register_usage_settings
 from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
@@ -139,6 +141,7 @@ from app.services.job_summary import SUMMARIZE_JOB, SUMMARIZE_LABEL, JobSummaryS
 from app.services.job_triage import JobTriageService
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
+from app.services.reminders import ReminderRules, ReminderService
 from app.services.roles import RoleService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
@@ -1099,6 +1102,9 @@ def create_app(
     app.state.inbox_organisation = InboxOrganisation(lambda: _current_db(app), app_clock, app_ids)
     app.state.companies = CompaniesService(lambda: _current_db(app), app_clock, app_tz)
     app.state.contacts = ContactsService(lambda: _current_db(app), app_clock, app_ids)
+    # Reminders are computed when read; nothing here is scheduled (ADR-013).
+    app.state.reminders = ReminderService(lambda: _current_db(app), app_clock, app_ids, app_tz)
+    app.state.reminder_rules = ReminderRules(lambda: _current_db(app), app_clock, app_ids)
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
@@ -1137,6 +1143,7 @@ def create_app(
     register_pages(app)
     register_settings_pages(app)
     register_usage_settings(app)
+    register_board_settings_routes(app)
     register_task_routes(app)
     register_fact_import_routes(app)
     # Before the fact pages: their "{id:path}/discard" would also match ".../refine/discard".
@@ -1155,6 +1162,7 @@ def create_app(
     register_board_routes(app)
     register_application_detail_routes(app)
     register_application_contact_routes(app)
+    register_reminder_routes(app)
     register_setup_pages(app)
     register_events(
         app,
