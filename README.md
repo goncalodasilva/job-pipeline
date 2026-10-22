@@ -2,7 +2,7 @@
 
 A local, open-source web app for running a job search: collect postings, see honestly how well you fit, position yourself for each role with a growing bank of your own facts, draft tailored CVs and cover letters, track every application on a board, and prepare for interviews. You always submit applications yourself.
 
-**Status:** M0–M3 are accepted. The fact bank, CV import and Refine with AI are available. M4 (adding jobs, the Job inbox and Companies) is built and waiting for your acceptance; application tracking arrives from M5 on. See `docs/PROGRESS.md`.
+**Status:** M0–M4 are accepted. The Fact bank, CV import, Refine with AI, job intake, Job inbox and Companies are available. M5 adds application tracking, contacts, calendar files, in-app reminders and Today; it is awaiting manual acceptance. See `docs/PROGRESS.md` and `docs/acceptance/M5.md`.
 
 ## How it works
 
@@ -108,7 +108,7 @@ The fake provider makes fixed fictional suggestions and labels them **Practice d
 
 - **Snooze** until tomorrow, next week, in a month or a date you pick. It returns as new on that date.
 - **Remove**, with an optional one-tap reason (too junior, too senior, location, salary, industry, company, not interested or other; the last two can take a few words). Undo stays for about 10 seconds, and the **Removed** view is the lasting way back.
-- **Apply** marks the job "To apply" (with undo). It does not send anything: you always submit applications yourself, and the board that tracks them arrives in M5.
+- **Apply** marks the job "To apply" and creates an application in Preparing (with undo while it is untouched). You always submit applications yourself.
 
 The views **Snoozed**, **Removed** and **To apply** sit beside the queue. You can filter by fit, work mode, industry, seniority, company and "conflicts with your preferences", search the text, sort, and group by company, industry, fit, work mode or seniority. A group's count covers the whole filter even when only part of it is on this page. **Saved views** keep a name plus filters. When a summary contains a value the app doesn't know yet (an industry, say), a notice "N new values to map" opens a page where you can map it to an existing value, add it as a new value, or ignore it.
 
@@ -120,9 +120,25 @@ The views **Snoozed**, **Removed** and **To apply** sit beside the queue. You ca
 
 **What is sent to the AI.** Adding a job makes up to two requests, a summary and then a fit assessment, and both count toward your usage budget (the warning says "Adding a job uses up to 2 requests"). The summary request contains the job text and the app's lists of industries, work modes and so on, nothing else. The text is treated as data, not instructions: it is delimited and anything in it that looks like a command is ignored. The fit request contains the job text and its requirements, your confirmed facts (their wording and ids; facts marked "Never use in applications" are left out, and "Generalize names" is applied as in Refine with AI), and your saved job preferences, all of them as set in Settings: target roles, locations, work modes, minimum salary (amount and currency), must-haves, deal-breakers and CV country. The AI's answer is checked by the app before anything is saved. The fetched address is never written to the logs, and job text, your notes and removal reasons stay out of logs, task records and event messages. They remain in your local database. The practice provider labels its fixed fictional answers "Practice data (fake provider)".
 
+## Applications and Today
+
+**Board** tracks your applications in status columns. Move a card with **Move to…** using the keyboard or mouse; on a wide screen you can also drag it. Closed applications have a collapsed section. **Table** offers a sortable, paginated view. Settings > Board lets you add statuses, assign each to Preparing, Active or Closed, and edit reminder rules. Built-in statuses cannot be deleted; a custom status can be deleted only while unused. Every status change stays in the application's history. The first move to an active status sets the applied date; it does not submit an application or freeze documents.
+
+Open an application from a card or table row to see its drawer: status, timeline, notes, contacts, interactions and events. **Open workspace** opens the full application page. Moving to Interviewing offers an optional interview date; Rejected offers optional feedback. Skip or Escape keeps the status change. Notes and feedback can be edited. Events can be edited or cancelled. Contacts and interactions cannot yet be deleted, and interactions cannot yet be edited.
+
+**Calendar files.** Add an interview, follow-up, deadline or offer deadline, with a date and IANA time zone such as `Europe/Paris`. Timed events also take a time and duration; deadlines can be all day. **Download calendar file** saves a `.ics` file for you to import into your calendar app. Check its time and zone there. This is a file export; there is no calendar sync. A time in a spring clock-change gap is refused; an ambiguous autumn time uses the first occurrence with a notice. The file preserves the stored instant, including an event that ends in the repeated hour.
+
+**Today** shows upcoming interviews in the next seven days, due reminders, unseen jobs (with up to three Strong matches), fact drafts to review, and optional setup steps still to finish, in that order. Empty blocks are hidden; when none needs attention it says so. Application counts appear in words.
+
+**Notifications** contains due reminders and a link to tasks needing attention. Opening it marks only the reminders shown as seen. Done, Dismiss and Snooze are separate actions, shared with Today. Cards show "Follow-up due" in words. Reminders are computed when you read them: they work only inside the running app, with no background scheduler, email, push notification or work while the app is closed. A thank-you reminder does not draft a message. A completed event reminder does not become new when that same event is rescheduled; create a new event if you need a new reminder.
+
+Contact names, emails and phones, interaction notes, application notes, feedback and event details stay in the local database and out of logs, task records, usage records and live-update messages. They are not sent to AI by these features. As with the Fact bank and job pages, another process on your computer can load local pages and read their contents; the launch token protects browser actions, not local-user access.
+
 ## Companies
 
 **Companies** lists every company your jobs came from, sortable by name, open roles, jobs marked to apply and last activity, 50 per page. A company page shows its website (shown as a link only if it is an http or https address), industry, size, locations and notes, which you can edit, and every job at the company with its state, each linking to the job's page. Companies are created when a summary names one, matched by name ignoring case, punctuation and endings such as "Inc" or "Ltd". **Renaming a company changes how it is matched:** a job added later under the old name creates a new company instead of joining the renamed one. Merging two companies is not available yet.
+
+Company pages also hold contacts and application history. Link a company contact to an application, or add one from its drawer; log interactions with an optional contact. A recent application at the same company produces an informational re-apply note, never a block. Renaming a company also affects its contacts and history; merging companies is still unavailable.
 
 ## Usage budgets
 

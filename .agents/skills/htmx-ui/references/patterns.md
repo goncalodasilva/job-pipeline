@@ -73,20 +73,34 @@ Server side: return `HX-Redirect: /setup` for htmx requests, a normal 303 redire
 ## Board drag-and-drop with a keyboard alternative
 
 ```html
-<ul class="column" data-status="{{ status.id }}" data-sortable>
-  {% for app in column %}
-  <li class="card" data-id="{{ app.id }}">
-    {{ app.company }} · {{ app.role }}
-    <select name="status" aria-label="Move {{ app.company }} to"
-            hx-post="/applications/{{ app.id }}/status" hx-trigger="change" hx-target="#board">
-      {% for s in statuses %}<option value="{{ s.id }}" {% if s.id == app.status %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
-    </select>
+<ul class="board-cards" data-status="{{ status.key }}" data-sortable>
+  {% for application in column %}
+  <li class="board-card" data-application-id="{{ application.id }}"
+      data-version="{{ application.version }}" data-status="{{ application.status_key }}">
+    {# Follow the real markup in board/_card.html and applications/_detail.html. #}
+    <button type="button" aria-haspopup="menu" aria-expanded="false">Move to…</button>
+    <form method="post" action="/applications/{{ application.id }}/status"
+          hx-post="/applications/{{ application.id }}/status" hx-target="#board-content" hx-swap="outerHTML">
+      <input type="hidden" name="version" value="{{ application.version }}">
+      <input type="hidden" name="source" value="menu">
+      <div role="menu" hidden>
+        {% for s in statuses %}<button type="submit" role="menuitem" name="status" value="{{ s.key }}">{{ s.label }}</button>{% endfor %}
+      </div>
+    </form>
   </li>
   {% endfor %}
 </ul>
 ```
 
-`app.js` initializes SortableJS on `[data-sortable]` and, on drop, posts to the same `/applications/<id>/status` endpoint, so both paths share one code path on the server.
+`board.js` initializes SortableJS on `[data-sortable]`; a drop sends the same versioned status POST with `source=board`. `status-menu.js` provides keyboard/pointer menu behavior; drawer forms post `source=menu`, and the server records `drawer` from the application-detail target. Keep the real menus' classes, unique control ids and labels when reusing them. The illustrative markup above is abbreviated. A refused drop keeps the old position and announces the reason. Sortable is destroyed before replacement and recreated after swaps, disabled at phone width, and has no animation with reduced motion.
+
+## Calendar download
+
+```html
+<button type="button" data-calendar-download="/applications/{{ application.id }}/events/{{ event.id }}/ics">Download calendar file</button>
+```
+
+The delegated helper in `app.js` validates the safe same-origin path, sends `X-JP-Token` from the body's `hx-headers` in a fetch header, checks the response and its calendar content type, and saves a blob with a temporary object URL as `jobpipeline-event.ics`. It disables/restores the button and announces the result. The token is never a query parameter. This is a protected, read-only in-memory export, not a normal navigation or a background task; do not add file writes, secret reads or external service/network calls to its GET. Calling the local in-memory calendar provider is the approved formatter boundary.
 
 ## Prefetching the next inbox card
 

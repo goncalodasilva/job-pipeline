@@ -217,7 +217,21 @@ class SearchProvider(Protocol):
     reports_usage: bool
     async def search(self, query: str, limit: int) -> list[SearchResult]: ...   # standalone only
 
-# app/modules/calendar/__init__.py
+# app/modules/calendar/__init__.py (M5, ADR-102/103)
+@dataclass(frozen=True)
+class EventData:
+    uid: str                         # stable event row id
+    title: str
+    starts_at: datetime               # aware
+    ends_at: datetime                 # aware, not before starts_at
+    time_zone: str                    # IANA name
+    details: str = ""
+    sequence: int = 1                 # positive row version
+    all_day: bool = False             # deadline / offer_deadline only
+    location: str = ""
+    cancelled: bool = False
+    event_type: EventType = "interview"  # interview, follow_up, deadline, offer_deadline
+
 class CalendarProvider(Protocol):
     name: str
     supports_sync: bool
@@ -346,12 +360,15 @@ The table list in `detailed-design.md` (State machines and database schema) is t
    Fact pages `/facts`, `/facts/new`, `/facts/{id}/edit` and `/facts/{id}/merge` can load without the token; they read only and return full HTML (ADR-093, ADR-094). A fact editor may prefill a capture note by safe id. Writes to fact wording and role data use POST bodies; GET filters are read-only. `/facts/library`, `/facts/drafts`, `/facts/{id}/history` and `/facts/{id}/refine` are protected fragments, never pages. Query strings are removed from access logs (2.10).
    Job and company pages (M4; ADR-094 pattern, ADR-098, ADR-099, ADR-100). These five GET routes are registered as pages, so they load without the token and read only: `/inbox` (its filter, view, group-by, saved-view and page values are query values of the same route), `/inbox/values`, `/jobs/{id}`, `/companies` and `/companies/{id}`. They show stored job data (snapshots, summaries, notes, removal reasons) to anyone on this computer who can load a page. A job or company id is one path segment of the safe shape (`is_safe_id`), checked before any lookup; any other shape or an unknown id answers a fixed plain-text 404 that echoes nothing. A GET never marks a card seen, starts a task or changes a filter or view: a card is marked seen by the POST it sends once it is displayed, and the next card is prefetched by GET without marking it. A filter form is a plain GET to `/inbox`; its fragment answer sets `HX-Push-Url` to the `/inbox` page address, never to a fragment route (a reload of a fragment route answers 403). The company list's sort and page values and its htmx fragment are the same routes with `HX-Request`, so the fragment needs the token.
    Token-protected GET fragments added in M4 (never pages, no side effects): `/inbox/queue`, `/inbox/jobs/{id}/card`, `/inbox/jobs/{id}/detail` (the drawer), `/inbox/jobs/{id}/header`, `/inbox/jobs/{id}/summary`, `/inbox/jobs/{id}/fit` and `/settings/shortcuts`. Token-protected POST routes, which also need the origin (rule 3): `/inbox/intake`, `/inbox/jobs/{id}/not-duplicate`, `/inbox/jobs/{id}/seen`, `/inbox/jobs/{id}/triage` (snooze, remove, to apply, undo, restore), `/inbox/jobs/{id}/summarize`, `/inbox/jobs/{id}/assess-fit`, `/inbox/jobs/{id}/edit` (fields and notes), `/inbox/jobs/{id}/detail-triage`, `/inbox/jobs/{id}/split`, `/inbox/values/{id}` (map, add as new value, ignore), `/inbox/saved-views`, `/inbox/saved-views/{id}` (rename, delete), `/companies/{id}/edit` and `/settings/shortcuts`. Writes to an existing record (triage, field and note edits, value mapping, saved views, company edits, the shortcuts switch) carry the record's version and answer 409 with the reload prompt when it is stale. Form bodies are read with a size cap (a plain-text 413) and a fixed field list (a plain-text 400).
-13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it. Pages with a fact id in the path expose that fact locally, the same as the library; the id is not an authorization boundary (ADR-094). The same holds for `/inbox`, `/jobs/{id}` and `/companies/{id}`: job text, summaries, your notes and your removal reasons are readable by any local process that loads them.
+   M5 pages (ADR-102): `/board` (including `view=table`, sort, page and Closed state), `/applications/{id}` and `/` (Today) are read-only pages; htmx requests still require the token. Application ids are checked before lookup and use the fixed non-reflecting `ApplicationNotFound` 404. Protected GET fragments: `/board/columns`, `/applications/{id}/detail`, `/today/content`, `/notifications/panel`, `/notifications/count`. Protected POSTs (also origin checked): `/applications/{id}/status`, `/interview-date` and `/feedback` under the same application prefix; `/applications/{id}/notes` and `/notes/{note_id}`; `/applications/{id}/events`, `/events/{event_id}` and `/events/{event_id}/cancel`; `/applications/{id}/contacts`, `/contacts/new`, `/contacts/{contact_id}/unlink` and `/interactions`; `/companies/{id}/contacts` and `/contacts/{contact_id}`; `/reminders/{key}/done`, `/dismiss` and `/snooze`; `/notifications/seen`; `/settings/board/statuses`, `/settings/board/statuses/{key}/rename`, `/move` and `/delete` under that status prefix, and `/settings/board/reminders/{key}`. Settings > Board is a section of `/settings`, not a separate page or GET route. All fragment and action routes retain the default token requirement. GETs mark no reminder seen; `/notifications/seen` takes only the displayed occurrence keys. Board actions read only the validated `/board` path and `closed=1` from `HX-Current-URL` to retain the Closed view; this header never authorizes an action.
+13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it. Pages with a fact id in the path expose that fact locally, the same as the library; the id is not an authorization boundary (ADR-094). The same holds for `/inbox`, `/jobs/{id}` and `/companies/{id}`: job text, summaries, your notes and your removal reasons are readable by any local process that loads them. M5 adds application status/history, notes, rejection feedback, event details and contact/interaction data to local pages. Company pages expose contact names, emails, phones and notes without a token; application pages expose linked contacts and interactions. Board and Today expose application and reminder summaries. These features send none of that data to AI.
 14. The data folder is locked while the app runs (ADR-072, ADR-076 item 9, M2.4). Before logging, the database, migrations or the AI temporary clean-up, the CLI and the app's start take `flock(LOCK_EX | LOCK_NB)` on `<data folder>/.lock`. The file is created with mode 0600 and refused unless it is a private regular file owned by the user with one link. A second copy gets `DataFolderInUse`, whose message names no path, and exits. The lock is POSIX only; where `fcntl` is missing it does nothing (ADR-061). The operating system releases it when the process exits or is killed.
 
 M5.5 application detail (ADR-102): `/applications/{id}` is a read-only full page with the same safe-id check and fixed, non-reflecting 404 as the job pages; htmx requests still need the launch token. `/applications/{id}/detail` and all note/event POST routes are protected; writes also need the origin. The approved exception to rule 12's export wording is `GET /applications/{id}/events/{event_id}/ics`: it builds calendar bytes in memory, writes no files or rows, calls no external service, requires the token header, and returns a fixed `jobpipeline-event.ics` attachment with `text/calendar` and `no-store`. The fetch-and-save helper never puts the token in a URL. Like the other token-free pages, the application page makes its stored notes and event details readable locally (rule 13).
 
 ### 2.10 Logging and diagnostics
+
+M5 extends AC-M1.4 to contact names, emails, phones and notes, interaction notes, application notes, rejection feedback, and event details (including interviewers and locations). They belong only in their local content tables, never task or usage rows, live-update events, logs or generic error text. Board and Today query strings are removed from access records just like inbox searches. Validation editors may redisplay the user's submitted values in escaped fields; diagnostic messages never interpolate those values. M5 cross-cutting scans cover stored-table allowlists, raw log messages, console and files, response headers, task/usage screens, real task event frames and a forced unexpected route error.
 
 Standard library logging with a JSON formatter, rotating files in `logs/` (5 files of 1 MiB; ADR-037). Prompt contents and personal data are not logged. No prompt-debug switch is implemented; a future debug feature must preserve the CV/fact-text exclusions below (TD-151). `GET /health` returns app version, database status and task runner status.
 
@@ -432,6 +449,19 @@ M4 job and company errors (ADR-098 to ADR-100):
 
 In the Add-job form, a refused URL (`FetchRefused`), a failed fetch (`NetworkUnavailable`) and a page without usable text (`JobTextNotFound`) all answer 422 with one message, "This page couldn't be fetched. Paste the job text instead.", open the text box and keep the typed URL as the link to the original. The Add-job form therefore never shows the "No connection" copy of `NetworkUnavailable`, because pasting works offline. Corrections to a job's fields and company details are validated by `JobEditInvalid` and `CompanyEditInvalid`, which are not `AppError`s: they answer 422 with "Check the highlighted fields." and one message per field (for example "Another company is already called that."). A company that does not exist answers the fixed plain-text 404 "This company wasn't found."; a value to map that does not exist answers "This value wasn't found." A stale job, company, saved view, value or shortcuts version answers `VersionConflict` (409, reload prompt).
 
+M5 errors and refusals:
+
+| Error | Raised by | User-facing message pattern |
+| --- | --- | --- |
+| `ApplicationNotFound` | Application services/routes | "This application wasn't found. It may have been removed." (fixed 404) |
+| `StatusNotAllowed` | Status/application services | "This can't be done to this status now. Reload to see the latest statuses." or a field-specific refusal |
+| `EventTimeInvalid` | Event domain rules | "This date or time can't be saved. Check it and try again." or a field-specific date/zone/duration message |
+| `ReminderNotFound` | Reminder service/routes | "This reminder wasn't found. It may have been dealt with or removed." (fixed 404) |
+| `ReminderRuleInvalid` | Reminder rule service | "This reminder can't be saved as it is. Check the number of days." or the days field message |
+| `CalendarSyncUnsupported` | Calendar file provider | "Download the calendar file and open it in your calendar app." |
+
+`DetailInvalid` and `ContactInvalid` are form-validation exceptions, not `AppError`s: 422 with "Check the highlighted fields." and field messages, preserving escaped typing in the submitting editor. Unknown contacts answer the fixed "This contact wasn't found." (404). Stale application, note, event, contact, status, rule or reminder versions use `VersionConflict` (409); Settings > Board refreshes its section, while application editors preserve typing. A malformed, unknown or repeated form field is 400; an oversized form is 413. Refused status moves do not create history or feedback. Skipping optional interview/feedback dialogs keeps the already saved status move.
+
 Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
 Refusals of a start answer 409, for htmx and for a plain request, with the reason: a blocking point, a tier cap without a free Fast tier, or unreadable budgets (ADR-086). A warning that isn't confirmed answers 200 with the warning dialog for htmx, and 409 as text for a plain request (ADR-086). A stale version of a budget form, or of the guide's budget step, answers 409 with the reload prompt (`fragments/shell/_reload_prompt.html`, `role="alert"`): the form's own explanation, then a "Reload the page" link. In the usage budget forms the message is `VersionConflict`'s copy (ADR-081, ADR-087).
@@ -445,7 +475,7 @@ Refusals of a start answer 409, for htmx and for a plain request, with the reaso
 | Language | Python 3.11+ | Type hints everywhere |
 | Packaging | uv, `pyproject.toml`, `uv.lock` | Console script `jobpipeline` |
 | Web | FastAPI on Uvicorn, Jinja2 templates | Server-rendered pages and fragments |
-| Interactivity | htmx (vendored, pinned); live updates use a small fetch-based reader (no `EventSource`, no SSE extension; ADR-077); SortableJS (vendored) for board drag-and-drop; small vanilla scripts for shortcuts and the command palette | No frontend build step |
+| Interactivity | htmx (vendored, pinned); live updates use a small fetch-based reader (no `EventSource`, no SSE extension; ADR-077); SortableJS 1.15.x (vendored, MIT, loaded only by Board) for drag-and-drop; small vanilla scripts for shortcuts and the command palette | No frontend build step; vendor README records version, source and checksum |
 | Database | SQLite via the standard library `sqlite3`, thin repositories, SQL migrations | No ORM |
 | AI | `claude-agent-sdk` (Python) | Behind the AI module |
 | Secrets | `keyring` | Env fallback |
@@ -454,7 +484,7 @@ Refusals of a start answer 409, for htmx and for a plain request, with the reaso
 | CV import | `pypdf`, `python-docx`, `python-multipart` | Approved in ADR-089; PDF fixtures passed. Word brings transitive `lxml`; parsing runs in a child process |
 | Rendering | PDF from HTML (WeasyPrint is the default candidate), Word via `python-docx` | M6 starts with a spike: WeasyPrint needs system libraries on some platforms |
 | HTML sanitizing | `nh3` | For rendered Markdown. Not used in M4: summaries and job text are escaped plain text (ADR-098 item 2) |
-| Calendar | `icalendar` | .ics generation |
+| Calendar | `icalendar` (ADR-102) | Imported only inside `app.modules.calendar.providers.ics`; synchronous in-memory export with an injected clock; no sync or network |
 | Validation | `pydantic` v2 | Settings, AI schemas, DTOs |
 | Tests | `pytest`, `pytest-asyncio`, `hypothesis`, `pytest-cov`, Playwright for Python, axe-core injected through Playwright | 4 |
 | Quality | `ruff` (lint and format), `mypy`, `import-linter`, `pre-commit` with `gitleaks` | 4.5 |
@@ -498,10 +528,12 @@ job-pipeline/
       ai/           interface, prompt library, executor.py, schemas, tasks.py,
                     providers/ (claude_sdk.py, fake.py)
       search/       interface, providers/
-      calendar/     interface, providers/
-      storage/      database.py, runner.py, migrations/ (0001 to 0004; 0004_jobs.sql adds companies,
+      calendar/     frozen EventData/CalendarFile, provider protocol; providers/ics.py
+      storage/      database.py, runner.py, migrations/ (0001 to 0005; 0004_jobs.sql adds companies,
                     jobs, sources, summaries, assessments, requirements, controlled values,
-                    the unknown-value queue, saved views and jobs_fts), repositories
+                    the unknown-value queue, saved views and jobs_fts; 0005_applications.sql adds
+                    statuses/history, applications, contacts/links/interactions, notes, events,
+                    reminder rules/states), repositories including board, detail, reminders, Today
       secrets/      interface, providers/ (keyring_store.py, env.py, chained.py,
                     redacting.py, memory.py)
       fetch/        guard.py (SSRF checks), text.py (page_text), content and codings helpers,
@@ -512,8 +544,9 @@ job-pipeline/
     tasks/          runner, handler registry, practice, cv_import, fact_refine, job_summary and
                     job_fit handlers (the event publisher is api/events.py; ADR-077)
     templates/      Jinja2 pages and fragments
-    static/         vendor/ (htmx and license only), js/ (app.js; shortcuts.js and job-detail.js
-                    for the job inbox, M4), css/
+    static/         vendor/ (htmx, SortableJS and licenses), js/ (app.js; shortcuts.js and
+                    job-detail.js; board.js, status-menu.js, application-detail.js,
+                    notifications.js and today.js), css/
     wiring.py       builds providers and services from settings (ADR-047, ADR-059)
     config.py       runtime config and data folder resolution (ADR-025, ADR-030)
     logging_config.py  logging setup with redaction (ADR-030, ADR-070)
@@ -980,6 +1013,10 @@ M3 notes (ADR-089): near-duplicates use mechanical similarity on demand; the con
 - AC-M5.6 Today shows its blocks in priority order, hides empty ones, and says plainly when nothing is due. It lists skipped optional setup steps with links, including CV import (deferred from AC-M3.8, ADR-089 item 3).
 
 **Test plan:** unit tests for reminder rules and .ics generation; integration tests for status history and phases; e2e for the board (drag and keyboard), drawer and Today, with axe and phone viewport.
+
+**As built (ADR-102 to ADR-105):** Apply creates Preparing in the same transaction, and Undo/Back to queue deletes only an untouched application. Status phase is stored on the status; every move is recorded, and the first active move sets `applied_at` without document freezing (M6). Events store UTC instants and their IANA zone; gaps are refused and ambiguous input uses the first occurrence with a notice. Calendar files normally contain TZID/VTIMEZONE; UTC aliases use Z, and endpoints in the second repeated autumn hour export as UTC to preserve both instants (ADR-103). All-day deadlines use VALUE=DATE with an exclusive end. The .ics provider has `supports_sync=False`; `CalendarFile` contains filename, bytes and `text/calendar`, and future `ExternalRef` contains provider/external_id. The download route always names the file `jobpipeline-event.ics`.
+
+Reminders are computed on read with no task, timer or closed-app work. Rule keys identify a status-history entry; event keys identify an event, so completing then rescheduling the same event does not create a new occurrence. Notifications mark only displayed keys seen by POST; `reminders:changed` refreshes local counts and content independently of the task event stream. Today has the five ordered blocks described above; fact drafts only in M5, no document drafts, prep state or suggested session yet. Contacts/notes/interactions cannot be deleted; events are cancelled. AI thank-you drafting, company merge and document freezing remain deferred (TECH_DEBT, M6). Cross-cutting acceptance includes privacy canaries, a real-CLI desktop/phone journey, and median-of-five response measurements below 150 ms for Board, table, drawer, Today and badge with 500 fictional applications. User acceptance also checks a downloaded file in their calendar app.
 
 **Exit checks:** full verification.
 
