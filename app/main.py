@@ -59,6 +59,7 @@ from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
 from app.api.tasks import register_task_routes
 from app.api.templating import STATIC_DIR, STATIC_URL
+from app.api.today import register_today_routes
 from app.config import (
     BOOTSTRAP_FILE,
     DATABASE_FILE,
@@ -149,6 +150,7 @@ from app.services.setup_state import SetupStateService
 from app.services.skills import SkillService
 from app.services.task_views import TaskView, TaskViews, failed_message
 from app.services.tasks import TaskService
+from app.services.today import TodayService
 from app.services.usage import UsageService
 from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import UsageSettings
@@ -1105,6 +1107,7 @@ def create_app(
     app.state.contacts = ContactsService(lambda: _current_db(app), app_clock, app_ids)
     # Reminders are computed when read; nothing here is scheduled (ADR-013).
     app.state.reminders = ReminderService(lambda: _current_db(app), app_clock, app_ids, app_tz)
+    app.state.today = TodayService(lambda: _current_db(app), app_clock, app.state.reminders, app_tz)
     app.state.reminder_rules = ReminderRules(lambda: _current_db(app), app_clock, app_ids)
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
@@ -1165,6 +1168,7 @@ def create_app(
     register_application_contact_routes(app)
     register_reminder_routes(app)
     register_notification_routes(app)
+    register_today_routes(app)
     register_setup_pages(app)
     register_events(
         app,

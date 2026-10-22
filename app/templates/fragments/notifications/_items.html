@@ -1,3 +1,4 @@
+{% set reminder_target = reminder_target | default('notifications-panel') %}
 <ul class="reminder-list">
 {% for item in notifications.items %}
   <li class="reminder-item" data-reminder-key="{{ item.key }}" data-unseen="{{ 'true' if item.unseen else 'false' }}">
@@ -5,10 +6,10 @@
     <p>{{ item.label }} · <time datetime="{{ item.due_at }}">{{ item.due_at[:10] }}</time></p>
     <div class="reminder-actions">
       {% for action, label in [('done', 'Done'), ('snooze', 'Snooze'), ('dismiss', 'Dismiss')] %}
-      <form method="post" action="/reminders/{{ item.key }}/{{ action }}" hx-post="/reminders/{{ item.key }}/{{ action }}" hx-target="#notifications-panel" hx-swap="outerHTML settle:0ms">
+      <form method="post" action="/reminders/{{ item.key }}/{{ action }}" hx-post="/reminders/{{ item.key }}/{{ action }}" hx-target="#{{ reminder_target }}" hx-swap="outerHTML settle:0ms">
         <input type="hidden" name="version" value="{{ item.version }}">
-        {% if action == 'snooze' %}<label class="visually-hidden" for="snooze-{{ item.key }}">Snooze {{ item.company }}, {{ item.role }} until</label><select id="snooze-{{ item.key }}" name="choice"><option value="tomorrow" selected>Tomorrow</option><option value="next_week">Next week</option></select>{% endif %}
-        <button id="reminder-{{ action }}-{{ item.key }}" class="button" type="submit" aria-label="{{ label }}, {{ item.company }}, {{ item.role }}">{{ label }}</button>
+        {% if action == 'snooze' %}<label class="visually-hidden" for="{{ reminder_target }}-snooze-{{ item.key }}">Snooze {{ item.company }}, {{ item.role }} until</label><select id="{{ reminder_target }}-snooze-{{ item.key }}" name="choice"><option value="tomorrow" selected>Tomorrow</option><option value="next_week">Next week</option></select>{% endif %}
+        <button id="{{ reminder_target }}-{{ action }}-button-{{ item.key }}" class="button" type="submit" aria-label="{{ label }}, {{ item.company }}, {{ item.role }}">{{ label }}</button>
       </form>
       {% endfor %}
     </div>

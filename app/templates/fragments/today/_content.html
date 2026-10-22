@@ -1,0 +1,39 @@
+<div id="today-content" hx-get="/today/content" hx-trigger="reminders:changed from:body" hx-target="this" hx-swap="outerHTML settle:0ms">
+  <h1 id="page-heading" tabindex="-1"{% if focus %} data-autofocus{% endif %}>Today</h1>
+  <div id="today-notice"></div>
+  {% if today.empty %}<div class="empty-state"><p>Nothing needs your attention today.</p></div>{% endif %}
+  {% if today.interviews %}
+  <section id="today-interviews" class="today-block" aria-labelledby="today-interviews-heading">
+    <h2 id="today-interviews-heading">Upcoming interviews</h2>
+    <ul>{% for item in today.interviews %}<li data-interview-id="{{ item.id }}"><a href="/applications/{{ item.application_id }}">{{ item.company }} · {{ item.role }}</a> — <time datetime="{{ item.instant }}">{{ item.local }}</time> · {{ item.zone }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+  {% if today.reminders.items %}
+  <section id="today-reminders" class="today-block" aria-labelledby="today-reminders-heading">
+    <h2 id="today-reminders-heading">Due follow-ups and reminders</h2>
+    {% with notifications = today.reminders, reminder_target = 'today-content' %}{% include "fragments/notifications/_items.html" %}{% endwith %}
+  </section>
+  {% endif %}
+  {% if today.unseen %}
+  <section id="today-jobs" class="today-block" aria-labelledby="today-jobs-heading">
+    <h2 id="today-jobs-heading">New jobs</h2>
+    <p>{{ today.unseen }} unseen {{ 'job' if today.unseen == 1 else 'jobs' }}.</p>
+    {% if today.strong %}<ul>{% for job in today.strong %}<li data-strong-job="{{ job.id }}"><a href="/jobs/{{ job.id }}">{{ job.company or 'No company' }} · {{ job.role }}</a> · Strong fit</li>{% endfor %}</ul>{% endif %}
+    <p><a href="/inbox?view=queue">Review new jobs</a></p>
+  </section>
+  {% endif %}
+  {% if today.drafts %}
+  <section id="today-drafts" class="today-block" aria-labelledby="today-drafts-heading">
+    <h2 id="today-drafts-heading">Drafts to review</h2>
+    <p>{{ today.drafts }} fact {{ 'draft' if today.drafts == 1 else 'drafts' }} to review.</p>
+    <p><a href="/facts?tab=drafts">Review fact drafts</a></p>
+  </section>
+  {% endif %}
+  {% if unfinished %}
+  <section id="today-setup" class="today-block" aria-labelledby="today-setup-heading">
+    <h2 id="today-setup-heading">Finish setting up</h2>
+    <ul>{% for step in unfinished %}<li><a href="/setup/{{ step.id }}">{{ step.title }}</a></li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+  <p id="today-summary">{% if today.statuses %}Applications: {% for label, count in today.statuses %}{{ count }} {{ label }}{{ '; ' if not loop.last else '.' }}{% endfor %}{% else %}No applications yet.{% endif %}</p>
+</div>

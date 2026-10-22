@@ -178,6 +178,9 @@ a {
 .reminder-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .reminder-actions form { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .follow-up-due { font-weight: 600; }
+.today-block { margin-block: var(--space-6); padding-block: var(--space-3); border-bottom: 1px solid var(--color-border); }
+#today-content { overflow-wrap: anywhere; }
+.today-block a { min-height: var(--target-min); display: inline-flex; align-items: center; }
 
 /* Background tasks (M2.20): the indicator button sits at the end of the top bar; its panel
    hangs under the bar, over the page, and scrolls by itself. Not modal. */

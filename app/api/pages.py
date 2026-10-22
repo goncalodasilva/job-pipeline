@@ -42,6 +42,7 @@ AREAS: tuple[Area, ...] = (
         "/",
         "Today",
         "Your day at a glance will appear here: follow-ups due, upcoming interviews and reminders.",
+        placeholder=False,
     ),
     Area(
         "inbox",

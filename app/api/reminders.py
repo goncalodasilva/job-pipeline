@@ -23,6 +23,7 @@ from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx, posted_version, single_value_form
 from app.api.notifications import panel_response
 from app.api.templating import templates
+from app.api.today import content_response
 from app.domain.errors import ReminderNotFound, VersionConflict, format_short_day
 from app.domain.reminders import SNOOZE_CHOICES
 from app.services.reminders import ReminderService, ReminderStateView
@@ -102,7 +103,11 @@ async def _act(
             return _conflict(request)
         if not is_htmx(request):
             return RedirectResponse(HOME, status_code=303)
-        response = panel_response(request, focus=True)
+        response = (
+            content_response(request, focus=True)
+            if request.headers.get("HX-Target") == "today-content"
+            else panel_response(request, focus=True)
+        )
         response.headers["HX-Trigger"] = json.dumps(
             {REMINDERS_CHANGED: True, "announce": said(state)}
         )
@@ -113,7 +118,11 @@ async def _act(
 
 def _conflict(request: Request) -> Response:
     ctx = {
-        "reload_id": "reminder-conflict",
+        "reload_id": (
+            "today-reminder-conflict"
+            if request.headers.get("HX-Target") == "today-content"
+            else "reminder-conflict"
+        ),
         "reload_message": VersionConflict.message,
         "reload_detail": "",
         "reload_url": HOME,
@@ -122,5 +131,8 @@ def _conflict(request: Request) -> Response:
     response = templates.TemplateResponse(request, RELOAD_PROMPT, ctx, status_code=409)
     if request.headers.get("HX-Target") == "notifications-panel":
         response.headers["HX-Retarget"] = "#notifications-notice"
+        response.headers["HX-Reswap"] = "innerHTML"
+    elif request.headers.get("HX-Target") == "today-content":
+        response.headers["HX-Retarget"] = "#today-notice"
         response.headers["HX-Reswap"] = "innerHTML"
     return response
