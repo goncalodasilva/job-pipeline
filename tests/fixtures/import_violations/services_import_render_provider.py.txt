@@ -1,0 +1,2 @@
+# Deliberate violation of contract "Services use module interfaces only and no web frameworks (spec 2.3 rule 4)": a service imports a render provider (M6.1, ADR-106 item 2).
+import app.render.providers

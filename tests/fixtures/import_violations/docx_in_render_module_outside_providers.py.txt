@@ -1,0 +1,2 @@
+# Deliberate violation of contract "docx only in the Word extractor (spec 2.3 rule 3)": the render package imports docx outside its Word provider (M6.1, ADR-106 item 2).
+import docx

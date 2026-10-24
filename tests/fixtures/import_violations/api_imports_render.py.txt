@@ -1,0 +1,2 @@
+# Deliberate violation of contract "API does not reach modules or SQLite (spec 2.3 rule 5)": a route imports the render package (M6.1, ADR-106 item 2).
+import app.render

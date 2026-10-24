@@ -150,13 +150,20 @@ forbidden_modules = [
 name = "Services use module interfaces only and no web frameworks (spec 2.3 rule 4)"
 type = "forbidden"
 source_modules = ["app.services"]
-forbidden_modules = ["app.modules.*.providers", "fastapi", "jinja2", "starlette", "uvicorn"]
+forbidden_modules = [
+    "app.modules.*.providers",
+    "app.render.providers",
+    "fastapi",
+    "jinja2",
+    "starlette",
+    "uvicorn",
+]
 
 [[tool.importlinter.contracts]]
 name = "API does not reach modules or SQLite (spec 2.3 rule 5)"
 type = "forbidden"
 source_modules = ["app.api"]
-forbidden_modules = ["app.modules", "sqlite3"]
+forbidden_modules = ["app.modules", "app.render", "sqlite3"]
 # Direct imports only: routes legitimately reach storage through services.
 allow_indirect_imports = true
 
@@ -234,7 +241,10 @@ name = "docx only in the Word extractor (spec 2.3 rule 3)"
 type = "forbidden"
 source_modules = ["app"]
 forbidden_modules = ["docx"]
-ignore_imports = ["app.modules.extract.providers.docx -> docx"]
+ignore_imports = [
+    "app.modules.extract.providers.docx -> docx",
+    "app.render.providers.word -> docx",
+]
 unmatched_ignore_imports_alerting = "none"
 
 [[tool.importlinter.contracts]]

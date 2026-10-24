@@ -354,3 +354,81 @@ def test_services_may_import_ai_interface_but_not_executor(tmp_path: Path) -> No
     assert returncode != 0, output
     assert SERVICES in _contracts_with_status(output, "BROKEN"), output
     assert "app.services.ai_user" in output, output
+
+
+# M6.1 (ADR-106 item 2): the Word renderer is the second place that imports python-docx; services
+# also forbid app.render.providers and the API forbids app.render.
+DOCX_RENDER_VIOLATION_CASES: dict[str, ViolationCase] = {
+    "docx_outside_extract_providers": ViolationCase("app/services/_violation.py", DOCX),
+    "docx_in_render_module_outside_providers": ViolationCase("app/render/_violation.py", DOCX),
+    "docx_in_other_render_provider": ViolationCase("app/render/providers/_violation.py", DOCX),
+}
+
+
+def _contract_config(name: str) -> dict[str, object]:
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    matching = [c for c in config["tool"]["importlinter"]["contracts"] if c["name"] == name]
+    assert len(matching) == 1, name
+    found: dict[str, object] = matching[0]
+    return found
+
+
+def test_docx_outside_extractor_and_word_renderer_fails(tmp_path: Path) -> None:
+    """The docx contract gains exactly ``app.render.providers.word -> docx`` (M6.1)."""
+    ignored = _contract_config(DOCX)["ignore_imports"]
+    assert isinstance(ignored, list)
+    assert sorted(ignored) == [
+        "app.modules.extract.providers.docx -> docx",
+        "app.render.providers.word -> docx",
+    ]
+
+    for case_id, case in sorted(DOCX_RENDER_VIOLATION_CASES.items()):
+        _assert_violation_detected(case_id, case, tmp_path / case_id)
+
+    returncode, output = _lint_copy_with(
+        tmp_path / "allowed",
+        {
+            "app/modules/extract/providers/docx.py": "import docx\n",
+            "app/render/providers/word.py": "import docx\n",
+        },
+    )
+    assert returncode == 0, output
+    assert _contracts_with_status(output, "KEPT") == EXPECTED_CONTRACTS, output
+
+
+def test_services_cannot_import_render_providers(tmp_path: Path) -> None:
+    """Services get documents through the ``DocumentRenderer`` interface in ``app.render``."""
+    forbidden = _contract_config(SERVICES)["forbidden_modules"]
+    assert isinstance(forbidden, list)
+    assert "app.render.providers" in forbidden
+    assert "app.modules.*.providers" in forbidden, "the existing entry stays"
+
+    _assert_violation_detected(
+        "services_import_render_provider",
+        ViolationCase("app/services/_violation.py", SERVICES),
+        tmp_path / "provider",
+    )
+
+    interface_only = {"app/services/render_user.py": "from app.render import DocumentRenderer\n"}
+    returncode, output = _lint_copy_with(tmp_path / "interface", interface_only)
+    assert returncode == 0, output
+    assert _contracts_with_status(output, "KEPT") == EXPECTED_CONTRACTS, output
+
+
+def test_api_cannot_import_render(tmp_path: Path) -> None:
+    forbidden = _contract_config(API)["forbidden_modules"]
+    assert isinstance(forbidden, list)
+    assert "app.render" in forbidden
+    assert "app.modules" in forbidden, "the existing entries stay"
+
+    _assert_violation_detected(
+        "api_imports_render",
+        ViolationCase("app/api/_violation.py", API),
+        tmp_path / "package",
+    )
+
+    returncode, output = _lint_copy_with(
+        tmp_path / "provider", {"app/api/_violation.py": "import app.render.providers\n"}
+    )
+    assert returncode != 0, output
+    assert API in _contracts_with_status(output, "BROKEN"), output
