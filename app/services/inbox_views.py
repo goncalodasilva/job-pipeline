@@ -4,7 +4,6 @@ Reads only: a card is marked seen by the triage service when the page posts to i
 """
 
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import date, tzinfo
 from typing import Any
 from urllib.parse import urlsplit
@@ -56,23 +55,10 @@ class InboxViews:
     ) -> dict[str, Any]:
         """One page of the queue and which card is focused. A ``selected`` id that is not on
         the page gives way to the first card."""
-        results = self._query.page(filters, page=page)
-        if not results.items and page > 1 and results.total > 0:
-            # Everything on this page was dealt with: show the last page that has jobs.
-            page = (results.total + PAGE_SIZE - 1) // PAGE_SIZE
-            results = self._query.page(filters, page=page)
-        groups = self._query.groups(filters, by=group_by) if group_by else ()
+        snapshot = self._query.snapshot(filters, page=page, selected=selected, group_by=group_by)
+        results, groups = snapshot.results, snapshot.groups
+        page = results.page
         group_field = {"company": "company_id", "band": "fit_band"}.get(group_by, group_by)
-        if group_by:
-            results = replace(
-                results,
-                items=tuple(
-                    item
-                    for group in groups
-                    for item in results.items
-                    if item[group_field] == group.value
-                ),
-            )
         ids = [item["id"] for item in results.items]
         focused = selected if selected in ids else (ids[0] if ids else "")
         index = ids.index(focused) if focused else 0
@@ -111,6 +97,7 @@ class InboxViews:
             "has_previous_page": page > 1,
             "has_next_page": results.next_card is not None,
             "shortcuts": self.shortcuts(),
+            "card": self._present_card(snapshot.card) if snapshot.card is not None else None,
         }
 
     def card(self, job_id: str) -> dict[str, Any]:
@@ -118,9 +105,12 @@ class InboxViews:
         db = self._database()
         if db is None or not is_safe_id(job_id):
             raise JobNotFound()
-        today = local_today(self._clock.now(), self._zone)
         with db.read() as conn:
             found = inbox_card_repo.card(conn, job_id)
+        return self._present_card(found)
+
+    def _present_card(self, found: dict[str, Any]) -> dict[str, Any]:
+        today = local_today(self._clock.now(), self._zone)
         job = found["job"]
         snoozed_until = date.fromisoformat(job["snooze_until"]) if job["snooze_until"] else None
         state = effective_state(

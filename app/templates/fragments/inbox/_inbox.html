@@ -22,6 +22,10 @@
     {% endif %}
   </div>
   <div id="inbox-notice"></div>
+  <div id="inbox-stale-card" class="field-error" role="alert" hidden>
+    <p>This job changed while you were working. Your typing has been kept. Reload the inbox to see the current jobs; unsaved edits on this card will be discarded.</p>
+    <button type="button" class="button" data-reload-inbox>Reload inbox</button>
+  </div>
   <div class="inbox-views" role="group" aria-label="Inbox views">
     <ul>
       {% for key, label in views.items() %}

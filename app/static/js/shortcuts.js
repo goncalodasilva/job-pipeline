@@ -29,6 +29,8 @@
   var undoTimer = null;
   var heldAction = null; // { form, submitter }: pressed before the card's seen answer
   var seenTimer = null;
+  var missingCard = null; // { id, focus, force }: a merged card awaiting safe queue recovery
+  var missingRequest = false;
 
   function byId(id) {
     return document.getElementById(id);
@@ -276,6 +278,7 @@
       if (invalid) invalid.focus();
     }
     prefetchNext();
+    retryMissingCard();
   }
 
   document.body.addEventListener("htmx:afterSettle", afterSwap);
@@ -294,15 +297,124 @@
     );
   }
 
+  function missingBlocked(shown) {
+    return shown.querySelector("dialog[open]") || cardInUse(shown);
+  }
+
+  function showMissingCard() {
+    var notice = byId("inbox-stale-card");
+    if (notice) notice.hidden = false;
+    var shown = card();
+    if (missingCard && shown && shown.contains(document.activeElement)) missingCard.focus = true;
+  }
+
+  function clearMissingCard() {
+    missingCard = null;
+    missingRequest = false;
+    var notice = byId("inbox-stale-card");
+    if (notice) notice.hidden = true;
+  }
+
+  function retryMissingCard() {
+    if (!missingCard) return;
+    var shown = card(), inbox = byId("inbox");
+    if (!shown || !inbox || shown.getAttribute("data-job-id") !== missingCard.id) {
+      clearMissingCard();
+      return;
+    }
+    if (missingRequest) return;
+    if (!missingCard.force && missingBlocked(shown)) { showMissingCard(); return; }
+    missingRequest = true;
+    inbox.dispatchEvent(new CustomEvent("inbox:changed", {bubbles: true}));
+  }
+
+  // Closing an editor or leaving its field may make a deferred recovery safe. Dirty values
+  // stay protected until cleared or until the user explicitly chooses Reload inbox.
+  document.body.addEventListener("toggle", retryMissingCard, true);
+  document.body.addEventListener("close", retryMissingCard, true);
+  document.body.addEventListener("focusout", function () {
+    if (missingCard) window.setTimeout(retryMissingCard, 0);
+  });
+  document.body.addEventListener("click", function (event) {
+    if (!missingCard || !(event.target instanceof Element) || !event.target.closest("[data-reload-inbox]")) return;
+    missingCard.force = true;
+    missingCard.focus = true;
+    retryMissingCard();
+  });
+
   // A card that asks for itself again (Processing) or the whole screen (a job was added) must
   // not take a dialog, an open menu or typed words away from the user; the next event asks again.
   document.body.addEventListener("htmx:beforeRequest", function (event) {
     var detail = event.detail || {};
     var from = detail.elt;
     if (!(from instanceof Element) || from !== detail.target || !page.contains(from)) return;
+    if (from.id === "inbox" && missingCard) {
+      var shown = card();
+      if (shown && !missingCard.force && missingBlocked(shown)) {
+        missingRequest = false;
+        showMissingCard();
+        event.preventDefault();
+        return;
+      }
+      detail.xhr.inboxMissingCard = missingCard;
+      detail.xhr.inboxMissingOrigin = from;
+      detail.xhr.inboxMissingSource = shown;
+    }
     if (from.querySelector("dialog[open]") || (from.id === "inbox-card" && cardInUse(from))) {
       event.preventDefault();
     }
+  });
+
+  // A summary may merge a card after its HTML was read. Its automatic acknowledgement or
+  // self-refresh then gets the normal fixed 404: refresh the queue instead of reporting a
+  // failed user action. Other requests and status codes retain their ordinary errors.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    var detail = event.detail || {}, config = detail.requestConfig || {};
+    var from = config.elt;
+    if (detail.xhr && detail.xhr.status === 200 && detail.xhr.inboxMissingCard) {
+      var current = card();
+      if (byId("inbox") !== detail.xhr.inboxMissingOrigin || current !== detail.xhr.inboxMissingSource) {
+        detail.shouldSwap = false;
+        if (missingCard === detail.xhr.inboxMissingCard) clearMissingCard();
+        return;
+      }
+      if (current && !detail.xhr.inboxMissingCard.force && missingBlocked(current)) {
+        detail.shouldSwap = false;
+        missingRequest = false;
+        showMissingCard();
+        return;
+      }
+    }
+    if (!detail.xhr || detail.xhr.status !== 404 || !(from instanceof Element)) return;
+    var seen = from.id === "inbox-seen" && config.verb === "post";
+    var refresh = from.id === "inbox-card" && config.verb === "get";
+    if (!seen && !refresh) return;
+    var source = from.closest("#inbox-card"), shown = card(), inbox = byId("inbox");
+    if (!source || !inbox) return;
+    detail.isError = false;
+    detail.shouldSwap = false;
+    if (source !== shown) return; // a late response must not replace a newer selection
+    window.clearTimeout(seenTimer);
+    heldAction = null; // never replay an action against the card that replaced this one
+    var id = shown.getAttribute("data-job-id");
+    if (missingCard && missingCard.id === id) {
+      missingCard.focus = missingCard.focus || shown.contains(document.activeElement);
+    } else {
+      missingCard = { id: id, focus: shown.contains(document.activeElement), force: false };
+    }
+    retryMissingCard();
+  });
+  document.body.addEventListener("htmx:configRequest", function (event) {
+    var inbox = byId("inbox");
+    if (inbox && event.detail.elt === inbox && missingCard && missingCard.focus) {
+      event.detail.parameters.focus = "1";
+    }
+  });
+  document.body.addEventListener("htmx:afterRequest", function (event) {
+    var xhr = event.detail && event.detail.xhr;
+    if (!xhr || !xhr.inboxMissingCard) return;
+    missingRequest = false;
+    if (xhr.inboxMissingCard === missingCard && byId("inbox") !== xhr.inboxMissingOrigin) clearMissingCard();
   });
 
   // The card was marked seen: its forms carry the job's new version from now on, and what was

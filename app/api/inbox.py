@@ -141,8 +141,9 @@ def _card_context(
     error: JobTriageInputInvalid | None = None,
     submitted: dict[str, str] | None = None,
     filter_query: str = "",
+    snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    shown = _views(request).card(job_id)
+    shown = snapshot if snapshot is not None else _views(request).card(job_id)
     # A job with no summary and none being made offers the summary panel, which holds the
     # budget check, the reason it may be blocked and the way to start again.
     panel = (
@@ -228,6 +229,7 @@ def _inbox_context(
                 error=error,
                 submitted=submitted,
                 filter_query=selected_options.query(),
+                snapshot=shown["card"],
             )
         )
     return ctx
