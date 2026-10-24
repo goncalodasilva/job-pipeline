@@ -1022,6 +1022,11 @@ Reminders are computed on read with no task, timer or closed-app work. Rule keys
 
 ### M6 — Tailoring, honesty enforcement and documents
 
+**Acceptance carry-over:** on 2026-10-24 the user explicitly approved M5 without running
+its manual checks and deferred them to M6 acceptance. Preserve the unperformed checklist
+in `docs/acceptance/M6.md`, including native calendar import and the inbox retest, alongside
+M6's own acceptance checks.
+
 **Goal:** honest, reviewable, exportable CVs and cover letters for each application.
 
 **Scope:** workspace stepper; `gap_check`, `propose_angles`, `tailor_cv`, `draft_cover_letter`; the honesty checker (3.1); diff view; edit preservation on regenerate; "save as fact?" for typed claims; country templates (`draft_cv_template`, review, reuse, optional photo slot and upload); renderer to PDF and Word; exports; submit and freeze; "used in" quick links in the fact bank. The milestone starts with a renderer spike that compares WeasyPrint with alternatives on all three operating systems and records an ADR.
