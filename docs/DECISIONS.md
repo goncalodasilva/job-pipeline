@@ -1161,3 +1161,27 @@ The drawer and page share the timeline and editors; drawer status moves use the 
   - fpdf2: add `fpdf2==2.8.9` with its pillow, fonttools and defusedxml packages. Set `ResourceAccessPolicy.NONE`. Do not use `unbreakable()`. Add a hand-made heading-orphan check. The LGPL-3.0 licence is part of the user's pick.
   - WeasyPrint: add `weasyprint==70.0` and its 11 packages. Add the system libraries to the Docker image. Set `DYLD_FALLBACK_LIBRARY_PATH` on Apple Silicon with uv-managed Python, or set it in-process before the first import. Install `libharfbuzz-subset0` on Linux. Use a `URLFetcher` subclass that allows only `data:`. Do not compare bytes across OSes.
   - Chromium: move Playwright from the dev group to runtime, with its extra packages. Run `playwright install --with-deps` on Linux. Use one browser per render thread, never in a thread with a running loop. Keep JS off, abort all routes except the in-memory document, and never load a file: document. Patch dates to get stable bytes. Expect peak RSS near 653 MB (mac) and 731 MB (Linux), as sampled.
+
+## ADR-108 — PDF library: typst, behind a swappable renderer boundary (2026-10-24)
+
+- Context: ADR-107 compared five PDF renderers and recommended typst 0.15.0 first. It left the pick to the user, because a PDF library is a new runtime dependency (AGENTS.md rule 8). At the M6.1 checkpoint on 2026-10-24 the user chose typst and asked for it to be "modular enough to easily change later". M6.2 was blocked until this pick; it is now unblocked.
+- Decision: the user chose typst at the M6.1 checkpoint (2026-10-24). That choice approves the new runtime dependency `typst==0.15.0`. The rules below are how it is built.
+  1. Dependency: `typst==0.15.0` (exact pin; Apache-2.0 per ADR-107) is the only PDF runtime dependency. It is imported only in `app/render/providers/pdf.py`, under a new forbidden import-linter contract. No existing contract is loosened. M6.2 stops if the lock adds any package other than typst. No system libraries are needed.
+  2. Swappable boundary: outside `app/render/providers/pdf.py` (services, `ExportService`, wiring, templates, domain and tests), code knows only `DocumentRenderer`, `RenderDocument` and `RendererUnavailable`. No typst names, markup or error types leave the file. The file is named for the format, not the library.
+     - The typst template is a static constant with no `#import`, `#read` or `eval`. A test scans it.
+     - Typst-specific workarounds live only in that file and its sibling resource: a fresh, empty temporary root per render with no symlinks; data passed only as JSON through `sys_inputs`; a timestamp pinned from the injected clock; bundled fonts with `ignore_system_fonts`; U+200B inserted into long words; bidi controls stripped before typesetting (item 5).
+     - The library name is one constant in that file. The user-facing message has the shape "PDF export needs <library>. Word export still works; see the README." The message text is the only library-related text that leaves the file.
+     - The renderer contract suite `test_document_renderer_contract[...]` is renderer-agnostic. A replacement joins it by adding one parameter.
+     - Outside the provider file and its resource, the only places that name the library are the import-linter contract and `test_typst_outside_pdf_renderer_fails`.
+  3. Adaptations of M6.2 wording (no scope change):
+     - typst needs no system libraries. The "missing system library" path becomes "typst cannot be imported or loaded", which raises `RendererUnavailable`.
+     - The CI workflow needs no extra apt or brew packages for PDF. This changes the CI clause of ADR-106 item 2 and ADR-107 for typst. `scripts/linux_render_check.sh` still runs the renderer suite in Docker as a dev check.
+     - README install notes say that no system libraries are needed. Per-OS notes cover only the Docker dev check.
+  4. Fonts: use fonts already bundled in the typst wheel if they cover Latin extended and € and are redistributable. Otherwise vendor an OFL font with its licence and SHA-256, as M6.2 says. The implementer records which in the M6.2 evidence.
+  5. Bidi controls: stripping bidi controls in the render model for every renderer is not applied in `RenderDocument`; Word keeps them. The PDF renderer alone strips bidi override and isolate controls before typesetting, because typst applies them and drops the character, which would change the extracted text. The contract test compares extracted text after the normalisation documented in the suite. This narrows ADR-107's consequence that bidi controls are stripped in the model for every pick.
+- Consequences:
+  - Switching later means a new provider file, one contract entry, the `pyproject.toml` dependency change and one wiring line in `app/wiring.py`. The renderer contract suite's code is unchanged; it gains one parameter.
+  - M6.2 adds `typst==0.15.0` to `pyproject.toml` and `uv.lock`, and one forbidden import-linter contract (the count goes from 14 to 15). `uv run lint-imports` must pass.
+  - ADR-107 stays the comparison and recommendation. It is not superseded.
+  - The Word renderer and the docx contract are unchanged.
+  - Clarification (2026-10-24, M6.2): item 2's last bullet also covers the typst-specific test files. Those are `tests/typst_support.py` and `tests/unit/render/test_typst_*.py`. Library-neutral PDF tests stay in `tests/unit/render/test_pdf_renderer.py`.

@@ -38,6 +38,8 @@ JSONSCHEMA = "jsonschema only in the AI executor (spec 2.3 rule 3)"
 PYPDF = "pypdf only in the PDF extractor (spec 2.3 rule 3)"
 DOCX = "docx only in the Word extractor (spec 2.3 rule 3)"
 ICALENDAR = "icalendar only in the ICS provider (spec 2.3 rule 3)"
+# M6.2 (ADR-108): the PDF library is imported only by the PDF renderer.
+TYPST = "typst only in the PDF renderer (spec 2.3 rule 3)"
 
 EXPECTED_CONTRACTS = frozenset(
     {
@@ -55,6 +57,7 @@ EXPECTED_CONTRACTS = frozenset(
         PYPDF,
         DOCX,
         ICALENDAR,
+        TYPST,
     }
 )
 
@@ -432,3 +435,31 @@ def test_api_cannot_import_render(tmp_path: Path) -> None:
     )
     assert returncode != 0, output
     assert API in _contracts_with_status(output, "BROKEN"), output
+
+
+# M6.2 (ADR-108): typst is imported only by app/render/providers/pdf.py, and every other contract
+# stays as it was (nothing loosened).
+TYPST_VIOLATION_CASES: dict[str, ViolationCase] = {
+    "typst_outside_pdf_renderer": ViolationCase("app/services/_violation.py", TYPST),
+    "typst_in_render_module_outside_providers": ViolationCase("app/render/_violation.py", TYPST),
+    "typst_in_other_render_provider": ViolationCase("app/render/providers/_violation.py", TYPST),
+}
+
+
+def test_typst_outside_pdf_renderer_fails(tmp_path: Path) -> None:
+    contract = _contract_config(TYPST)
+    assert contract["type"] == "forbidden"
+    assert contract["source_modules"] == ["app"]
+    assert contract["forbidden_modules"] == ["typst"]
+    assert contract["ignore_imports"] == ["app.render.providers.pdf -> typst"], (
+        "the contract gains exactly the PDF renderer"
+    )
+
+    for case_id, case in sorted(TYPST_VIOLATION_CASES.items()):
+        _assert_violation_detected(case_id, case, tmp_path / case_id)
+
+    returncode, output = _lint_copy_with(
+        tmp_path / "allowed", {"app/render/providers/pdf.py": "import typst\n"}
+    )
+    assert returncode == 0, output
+    assert _contracts_with_status(output, "KEPT") == EXPECTED_CONTRACTS, output

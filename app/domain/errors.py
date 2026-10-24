@@ -639,3 +639,28 @@ class JobNotFound(AppError):
 
 class FitNotAvailable(AppError):
     message = "Summarize the job and add confirmed facts to see how you match."
+
+
+class RenderTooLarge(AppError):
+    """A document is over a renderer's cap on pieces of text, characters or photo size."""
+
+    kind = "RenderTooLarge"
+    message = "This document is too large to export. Shorten the text or use a smaller photo."
+
+
+class RenderTimedOut(AppError):
+    """A render took longer than its limit, or the renderer is still busy with earlier ones."""
+
+    kind = "RenderTimedOut"
+    message = (
+        "Creating the PDF took too long, or is still busy with another. "
+        "Try again in a moment, or shorten the document."
+    )
+
+
+class RenderFailed(AppError):
+    """A renderer could not make the file (its library failed, or the photo is not what it says).
+    ``detail`` names the cause in a fixed phrase or an error type; it never holds document text."""
+
+    kind = "RenderFailed"
+    message = "The document couldn't be turned into a PDF."

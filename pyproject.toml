@@ -26,6 +26,7 @@ dependencies = [
     "python-docx>=1.2,<2",
     "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
+    "typst==0.15.0",
     "uvicorn>=0.54",
 ]
 
@@ -245,6 +246,14 @@ ignore_imports = [
     "app.modules.extract.providers.docx -> docx",
     "app.render.providers.word -> docx",
 ]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "typst only in the PDF renderer (spec 2.3 rule 3)"
+type = "forbidden"
+source_modules = ["app"]
+forbidden_modules = ["typst"]
+ignore_imports = ["app.render.providers.pdf -> typst"]
 unmatched_ignore_imports_alerting = "none"
 
 [[tool.importlinter.contracts]]

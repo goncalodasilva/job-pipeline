@@ -16,6 +16,67 @@ PAGE_SIZES: Final = ("A4", "Letter")
 PHOTO_TYPES: Final = ("jpeg", "png")
 
 
+PHOTO_MAX_SIDE: Final = 4000
+PHOTO_MAX_PIXELS: Final = 16_000_000
+
+_PNG_SIGNATURE: Final = b"\x89PNG\r\n\x1a\n"
+# JPEG start-of-frame markers: the ones that carry the picture size (not DHT, JPG or DAC).
+_JPEG_FRAMES: Final = frozenset(
+    {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
+)
+_JPEG_STANDALONE: Final = frozenset({0x01, *range(0xD0, 0xDA)})  # TEM, RSTn, SOI, EOI
+
+
+def photo_dimensions(photo: bytes, photo_type: PhotoType) -> tuple[int, int] | None:
+    """The (width, height) in pixels that the photo's own header states, or ``None`` when the
+    bytes do not start like ``photo_type`` or the header is unreadable or states a zero side.
+
+    Reads only the PNG IHDR chunk or the JPEG start-of-frame segment: no image is decoded and no
+    image library is used. A caller refuses a stated size above ``PHOTO_MAX_SIDE`` /
+    ``PHOTO_MAX_PIXELS`` before anything decodes the picture. (M6.6's upload validator should
+    reuse or merge this helper.)
+    """
+    size = _png_size(photo) if photo_type == "png" else _jpeg_size(photo)
+    if size is None or size[0] == 0 or size[1] == 0:
+        return None
+    return size
+
+
+def _png_size(photo: bytes) -> tuple[int, int] | None:
+    if not photo.startswith(_PNG_SIGNATURE) or photo[12:16] != b"IHDR" or len(photo) < 24:
+        return None
+    return int.from_bytes(photo[16:20], "big"), int.from_bytes(photo[20:24], "big")
+
+
+def _jpeg_size(photo: bytes) -> tuple[int, int] | None:
+    if not photo.startswith(b"\xff\xd8\xff"):
+        return None
+    position = 2
+    while position + 1 < len(photo):
+        if photo[position] != 0xFF:
+            return None
+        marker = photo[position + 1]
+        if marker == 0xFF:  # fill byte
+            position += 1
+            continue
+        position += 2
+        if marker in _JPEG_STANDALONE:
+            continue
+        if marker == 0xDA or position + 2 > len(photo):  # picture data before any frame header
+            return None
+        length = int.from_bytes(photo[position : position + 2], "big")
+        if marker in _JPEG_FRAMES:
+            if length < 8 or position + 7 > len(photo):
+                return None
+            height = int.from_bytes(photo[position + 3 : position + 5], "big")
+            width = int.from_bytes(photo[position + 5 : position + 7], "big")
+            return width, height
+        if length < 2:
+            return None
+        position += length
+    return None
+
+
 def _is_kept(character: str) -> bool:
     if character in "\t\n":
         return True

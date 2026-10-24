@@ -9,7 +9,13 @@ import unicodedata
 
 import pytest
 
-from tests.render_support import PHOTOS, rendering, sample_document
+from tests.render_support import (
+    PHOTOS,
+    jpeg_header_only,
+    png_header_only,
+    rendering,
+    sample_document,
+)
 
 
 def test_clean_render_text_strips_controls_keeps_tabs_and_newlines() -> None:
@@ -86,3 +92,58 @@ def test_render_document_photo_needs_bytes_and_a_jpeg_or_png_type(
 ) -> None:
     with pytest.raises(ValueError):
         sample_document(**values)
+
+
+# ---- photo_dimensions: the size a photo's own header states, read without an image library ----
+
+
+def test_photo_dimensions_reads_png_and_jpeg_headers() -> None:
+    dimensions = rendering().photo_dimensions
+
+    assert dimensions(PHOTOS["png"], "png") == (2, 2)
+    assert dimensions(PHOTOS["jpeg"], "jpeg") == (2, 2)
+    assert dimensions(png_header_only(5000, 7), "png") == (5000, 7)
+    assert dimensions(png_header_only(1, 65_535), "png") == (1, 65_535)
+    assert dimensions(jpeg_header_only(8000, 6), "jpeg") == (8000, 6)
+    assert dimensions(jpeg_header_only(65_535, 65_535), "jpeg") == (65_535, 65_535)
+
+
+def test_photo_dimensions_png_big_endian_and_wide_values() -> None:
+    assert rendering().photo_dimensions(png_header_only(0x01020304, 5), "png") == (0x01020304, 5)
+
+
+def test_photo_dimensions_is_none_when_the_bytes_are_not_the_type() -> None:
+    dimensions = rendering().photo_dimensions
+
+    assert dimensions(PHOTOS["jpeg"], "png") is None
+    assert dimensions(PHOTOS["png"], "jpeg") is None
+    assert dimensions(b"GIF89a" + b"\x00" * 30, "png") is None
+    assert dimensions(b"", "png") is None
+    assert dimensions(b"", "jpeg") is None
+
+
+def test_photo_dimensions_is_none_for_truncated_or_odd_headers() -> None:
+    dimensions = rendering().photo_dimensions
+    png = png_header_only(10, 10)
+    jpeg = jpeg_header_only(10, 10)
+
+    for cut in range(len(png[:24])):
+        assert dimensions(png[:cut], "png") is None, cut
+    assert dimensions(png[:12] + b"IDAT" + png[16:], "png") is None, "the first chunk is not IHDR"
+    for cut in range(len(jpeg[:30])):
+        result = dimensions(jpeg[:cut], "jpeg")
+        assert result is None or cut >= 29, cut  # only a complete frame header gives a size
+    assert dimensions(png_header_only(0, 10), "png") is None
+    assert dimensions(jpeg_header_only(10, 0), "jpeg") is None
+    # Picture data (SOS) before any frame header, a bad marker, and a segment shorter than itself.
+    assert dimensions(b"\xff\xd8\xff\xda\x00\x02", "jpeg") is None
+    assert dimensions(b"\xff\xd8\xff\xe0\x00\x00" + b"\x00" * 20, "jpeg") is None
+    assert dimensions(b"\xff\xd8\xff\xe0\x00\x04ab\x00\xc0\x00\x0b", "jpeg") is None
+
+
+def test_photo_dimensions_skips_other_segments_and_fill_bytes() -> None:
+    comment = b"\xff\xfe" + (2 + 4).to_bytes(2, "big") + b"\xff\xc0\x00\x00"  # a fake frame inside
+    frame = jpeg_header_only(321, 123)[2:]
+    photo = b"\xff\xd8" + comment + b"\xff\xff" + frame
+
+    assert rendering().photo_dimensions(photo, "jpeg") == (321, 123)

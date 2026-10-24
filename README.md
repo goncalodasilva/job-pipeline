@@ -90,6 +90,14 @@ AI work runs as background tasks. The **Tasks** button in the top bar shows how 
 
 Failed and interrupted tasks retry only when you ask. CV import, Refine with AI, job summaries and fit assessments use the runner (fetching a job page does not: it happens while you wait); invalid AI output gets one automatic correction attempt. The practice task is offered only on the demo's own folder, or when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` is set. With `--data-dir` or `JOBPIPELINE_DATA_DIR`, even `--demo` needs that variable.
 
+## PDF and Word export
+
+Tailored documents export as Word files and as PDFs. PDF export uses the `typst` Python package, which `uv sync` installs as one self-contained wheel: there are no system libraries to install on macOS or Linux, and it needs no network access. Fonts come from the package, not from your computer, so a PDF looks the same on both systems.
+
+If `typst` can't be loaded, PDF export says "PDF export needs typst. Word export still works; see the README." Word export doesn't depend on it, and the app starts either way. Run `uv sync` again to repair the install.
+
+Developers can check the renderers on Linux from any OS with Docker running: `bash scripts/linux_render_check.sh` runs only the renderer tests in a `python:3.11-slim-bookworm` container (it pulls the image and downloads the locked packages inside the container, and prints `LINUX RENDER CHECK: PASS`). It is not part of `verify.sh` or CI.
+
 ## Fact bank and CV import
 
 Open **Fact bank > Drafts to review** to import a CV (up to 10 MB and 60,000 extracted characters). Scans need pasted text; there is no OCR. Review each draft beside its source quote, then confirm, edit and confirm, merge into a confirmed fact, or discard with undo. Batch confirmation leaves drafts marked “Needs check” for individual review. A failed import keeps its upload with Start and Remove actions. Removing an upload keeps facts already extracted from it.

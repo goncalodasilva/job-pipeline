@@ -23,6 +23,19 @@ API assumed by these tests (the implementer follows it; change it only with the 
   the same bytes.
 
 M6.2 adds ``"pdf"`` to ``RENDERERS`` and to ``READERS``; every sub-check below then runs for it.
+
+* ``app.render.providers.pdf.PdfRenderer(clock)``: ``format == "pdf"``,
+  ``media_type == "application/pdf"``, ``page_count`` an ``int``. Its other tests are in
+  ``tests/unit/render/test_pdf_renderer.py`` (format level) and ``test_typst_renderer.py`` and
+  ``test_typst_isolation.py`` (the library).
+
+How text is compared (see ``tests/render_support.py``): a reader gives ``normalise`` (applied to
+both the extracted text and the expected text) and ``squash``. For Word both are the identity, so
+Word is compared exactly as before. For PDF, pypdf returns the text as typeset, so ``normalise``
+applies NFKC, drops zero-width spaces and bidi override/isolate controls, and collapses
+whitespace; ``squash`` also removes the spaces, for words the renderer may wrap in the middle.
+The PDF renderer strips U+202A-U+202E and U+2066-U+2069 before typesetting (Word keeps them), so
+the expected text drops them too.
 """
 
 import importlib
@@ -37,6 +50,7 @@ import pytest
 from tests.fakes.clock import FrozenClock
 from tests.render_support import (
     A4_MM,
+    BIDI_CONTROLS,
     LETTER_MM,
     NOW,
     PHOTOS,
@@ -49,6 +63,15 @@ from tests.render_support import (
     docx_paragraphs,
     docx_picture_descriptions,
     docx_text,
+    pdf_dates,
+    pdf_image_count,
+    pdf_metadata_text,
+    pdf_normalise,
+    pdf_page_size_mm,
+    pdf_renderer,
+    pdf_squash,
+    pdf_text,
+    pdf_title_author,
     rendering,
     sample_document,
     word_renderer,
@@ -56,8 +79,17 @@ from tests.render_support import (
 
 pytestmark = pytest.mark.contract
 
-RENDERERS = ["word"]
-TOOL_NAMES = ("python-docx", "docx", "lxml", "python", "claude", "reportlab", "weasyprint")
+RENDERERS = ["word", "pdf"]
+TOOL_NAMES = (
+    "python-docx",
+    "docx",
+    "lxml",
+    "python",
+    "claude",
+    "reportlab",
+    "weasyprint",
+    "typst",
+)
 
 
 @dataclass(frozen=True)
@@ -70,6 +102,8 @@ class Reader:
     title_and_author: Any  # bytes -> (title, author)
     created_modified: Any  # bytes -> (created, modified) as aware datetimes
     metadata_text: Any  # bytes -> all metadata as text, for tool-name searches
+    normalise: Any  # str -> str, applied to extracted and expected text before comparing
+    squash: Any  # str -> str, like normalise but also blind to where a word was wrapped
 
 
 def _word_dates(content: bytes) -> tuple[Any, Any]:
@@ -90,13 +124,27 @@ READERS = {
         title_and_author=_word_title_author,
         created_modified=_word_dates,
         metadata_text=docx_metadata_xml,
-    )
+        normalise=lambda text: text,
+        squash=lambda text: text,
+    ),
+    "pdf": Reader(
+        text=pdf_text,
+        page_size_mm=pdf_page_size_mm,
+        image_count=pdf_image_count,
+        title_and_author=pdf_title_author,
+        created_modified=pdf_dates,
+        metadata_text=pdf_metadata_text,
+        normalise=pdf_normalise,
+        squash=pdf_squash,
+    ),
 }
 
 
 def make_renderer(name: str, clock: FrozenClock) -> Any:
     if name == "word":
         return word_renderer(clock)
+    if name == "pdf":
+        return pdf_renderer(clock)
     raise AssertionError(f"unknown renderer {name}")
 
 
@@ -127,6 +175,9 @@ def test_document_renderer_contract(name: str, clock: FrozenClock) -> None:
             renderer.media_type
             == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
+    if name == "pdf":
+        assert renderer.format == "pdf"
+        assert renderer.media_type == "application/pdf"
 
     document = sample_document()
     rendered = renderer.render(document)
@@ -134,6 +185,9 @@ def test_document_renderer_contract(name: str, clock: FrozenClock) -> None:
     assert isinstance(rendered, render_module.RenderedFile)
     assert isinstance(rendered.content, bytes) and rendered.content
     assert rendered.page_count is None or rendered.page_count >= 1
+    if name == "pdf":
+        assert isinstance(rendered.page_count, int), "a PDF has pages, so the count is filled in"
+        assert rendered.content.startswith(b"%PDF-")
     assert renderer.render(document).content == rendered.content, "same input, same bytes"
     assert document == sample_document(), "rendering leaves the document alone"
 
@@ -145,8 +199,8 @@ def test_render_package_imports_no_vendor_library() -> None:
     """``app.render`` is the interface; python-docx stays in the provider package."""
     code = (
         "import sys, app.render\n"
-        "loaded = sorted(m for m in ('docx', 'lxml', 'weasyprint', 'reportlab', 'fpdf', 'pypdf')"
-        " if m in sys.modules)\n"
+        "names = ('docx', 'lxml', 'weasyprint', 'reportlab', 'fpdf', 'pypdf', 'typst')\n"
+        "loaded = sorted(m for m in names if m in sys.modules)\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run(  # noqa: S603
@@ -158,13 +212,13 @@ def test_render_package_imports_no_vendor_library() -> None:
 def test_round_trip_text_equals_document_text(kind: str, clock: FrozenClock) -> None:
     document = sample_document()
     rendered = make_renderer(kind, clock).render(document)
+    reader = READERS[kind]
+    extracted = reader.text(rendered.content)
 
-    extracted = READERS[kind].text(rendered.content)
-
-    assert extracted == document.plain_text()
+    assert reader.normalise(extracted) == reader.normalise(document.plain_text())
     # Spot checks that the comparison isn't vacuous: accents, the euro sign and a long number.
-    assert "déploiement" in extracted
-    assert "12 000 €" in extracted
+    assert "déploiement" in reader.normalise(extracted)
+    assert reader.normalise("12 000 €") in reader.normalise(extracted)
     assert extracted.index("Experience") < extracted.index("Skills")
 
 
@@ -193,12 +247,20 @@ def test_hostile_text_rendered_literally(kind: str, clock: FrozenClock) -> None:
     )
 
     rendered = make_renderer(kind, clock).render(document)
-    extracted = READERS[kind].text(rendered.content)
+    reader = READERS[kind]
+    extracted = reader.text(rendered.content)
 
-    assert extracted == document.plain_text()
+    # squash: a PDF may wrap the 200-character word at inserted zero-width spaces, so where the
+    # lines end is not compared; the characters and their order are.
+    assert reader.squash(extracted) == reader.squash(document.plain_text())
     for text in hostile:
-        assert text in extracted, f"{text[:20]!r} was changed"
-    assert long_word in extracted, "a 200-character word is neither cut nor split"
+        assert reader.squash(text) in reader.squash(extracted), f"{text[:20]!r} was changed"
+    assert reader.squash(long_word) in reader.squash(extracted), "a 200-character word is intact"
+    if kind == "word":
+        assert long_word in extracted, "Word neither cuts nor splits a 200-character word"
+        assert hostile[4] in extracted, "Word keeps the bidi controls"
+    else:
+        assert not [c for c in extracted if c in BIDI_CONTROLS], "PDF strips bidi controls"
     assert READERS[kind].title_and_author(rendered.content) == (
         "<script>t</script>",
         "{{ author }} &amp;",
@@ -230,14 +292,19 @@ def test_control_characters_removed(kind: str, clock: FrozenClock) -> None:
     )
 
     rendered = make_renderer(kind, clock).render(document)
-    extracted = READERS[kind].text(rendered.content)
+    reader = READERS[kind]
+    extracted = reader.text(rendered.content)
+    # squash: a PDF may typeset a tab as a gap that text extraction doesn't turn into a space.
+    squashed = reader.squash(extracted)
 
     assert _control_characters(extracted) == []
-    assert extracted == document.plain_text()
-    assert "Alice[31m Example" in extracted
-    assert "Experience" in extracted
-    assert "tab\there" in extracted and "line\nbreak" in extracted
-    assert "windows\nending" in extracted
+    assert squashed == reader.squash(document.plain_text())
+    assert reader.squash("Alice[31m Example") in squashed
+    assert "Experience" in squashed
+    for piece in ("tab\there", "line\nbreak", "windows\nending"):
+        assert reader.squash(piece) in squashed
+    if kind == "word":
+        assert "tab\there" in extracted and "windows\nending" in extracted
     title, author = READERS[kind].title_and_author(rendered.content)
     assert (title, author) == ("Alex CV", "Alex Example")
 
@@ -260,10 +327,11 @@ def test_characters_xml_cannot_hold_never_break_rendering(kind: str, clock: Froz
     )
 
     rendered = make_renderer(kind, clock).render(document)
-    extracted = READERS[kind].text(rendered.content)
+    reader = READERS[kind]
+    extracted = reader.text(rendered.content)
 
-    assert extracted == "Header\nSection\nline\nEntry\nend"
-    assert extracted == document.plain_text()
+    assert reader.normalise(extracted) == reader.normalise("Header\nSection\nline\nEntry\nend")
+    assert reader.normalise(extracted) == reader.normalise(document.plain_text())
     assert READERS[kind].title_and_author(rendered.content) == ("Title", "Author")
 
 
@@ -276,9 +344,10 @@ def test_photo_only_when_given(kind: str, photo_type: str, clock: FrozenClock) -
 
     assert READERS[kind].image_count(without.content) == 0
     assert READERS[kind].image_count(with_photo.content) == 1
-    assert READERS[kind].text(with_photo.content) == sample_document().plain_text(), (
-        "the photo adds no text"
-    )
+    reader = READERS[kind]
+    assert reader.normalise(reader.text(with_photo.content)) == reader.normalise(
+        sample_document().plain_text()
+    ), "the photo adds no text"
     document = sample_document(photo=PHOTOS[photo_type], photo_type=photo_type)
     assert renderer.render(document).content == renderer.render(document).content, (
         "same document with a photo, same bytes"
@@ -300,7 +369,10 @@ def test_page_size_a4_and_letter(
 
     assert width == pytest.approx(expected[0], abs=1.0)
     assert height == pytest.approx(expected[1], abs=1.0)
-    assert READERS[kind].text(rendered.content) == sample_document().plain_text()
+    reader = READERS[kind]
+    assert reader.normalise(reader.text(rendered.content)) == reader.normalise(
+        sample_document().plain_text()
+    )
 
 
 def test_metadata_from_document_and_clock_only(kind: str, clock: FrozenClock) -> None:

@@ -1,0 +1,2 @@
+# Deliberate violation of contract "typst only in the PDF renderer (spec 2.3 rule 3)": a service imports typst (M6.2, ADR-108).
+import typst
