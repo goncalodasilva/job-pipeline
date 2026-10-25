@@ -437,11 +437,20 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
         assert sorted(registered) == [
             "assess_fit",
             "extract_cv",
+            "gap_check",
             "practice",
+            "propose_angles",
             "refine_fact",
             "summarize_job",
         ]
-        assert sorted(TASK_SPECS) == ["assess_fit", "extract_cv", "refine_fact", "summarize_job"]
+        assert sorted(TASK_SPECS) == [
+            "assess_fit",
+            "extract_cv",
+            "gap_check",
+            "propose_angles",
+            "refine_fact",
+            "summarize_job",
+        ]
         for name in (*registered, *TASK_SPECS):
             assert not any(word in name.lower() for word in SCHEDULING_WORDS), name
         # The lifespan started no thread or timer of its own for them, and nothing on the app

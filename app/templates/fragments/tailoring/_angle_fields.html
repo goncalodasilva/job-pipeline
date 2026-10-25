@@ -1,0 +1,22 @@
+{# The fields of one angle form (a proposal's card or "Write your own angle"). Needs `slot`
+   (the card number or "own"), `name_value`, `description_value` and `mine` (what a refused or
+   stale save of this very form posted, else empty). A refusal keeps the typed text, ties its
+   message to the field (aria-describedby, aria-invalid) and gives that field the focus; a
+   stale version shows the reload prompt here, in the form, and keeps the text. #}
+{% set tw = tailoring.view %}
+{% set bad_field = (('description' if mine.field == 'description' else 'name') if mine and mine.error else '') %}
+<input type="hidden" name="slot" value="{{ slot }}">
+<input type="hidden" name="version" value="{{ mine.version if mine else tw.workspace_version }}">
+{% if mine and mine.conflict %}
+  {% with reload_id='angle-reload-' ~ slot, reload_message=tailoring.conflict_message, reload_detail='What you typed is kept below. Reload the page to save it against the latest version.', reload_url='/applications/' ~ tw.application_id ~ '?tab=tailoring&step=2' %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}
+{% endif %}
+<div class="field">
+  <label for="angle-name-{{ slot }}">Angle name</label>
+  <input id="angle-name-{{ slot }}" type="text" name="name" maxlength="120" value="{{ name_value }}"{% if bad_field == 'name' %} aria-invalid="true" aria-describedby="angle-error-{{ slot }}" data-autofocus{% endif %}>
+  {% if bad_field == 'name' %}<p id="angle-error-{{ slot }}" class="field-error">{{ mine.error }}</p>{% endif %}
+</div>
+<div class="field">
+  <label for="angle-description-{{ slot }}">Description</label>
+  <textarea id="angle-description-{{ slot }}" name="description" rows="3" maxlength="2000"{% if bad_field == 'description' %} aria-invalid="true" aria-describedby="angle-error-{{ slot }}" data-autofocus{% endif %}>{{ description_value }}</textarea>
+  {% if bad_field == 'description' %}<p id="angle-error-{{ slot }}" class="field-error">{{ mine.error }}</p>{% endif %}
+</div>

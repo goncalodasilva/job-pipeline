@@ -1,0 +1,20 @@
+The job posting and its extracted requirements:
+
+<untrusted_document source="job_requirements" id="job-fictional">
+{"posting":"Fictional route planner", "requirements":[]}
+</untrusted_document>
+
+The person's usable confirmed facts, with versioned references:
+
+<untrusted_document source="facts" id="job-fictional">
+[F1@1]
+Text: Planned fictional routes.
+</untrusted_document>
+
+Angles the person chose for other applications, each with its angle_id:
+
+<untrusted_document source="other_angles" id="job-fictional">
+[{"angle_id":"angle-earlier-1","name":"Planner","description":"Routes."}]
+</untrusted_document>
+
+Return only the two or three angles, as JSON matching the schema.

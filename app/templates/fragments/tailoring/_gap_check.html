@@ -1,0 +1,56 @@
+{# Step 1: which requirements the confirmed facts show (M6.5). Verdicts, the sentence about the
+   must-haves and the "isn't in your fact bank" notes are built by code (app/domain/gap_check.py). #}
+{% set tw = tailoring.view %}
+{% set posted = tailoring.fact_form %}
+<p class="field-hint">Compares this role's requirements with your confirmed facts. Nothing is changed.</p>
+{% include "fragments/tailoring/_notice.html" %}
+{% if tailoring.fact_added is not none %}
+  <p id="fact-added" class="notice">Fact added. Check again to see if it covers this requirement.{% for req in tw.requirements if req.id == tailoring.fact_added %} <span class="card-label">{{ req.text }}</span>{% endfor %}</p>
+{% endif %}
+{% if tailoring.fact_orphan %}<p role="alert" class="field-error" tabindex="-1" data-autofocus>{{ posted.error }}</p>{% endif %}
+{% if tailoring.view.gap_task.active %}
+  {% with action='1/check', label='Check gaps', running_text='Checking your facts against the requirements…' %}{% include "fragments/tailoring/_start.html" %}{% endwith %}
+{% else %}
+  {% if tw.gap_practice %}<p class="badge badge-practice">{{ tailoring.practice_notice }}</p>{% endif %}
+  {% with action='1/check', label=('Check again' if tw.gap_stored else 'Check gaps'), running_text='' %}{% include "fragments/tailoring/_start.html" %}{% endwith %}
+  {% if tw.gap_stored and tw.gap_stale and not tw.notice %}<p class="field-hint">The job summary changed since this check. Check again to use the new requirements.</p>{% endif %}
+  {% if tw.gap_message %}<p id="gap-check-message" class="notice">{{ tw.gap_message }}</p>{% endif %}
+  {% if tw.requirements %}
+  <ul class="gap-list">
+    {% for req in tw.requirements %}
+    <li data-requirement-id="{{ req.id }}" data-verdict="{{ req.verdict }}">
+      <p><strong id="req-text-{{ loop.index }}">{{ req.text }}</strong> <span class="card-label">({{ req.kind }})</span></p>
+      <p class="gap-verdict">{{ req.verdict | capitalize }}</p>
+      {% with cited=req.wording, cited_label='' %}{% include "fragments/tailoring/_cited.html" %}{% endwith %}
+      {% if req.is_gap %}
+      {% set mine = posted if posted and posted.requirement_id == req.id else {} %}
+      <details{% if mine %} open{% endif %}>
+        <summary aria-describedby="req-text-{{ loop.index }}">Add a fact</summary>
+        <form method="post" action="/applications/{{ tw.application_id }}/tailoring/1/facts" hx-post="/applications/{{ tw.application_id }}/tailoring/1/facts" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+          <input type="hidden" name="requirement_id" value="{{ req.id }}">
+          <div class="field">
+            <label for="fact-text-{{ loop.index }}">Fact</label>
+            <textarea id="fact-text-{{ loop.index }}" name="text" rows="3" maxlength="10000" aria-describedby="fact-hint-{{ loop.index }}{% if mine %} fact-error-{{ loop.index }}{% endif %}"{% if mine %} aria-invalid="true" data-autofocus{% endif %}>{{ mine.text if mine else '' }}</textarea>
+            <p id="fact-hint-{{ loop.index }}" class="field-hint">Something you did, in your own words. It is saved as a confirmed fact, then press Check again.</p>
+            {% if mine %}<p id="fact-error-{{ loop.index }}" class="field-error">{{ mine.error }}</p>{% endif %}
+          </div>
+          <button class="button" type="submit" aria-describedby="req-text-{{ loop.index }}">Save fact</button>
+        </form>
+      </details>
+      {% if not tw.notice %}
+      <button class="button" type="submit" form="gap-check-form" aria-label="Check again for: {{ req.text }}"{% if tailoring.blocked %} aria-disabled="true"{% if tailoring.reason %} aria-describedby="{{ tailoring.reason.id }}"{% endif %}{% endif %}>Check again</button>
+      {% endif %}
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if tw.framing %}
+  <h5>Ways to present related experience</h5>
+  <ul class="gap-framing">
+    {% for idea in tw.framing %}
+    <li data-framing="{{ 'flagged' if idea.flagged else 'ok' }}"><p>{{ idea.text }}</p>{% with cited=idea.wording, cited_label='Your facts behind this:' %}{% include "fragments/tailoring/_cited.html" %}{% endwith %}{% if idea.flagged %}<p class="field-hint">{{ tailoring.not_in_fact_bank }}</p>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+{% endif %}

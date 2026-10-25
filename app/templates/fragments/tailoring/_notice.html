@@ -1,0 +1,2 @@
+{# What to do first when a step can't start. Needs `tw`. #}
+{% if tw.notice %}<p class="notice">{{ tw.notice }} {% if tw.notice_link == 'job' %}<a href="/jobs/{{ tw.job_id }}">Open job</a>{% else %}<a href="/facts">Open facts</a>{% endif %}</p>{% endif %}

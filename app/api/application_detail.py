@@ -11,12 +11,14 @@ from app.api.errors import INVALID_REQUEST
 from app.api.forms import posted_version, single_value_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
+from app.api.tailoring import step_from_query, tailoring_context
 from app.api.templating import render, templates
 from app.domain.application_detail import EVENT_FIELDS, DetailInvalid
 from app.domain.errors import ApplicationNotFound, VersionConflict
 from app.services.application_detail import ApplicationDetail
 
 DETAIL = "fragments/applications/_detail.html"
+TAILORING = "fragments/tailoring/_tailoring.html"
 
 
 def register_application_detail_routes(app: FastAPI) -> None:
@@ -53,6 +55,8 @@ def context(request: Request, aid: str) -> dict[str, Any]:
         **_service(request).view(aid, getattr(request.app.state, "system_time_zone", None)),
         "areas": AREAS,
         "area": area("board"),
+        "application_id": aid,
+        "tab": "timeline",
     }
 
 
@@ -62,6 +66,22 @@ def _not_found() -> Response:
 
 def page(request: Request, application_id: str) -> Response:
     try:
+        if request.query_params.get("tab") == "tailoring":
+            shown = tailoring_context(
+                request, application_id, step_from_query(request.query_params.get("step"))
+            )
+            return render(
+                request,
+                page="pages/application_detail.html",
+                fragment=TAILORING,
+                ctx={
+                    "tailoring": shown,
+                    "tab": "tailoring",
+                    "application_id": application_id,
+                    "areas": AREAS,
+                    "area": area("board"),
+                },
+            )
         return render(
             request,
             page="pages/application_detail.html",

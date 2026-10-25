@@ -31,5 +31,10 @@ _SPECS: Final = (
     TaskSpec("refine_fact", kind="feedback"),
     TaskSpec("summarize_job", kind="summary"),
     TaskSpec("assess_fit", kind="feedback"),
+    # M6.5: which requirements the confirmed facts show, plus honest framing ideas; it never
+    # adds a claim, and code decides what the user is told about the role (spec 3.1 item 5).
+    TaskSpec("gap_check", kind="feedback"),
+    # M6.5: two or three positioning angles built from the confirmed facts; never a new claim.
+    TaskSpec("propose_angles", kind="feedback"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

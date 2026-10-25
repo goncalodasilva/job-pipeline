@@ -11,6 +11,7 @@ from tests.cv_fixtures import fixture_path
 from tests.cv_import_harness import importing, said
 from tests.leak_scan import RawLogRecords
 from tests.refine_harness import refine_path, refining
+from tests.tailoring_pages import Tailoring
 from tests.waiting import wait_until
 
 pytestmark = pytest.mark.integration
@@ -21,7 +22,14 @@ HIDDEN = "Confidential fictional Brightwater audit statement."
 @pytest.mark.parametrize("task", sorted(TASK_SPECS))
 def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, task: str) -> None:
     # Explicit cases make a newly registered task fail until its real calling path is covered.
-    assert set(TASK_SPECS) == {"extract_cv", "refine_fact", "summarize_job", "assess_fit"}
+    assert set(TASK_SPECS) == {
+        "extract_cv",
+        "refine_fact",
+        "summarize_job",
+        "assess_fit",
+        "gap_check",
+        "propose_angles",
+    }
     with refining(tmp_path) as r:
         hidden = r.typed(HIDDEN, privacy="never_use")
         target = r.target()
@@ -38,6 +46,14 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
                     message="fit task after summary",
                 )
                 assert r.run.wait_terminal(rows[0]["id"]).status.value == "succeeded"
+        elif task in {"gap_check", "propose_angles"}:
+            # M6.5: the real tailoring service and task over the stored requirements and facts.
+            desk = Tailoring(r)
+            application = desk.ready("never-use-job")
+            if task == "gap_check":
+                desk.check(application.id, None)
+            else:
+                desk.propose(application.id, None)
         else:
             r.started(target.id)
         requests = [request for request in r.run.spy.requests if request.task == task]

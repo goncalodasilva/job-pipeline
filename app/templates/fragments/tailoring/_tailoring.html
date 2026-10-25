@@ -1,0 +1,24 @@
+{# The Tailoring tab of the application workspace (M6.5): the stepper and the open step. The
+   swap target of every answer (`#tailoring`, outerHTML). `tailoring` comes from
+   app/api/tailoring.py. Everything shown from the job, the AI and the user's facts is
+   escaped; nothing here is marked safe. A step refetches itself every 2s only while its own
+   task runs, so typing in a form is never replaced; its forms are left out while it runs. #}
+{% set tw = tailoring.view %}
+{% set base = '/applications/' ~ tw.application_id %}
+<section id="tailoring" data-step="{{ tw.step }}" aria-labelledby="tailoring-heading"
+         {% if tailoring.polling %}hx-get="{{ base }}/tailoring/{{ tw.step }}" hx-trigger="{% if tailoring.refresh_once %}load, {% endif %}every 2s, tasks:updated from:body" hx-swap="outerHTML"{% endif %}>
+  <nav aria-label="Tailoring steps" class="tailoring-steps">
+    <ol>
+    {% for item in tw.steps %}
+      <li data-step="{{ item.step }}" data-state="{{ item.state | lower | replace(' ', '-') }}"><a id="tailoring-step-{{ item.step }}" href="{{ base }}?tab=tailoring&amp;step={{ item.step }}"
+         hx-get="{{ base }}/tailoring/{{ item.step }}" hx-target="#tailoring" hx-swap="outerHTML" hx-push-url="{{ base }}?tab=tailoring&amp;step={{ item.step }}"{% if item.step == tw.step %} aria-current="step"{% endif %}>{{ item.title }}: <span class="step-state">{{ item.state }}</span></a></li>
+    {% endfor %}
+    </ol>
+  </nav>
+  <h4 id="tailoring-heading" tabindex="-1"{% if tailoring.autofocus %} data-autofocus{% endif %}>Step {{ tw.step }}: {{ tailoring.titles[tw.step] }}</h4>
+  {% if tailoring.already %}<p id="already-running" class="notice">{{ tailoring.message }}</p>{% endif %}
+  {% if tw.step == 1 %}{% include "fragments/tailoring/_gap_check.html" %}
+  {% elif tw.step == 2 %}{% include "fragments/tailoring/_angle.html" %}
+  {% else %}<p>{{ tailoring.later }}</p>{% endif %}
+  {% if tailoring.dialog %}{% with budget_dialog = tailoring.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}
+</section>

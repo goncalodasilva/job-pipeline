@@ -1,0 +1,34 @@
+{
+  "data": {
+    "requirements": [
+      {
+        "requirement_id": "req-1",
+        "verdict": "met",
+        "fact_ids": []
+      },
+      {
+        "requirement_id": "req-2",
+        "verdict": "met",
+        "fact_ids": []
+      },
+      {
+        "requirement_id": "req-3",
+        "verdict": "met",
+        "fact_ids": []
+      },
+      {
+        "requirement_id": "req-4",
+        "verdict": "met",
+        "fact_ids": []
+      }
+    ],
+    "framing_ideas": [
+      {
+        "text": "Ten years as Head of Planning at Globex Corporation.",
+        "fact_ids": [
+          "F1@1"
+        ]
+      }
+    ]
+  }
+}

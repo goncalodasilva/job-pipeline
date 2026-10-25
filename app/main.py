@@ -57,6 +57,7 @@ from app.api.settings_board import register_board_settings_routes
 from app.api.settings_usage import register_usage_settings
 from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
+from app.api.tailoring import register_tailoring_routes
 from app.api.tasks import register_task_routes
 from app.api.templating import STATIC_DIR, STATIC_URL
 from app.api.today import register_today_routes
@@ -148,6 +149,12 @@ from app.services.roles import RoleService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
 from app.services.skills import SkillService
+from app.services.tailoring import (
+    GAP_CHECK_LABEL,
+    PROPOSE_ANGLES_LABEL,
+    TailoringService,
+)
+from app.services.tailoring_ai import GAP_CHECK, PROPOSE_ANGLES
 from app.services.task_views import TaskView, TaskViews, failed_message
 from app.services.tasks import TaskService
 from app.services.today import TodayService
@@ -160,6 +167,7 @@ from app.tasks.fact_refine import fact_refine_handler
 from app.tasks.job_fit import job_fit_handler
 from app.tasks.job_summary import job_summary_handler
 from app.tasks.practice import practice_handler
+from app.tasks.tailoring import gap_check_handler, propose_angles_handler
 from app.wiring import (
     TASK_TIMEOUT_FLOOR,
     Wiring,
@@ -679,6 +687,25 @@ def _job_fit(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> J
     )
 
 
+def _tailoring(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> TailoringService:
+    def workspace() -> Workspace | None:
+        return getattr(app.state, "workspace", None)
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
+
+    return TailoringService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=workspace,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None),
+        usage=_open_usage(app),
+    )
+
+
 def _cv_import(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> CvImportService:
     """The CV import service (M3.4): like the practice service, it reads the open workspace
     through the app's state at call time."""
@@ -1073,6 +1100,18 @@ def create_app(
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), FIT_LABEL),
             job_fit_handler(app.state.job_fit),
         )
+    app.state.tailoring = _tailoring(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    if task_registry is None:
+        handlers.register(
+            GAP_CHECK,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), GAP_CHECK_LABEL),
+            gap_check_handler(app.state.tailoring),
+        )
+        handlers.register(
+            PROPOSE_ANGLES,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), PROPOSE_ANGLES_LABEL),
+            propose_angles_handler(app.state.tailoring),
+        )
     app.state.job_intake = JobIntakeService(
         lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()
     )
@@ -1160,6 +1199,7 @@ def create_app(
     register_job_intake_routes(app)
     register_job_summary_routes(app)
     register_job_fit_routes(app)
+    register_tailoring_routes(app)
     register_job_detail_routes(app)
     register_company_routes(app)
     register_company_contact_routes(app)

@@ -1,0 +1,8 @@
+{# The user's own wording of the facts a suggestion cites, each a link to the fact. Needs
+   `cited` (FactWording rows) and `cited_label` (a short lead-in, may be empty). Escaped. #}
+{% if cited %}
+{% if cited_label %}<p class="field-hint">{{ cited_label }}</p>{% endif %}
+<ul class="gap-facts">
+  {% for fact in cited %}<li>{% if is_safe_id(fact.id) %}<a href="/facts/{{ fact.id }}/edit">{{ fact.text }}</a>{% else %}{{ fact.text }}{% endif %}</li>{% endfor %}
+</ul>
+{% endif %}

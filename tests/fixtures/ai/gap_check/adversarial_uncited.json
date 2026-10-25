@@ -1,0 +1,27 @@
+{
+  "data": {
+    "requirements": [
+      {
+        "requirement_id": "req-1",
+        "verdict": "met",
+        "fact_ids": []
+      },
+      {
+        "requirement_id": "req-2",
+        "verdict": "partial",
+        "fact_ids": []
+      },
+      {
+        "requirement_id": "req-3",
+        "verdict": "met",
+        "fact_ids": []
+      },
+      {
+        "requirement_id": "req-4",
+        "verdict": "missing",
+        "fact_ids": []
+      }
+    ],
+    "framing_ideas": []
+  }
+}

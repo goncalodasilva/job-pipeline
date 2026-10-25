@@ -1,0 +1,21 @@
+{
+  "data": {
+    "angles": [
+      {
+        "name": "Reliable planner",
+        "description": "Lead with the weekly route planning.",
+        "rationale": "The role centres on route planning.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "reuse_angle_id": "angle-earlier-1"
+      },
+      {
+        "name": "Leader",
+        "description": "Lead with leadership.",
+        "rationale": "The role needs a leader.",
+        "fact_ids": []
+      }
+    ]
+  }
+}

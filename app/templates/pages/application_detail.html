@@ -3,5 +3,18 @@
 {% block content %}
 <h1>Application details</h1>
 <p><a href="/board">Back to Board</a></p>
+<nav class="tabs" aria-label="Application sections">
+  <ul>
+    <li><a href="/applications/{{ application_id }}"{% if tab != 'tailoring' %} aria-current="page"{% endif %}>Timeline and contacts</a></li>
+    <li><a href="/applications/{{ application_id }}?tab=tailoring"{% if tab == 'tailoring' %} aria-current="page"{% endif %}>Tailoring</a></li>
+  </ul>
+</nav>
+{% if tab == 'tailoring' %}
+<h2 id="application-title">{{ tailoring.view.title }}</h2>
+<p><a href="/jobs/{{ tailoring.view.job_id }}">Open job</a>{% if tailoring.view.company %} · {{ tailoring.view.company }}{% endif %}</p>
+<h3>Tailoring</h3>
+{% include "fragments/tailoring/_tailoring.html" %}
+{% else %}
 {% include "fragments/applications/_detail.html" %}
+{% endif %}
 {% endblock %}

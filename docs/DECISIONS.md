@@ -1205,3 +1205,24 @@ The drawer and page share the timeline and editors; drawer status moves use the 
   7. Personal details limits: name and location 100 characters, email 254, phone 30 with 6–15 digits, up to three http/https links of at most 300 characters, template headings 1–40. Control characters and bidi marks are refused; markup is kept as data. There is no date of birth, nationality or marital status field.
   8. How a user removal is persisted across versions (`document_units.removed`) is decided in M6.7.
 - Consequences: `tests/integration/test_schema_0005.py` now asserts `5 in result.applied` (same as the 0003 and 0004 tests); nothing else in earlier tests changed. A committed migration is never edited from now on (0006 included once committed). M6.6 must not echo entered values in errors (TD-280). M6.10's freeze must keep the exported file, because exports embed contact details from the current setting.
+
+## ADR-111 — M6.5 gap check and angle decisions (2026-10-25)
+
+- Context: M6.5 built the Tailoring tab (steps 1–2: gap check and angles) on the application page, with the `gap_check` and `propose_angles` tasks. The plan left several details open. The build and its reviews settled them. No user decision is recorded for these items.
+- Decision:
+  1. Only a missing must-have triggers the "may not be worth applying" sentence. A partial verdict does not.
+  2. An angle's claims are checked on its description and rationale together. The name is excluded.
+  3. Framing ideas are general and carry no requirement id.
+  4. A proposal saved unchanged is stored with origin `ai`. A proposal edited or written by the user is stored with origin `user`. An earlier angle reused unchanged gets no new row.
+  5. The workspace row is created on the first angle save.
+  6. No `task_tiers` entry is added for these tasks. The tier comes from the prompt default, `thorough`.
+  7. The completion warning is announced, not focused. Focus stays on the step heading.
+  8. The inline "Check again" on each gap is a button that targets the single gap-check form.
+  9. "Add a fact" on a gap asks for the fact text only. The fact is confirmed at once.
+- Consequences:
+  - Pre-approved test updates under ADR-106 item 12 were made: the "Open workspace" href in `tests/integration/test_application_detail.py`, and the registry set and never-use case in `tests/integration/test_m3_cross_cutting.py`.
+  - `tests/integration/test_reminders.py::test_ac_m5_5_nothing_scheduled_no_task_or_timer` also changed. `gap_check` and `propose_angles` were added to its two sorted task lists. This is not on the ADR-106 pre-approved list. It is a mechanical consequence of adding the two tasks, approved by the lead. Its scheduling-words loop is unchanged.
+  - The 10,000-character fact cap is in the tailoring `add_fact` route only. Moving it into `app/services/facts.py` would cover every entry point (TD-282).
+  - Gap check and angles send the full posting and requirements (up to about 12k tokens) on the Thorough tier. This is an open limit (see the M6.5 Evidence line).
+  - The injection limit TD-241 applies: a model that obeys a posting and cites a valid fact keeps its verdicts. The page shows the user's fact wording next to each verdict.
+  - The generic `POST /tasks/{id}/retry` route re-queues without the budget gate (inherited, TD-281).

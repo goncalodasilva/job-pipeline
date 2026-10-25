@@ -1,0 +1,50 @@
+{
+  "data": {
+    "requirements": [
+      {
+        "requirement_id": "req-1",
+        "verdict": "met",
+        "fact_ids": [
+          "F1@1"
+        ]
+      },
+      {
+        "requirement_id": "req-2",
+        "verdict": "missing",
+        "fact_ids": []
+      },
+      {
+        "requirement_id": "req-3",
+        "verdict": "met",
+        "fact_ids": [
+          "F3@1"
+        ]
+      },
+      {
+        "requirement_id": "req-4",
+        "verdict": "missing",
+        "fact_ids": []
+      }
+    ],
+    "framing_ideas": [
+      {
+        "text": "Planned 60 delivery routes a week with a team of 3.",
+        "fact_ids": [
+          "F1@1"
+        ]
+      },
+      {
+        "text": "Cut invoice processing time by 85% across 14 warehouses at Globex Corporation.",
+        "fact_ids": [
+          "F2@1"
+        ]
+      },
+      {
+        "text": "Worked on routing.",
+        "fact_ids": [
+          "F999@1"
+        ]
+      }
+    ]
+  }
+}

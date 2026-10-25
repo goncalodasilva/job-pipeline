@@ -1,0 +1,23 @@
+{
+  "data": {
+    "angles": [
+      {
+        "name": "Reliable planner",
+        "description": "Lead with the weekly route planning.",
+        "rationale": "The role centres on route planning.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "reuse_angle_id": "angle-earlier-1"
+      },
+      {
+        "name": "Scale",
+        "description": "Lead with the warehouse work.",
+        "rationale": "Cut processing time by 85% across 14 warehouses at Globex Corporation.",
+        "fact_ids": [
+          "F2@1"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{# The start button of a step with its reason when blocked. Needs `tailoring`, `action` (the
+   path after /tailoring/), `label` and `running_text`. The form has an id so other buttons
+   (a gap's "Check again") can submit it with the `form` attribute. The running line is one
+   preserved node (hx-preserve), so the refresh every 2 s does not announce it again; the
+   start itself and the finish are announced once through HX-Trigger. #}
+{% set tw = tailoring.view %}
+{% set task = tw.gap_task if tw.step == 1 else tw.angle_task %}
+{% if task.active %}<p id="tailoring-running-{{ tw.step }}" role="status" hx-preserve>{{ running_text }}</p>
+{% else %}
+  {% if tailoring.error %}<p role="alert" class="field-error">{{ tailoring.error }}</p>{% endif %}
+  {% if tailoring.reason %}{% with budget_blocked = tailoring.reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}{% endif %}
+  {% if not tw.notice %}
+  <form id="{{ 'gap-check-form' if tw.step == 1 else 'angle-propose-form' }}" method="post" action="/applications/{{ tw.application_id }}/tailoring/{{ action }}" hx-post="/applications/{{ tw.application_id }}/tailoring/{{ action }}" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <button id="{{ tailoring.button_id }}" class="button" type="submit"{% if tailoring.blocked %} aria-disabled="true"{% if tailoring.reason %} aria-describedby="{{ tailoring.reason.id }}"{% endif %}{% endif %}>{{ label }}</button>
+  </form>
+  {% endif %}
+{% endif %}

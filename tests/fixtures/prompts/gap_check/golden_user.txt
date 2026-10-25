@@ -1,0 +1,14 @@
+The job posting and its extracted requirements, each with its requirement_id:
+
+<untrusted_document source="job_requirements" id="job-fictional">
+{"posting":"Fictional route planner", "requirements":[]}
+</untrusted_document>
+
+The person's usable confirmed facts, with versioned references:
+
+<untrusted_document source="facts" id="job-fictional">
+[F1@1]
+Text: Planned fictional routes.
+</untrusted_document>
+
+Return only the verdict for each requirement and the framing ideas, as JSON matching the schema.

@@ -1,0 +1,40 @@
+{
+  "data": {
+    "angles": [
+      {
+        "name": "Reliable planner",
+        "description": "Lead with the weekly route planning.",
+        "rationale": "The role centres on route planning.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "reuse_angle_id": "angle-earlier-1"
+      },
+      {
+        "name": "Process improver",
+        "description": "Lead with the faster invoice processing.",
+        "rationale": "The role rewards cutting processing time.",
+        "fact_ids": [
+          "F2@1"
+        ],
+        "reuse_angle_id": "angle-not-sent"
+      },
+      {
+        "name": "Third",
+        "description": "Third.",
+        "rationale": "Third.",
+        "fact_ids": [
+          "F3@1"
+        ]
+      },
+      {
+        "name": "Fourth",
+        "description": "Fourth.",
+        "rationale": "Fourth.",
+        "fact_ids": [
+          "F3@1"
+        ]
+      }
+    ]
+  }
+}

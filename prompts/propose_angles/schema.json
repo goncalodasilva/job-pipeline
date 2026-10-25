@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["angles"],
+  "properties": {
+    "angles": {
+      "type": "array", "minItems": 2, "maxItems": 3,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "description", "rationale", "fact_ids"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 80},
+          "description": {"type": "string", "minLength": 1, "maxLength": 500},
+          "rationale": {"type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\r\\n]+$"},
+          "fact_ids": {"type": "array", "maxItems": 50, "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^F[1-9][0-9]*@[1-9][0-9]*$"}},
+          "reuse_angle_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9_-]{1,64}$"}
+        }
+      }
+    }
+  }
+}

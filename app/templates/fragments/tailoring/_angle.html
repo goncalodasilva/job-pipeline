@@ -1,0 +1,44 @@
+{# Step 2: pick, edit or write the angle (M6.5). A proposal is shown with its rationale, the
+   wording of the facts it cites and, when code found a claim the cited facts don't hold, the
+   note. Proposed text is marked as a suggestion; nothing is chosen for the user. #}
+{% set tw = tailoring.view %}
+{% set posted = tailoring.angle_form %}
+<p class="field-hint">An angle is the one idea your application leads with. Pick one, change it, or write your own.</p>
+{% include "fragments/tailoring/_notice.html" %}
+{% if tw.chosen_angle %}<p id="chosen-angle">Your angle: {{ tw.chosen_angle }}</p>{% endif %}
+{% if tw.angle_task.active %}
+  {% with action='2/propose', label='Propose angles', running_text='Proposing angles from your confirmed facts…' %}{% include "fragments/tailoring/_start.html" %}{% endwith %}
+{% else %}
+  {% if tw.angles_practice %}<p class="badge badge-practice">{{ tailoring.practice_notice }}</p>{% endif %}
+  {% with action='2/propose', label=('Propose again' if tw.angles_stored else 'Propose angles'), running_text='' %}{% include "fragments/tailoring/_start.html" %}{% endwith %}
+  {% if tw.angles %}
+  <ul class="angle-list">
+    {% for angle in tw.angles %}
+    {% set slot = loop.index | string %}
+    {% set mine = posted if posted and posted.slot == slot else {} %}
+    <li data-angle="{{ loop.index }}">
+      <p class="card-label">Suggested, not yet your angle</p>
+      <h5 id="angle-title-{{ slot }}">{{ angle.name }}</h5>
+      <p>{{ angle.rationale }}</p>
+      {% with cited=angle.wording, cited_label='Your facts behind this:' %}{% include "fragments/tailoring/_cited.html" %}{% endwith %}
+      {% if angle.reuse_angle_id %}<p class="field-hint">Used in another application</p>{% endif %}
+      {% if angle.flagged %}<p class="field-hint">{{ tailoring.not_in_fact_bank }}</p>{% endif %}
+      <form method="post" action="/applications/{{ tw.application_id }}/tailoring/2/angle" hx-post="/applications/{{ tw.application_id }}/tailoring/2/angle" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="reuse_angle_id" value="{{ angle.reuse_angle_id }}">
+        {% with name_value=(mine.name if mine else angle.name), description_value=(mine.description if mine else angle.description) %}{% include "fragments/tailoring/_angle_fields.html" %}{% endwith %}
+        <button class="button" type="submit" aria-label="Use this angle: {{ angle.name }}">Use this angle</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% set slot = 'own' %}
+  {% set mine = posted if posted and posted.slot == 'own' else {} %}
+  <details{% if mine %} open{% endif %}>
+    <summary>Write your own angle</summary>
+    <form id="angle-form" method="post" action="/applications/{{ tw.application_id }}/tailoring/2/angle" hx-post="/applications/{{ tw.application_id }}/tailoring/2/angle" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+      {% with name_value=(mine.name if mine else ''), description_value=(mine.description if mine else '') %}{% include "fragments/tailoring/_angle_fields.html" %}{% endwith %}
+      <button class="button" type="submit">Save angle</button>
+    </form>
+  </details>
+{% endif %}

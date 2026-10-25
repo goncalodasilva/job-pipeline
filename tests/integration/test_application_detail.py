@@ -50,7 +50,10 @@ def test_application_drawer_needs_token(tmp_path):
         assert r.client.get(path).status_code == 403
         shown = get(r, path)
         assert shown.status_code == 200 and "<dialog" in shown.text
-        assert "Open workspace" in shown.text and f'href="/applications/{a.id}"' in shown.text
+        assert (
+            "Open workspace" in shown.text
+            and f'href="/applications/{a.id}?tab=tailoring"' in shown.text
+        )
         assert "Seed Buyer" in shown.text and "Fictional Orchard" in shown.text
         assert "Tailoring" not in shown.text and "Interview prep" not in shown.text
 

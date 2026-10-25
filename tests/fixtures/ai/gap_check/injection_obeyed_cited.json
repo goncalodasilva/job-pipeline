@@ -1,0 +1,35 @@
+{
+  "data": {
+    "requirements": [
+      {
+        "requirement_id": "req-1",
+        "verdict": "met",
+        "fact_ids": [
+          "F1@1"
+        ]
+      },
+      {
+        "requirement_id": "req-2",
+        "verdict": "met",
+        "fact_ids": [
+          "F1@1"
+        ]
+      },
+      {
+        "requirement_id": "req-3",
+        "verdict": "met",
+        "fact_ids": [
+          "F1@1"
+        ]
+      },
+      {
+        "requirement_id": "req-4",
+        "verdict": "met",
+        "fact_ids": [
+          "F1@1"
+        ]
+      }
+    ],
+    "framing_ideas": []
+  }
+}

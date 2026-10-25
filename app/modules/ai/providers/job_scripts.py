@@ -54,3 +54,45 @@ def fit_scripts() -> KeywordScript:
             ("fake-fit-band", ScriptedResponse(data={**ok, "band": "strong"})),
         ),
     )
+
+
+def gap_check_scripts() -> KeywordScript:
+    # The fake never reads the job or the facts: no requirement gets a verdict, so every
+    # requirement shows as missing. The page labels the output as practice data.
+    ok: dict[str, Any] = {"requirements": [], "framing_ideas": []}
+    return KeywordScript(
+        default=ScriptedResponse(data=ok),
+        by_keyword=(
+            ("fake-gap-malformed", ScriptedResponse(raw_text="fictional malformed gap output")),
+            ("fake-gap-status", ScriptedResponse(data={**ok, "status": "approved"})),
+        ),
+    )
+
+
+def angles_scripts() -> KeywordScript:
+    # Two practice angles that cite nothing (the fake cannot know a fact id), so the page
+    # flags them; the names say they are practice data.
+    ok: dict[str, Any] = {
+        "angles": [
+            {
+                "name": "Practice angle one",
+                "description": "A fictional example of an angle.",
+                "rationale": "Practice data: the posting and facts were not read.",
+                "fact_ids": [],
+            },
+            {
+                "name": "Practice angle two",
+                "description": "Another fictional example of an angle.",
+                "rationale": "Practice data: the posting and facts were not read.",
+                "fact_ids": [],
+            },
+        ]
+    }
+    four = {"angles": [*ok["angles"], *ok["angles"]]}
+    return KeywordScript(
+        default=ScriptedResponse(data=ok),
+        by_keyword=(
+            ("fake-angles-malformed", ScriptedResponse(raw_text="fictional malformed angles")),
+            ("fake-angles-four", ScriptedResponse(data=four)),
+        ),
+    )

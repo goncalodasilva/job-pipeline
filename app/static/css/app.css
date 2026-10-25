@@ -2682,3 +2682,26 @@ kbd,
 .board-rule-days input[aria-invalid="true"] { border-color: var(--color-error); box-shadow: 0 0 0 1px var(--color-error); }
 .board-rule-form .field-error { margin: 0; }
 #status-add-form h4 { margin: 0 0 var(--space-3); }
+
+/* The Tailoring tab of the application workspace (M6.5). State is always a word in the link,
+   never colour alone; the open step also gets a heavier border. Lists stack on phones. */
+#tailoring { overflow-wrap: anywhere; max-width: 48rem; }
+.tailoring-steps ol { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); padding: 0; list-style: none; }
+.tailoring-steps a { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-height: var(--target-min); padding: var(--space-2) var(--space-3); color: var(--color-text); text-decoration: none; border: 1px solid var(--color-border); border-radius: var(--radius); }
+.tailoring-steps a:hover { background: var(--color-accent-soft); }
+.tailoring-steps a[aria-current="step"] { font-weight: 700; background: var(--color-accent-soft); border: 2px solid var(--color-accent); }
+.step-state { color: var(--color-text-muted); font-weight: 400; }
+.tailoring-steps a[aria-current="step"] .step-state { color: var(--color-text); }
+.gap-list, .angle-list { margin: var(--space-4) 0; padding: 0; list-style: none; }
+.gap-list > li, .angle-list > li { padding-block: var(--space-3); border-bottom: 1px solid var(--color-border); }
+.gap-list p, .angle-list p, .gap-framing p { margin-block: var(--space-1); }
+.gap-verdict { font-weight: 700; }
+.gap-facts { margin: var(--space-1) 0; padding-inline-start: var(--space-6); }
+.gap-framing { padding-inline-start: var(--space-6); }
+#tailoring summary { min-height: var(--target-min); display: flex; align-items: center; cursor: pointer; color: var(--color-accent); list-style: none; }
+#tailoring summary::before { content: "\25B8"; margin-right: var(--space-2); }
+#tailoring details[open] > summary::before { content: "\25BE"; }
+#tailoring form { display: grid; gap: var(--space-2); max-width: 100%; margin-block: var(--space-2); }
+#tailoring .field { margin-bottom: 0; }
+#tailoring .field input, #tailoring .field textarea { box-sizing: border-box; min-width: 0; }
+#tailoring h5 { margin: var(--space-3) 0 var(--space-1); }

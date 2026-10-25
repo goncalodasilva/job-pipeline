@@ -65,7 +65,12 @@ from app.modules.ai.providers.fake import (
 )
 from app.modules.ai.providers.fake import KNOWN_MODELS as FAKE_MODELS
 from app.modules.ai.providers.fake_scripts import real_task_scripts
-from app.modules.ai.providers.job_scripts import fit_scripts, summary_scripts
+from app.modules.ai.providers.job_scripts import (
+    angles_scripts,
+    fit_scripts,
+    gap_check_scripts,
+    summary_scripts,
+)
 from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS, TaskSpec
 from app.modules.calendar import CalendarProvider
 from app.modules.calendar.providers.ics import IcsCalendarProvider
@@ -443,6 +448,8 @@ def _saved_fake() -> FakeAIProvider:
     provider = FakeAIProvider(app_mode=True)
     provider.script_keywords("summarize_job", summary_scripts())
     provider.script_keywords("assess_fit", fit_scripts())
+    provider.script_keywords("gap_check", gap_check_scripts())
+    provider.script_keywords("propose_angles", angles_scripts())
     for task, script in real_task_scripts().items():
         provider.script_keywords(task, script)
     return provider

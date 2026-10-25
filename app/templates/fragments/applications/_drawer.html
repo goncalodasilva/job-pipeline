@@ -3,7 +3,7 @@
     <h2 id="application-drawer-heading">Application details</h2>
     <button type="button" class="button" data-application-close autofocus>Close</button>
   </div>
-  <p><a href="/applications/{{ application.id }}">Open workspace</a></p>
+  <p><a href="/applications/{{ application.id }}?tab=tailoring">Open workspace</a></p>
   <p data-application-draft hidden>Your unsaved values have been restored.</p>
   {% include "fragments/applications/_detail.html" %}
 </dialog>
