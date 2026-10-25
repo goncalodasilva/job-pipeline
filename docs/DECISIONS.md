@@ -1185,3 +1185,9 @@ The drawer and page share the timeline and editors; drawer status moves use the 
   - ADR-107 stays the comparison and recommendation. It is not superseded.
   - The Word renderer and the docx contract are unchanged.
   - Clarification (2026-10-24, M6.2): item 2's last bullet also covers the typst-specific test files. Those are `tests/typst_support.py` and `tests/unit/render/test_typst_*.py`. Library-neutral PDF tests stay in `tests/unit/render/test_pdf_renderer.py`.
+
+## ADR-109 — Honesty notice is appended as a suffix (2026-10-25)
+
+- Context: ADR-106 item 7 adds the code-owned `HONESTY_NOTICE` to the system text of generation and feedback tasks. ADR-106 item 12 and the M6 plan header describe the matching test changes as a "prefix". In M6.3 the executor was built to append the notice last, after the template or override text, so that an override cannot come after it. That placement differs from the written "prefix" wording; the user reviews it at the M6.3 checkpoint (it is a wording correction, the notice text itself is the approved one).
+- Decision: the executor appends `HONESTY_NOTICE` as the last part of the system text (a suffix). It applies to kinds `generation` and `feedback`, once per request, including on retry. The wording is unchanged from ADR-106 item 7. This ADR corrects the "prefix" wording in ADR-106 item 12 and the M6 plan header to "suffix". ADR-106 is not rewritten.
+- Consequences: the real `refine_fact` and `assess_fit` requests now carry the notice as a suffix (no existing test depended on their exact system text). A test pins the position (`test_real_feedback_tasks_carry_the_notice_once_and_last`). Extraction and summary requests are unchanged. The M6.12 spec update must say suffix (TD-278).

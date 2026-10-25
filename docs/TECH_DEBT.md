@@ -14,6 +14,8 @@ Every known technical debt item, known limit, deferred hardening step and unveri
 
 Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRESS.md` (M0 to M3.2); `docs/acceptance/M0.md`, `M1.md`, `M2.md`; `docs/live-check-m1.md`; the consequences and open questions of the ADRs; spec section 5 and section 7.5; and a search of `app`, `scripts` and `tests` for TODO, FIXME and XXX (none found). M4.11 added the M4 items of `docs/PROGRESS.md` (M4.1 to M4.10 Evidence and "Left for the user" notes) and checked that TD-225 to TD-233 were already in this file.
 
+M6.3 sweep (2026-10-25): TD-043 closed (listed under "Checked and closed"); TD-277 (privacy change after generation) and TD-278 (prefix or suffix wording of the honesty notice) added.
+
 M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolved the table drawer links, due markers and reminder response refreshes; this task documents the local-page/privacy boundaries and HX-Current-URL. Prior checkpoints are recorded in PROGRESS. Remaining M5 limits are TD-266–TD-276 below; TD-257 also covers contacts and application history.
 
 ## 1. Security and hardening
@@ -52,6 +54,7 @@ M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolv
 | TD-012 | Snapshot privacy rule: snapshots are left out of diagnostics and exports unless the user opts in. `observed_at` shows when the user works. No exports or diagnostics exist yet, so the rule is not enforced. | ADR-078 Consequences | low: no export path yet | When exports (M6) or diagnostics (M9) are built. |
 | TD-150 | The CV text, contact details included, is sent to the chosen AI provider. The import form does not say so yet. | M3.4 Left (d) | medium: personal data leaves the machine with no note in the app | M3.5: the import form must say where the text goes. |
 | TD-151 | Debug prompt logging, when it is built, would write whole CVs to the logs. No such logging exists today. | M3.4 | medium: whole personal documents would reach the logs | Before any prompt logging is built: keep CV text out of it, with a test. |
+| TD-277 | Approval checks citations to facts that are now never-use, archived, discarded or superseded, but not a privacy change. A fact later marked "generalize names" can still have its real name in an approved document, and `approval_blockers` does not flag it. | M6.3 Left (3); ADR-106 item 8 | medium: a real name can stay in an approved document after its fact was marked to generalize names | Decide in M6.7 whether approval also flags such citations, with a test. |
 
 ## 3. Schema and storage
 
@@ -136,7 +139,6 @@ M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolv
 
 | ID | Item | Origin | Impact | When / fix |
 | --- | --- | --- | --- | --- |
-| TD-043 | The honesty sentence lives in the prompt file, not in code like the untrusted notice. A user prompt override can remove it. | M1.12 follow-up; ADR-056 | high: the honesty rule (golden rule 1, spec 3.1) should not depend on text an override can change | Before the first generation task (M6). Needs your approval, since it changes honesty wording. |
 | TD-044 | Fake-provider output for real task types must carry provider and model `fake` and show a visible label. The stored provider and model are in place (M3.4, ADR-092 item 10). The visible label is not built. | ADR-088 Consequences; ADR-089 item 8; ADR-092 item 10 | high: fake drafts could be taken for real AI output | M3.5 shows the label. It must be in place before any fake draft is shown. |
 | TD-045 | Lists of untrusted documents (several postings or web results) are not supported. They need a typed sequence with one wrapped block per item. | ADR-055 (Deferred) | medium: needed before a task reads several documents | With the first task that needs a list (M6 or M8). |
 | TD-046 | The Claude provider refuses web-search requests until the usage hook is wired. | ADR-080 update (2026-10-11); ADR-057; ADR-076 item 12 | medium: web search is unavailable. Removing the refusal before the hook exists would let searches go uncounted | Before M8. Remove the refusal in the same change that wires the hook. |
@@ -161,6 +163,7 @@ M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolv
 | TD-168 | Model text is stored without removing format or bidi characters. | M3.4; TD-029 | medium: misleading text in drafts | Strip before storage, with a test (see TD-029). |
 | TD-169 | With the fake provider, any CV produces the fictional "Alex Example" drafts. | M3.4 Left (e) | medium: drafts can be taken for the user's facts until the label is shown | M3.5 shows the Practice data label (TD-044). |
 | TD-170 | Import ids are still checked with `is_task_id`, the task-id check. Fact ids use `is_safe_id` since M3.6. | M3.4; narrowed in M3.6 | low: a change to task ids would change import ids too | Give import ids their own check. |
+| TD-278 | ADR-106 item 12 and the M6 plan header describe the honesty-notice test changes as a "prefix". The executor appends `HONESTY_NOTICE` as a suffix (ADR-109), so an override cannot come after it. | M6.3; ADR-106 item 12; ADR-109 | low: a spec that says prefix would mislead a later change | The M6.12 spec update must describe the notice as a suffix. ADR-106 is not rewritten. |
 
 ## 6. Usage and budgets
 
@@ -352,3 +355,4 @@ So that nobody re-opens them by mistake:
 - Extraction running in a worker thread (TD-030, the M3.1 item): M3.4 runs it through the service.
 
 - M3 specification alignment (TD-106, TD-107, TD-148, TD-174, TD-198): M3.10 documents extraction boundaries/dependencies, fact pages and privacy, error copy, current AI contracts, coverage and deferred roadmap items.
+- The honesty sentence existing only in the prompt file (TD-043): closed by M6.3. The executor appends the code-owned `HONESTY_NOTICE` to generation and feedback requests, after any template or override text (ADR-106 item 7, ADR-109).

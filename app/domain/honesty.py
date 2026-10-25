@@ -4,8 +4,9 @@
 text, with its value, so that "1,200" and "1200", "35%" and "35 percent", "€5k" and "€5,000"
 are the same quantity and "3.5" and "35" never are. Numbers written as words count too:
 "fourteen" is 14, "eighty-five percent" is 85%, "twelve hundred" is 1200, "two dozen" is
-24, and "doubled", "twice", "tripled", "quadrupled", "twofold" to "tenfold", "halved" and
-"half" are the multiples they name. Plural scales ("hundreds", "dozens") and fractions ("a
+24, and "doubled", "doubling", "double", "twice", "tripled", "tripling", "triple",
+"quadrupled", "quadrupling", "quadruple", "twofold" to "tenfold", "halved" and "half" are
+the multiples they name. Plural scales ("hundreds", "dozens") and fractions ("a
 third", "two thirds", "three quarters") are compared by their words, never by a value, so
 "two thirds" never passes for 2. "one" used as a pronoun ("no one", "one of", "one another",
 "the one", "one at a time") is no quantity.
@@ -26,15 +27,27 @@ and skills, never a capitalised name:
 
 Known limit (ADR-089 item 5): lower-case, non-numeric embellishment ("saving the team a
 week") is caught only by the model's own report, the prompt and the user reading the diff.
+Number words are English only. A name can also escape the name check as a single capitalised
+word at the start of a sentence, after a newline, or written in lower case.
 The check never decides anything: it lists claims for the user to acknowledge or edit out.
+
+``check_units`` applies this to the units of a generated document (spec 3.1 items 2-4 and 6;
+ADR-106): each unit is compared only with the facts it cites, and a citation to a fact not
+sent in that request, an uncited content unit or a structure unit that is not exactly a
+template heading is ``unsupported``. A word that mixes Latin and other letters (a Cyrillic
+look-alike inside "ten") is a ``needs_check`` of its own. ``approval_blockers`` re-reads the
+citations against the facts as they stand at approval time.
 """
 
 import re
 import unicodedata
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final, Literal
+
+from app.domain.fact_selection import AIFact, fact_text
+from app.domain.facts import FactRef, FactStatus, Privacy
 
 QuantityKind = Literal["number", "percent", "year", "money"]
 ClaimKind = Literal["number", "percent", "year", "money", "name", "skill", "added_detail"]
@@ -129,9 +142,15 @@ _SCALES: Final = {
 # Words that state a multiple on their own.
 _TIMES: Final = {
     "doubled": Decimal(2),
+    "doubling": Decimal(2),
+    "double": Decimal(2),
     "twice": Decimal(2),
     "tripled": Decimal(3),
+    "tripling": Decimal(3),
+    "triple": Decimal(3),
     "quadrupled": Decimal(4),
+    "quadrupling": Decimal(4),
+    "quadruple": Decimal(4),
     "halved": Decimal("0.5"),
     "half": Decimal("0.5"),
     **{f"{word}fold": value for word, value in _UNITS.items() if 2 <= value <= 10},
@@ -551,4 +570,178 @@ def new_claims(
     return tuple(dict.fromkeys(found))
 
 
-__all__ = ["Claim", "ClaimKind", "Quantity", "QuantityKind", "extract_quantities", "new_claims"]
+FlagKind = Literal["unsupported", "needs_check"]
+UnitKind = Literal["structure", "content"]
+
+
+@dataclass(frozen=True)
+class GeneratedUnit:
+    """One line or paragraph of a generated document. ``fact_ids`` are the ids as the model
+    wrote them; ``role`` is the role label of the section the unit sits under (the same
+    string as ``AIFact.role``), None outside a role section."""
+
+    unit_id: str
+    kind: UnitKind
+    section: str
+    role: str | None
+    text: str
+    fact_ids: tuple[str, ...] = ()
+    added_details: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class HonestyFlag:
+    """One thing for the user to see before approving: ``unsupported`` blocks approval,
+    ``needs_check`` is to be acknowledged or edited out. ``claim`` is the text, the cited id
+    or the claim the flag is about."""
+
+    kind: FlagKind
+    claim: str
+    unit_id: str
+
+
+@dataclass(frozen=True)
+class CurrentFact:
+    """The current state of one fact: its number, its current version and how it stands."""
+
+    number: int
+    version: int
+    status: FactStatus
+    privacy: Privacy = Privacy.NORMAL
+
+
+def check_units(
+    units: Iterable[GeneratedUnit],
+    sent: Iterable[AIFact],
+    *,
+    template_headings: Iterable[str] = (),
+    known_skills: Iterable[str] = (),
+) -> tuple[HonestyFlag, ...]:
+    """What the units say that the facts sent in that request don't (spec 3.1 item 3).
+
+    A structure unit must be exactly a template heading; any other text counts as uncited
+    content. A content unit needs ids, every id must be among the facts sent, and its
+    wording is compared only with the facts it cites. Flags come in unit order; within a
+    unit the citation flags first, then the claims in ``new_claims`` order, each once."""
+    by_ref = {str(fact.ref): fact for fact in sent}
+    headings = frozenset(template_headings)
+    skills = tuple(known_skills)
+    flags: list[HonestyFlag] = []
+    for unit in units:
+        flags.extend(_unit_flags(unit, by_ref, headings, skills))
+    return tuple(flags)
+
+
+def _unit_flags(
+    unit: GeneratedUnit,
+    sent: Mapping[str, AIFact],
+    headings: frozenset[str],
+    skills: Sequence[str],
+) -> tuple[HonestyFlag, ...]:
+    if unit.kind == "structure":
+        return (
+            () if unit.text in headings else (HonestyFlag("unsupported", unit.text, unit.unit_id),)
+        )
+    if not unit.fact_ids:
+        return (HonestyFlag("unsupported", unit.text, unit.unit_id),)
+    ids = tuple(dict.fromkeys(unit.fact_ids))
+    cited = [sent[ref] for ref in ids if ref in sent]
+    flags = [
+        *(HonestyFlag("unsupported", ref, unit.unit_id) for ref in ids if ref not in sent),
+        *(HonestyFlag("needs_check", ref, unit.unit_id) for ref in _other_role(unit, ids, sent)),
+        *(
+            HonestyFlag("needs_check", claim.text, unit.unit_id)
+            for claim in _claims(unit, cited, skills)
+        ),
+        *(
+            HonestyFlag("needs_check", word, unit.unit_id)
+            for word in _mixed_script_words(unit.text)
+        ),
+    ]
+    return tuple(dict.fromkeys(flags))
+
+
+def _mixed_script_words(text: str) -> list[str]:
+    """The words that mix Latin and other letters, which is how a look-alike letter hides a
+    number word or a name from the comparison (a Cyrillic look-alike inside "ten"). Each is
+    a claim."""
+    found = []
+    for match in _words(_prepared(text)):
+        letters = [char for char in match[0] if char.isalpha()]
+        latin = [char for char in letters if unicodedata.name(char, "").startswith("LATIN")]
+        if latin and len(latin) < len(letters):
+            found.append(match[0])
+    return found
+
+
+def _other_role(unit: GeneratedUnit, ids: Sequence[str], sent: Mapping[str, AIFact]) -> list[str]:
+    """The cited ids of facts that belong to a different role than the unit's section."""
+    if unit.role is None:
+        return []
+    return [ref for ref in ids if ref in sent and sent[ref].role not in (None, "", unit.role)]
+
+
+def _claims(
+    unit: GeneratedUnit, cited: Sequence[AIFact], skills: Sequence[str]
+) -> tuple[Claim, ...]:
+    """The claims of the unit's wording against its own cited facts; the text of a
+    "generalize names" fact supports quantities and skills, never a name."""
+    return new_claims(
+        unit.text,
+        [fact_text(fact) for fact in cited if not fact.generalize],
+        known_skills=skills,
+        added_details=unit.added_details,
+        name_hidden_sources=[fact_text(fact) for fact in cited if fact.generalize],
+    )
+
+
+def approval_blockers(
+    units: Iterable[GeneratedUnit], facts_now: Iterable[CurrentFact]
+) -> tuple[HonestyFlag, ...]:
+    """What now stands in the way of approving the units (spec 3.1 item 4): a cited fact
+    that is now never-use, not confirmed (archived, discarded, draft), missing, not a fact
+    reference or of a version that doesn't exist is ``unsupported``; a cited version older
+    than the current one is ``needs_check``. Each
+    cited id is looked at once per unit, in citation order; the wording is not checked
+    again and structure units are ignored."""
+    current = {fact.number: fact for fact in facts_now}
+    flags: list[HonestyFlag] = []
+    for unit in units:
+        if unit.kind == "structure":
+            continue
+        for cited in dict.fromkeys(unit.fact_ids):
+            kind = _citation_problem(cited, current)
+            if kind is not None:
+                flags.append(HonestyFlag(kind, cited, unit.unit_id))
+    return tuple(flags)
+
+
+def _citation_problem(cited: str, current: Mapping[int, CurrentFact]) -> FlagKind | None:
+    try:
+        ref = FactRef.parse(cited)
+    except ValueError:
+        return "unsupported"
+    fact = current.get(ref.number)
+    if fact is None or fact.privacy == Privacy.NEVER_USE:
+        return "unsupported"
+    # Fail closed: only a confirmed fact, at a version that exists, can be cited.
+    if fact.status != FactStatus.CONFIRMED or ref.version > fact.version:
+        return "unsupported"
+    return "needs_check" if ref.version < fact.version else None
+
+
+__all__ = [
+    "Claim",
+    "ClaimKind",
+    "CurrentFact",
+    "FlagKind",
+    "GeneratedUnit",
+    "HonestyFlag",
+    "Quantity",
+    "QuantityKind",
+    "UnitKind",
+    "approval_blockers",
+    "check_units",
+    "extract_quantities",
+    "new_claims",
+]

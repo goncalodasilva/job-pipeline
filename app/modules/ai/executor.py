@@ -32,9 +32,10 @@ from app.modules.ai import (
     UsageMeter,
 )
 from app.modules.ai.metering import CallMeter
-from app.modules.ai.prompts import PromptError, PromptLibrary, render_prompt
+from app.modules.ai.prompts import HONESTY_NOTICE, PromptError, PromptLibrary, render_prompt
 from app.modules.ai.tasks import TASK_SPECS, TaskSpec
 
+_HONESTY_KINDS: Final = frozenset({"generation", "feedback"})
 _PROBLEMS_LIMIT: Final = 500
 _MAX_PROBLEMS: Final = 3
 _CORRECTION: Final = (
@@ -113,7 +114,7 @@ class TaskExecutor:
             task=task,
             prompt_id=rendered.prompt_id,
             prompt_version=rendered.prompt_version,
-            system=rendered.system,
+            system=_with_honesty_notice(rendered.system, spec.kind),
             user=rendered.user,
             output_schema=template.output_schema,
             model=resolve_model(run_tier, settings, self._provider_defaults),
@@ -172,6 +173,13 @@ class TaskExecutor:
             raise
         await call.finish(success=attempt.data is not None, tokens=response.usage)
         return attempt
+
+
+def _with_honesty_notice(system: str, kind: str) -> str:
+    """The system text of a request that writes about the person (generation, feedback) ends
+    with the code-owned honesty rule, whatever the template or an override says (ADR-106
+    item 7). The retry request copies this text, so it carries the rule exactly once too."""
+    return f"{system}\n\n{HONESTY_NOTICE}" if kind in _HONESTY_KINDS else system
 
 
 def _checked(response: AIResponse, validator: Draft202012Validator) -> _Attempt:

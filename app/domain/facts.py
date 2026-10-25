@@ -10,8 +10,6 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, Self
 
-from app.domain.cv_checks import word_tokens
-
 
 class FactStatus(StrEnum):
     """The values 0003's CHECK on ``facts.status`` accepts."""
@@ -101,7 +99,9 @@ def next_version(current: int, old: FactContent, new: FactContent) -> int | None
 
 def _words(content: FactContent) -> frozenset[str]:
     """The word tokens of every part joined (``cv_checks.word_tokens``: shared normaliser,
-    without case)."""
+    without case). Imported here because ``cv_checks`` reaches ``honesty``, which reads facts."""
+    from app.domain.cv_checks import word_tokens
+
     return word_tokens(" ".join(part for part in content.normalized() if part))
 
 
