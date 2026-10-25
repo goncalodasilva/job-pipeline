@@ -16,6 +16,8 @@ Sources swept: every Evidence line and "Left for the user" note in `docs/PROGRES
 
 M6.3 sweep (2026-10-25): TD-043 closed (listed under "Checked and closed"); TD-277 (privacy change after generation) and TD-278 (prefix or suffix wording of the honesty notice) added.
 
+M6.4 sweep (2026-10-25): TD-279 (rowid-replace path in older tables) and TD-280 (no echo of contact details in form errors) added.
+
 M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolved the table drawer links, due markers and reminder response refreshes; this task documents the local-page/privacy boundaries and HX-Current-URL. Prior checkpoints are recorded in PROGRESS. Remaining M5 limits are TD-266–TD-276 below; TD-257 also covers contacts and application history.
 
 ## 1. Security and hardening
@@ -164,6 +166,8 @@ M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolv
 | TD-169 | With the fake provider, any CV produces the fictional "Alex Example" drafts. | M3.4 Left (e) | medium: drafts can be taken for the user's facts until the label is shown | M3.5 shows the Practice data label (TD-044). |
 | TD-170 | Import ids are still checked with `is_task_id`, the task-id check. Fact ids use `is_safe_id` since M3.6. | M3.4; narrowed in M3.6 | low: a change to task ids would change import ids too | Give import ids their own check. |
 | TD-278 | ADR-106 item 12 and the M6 plan header describe the honesty-notice test changes as a "prefix". The executor appends `HONESTY_NOTICE` as a suffix (ADR-109), so an override cannot come after it. | M6.3; ADR-106 item 12; ADR-109 | low: a spec that says prefix would mislead a later change | The M6.12 spec update must describe the notice as a suffix. ADR-106 is not rewritten. |
+| TD-279 | The rowid tables from migrations 0001–0005 (for example `facts`, `jobs`, `applications`) may have the same hole M6.4 found in `document_versions`: `UPDATE OR REPLACE ... SET rowid = <another row's rowid>` can delete another row when no trigger covers rowid and `recursive_triggers` is off. The 0006 tables are all WITHOUT ROWID. | M6.4 review (security); ADR-104 | medium: a row that should never be deleted could be removed by a bug or a crafted statement | Probe each committed rowid table for the path; if a hole exists, fix it in a new forward migration (never edit a committed one). |
+| TD-280 | The Your details form (M6.6) validates with pydantic models whose `str(error)`, `.errors()` and `input_value` contain the entered name, email and phone. | M6.4 security review | medium: contact details could reach a response or a log | Map errors to field names only, never log or render `str(exc)` or `exc.errors()`; add a test that a refused form never echoes the entered values in the response or captured logs. |
 
 ## 6. Usage and budgets
 

@@ -108,7 +108,7 @@ def test_0005_upgrade_keeps_0004_rows_and_backs_up(tmp_path: Path) -> None:
             insert(conn, "jobs", job_row(company_id="comp-0001"))
         before = db.connection.execute("SELECT * FROM jobs").fetchall()
         result = apply_migrations(db, MIGRATIONS_DIR, tmp_path / "backups", FrozenClock(NOW))
-        assert result.applied == (5,)
+        assert 5 in result.applied
         assert db.connection.execute("SELECT * FROM jobs").fetchall() == before
         backups = list((tmp_path / "backups").glob("*.db"))
         assert len(backups) == 1
