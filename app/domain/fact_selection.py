@@ -107,6 +107,21 @@ def facts_for_ai(records: Iterable[FactRecord]) -> tuple[AIFact, ...]:
     return tuple(chosen.values())
 
 
+def worded_then(
+    number: int,
+    version: int,
+    content: FactContent,
+    role: str | None,
+    skills: tuple[str, ...],
+    *,
+    generalize: bool,
+) -> AIFact:
+    """One stored version of a fact as it was worded when a request held it (its role, skills
+    and privacy are the fact's own, as now). For checking an edited line against the facts a
+    document was generated from; it never builds a request."""
+    return AIFact(FactRef(number, version), content, role, skills, generalize)
+
+
 def refine_target(record: FactRecord) -> AIFact | None:
     """The fact to refine as a request may hold it: a current version of a draft or a
     confirmed fact that isn't "never use"; None for anything else (ADR-089 item 6)."""
@@ -159,4 +174,5 @@ __all__ = [
     "facts_for_ai",
     "prompt_fact_block",
     "refine_target",
+    "worded_then",
 ]

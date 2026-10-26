@@ -1252,3 +1252,26 @@ The drawer and page share the timeline and editors; drawer status moves use the 
   - The free-text template note is stored in `tasks.input_ref`, unlike other tasks that store only ids (TD-283). The lead is adding TD-283 and TD-284 to `docs/TECH_DEBT.md`. TD-284 covers a redraft overwriting edits saved while it runs.
   - Routes, the `assets/` folder rules and the personal-details rules still need to be written into `docs/TECHNICAL_SPEC.md` 2.9 (M6.12 spec update).
   - Open items and checks still to run are listed in the M6.6 Evidence line in `docs/PROGRESS.md`.
+
+## ADR-113 — M6.7 generation, edit and claim decisions (2026-10-26)
+
+- Context: M6.7 built CV generation (`tailor_cv`), regenerate, edit, add, remove, claim resolution and approval in the service layer. There is no UI yet. The plan left several details open. The build and its reviews settled them. No user decision is recorded for these items. The lead approved the test changes named in the M6.7 Evidence line.
+- Decision:
+  1. A version made by the user (edit, add, remove or confirm) stores no provider. The practice label on a fake CV comes from the nearest ancestor version that has a provider.
+  2. Approval refuses a CV with no visible lines (`NothingToApprove`).
+  3. Caps: `add_unit` refuses a line past 120 visible lines in a version. At most 80 kept lines are sent to the model on regenerate. The model returns at most 80 units, each at most 400 characters.
+  4. A start is refused while a generation for the same application is active with a different note or replace mode.
+  5. Flags are recomputed on every edit. Approval re-checks cited facts against their current state. The M6.8 screen must show the approval blockers as well as the unit flags.
+  6. `merge_regenerated` also drops a new unit whose fact set is a subset of a kept or removed unit's fact set, or whose normalised text equals a kept or removed unit's text. This replaces the M6.4 rule that dropped a new unit only when its fact set was equal to a kept or removed unit's. That M6.4 rule was recorded in the M6.4 Evidence line, not in an ADR.
+  7. Kept units that cite withdrawn, generalized or superseded facts are withheld from the request.
+  8. Confirming a flagged claim, or "Save this as a fact?", creates a confirmed fact with source `document` through `facts.create_in`, in one transaction with its first version. The unit then cites that fact. The role comes from the section.
+  9. Model units are resolved in `resolve_cv_units`. The role key is the role label string. An invented role label is cleared and flagged `unsupported`. A structure unit equal to a template heading is dropped; any other structure unit is flagged. Zero-width, tag and BOM characters are stripped from text and added details.
+  10. Every edit, add, remove and confirm makes a new draft version, version-checked. Approved and sent versions never change.
+  11. Only `fact_ref_text` and `worded_then` in the domain build fact references, and a boundary test enforces this. The contact block is built in code and never enters an AI request.
+  12. `tailor_cv` is a Thorough generation task, so the honesty notice (ADR-109) is appended last. Its results are written only in `ctx.complete`, with dedupe `tailor_cv:<application id>`.
+- Consequences:
+  - The honesty check reports a real role label over role-less cited facts as a flag (`honesty._other_role`, fixed after the security review).
+  - Item 6 replaces the M6.4 merge rule. No ADR heading is marked superseded, because that rule had no ADR.
+  - An M6.4 test that asserted a subset of facts survives is replaced by a test that the subset is dropped. The lead approved this. The Hypothesis property keeps all its assertions.
+  - `tests/integration/test_reminders.py` gained `tailor_cv` in both task lists. The lead approved this mechanical change.
+  - Route error mapping, the M6.8 screen, a cap on the facts block size and the open items in the M6.7 Evidence line remain for later tasks and the user.

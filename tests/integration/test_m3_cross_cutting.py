@@ -10,6 +10,7 @@ from app.modules.ai.tasks import TASK_SPECS
 from tests.asgi_stream import open_stream
 from tests.cv_fixtures import fixture_path
 from tests.cv_import_harness import importing, said
+from tests.document_pages import Documents
 from tests.leak_scan import RawLogRecords
 from tests.refine_harness import TARGET, refine_path, refining
 from tests.tailoring_pages import Tailoring
@@ -32,6 +33,7 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
         "gap_check",
         "propose_angles",
         "draft_cv_template",
+        "tailor_cv",
     }
     with refining(tmp_path) as r:
         hidden = r.typed(HIDDEN, privacy="never_use")
@@ -64,6 +66,13 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
                 "NL", TemplateStyle(pages=2, photo=PhotoConvention.OPTIONAL), DRAFT_NOTE
             )
             assert ref is not None and r.run.wait_terminal(ref.id).status.value == "succeeded"
+        elif task == "tailor_cv":
+            # M6.7: the calling service (DocumentService) and its task over the real prompt and
+            # the app's provider, with the never-use and target facts already stored.
+            desk = Documents(r)
+            application = desk.cv_ready("never-use-job", seed_facts=False)
+            ref = r.run.app.state.documents.start_generate(application.id)
+            assert r.run.wait_terminal(ref.id).status.value == "succeeded"
         else:
             r.started(target.id)
         requests = [request for request in r.run.spy.requests if request.task == task]

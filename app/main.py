@@ -128,6 +128,7 @@ from app.services.cv_import import (
     sweep_orphan_imports,
 )
 from app.services.cv_templates import DRAFT_LABEL, CvTemplateService
+from app.services.documents import TAILOR_CV_LABEL, DocumentService
 from app.services.fact_duplicates import FactDuplicates
 from app.services.fact_editor import FactEditor
 from app.services.fact_history import FactHistory
@@ -158,7 +159,7 @@ from app.services.tailoring import (
     PROPOSE_ANGLES_LABEL,
     TailoringService,
 )
-from app.services.tailoring_ai import GAP_CHECK, PROPOSE_ANGLES
+from app.services.tailoring_ai import GAP_CHECK, PROPOSE_ANGLES, TAILOR_CV
 from app.services.task_views import TaskView, TaskViews, failed_message
 from app.services.tasks import TaskService
 from app.services.template_ai import DRAFT_CV_TEMPLATE
@@ -169,6 +170,7 @@ from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
 from app.tasks.cv_import import cv_import_handler
 from app.tasks.cv_templates import draft_cv_template_handler
+from app.tasks.documents import tailor_cv_handler
 from app.tasks.fact_refine import fact_refine_handler
 from app.tasks.job_fit import job_fit_handler
 from app.tasks.job_summary import job_summary_handler
@@ -718,6 +720,26 @@ def _tailoring(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) ->
     )
 
 
+def _documents(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> DocumentService:
+    def workspace() -> Workspace | None:
+        return getattr(app.state, "workspace", None)
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
+
+    return DocumentService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=workspace,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None),
+        usage=_open_usage(app),
+        facts=lambda: getattr(app.state, "facts", None),
+    )
+
+
 def _cv_templates(
     app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory
 ) -> CvTemplateService:
@@ -1136,6 +1158,7 @@ def create_app(
     app.state.tailoring = _tailoring(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     # Settings > Your details (M6.6): the setting and the photo file; no AI task reads them.
     app.state.cv_templates = _cv_templates(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.documents = _documents(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.personal_details = PersonalDetailsService(
         lambda: _current_db(app),
         app_clock,
@@ -1157,6 +1180,11 @@ def create_app(
             DRAFT_CV_TEMPLATE,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), DRAFT_LABEL),
             draft_cv_template_handler(app.state.cv_templates),
+        )
+        handlers.register(
+            TAILOR_CV,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), TAILOR_CV_LABEL),
+            tailor_cv_handler(app.state.documents),
         )
     app.state.job_intake = JobIntakeService(
         lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()

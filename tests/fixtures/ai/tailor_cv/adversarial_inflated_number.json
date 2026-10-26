@@ -1,0 +1,27 @@
+{
+  "data": {
+    "units": [
+      {
+        "kind": "content",
+        "section": "summary",
+        "role": null,
+        "text": "Plans delivery routes and speeds up invoice processing.",
+        "fact_ids": [
+          "F1@1",
+          "F2@1"
+        ],
+        "added_details": []
+      },
+      {
+        "kind": "content",
+        "section": "experience",
+        "role": "Operations Analyst at Example Widgets Ltd",
+        "text": "Cut invoice processing time by 85% across 14 warehouses.",
+        "fact_ids": [
+          "F2@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

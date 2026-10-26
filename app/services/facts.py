@@ -37,6 +37,7 @@ from app.modules.storage import Database, capture_repo, facts_repo, roles_repo
 from app.services.roles import checked_role, insert_role
 from app.services.skills import resolve_skills
 
+SOURCE_DOCUMENT = "document"
 SOURCE_MANUAL = "manual"
 SOURCE_MERGE = "merge"
 SOURCE_MERGE_UNDO = "merge_undo"
@@ -489,24 +490,44 @@ class FactService:
         role, skills and privacy choice in the one transaction. ``note_id`` names the capture
         note it was turned from (M3.7): while that note is open, the same transaction records
         the fact on it, so it leaves the inbox; otherwise the note is left as it is."""
-        content, details, extras = _checked_input(data)
-        _refuse_reversed_dates(details)
-        now = self._now()
+        checked = _checked_input(data)
+        _refuse_reversed_dates(checked[1])
         with self._db.transaction() as conn:
-            details = self._with_role(conn, details, extras, now)
-            fact_id = self._insert(
-                conn,
-                _Wording(content, SOURCE_MANUAL),
-                details,
-                FactStatus.CONFIRMED,
-                data.skills,
-                now,
-                privacy=extras.privacy or Privacy.NORMAL.value,
-            )
-            self._confirm_role(conn, details.role_id, now)
-            if note_id is not None:
-                capture_repo.resolve_note(conn, note_id, fact_id=fact_id, now=now)
-            return fact_view(conn, fact_id)
+            return self._create_checked(conn, data, checked, SOURCE_MANUAL, note_id)
+
+    def create_in(self, conn: sqlite3.Connection, data: FactInput, *, source: str) -> FactView:
+        """``create`` inside a transaction the caller owns, such as the one that also writes
+        a document version citing the new fact (M6.7): the same checks, the fact, its first
+        version (``source``), skills and ``created`` event, and nothing else. Everything is
+        checked before the first row is written."""
+        checked = _checked_input(data)
+        _refuse_reversed_dates(checked[1])
+        return self._create_checked(conn, data, checked, source, None)
+
+    def _create_checked(
+        self,
+        conn: sqlite3.Connection,
+        data: FactInput,
+        checked: tuple[FactContent, _Details, _Extras],
+        source: str,
+        note_id: str | None,
+    ) -> FactView:
+        content, details, extras = checked
+        now = self._now()
+        details = self._with_role(conn, details, extras, now)
+        fact_id = self._insert(
+            conn,
+            _Wording(content, source),
+            details,
+            FactStatus.CONFIRMED,
+            data.skills,
+            now,
+            privacy=extras.privacy or Privacy.NORMAL.value,
+        )
+        self._confirm_role(conn, details.role_id, now)
+        if note_id is not None:
+            capture_repo.resolve_note(conn, note_id, fact_id=fact_id, now=now)
+        return fact_view(conn, fact_id)
 
     def create_drafts(
         self,

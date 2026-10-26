@@ -81,16 +81,26 @@ def _is_kept(unit: DocumentUnit) -> bool:
     return unit.origin == UnitOrigin.USER or unit.removed
 
 
+def _normalised(text: str) -> str:
+    """The text compared without case or spacing, so a re-spaced or re-cased copy is the same."""
+    return " ".join(text.split()).casefold()
+
+
 def _surviving(kept: Sequence[DocumentUnit], new: Sequence[DocumentUnit]) -> list[DocumentUnit]:
-    """The new units the kept ones don't already say."""
-    blocked = {fact_key(u.fact_ids) for u in kept if u.fact_ids}
+    """The new units the kept ones don't already say: a content unit is dropped when the facts
+    it cites are the facts of one kept unit or only some of them, or when its text is a kept
+    unit's text apart from case and spacing."""
+    keys = [fact_key(u.fact_ids) for u in kept if u.fact_ids]
+    texts = {_normalised(u.text) for u in kept} - {""}
     sections = {u.section for u in kept if u.kind == "structure"}
     survivors: list[DocumentUnit] = []
     for unit in new:
         if unit.kind == "structure":
             wanted = unit.section not in sections
         else:
-            wanted = not unit.fact_ids or fact_key(unit.fact_ids) not in blocked
+            key = fact_key(unit.fact_ids)
+            covered = bool(unit.fact_ids) and any(key <= blocked for blocked in keys)
+            wanted = not covered and _normalised(unit.text) not in texts
         if wanted:
             survivors.append(unit)
     return survivors
@@ -101,8 +111,9 @@ def merge_regenerated(
 ) -> tuple[DocumentUnit, ...]:
     """The units of a regenerated version: every user edit, addition and removal stays where
     it stood, and the new units fill the other slots in order (the left-over ones follow the
-    last slot). A new unit citing exactly a kept unit's facts is dropped. ``replace_all``
-    keeps only the new units.
+    last slot). A new content unit is dropped when the facts it cites are all among the facts
+    of one kept (or removed) unit, or when its text equals a kept unit's text ignoring case and
+    spacing: the user's line already says it. ``replace_all`` keeps only the new units.
 
     "In place" means relative order, not an absolute index: a slot with no new unit left to fill
     it is closed, so when the new run is shorter than the previous one a kept unit ends at an

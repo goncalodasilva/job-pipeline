@@ -1,0 +1,57 @@
+{
+  "data": {
+    "units": [
+      {
+        "kind": "content",
+        "section": "summary",
+        "role": null,
+        "text": "Plans delivery routes and speeds up invoice processing.",
+        "fact_ids": [
+          "F1@1",
+          "F2@1"
+        ],
+        "added_details": []
+      },
+      {
+        "kind": "content",
+        "section": "experience",
+        "role": "Operations Analyst at Example Widgets Ltd",
+        "text": "Planned 60 delivery routes a week with a team of 3.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": []
+      },
+      {
+        "kind": "content",
+        "section": "experience",
+        "role": "Operations Analyst at Example Widgets Ltd",
+        "text": "Cut invoice processing time by 35% across 4 warehouses.",
+        "fact_ids": [
+          "F2@1"
+        ],
+        "added_details": []
+      },
+      {
+        "kind": "content",
+        "section": "experience",
+        "role": "Junior Planner at Sample Logistics SA",
+        "text": "Scheduled 12 vans for the night shift.",
+        "fact_ids": [
+          "F7@1"
+        ],
+        "added_details": []
+      },
+      {
+        "kind": "content",
+        "section": "languages",
+        "role": null,
+        "text": "English, used at work every day.",
+        "fact_ids": [
+          "F3@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

@@ -443,6 +443,7 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
             "propose_angles",
             "refine_fact",
             "summarize_job",
+            "tailor_cv",
         ]
         assert sorted(TASK_SPECS) == [
             "assess_fit",
@@ -452,6 +453,7 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
             "propose_angles",
             "refine_fact",
             "summarize_job",
+            "tailor_cv",
         ]
         for name in (*registered, *TASK_SPECS):
             assert not any(word in name.lower() for word in SCHEDULING_WORDS), name

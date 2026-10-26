@@ -6,6 +6,8 @@ and ``tests/fixtures/ai/propose_angles/`` talk about.
 
 from pathlib import Path
 
+from app.domain.cv_templates import TemplateSpec
+from app.domain.documents import DocumentUnit, UnitOrigin
 from app.domain.fact_selection import FactRecord, facts_for_ai
 from app.domain.facts import FactContent, FactStatus, Privacy
 from app.domain.fit import Requirement
@@ -72,3 +74,39 @@ def personal_values() -> list[str]:
     assert DETAILS.photo is not None
     values.append(DETAILS.photo.stored_name)
     return [value for value in values if value]
+
+
+# --- M6.7 tailor_cv ---------------------------------------------------------------------------
+
+OTHER_ROLE = "Junior Planner at Sample Logistics SA"
+FACT_7 = "Scheduled 12 vans for the night shift."
+FACT_8 = "Audited the accounts of Lakeshore Bank over 2 years."
+# F1..F3, F7 and F8 are sent (F8 asks for its name to be withheld); F4..F6 never are.
+CV_RECORDS = (
+    *RECORDS,
+    record(7, FACT_7, role=OTHER_ROLE),
+    record(8, FACT_8, privacy=Privacy.GENERALIZE, role=OTHER_ROLE),
+)
+CV_SENT = facts_for_ai(CV_RECORDS)
+CV_REFS = ("F1@1", "F2@1", "F3@1", "F7@1", "F8@1")
+TEMPLATE = TemplateSpec.model_validate(
+    {
+        "sections": [
+            {"id": "summary"},
+            {"id": "experience", "heading": "Work history"},
+            {"id": "education"},
+            {"id": "skills"},
+            {"id": "languages"},
+        ],
+        "max_pages": 2,
+        "photo_slot": True,
+        "details_shown": ["email", "phone", "location", "links"],
+        "date_format": "month_year",
+        "page_size": "A4",
+    }
+)
+HEADINGS = TEMPLATE.headings  # ("Summary", "Work history", "Education", "Skills", "Languages")
+KEPT_TEXT = "Planned 60 delivery routes a week with a team of 3, mostly at night."
+KEPT_UNIT = DocumentUnit(
+    "unit-kept-1", "content", "experience", ROLE, KEPT_TEXT, UnitOrigin.USER, ("F1@1",)
+)

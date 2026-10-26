@@ -28,7 +28,8 @@ Assumed interface (chosen here where the sources left it open; the implementer f
       unit's own cited, sent facts (``new_claims`` against their ``fact_text``): ``needs_check``;
       a sent fact that the unit does not cite supports nothing; the text of a ``generalize``
       fact supports quantities and skills, never a name;
-    * the unit's ``role`` is set and a cited, sent fact has a different non-empty ``role``:
+    * the unit's ``role`` is set and a cited, sent fact has a different ``role`` or none (a
+      role-less fact such as education cannot sit under a role header):
       one ``needs_check`` flag per such fact id.
 - ``CurrentFact``: frozen dataclass ``(number: int, version: int, status: FactStatus,
   privacy: Privacy = Privacy.NORMAL)``, the current state of one fact (``version`` is its

@@ -39,5 +39,9 @@ _SPECS: Final = (
     # M6.6: a country's CV layout from the country, style choices and a short note only; no
     # facts and no personal details reach it, so it is a plain summary (no honesty notice).
     TaskSpec("draft_cv_template", kind="summary"),
+    # M6.7: the content lines of a tailored CV from the confirmed facts, each citing fact ids.
+    # Kind generation: the executor appends the honesty notice last (ADR-106 item 7, ADR-109)
+    # and code checks every unit against its cited facts (spec 3.1).
+    TaskSpec("tailor_cv", kind="generation"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

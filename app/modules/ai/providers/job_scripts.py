@@ -1,5 +1,6 @@
 """Fictional keyword-driven job answers. The fake never reads the posting (M4.4)."""
 
+import re
 from typing import Any
 
 from app.modules.ai.providers.fake import KeywordScript, ScriptedResponse
@@ -133,5 +134,102 @@ def cv_template_scripts() -> KeywordScript:
         by_keyword=(
             ("fake-template-malformed", ScriptedResponse(raw_text="fictional malformed template")),
             ("fake-template-four-pages", ScriptedResponse(data=four_pages)),
+        ),
+    )
+
+
+_FACT_LABEL = re.compile(r"^\[(F[1-9][0-9]*@[1-9][0-9]*)( \(generalize names\))?\]$", re.MULTILINE)
+_SECTION_ID = re.compile(r'"section_id": "([a-z_]+)"')
+_FACT_PARTS = ("Text: ", "Situation: ", "Action: ", "Result: ")
+_PRACTICE_LABEL = "Practice data. "
+
+
+def _facts_region(text: str) -> str:
+    start = text.find('source="facts"')
+    end = text.find("</untrusted_document>", start) if start >= 0 else -1
+    return text[start:end] if start >= 0 and end >= 0 else ""
+
+
+def _practice_unit(
+    section: str, role: str | None, text: str, fact_ids: list[str]
+) -> dict[str, Any]:
+    return {
+        "kind": "content",
+        "section": section,
+        "role": role,
+        "text": _PRACTICE_LABEL + text,
+        "fact_ids": fact_ids,
+        "added_details": [],
+    }
+
+
+class _TailorCvScript(KeywordScript):
+    """The keyword script of ``tailor_cv`` whose well-behaved answer is built from the request:
+    it restates, word for word, the first two usable facts it was sent (each cited by its id and
+    under its own role), so the demo and the tests show lines the honesty check leaves alone.
+    Everything it writes starts with "Practice data."; nothing was read from the job."""
+
+    def response_for(self, text: str) -> ScriptedResponse:
+        chosen = super().response_for(text)
+        if chosen is not self.default:
+            return chosen
+        facts = self._first_facts(text)
+        if not facts:
+            return self.default
+        sections = _SECTION_ID.findall(text)
+        first = sections[0] if sections else "summary"
+        units = [
+            _practice_unit(
+                "experience" if role and "experience" in sections else first, role, words, [ref]
+            )
+            for ref, role, words in facts
+        ]
+        return ScriptedResponse(data={"units": units})
+
+    @staticmethod
+    def _first_facts(text: str) -> list[tuple[str, str | None, str]]:
+        region = _facts_region(text)
+        labels = list(_FACT_LABEL.finditer(region))
+        found: list[tuple[str, str | None, str]] = []
+        for index, label in enumerate(labels):
+            end = labels[index + 1].start() if index + 1 < len(labels) else len(region)
+            if label[2]:  # a name-withheld fact: the fake never rewrites it
+                continue
+            role: str | None = None
+            words: list[str] = []
+            for line in region[label.end() : end].strip().splitlines():
+                if line.startswith("Role: "):
+                    role = line[len("Role: ") :]
+                for prefix in _FACT_PARTS:
+                    if line.startswith(prefix):
+                        words.append(line[len(prefix) :])
+            sentence = " ".join(words)
+            if sentence and len(_PRACTICE_LABEL + sentence) <= 400:
+                found.append((label[1], role, sentence))
+            if len(found) == 2:
+                break
+        return found
+
+
+def tailor_cv_scripts() -> KeywordScript:
+    # The well-behaved answer is built from the request (see _TailorCvScript). The default is
+    # only the fallback when no fact could be read: one practice line that cites nothing, so
+    # the page flags it.
+    fallback: dict[str, Any] = {
+        "units": [_practice_unit("summary", None, "No facts were read from this request.", [])]
+    }
+    invented = {
+        "units": [
+            _practice_unit(
+                "summary", None, "Led a team of 50 people at Imaginary Aerospace Corp.", ["F1@1"]
+            )
+        ]
+    }
+    return _TailorCvScript(
+        default=ScriptedResponse(data=fallback),
+        by_keyword=(
+            ("fake-tailor-malformed", ScriptedResponse(raw_text="fictional malformed CV output")),
+            ("fake-tailor-status", ScriptedResponse(data={**fallback, "status": "approved"})),
+            ("fake-tailor-invented", ScriptedResponse(data=invented)),
         ),
     )

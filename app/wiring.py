@@ -71,6 +71,7 @@ from app.modules.ai.providers.job_scripts import (
     fit_scripts,
     gap_check_scripts,
     summary_scripts,
+    tailor_cv_scripts,
 )
 from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS, TaskSpec
 from app.modules.calendar import CalendarProvider
@@ -452,6 +453,7 @@ def _saved_fake() -> FakeAIProvider:
     provider.script_keywords("gap_check", gap_check_scripts())
     provider.script_keywords("propose_angles", angles_scripts())
     provider.script_keywords("draft_cv_template", cv_template_scripts())
+    provider.script_keywords("tailor_cv", tailor_cv_scripts())
     for task, script in real_task_scripts().items():
         provider.script_keywords(task, script)
     return provider

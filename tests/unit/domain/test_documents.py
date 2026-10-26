@@ -31,11 +31,13 @@ Assumed interface (chosen here where the sources left it open; the implementer f
     * a kept unit stays in place: walking ``previous`` in order, a kept unit is emitted where it
       stood, an unedited AI unit gives its slot to the next surviving new unit, and the surviving
       new units left over follow the last slot.
-    * blocking: a new content unit is dropped when its fact key equals the fact key of a kept
-      unit that cites facts. The fact key of ids is the set of their fact numbers: ``F2@1`` and
-      ``F2@3`` are the same fact; the order and repeats of ids don't matter; an id that is not
-      a canonical reference stands for itself. Citing only some of a kept unit's facts, or more
-      of them, doesn't block. A unit without ids (a line the user typed) blocks nothing.
+    * blocking: a new content unit that cites facts is dropped when its fact key is a subset of
+      (or equal to) the fact key of a kept unit that cites facts. The fact key of ids is the set
+      of their fact numbers: ``F2@1`` and ``F2@3`` are the same fact; the order and repeats of
+      ids don't matter; an id that is not a canonical reference stands for itself. Citing more
+      facts than a kept unit does not block. A unit without ids (a line the user typed) blocks
+      nothing by facts. A new content unit is also dropped when its text, ignoring case and
+      collapsed whitespace, equals the text of a kept unit.
     * structure units: a new structure unit is dropped when ``previous`` holds a kept structure
       unit (a heading the user reworded, or removed) in the same ``section``; other new
       structure units stay.
@@ -253,13 +255,65 @@ def test_merge_drops_a_new_unit_that_cites_exactly_a_kept_units_facts() -> None:
     assert ids_of(merge([kept], [twin, other])) == ["p1", "n2"]
 
 
-def test_merge_does_not_drop_a_new_unit_that_cites_only_some_or_more_of_the_facts() -> None:
+def test_merge_drops_a_new_unit_whose_facts_are_a_subset_of_a_kept_units_facts() -> None:
     kept = unit("p1", "My wording of both.", ("F1@1", "F2@1"), origin="user")
-    subset = unit("n1", "Only the first.", ("F1@1",))
+    subset = unit("n1", "Only the first.", ("F1@3",))
     superset = unit("n2", "All three.", ("F1@1", "F2@1", "F3@1"))
     unrelated = unit("n3", "Third.", ("F3@1",))
+    overlap = unit("n4", "First and third.", ("F1@1", "F3@1"))
 
-    assert ids_of(merge([kept], [subset, superset, unrelated])) == ["p1", "n1", "n2", "n3"]
+    assert ids_of(merge([kept], [subset, superset, unrelated, overlap])) == [
+        "p1",
+        "n2",
+        "n3",
+        "n4",
+    ]
+
+
+def test_merge_drops_a_new_unit_whose_facts_are_a_subset_of_a_removed_units_facts() -> None:
+    removed = unit("p1", "Removed.", ("F1@1", "F2@1"), removed=True)
+    subset = unit("n1", "Only the second.", ("F2@1",))
+    other = unit("n2", "Third.", ("F3@1",))
+
+    assert ids_of(merge([removed], [subset, other])) == ["p1", "n2"]
+
+
+def test_merge_drops_a_new_unit_with_the_text_of_a_kept_unit_ignoring_case_and_spacing() -> None:
+    kept = unit("p1", "Planned  weekly\nroutes.", ("F1@1",), origin="user")
+    removed = unit("p2", "Cut invoice time.", ("F2@1",), removed=True)
+    same = unit("n1", "  planned weekly routes. ", ("F9@1",))
+    same_as_removed = unit("n2", "CUT INVOICE   TIME.", ())
+    different = unit("n3", "Planned weekly routes for 3 depots.", ("F9@1",))
+
+    assert ids_of(merge([kept, removed], [same, same_as_removed, different])) == [
+        "p1",
+        "p2",
+        "n3",
+    ]
+
+
+def test_merge_keeps_unrelated_new_units_and_blank_text_blocks_nothing() -> None:
+    kept = unit("p1", "My wording.", ("F1@1",), origin="user")
+    blank = unit("p2", "   ", (), origin="user")
+    fresh = unit("n1", "Something unrelated.", ("F5@1",))
+    uncited = unit("n2", "Another unrelated line.", ())
+    also_blank = unit("n3", "", ())
+
+    assert ids_of(merge([kept, blank], [fresh, uncited, also_blank])) == [
+        "p1",
+        "p2",
+        "n1",
+        "n2",
+        "n3",
+    ]
+
+
+def test_merge_text_rule_does_not_apply_to_replace_all_or_to_unedited_ai_lines() -> None:
+    unedited = unit("p1", "Same text.", ("F1@1",))
+    twin = unit("n1", "same text.", ("F1@1",))
+
+    assert ids_of(merge([unedited], [twin])) == ["n1"]
+    assert ids_of(merge([unit("p2", "Same text.", origin="user")], [twin], True)) == ["n1"]
 
 
 def test_merge_matches_facts_by_number_when_a_fact_has_a_newer_version() -> None:
@@ -429,8 +483,17 @@ def test_ac_m6_3_merge_keeps_every_user_edit_and_removal(
     result = merge(previous, new)
 
     kept = [u for u in previous if u.origin == "user" or u.removed]
-    blocked = {_key(u.fact_ids) for u in kept if u.fact_ids}
-    survivors = [n for n in new if not n.fact_ids or _key(n.fact_ids) not in blocked]
+    blocked = [_key(u.fact_ids) for u in kept if u.fact_ids]
+    texts = {" ".join(u.text.split()).casefold() for u in kept} - {""}
+    survivors = [
+        n
+        for n in new
+        if not (n.fact_ids and any(_key(n.fact_ids) <= key for key in blocked))
+        and " ".join(n.text.split()).casefold() not in texts
+    ]
+    # The earlier, exact-match rule is a floor: whatever it dropped is still dropped.
+    exact = {_key(u.fact_ids) for u in kept if u.fact_ids}
+    assert all(_key(n.fact_ids) not in exact for n in survivors if n.fact_ids)
     # Every user edit, addition and removal is there, unchanged and in the same relative order.
     assert [u for u in result if u.unit_id.startswith("p")] == kept
     # The regeneration is there too, minus what the user's lines already say, in its own order.

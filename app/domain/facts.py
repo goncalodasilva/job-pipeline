@@ -145,3 +145,8 @@ class FactRef:
         if match is None:
             raise ValueError("not a fact reference")
         return cls(int(match.group(1)), int(match.group(2)))
+
+
+def fact_ref_text(number: int, version: int) -> str:
+    """The canonical reference of a stored fact version, such as ``F12@3``."""
+    return str(FactRef(number, version))

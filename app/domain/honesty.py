@@ -675,10 +675,13 @@ def _mixed_script_words(text: str) -> list[str]:
 
 
 def _other_role(unit: GeneratedUnit, ids: Sequence[str], sent: Mapping[str, AIFact]) -> list[str]:
-    """The cited ids of facts that belong to a different role than the unit's section."""
+    """The cited ids of sent facts that do not belong to the role of the unit: a fact of a
+    different role, and a fact with no role at all (education, skills), because a role header
+    over a line that cites only role-less facts would put a real employer over words no
+    work of that role supports."""
     if unit.role is None:
         return []
-    return [ref for ref in ids if ref in sent and sent[ref].role not in (None, "", unit.role)]
+    return [ref for ref in ids if ref in sent and (sent[ref].role or None) != unit.role]
 
 
 def _claims(

@@ -1,0 +1,40 @@
+The job posting and its extracted requirements, each with its requirement_id:
+
+<untrusted_document source="job_requirements" id="job-fictional">
+{"posting":"Fictional route planner","requirements":[]}
+</untrusted_document>
+
+The person's usable confirmed facts, with versioned references and the Role: of each:
+
+<untrusted_document source="facts" id="job-fictional">
+[F1@1]
+Role: Fictional Role
+Text: Planned fictional routes.
+</untrusted_document>
+
+The chosen angle (null when none):
+
+<untrusted_document source="angle" id="job-fictional">
+{"name":"Planner","description":"Lead with routes."}
+</untrusted_document>
+
+The approved template: the sections to fill, each with its section_id and printed heading, and
+the page limit:
+
+<untrusted_document source="template" id="job-fictional">
+{"sections":[{"section_id":"summary","heading":"Summary"}],"max_pages":2}
+</untrusted_document>
+
+The person's note for this version:
+
+<untrusted_document source="note" id="job-fictional">
+{"note":"Keep it short."}
+</untrusted_document>
+
+The person's kept_units, which the application keeps as they are:
+
+<untrusted_document source="kept_units" id="job-fictional">
+[{"section":"summary","role":null,"text":"Kept line.","fact_ids":["F1@1"]}]
+</untrusted_document>
+
+Return only the CV lines, as JSON matching the schema.

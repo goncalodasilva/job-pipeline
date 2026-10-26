@@ -22,6 +22,8 @@ M6.5 sweep (2026-10-25): TD-281 (retry route skips the budget gate for the two M
 
 M6.6 sweep (2026-10-26): TD-283 (template note in the task row) and TD-284 (redraft overwrites edits saved while it runs) added.
 
+M6.7 sweep (2026-10-26): TD-285 (no cap on the facts block), TD-286 (personal values in kept user lines), TD-287 (duplicate role labels) and TD-288 (employer in the role header under generalize names) added.
+
 M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolved the table drawer links, due markers and reminder response refreshes; this task documents the local-page/privacy boundaries and HX-Current-URL. Prior checkpoints are recorded in PROGRESS. Remaining M5 limits are TD-266–TD-276 below; TD-257 also covers contacts and application history.
 
 ## 1. Security and hardening
@@ -176,6 +178,10 @@ M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolv
 | TD-282 | The 10,000-character limit on a fact entered through the workspace "Add a fact" form is enforced in `app/api/tailoring.py` only. Other fact entry points rely on the 64 KB form cap. | M6.5 security review | low: one very long fact makes every later prompt larger | Move the limit into `app/services/facts.py` (validation) so every entry point shares it. |
 | TD-283 | The free-text note (up to 300 characters) for `draft_cv_template` is stored in `tasks.input_ref`. Other tasks store only ids and the tier there. | M6.6 security review; spec 2.10 | low: nothing reads `input_ref` into a response or log, but it persists in the task row | Keep the note out of the task row (a small content table keyed by task id) or clear it when the task finishes, and add a leak-scan allowlist entry. |
 | TD-284 | Saving a CV template while a redraft for the same country runs lets the redraft overwrite the saved edits when it finishes. | M6.6 code review | low: the draft is reviewed again before approval, but typed edits are lost | Refuse or queue the save while a redraft runs, or write the redraft as a pending row. |
+| TD-285 | Nothing caps the size of the facts block sent by `gap_check`, `propose_angles` and `tailor_cv`, or the kept units and posting. A bank of about 200 facts could send tens of thousands of tokens on the Thorough tier, and an overflow would show as a provider error. | M6.7 prompt review | medium: cost and failures grow with the fact bank | Add a cap with a plain message (for example the most relevant facts first), or truncate the posting; decide with the budget work. |
+| TD-286 | A kept unit typed by the user that cites no fact is sent to the model as written. If it holds a phone number or address, that reaches the AI request, against the spirit of ADR-106 item 3. | M6.7 prompt review | low: the user typed it into the CV | Scan kept text and the note for stored personal-detail values and withhold or warn, or document the exception. |
+| TD-287 | Two roles with the same title and employer have the same label, so a generated line for the later stint maps to the first role and can get the wrong header dates. | M6.7 security review | low: correctness only | Flag duplicate labels or key roles by id in the facts block. |
+| TD-288 | A fact marked "generalize names" still shows its `Role:` line with the employer in the request, and the code-built role header prints that employer in the CV. | M6.7 prompt review | low: confirm this is intended under the generalize-names mode | Decide whether role headers should follow the privacy mode, and record it in an ADR. |
 
 ## 6. Usage and budgets
 

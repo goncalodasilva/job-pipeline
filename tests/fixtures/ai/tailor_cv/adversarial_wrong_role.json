@@ -1,0 +1,27 @@
+{
+  "data": {
+    "units": [
+      {
+        "kind": "content",
+        "section": "summary",
+        "role": null,
+        "text": "Plans delivery routes and speeds up invoice processing.",
+        "fact_ids": [
+          "F1@1",
+          "F2@1"
+        ],
+        "added_details": []
+      },
+      {
+        "kind": "content",
+        "section": "experience",
+        "role": "Operations Analyst at Example Widgets Ltd",
+        "text": "Scheduled 12 vans for the night shift.",
+        "fact_ids": [
+          "F7@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

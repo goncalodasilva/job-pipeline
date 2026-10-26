@@ -352,3 +352,33 @@ def test_check_units_never_flags_verbatim_cited_text(phrases: list[str]) -> None
     )
 
     assert found == ()
+
+
+def test_unit_with_a_role_citing_a_fact_with_no_role_needs_check() -> None:
+    """A role header over a line that cites only role-less facts (education, skills) would
+    hang a real employer over words no work of that role supports."""
+    sent = [
+        fact(1, "Built the weekly stock report.", role=ROLE_A),
+        fact(3, "Speaks English at work every day."),
+        fact(4, "Holds a fictional degree.", role=""),
+    ]
+    hung = unit("u1", "Speaks English at work every day.", ("F3@1",), role=ROLE_A)
+    mixed = unit(
+        "u2", "Built the weekly stock report in English.", ("F1@1", "F3@1", "F4@1"), role=ROLE_A
+    )
+
+    found = check([hung, mixed], sent)
+
+    assert [(f.kind, f.claim, f.unit_id) for f in found] == [
+        ("needs_check", "F3@1", "u1"),
+        ("needs_check", "F3@1", "u2"),
+        ("needs_check", "F4@1", "u2"),
+    ]
+
+
+def test_unit_without_a_role_may_cite_facts_with_no_role() -> None:
+    sent = [fact(3, "Speaks English at work every day.")]
+
+    assert (
+        check([unit("u1", "Speaks English at work every day.", ("F3@1",), role=None)], sent) == ()
+    )
