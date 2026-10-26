@@ -33,6 +33,8 @@ from fastapi.responses import PlainTextResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from app.api.budget_gate import dialog_context, reason_context, refusal_message
+from app.api.cv_step import cv_context
+from app.api.cv_step import service as document_service
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx, posted_version, read_form, single_value_form
 from app.api.settings_templates import STEP_LEVEL as STEP_UNIT_LEVEL
@@ -50,6 +52,7 @@ from app.domain.locales import COUNTRIES
 from app.onboarding.registry import Form
 from app.services.budget_gate import Start, confirmation_from_form
 from app.services.cv_import import tier_from_form
+from app.services.document_screen import step_state
 from app.services.facts import FactInput
 from app.services.job_fit import PRACTICE_NOTICE
 from app.services.tailoring import (
@@ -236,6 +239,19 @@ def tailoring_context(
         finished = " ".join(filter(None, (COMPLETED[view.step], warning)))
     found["announce"] = found["message"] or announce or finished
     found["autofocus"] = (autofocus or bool(found["message"])) and found["dialog"] is None
+    found["cv_state"] = step_state(document_service(request).view(aid))
+    if view.step == 3:
+        found["cv"] = cv_context(request, aid)
+        found["polling"] = found["cv"]["view"].task.active
+        found["autofocus"] = False
+        if message:
+            found["cv"]["focus"] = "cv-heading"
+        if (
+            polled
+            and found["cv"]["view"].task.status == "succeeded"
+            and request.headers.get("X-JP-CV-Seen") != found["cv"]["view"].task.key
+        ):
+            found["announce"] = "CV ready to review."
     return found
 
 

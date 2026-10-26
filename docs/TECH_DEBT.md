@@ -182,6 +182,7 @@ M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolv
 | TD-286 | A kept unit typed by the user that cites no fact is sent to the model as written. If it holds a phone number or address, that reaches the AI request, against the spirit of ADR-106 item 3. | M6.7 prompt review | low: the user typed it into the CV | Scan kept text and the note for stored personal-detail values and withhold or warn, or document the exception. |
 | TD-287 | Two roles with the same title and employer have the same label, so a generated line for the later stint maps to the first role and can get the wrong header dates. | M6.7 security review | low: correctness only | Flag duplicate labels or key roles by id in the facts block. |
 | TD-288 | A fact marked "generalize names" still shows its `Role:` line with the employer in the request, and the code-built role header prints that employer in the CV. | M6.7 prompt review | low: confirm this is intended under the generalize-names mode | Decide whether role headers should follow the privacy mode, and record it in an ADR. |
+| TD-289 | The CV review's Remove action has no Undo button. Earlier versions remain readable, and removed text can be copied into Add a line. | M6.8 UX review; ADR-114 | low: recovery takes extra steps | Consider a version-checked restore action with Undo, preserving the original citations and provenance. |
 
 ## 6. Usage and budgets
 

@@ -1,0 +1,27 @@
+{% set uid = unit.unit_id %}{% set diff = cv.marks.get(uid) %}{% set mark = diff.mark.value if diff else 'added' %}{% set flags = cv.flags[uid] %}
+<li id="line-{{ uid }}" data-line data-unit-id="{{ uid }}" data-origin="{{ unit.origin }}" data-mark="{{ mark }}" tabindex="-1"{% if diff and diff.moved and mark == 'reworded' %} data-moved="true"{% endif %}{% if flags %} data-flagged="true"{% endif %}{% if cv.focus == 'line-' ~ uid %} data-autofocus{% endif %}>
+  <span data-diff-mark><span aria-hidden="true">{{ symbols[mark] }}</span> {{ mark | capitalize }}</span>
+  {% if diff and diff.moved and mark == 'reworded' %}<span data-moved-mark><span aria-hidden="true">↕</span> Moved</span>{% endif %}
+  <p data-line-text id="line-text-{{ uid }}">{{ unit.text }}</p>
+  {% if diff and diff.segments %}<p class="cv-word-diff" aria-label="Changes from your master CV">{% for segment in diff.segments %}{% if segment.op.value == 'removed' %}<del>{{ segment.text }}</del>{% elif segment.op.value == 'added' %}<ins>{{ segment.text }}</ins>{% else %}{{ segment.text }}{% endif %}{% endfor %}</p>{% endif %}
+  {% if unit.origin == 'user' %}<p data-origin-label>Edited by you</p>{% endif %}
+  {% if flags %}<ul data-flags>{% for kind, label, claim in flags %}<li data-flag="{{ kind }}"><strong data-flag-label>{{ label }}</strong> <span data-flag-claim>{{ claim }}</span></li>{% endfor %}</ul>{% endif %}
+  {% if unit.cited %}<details data-line-facts><summary>Facts used ({{ unit.cited | length }})</summary>
+    <ul data-fact-list>{% for fact in unit.cited %}<li>{% if is_safe_id(fact.id) %}<a href="/facts/{{ fact.id }}/edit">{{ fact.text }}</a>{% else %}{{ fact.text }}{% endif %}</li>{% endfor %}</ul>
+  </details>{% else %}<p data-no-facts>No facts cited.</p>{% endif %}
+  {% if not cv.readonly %}
+  <details data-line-edit{% if cv.invalid_unit == uid %} open{% endif %}><summary>Edit</summary>
+    <form data-line-form="edit" method="post" action="{{ cb }}/unit/{{ uid }}/edit" hx-post="{{ cb }}/unit/{{ uid }}/edit" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ dv.version.id }}">
+      <label for="edit-{{ uid }}">Edit this line</label>
+      <textarea id="edit-{{ uid }}" name="text" data-draft-key="edit:{{ uid }}" data-draft-identity="{{ [unit.section, unit.role_id, unit.fact_ids, unit.text] | tojson | forceescape }}"{% if cv.invalid_unit == uid %} aria-invalid="true" aria-describedby="cv-field-error" data-autofocus{% endif %}>{{ cv.posted.get('text', unit.text) if cv.invalid_unit == uid else unit.text }}</textarea>
+      {% if cv.invalid_unit == uid %}<p id="cv-field-error" class="field-error">{{ cv.field_error }}</p>{% endif %}
+      <button type="submit" aria-describedby="line-text-{{ uid }}">Save line</button>
+    </form>
+  </details>
+  {% for action, label in [('remove', 'Remove'), ('confirm', 'This is true — save it as a fact')] %}{% if action != 'confirm' or flags %}
+  <form data-line-form="{{ action }}" method="post" action="{{ cb }}/unit/{{ uid }}/{{ action }}" hx-post="{{ cb }}/unit/{{ uid }}/{{ action }}" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="version" value="{{ dv.version.id }}"><button type="submit" aria-describedby="line-text-{{ uid }}">{{ label }}</button>
+  </form>{% endif %}{% endfor %}
+  {% endif %}
+</li>

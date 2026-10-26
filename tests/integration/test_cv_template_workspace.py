@@ -34,7 +34,6 @@ from tests.template_pages import (
     form_fields,
     has_id,
     review_values,
-    said_text,
     templates_app,
     unit,
     unit_state,
@@ -138,8 +137,9 @@ def test_workspace_cv_step_offers_a_template_draft_when_none_is_approved(tw: Tem
         assert selected(page, "template-draft-form", "photo") == "optional"
         assert controls_in(page, form)["note"].tag == "textarea"
         assert not has_id(page, "template-form"), "nothing to review before a draft"
-        # The CV itself still comes later; the unit is the only new thing on the step.
-        assert "later step" in said_text(page).lower()
+        # The implemented CV step explains its prerequisite beside the template unit.
+        assert by_id(page, "cv-heading").text == "Tailored CV"
+        assert by_id(page, "cv-step").attrs["data-state"] == "none"
     # The other steps carry no unit; reading wrote nothing and asked nothing.
     for step in (1, 2, 4, 5):
         assert not has_id(tw.page(app.id, step).text, "cv-template"), step

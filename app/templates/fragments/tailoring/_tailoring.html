@@ -5,13 +5,14 @@
    task runs, so typing in a form is never replaced; its forms are left out while it runs. #}
 {% set tw = tailoring.view %}
 {% set base = '/applications/' ~ tw.application_id %}
-<section id="tailoring" data-step="{{ tw.step }}" aria-labelledby="tailoring-heading"
-         {% if tailoring.polling %}hx-get="{{ base }}/tailoring/{{ tw.step }}" hx-trigger="{% if tailoring.refresh_once %}load, {% endif %}every 2s, tasks:updated from:body" hx-swap="outerHTML"{% endif %}>
+<section id="tailoring" data-step="{{ tw.step }}" data-application-id="{{ tw.application_id }}" aria-labelledby="tailoring-heading"
+         {% if tw.step == 3 %}data-keep-edits data-cv-task-key="{{ (tailoring.cv.view.task.key or '') if tailoring.cv.view.task.status == 'succeeded' else '' }}" hx-get="{{ base }}/tailoring/3{% if tailoring.cv.old %}/version/{{ tailoring.cv.view.version.id }}{% endif %}" hx-trigger="tasks:updated from:body, tasks:resync from:body{% if tailoring.polling and not tailoring.cv.old %}, every 2s{% endif %}" hx-swap="outerHTML"
+         {% elif tailoring.polling %}hx-get="{{ base }}/tailoring/{{ tw.step }}" hx-trigger="{% if tailoring.refresh_once %}load, {% endif %}every 2s, tasks:updated from:body" hx-swap="outerHTML"{% endif %}>
   <nav aria-label="Tailoring steps" class="tailoring-steps">
     <ol>
     {% for item in tw.steps %}
       <li data-step="{{ item.step }}" data-state="{{ item.state | lower | replace(' ', '-') }}"><a id="tailoring-step-{{ item.step }}" href="{{ base }}?tab=tailoring&amp;step={{ item.step }}"
-         hx-get="{{ base }}/tailoring/{{ item.step }}" hx-target="#tailoring" hx-swap="outerHTML" hx-push-url="{{ base }}?tab=tailoring&amp;step={{ item.step }}"{% if item.step == tw.step %} aria-current="step"{% endif %}>{{ item.title }}: <span class="step-state">{{ item.state }}</span></a></li>
+         hx-get="{{ base }}/tailoring/{{ item.step }}" hx-target="#tailoring" hx-swap="outerHTML" hx-push-url="{{ base }}?tab=tailoring&amp;step={{ item.step }}"{% if item.step == tw.step %} aria-current="step"{% endif %}>{{ item.title }}: <span class="step-state">{{ tailoring.cv_state if item.step == 3 else item.state }}</span></a></li>
     {% endfor %}
     </ol>
   </nav>
@@ -22,11 +23,12 @@
   {% elif tw.step == 2 %}{% include "fragments/tailoring/_angle.html" %}
   {% else %}
     {% if tw.step == 3 %}
+      {% with cv = tailoring.cv %}{% include "fragments/tailoring/_cv.html" %}{% endwith %}
       {# The country's CV template (M6.6): drafted once, approved, then reused by every application in that country. #}
       {% if tailoring.template_unit %}{% with unit = tailoring.template_unit %}{% include "fragments/settings/_template_unit.html" %}{% endwith %}
       {% else %}<p class="field-hint">Choose a CV country above to draft its template.</p>{% endif %}
     {% endif %}
-    <p>{{ tailoring.later }}</p>
+    {% if tw.step != 3 %}<p>{{ tailoring.later }}</p>{% endif %}
   {% endif %}
   {% if tailoring.dialog %}{% with budget_dialog = tailoring.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}
 </section>

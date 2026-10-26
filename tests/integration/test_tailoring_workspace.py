@@ -106,7 +106,8 @@ def test_tailoring_page_read_only_resume_step_derived(tw: Tailoring):
     assert open_step(shown.text) == 1  # resume: nothing is done yet
     words = states(shown.text)
     assert "Not started" in words[1] and "Not started" in words[2]
-    assert all("Coming later" in words[step] for step in (3, 4, 5))
+    assert "Not started" in words[3]
+    assert all("Coming later" in words[step] for step in (4, 5))
     assert all(TITLES[step] in words[step] for step in TITLES)
 
     # Any step opens, and exactly the open step's link is the current one.
@@ -160,7 +161,7 @@ def test_tailoring_step_shows_running_while_the_task_runs(tw: Tailoring):
     assert "Done" in states(tw.fragment(app.id, 1).text)[1]
 
 
-@pytest.mark.parametrize("step", [3, 4, 5])
+@pytest.mark.parametrize("step", [4, 5])
 def test_steps_three_to_five_are_placeholders_that_say_so(tw: Tailoring, step: int):
     app = tw.ready()
 

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% set live_updates = true %}
+{% block extra_scripts %}<script src="{{ static('js/cv-step.js') }}" defer></script>{% endblock %}
 {% block content %}
 <h1>Application details</h1>
 <p><a href="/board">Back to Board</a></p>

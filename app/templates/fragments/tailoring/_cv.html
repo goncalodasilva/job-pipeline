@@ -1,0 +1,74 @@
+{% set dv = cv.view %}{% set cb = base ~ '/tailoring/3' %}
+{% set symbols = {'added': '+', 'removed': '−', 'reworded': '~', 'moved': '↕', 'unchanged': '='} %}
+<p id="cv-stale-note" data-stale-note class="notice" hidden>A newer version of the CV is ready. Finish your edit, then revisit this step.</p>
+<section id="cv-step" data-state="{{ cv.state }}" data-readonly="{{ 'true' if cv.readonly else 'false' }}"{% if dv.version %} data-version-id="{{ dv.version.id }}" data-version-number="{{ dv.version.number }}"{% endif %} aria-labelledby="cv-heading">
+  <h5 id="cv-heading" tabindex="-1" data-refresh-safe-focus{% if cv.focus == 'cv-heading' %} data-autofocus{% endif %}>Tailored CV</h5>
+  <p>These checks help you review the CV. Read every word before approving it.</p>
+  <p id="cv-draft-note" class="notice" hidden>Your unsaved typing was put back.</p>
+  {% if cv.conflict %}{% with reload_id='cv-conflict', reload_message=tailoring.conflict_message, reload_detail='', reload_url=base ~ '?tab=tailoring&step=3' %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}
+    {% if cv.kept is not none %}<label for="cv-kept-text">Your unsaved text</label><textarea id="cv-kept-text" readonly>{{ cv.kept }}</textarea>{% endif %}
+  {% endif %}
+  {% if cv.error %}<p id="cv-error" role="alert" class="field-error">{{ cv.error }}</p>{% endif %}
+  {% if cv.not_ready %}<p id="cv-not-ready">{{ cv.not_ready.message }}</p>
+    {% set links = {'summary': ('Open job', '/jobs/' ~ tw.job_id), 'requirements': ('Open job', '/jobs/' ~ tw.job_id), 'facts': ('Open facts', '/facts'), 'country': ('Choose the CV country', '#cv-country'), 'template': ('Draft the template', '#cv-template-heading')} %}
+    <a id="cv-not-ready-link" href="{{ links[cv.not_ready.reason][1] }}">{{ links[cv.not_ready.reason][0] }}</a>
+  {% endif %}
+  {% if cv.state == 'running' %}<p id="cv-running" role="status" hx-preserve>Making your CV…</p>{% endif %}
+  {% if dv.practice_notice %}<p id="cv-practice" class="badge">{{ dv.practice_notice }}</p>{% endif %}
+  {% if dv.version %}
+    <p id="cv-status">{% if cv.old %}Version {{ dv.version.number }} (read-only).{% elif dv.version.status in ['approved', 'sent'] %}Approved, version {{ dv.version.number }}.{% else %}Draft, version {{ dv.version.number }}. Not approved yet.{% endif %}</p>
+    {% if cv.old %}<p id="cv-readonly-note">This version is read-only and is not the latest. <a id="cv-latest" href="{{ base }}?tab=tailoring&amp;step=3" hx-get="{{ cb }}" hx-target="#tailoring" hx-swap="outerHTML" hx-push-url="{{ base }}?tab=tailoring&amp;step=3">Back to the latest version</a></p>{% endif %}
+  {% endif %}
+  {% include "fragments/tailoring/_cv_contact.html" %}
+  <ul id="cv-diff-legend" class="cv-legend">{% for mark in ['added', 'removed', 'reworded', 'moved'] %}<li>{{ symbols[mark] }} {{ mark | capitalize }}</li>{% endfor %}</ul>
+  {% for section in dv.sections %}<section data-section="{{ section.id }}" aria-labelledby="cv-section-{{ section.id }}">
+    <h6 id="cv-section-{{ section.id }}" data-section-heading>{{ section.heading }}</h6>
+    {% for block in section.blocks %}<div data-role-block>
+      {% if block.header %}<p data-role-header><strong>{{ block.header.title }}</strong> {{ block.header.employer }}{% if block.header.start_text %} · {{ block.header.start_text }} – {{ block.header.end_text or 'Present' }}{% endif %}</p>{% endif %}
+      <ul class="cv-lines">{% for unit in block.units %}{% include "fragments/tailoring/_cv_line.html" %}{% endfor %}</ul>
+    </div>{% endfor %}
+  </section>{% endfor %}
+  {% if cv.removed %}<section id="cv-removed" aria-labelledby="cv-removed-heading"><h6 id="cv-removed-heading">Left out of this CV</h6><ul>{% for line in cv.removed %}<li data-line data-mark="removed"><span data-diff-mark><span aria-hidden="true">−</span> Removed</span><p>{{ line.text }}</p></li>{% endfor %}</ul></section>{% endif %}
+  {% if dv.version and not cv.readonly %}
+    <details id="cv-add"{% if cv.invalid_unit == 'add' %} open{% endif %}><summary>Add a line</summary>
+      <form id="cv-add-form" method="post" action="{{ cb }}/unit/add" hx-post="{{ cb }}/unit/add" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="version" value="{{ dv.version.id }}">
+        {% for field, label in [('section', 'Section'), ('role', 'Role (optional)')] %}
+        <label for="cv-add-{{ field }}">{{ label }}</label><select id="cv-add-{{ field }}" name="{{ field }}"{% if cv.invalid_unit == 'add' and cv.invalid == field %} aria-invalid="true" aria-describedby="cv-add-error" data-autofocus{% endif %}>
+          {% if field == 'section' %}{% for spec in dv.template.sections %}<option value="{{ spec.id.value }}"{% if cv.posted.get('section') == spec.id.value %} selected{% endif %}>{{ dv.template.headings[loop.index0] }}</option>{% endfor %}
+          {% else %}<option value="">No role</option>{% for role in cv.roles %}<option value="{{ role }}"{% if cv.posted.get('role') == role %} selected{% endif %}>{{ role }}</option>{% endfor %}{% endif %}
+        </select>{% endfor %}
+        <label for="cv-add-text">New line</label><textarea id="cv-add-text" name="text" data-draft-key="add"{% if cv.invalid_unit == 'add' and cv.invalid == 'text' %} aria-invalid="true" aria-describedby="cv-add-error" data-autofocus{% endif %}>{{ cv.posted.get('text', '') if cv.invalid_unit == 'add' else '' }}</textarea>
+        {% if cv.invalid_unit == 'add' %}<p id="cv-add-error" class="field-error">{{ cv.field_error }}</p>{% endif %}
+        <button type="submit">Add line</button>
+      </form>
+    </details>
+    {% if dv.version.status == 'draft' %}
+      {% if cv.approve_reason %}<p id="cv-approve-reason">{{ cv.approve_reason }}</p>{% endif %}
+      <form method="post" action="{{ cb }}/approve" hx-post="{{ cb }}/approve" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button"><input type="hidden" name="version" value="{{ dv.version.id }}"><button id="cv-approve" type="submit"{% if cv.approve_reason %} aria-disabled="true" aria-describedby="cv-approve-reason"{% endif %}>Approve CV</button></form>
+    {% else %}<p id="cv-approved">Approved. Changing a line starts a new draft.</p>{% endif %}
+  {% endif %}
+  {% if not cv.readonly and not cv.not_ready %}
+    {% if cv.reason %}{% with budget_blocked=cv.reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}{% endif %}
+    <form id="cv-generate-form" method="post" action="{{ cb }}/generate" hx-post="{{ cb }}/generate" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <label for="cv-note">Note for the CV (optional)</label><textarea id="cv-note" name="note" data-draft-key="note"{% if cv.invalid == 'note' %} aria-invalid="true" aria-describedby="cv-note-error" data-autofocus{% endif %}>{{ cv.posted.get('note', '') }}</textarea>
+      {% if cv.invalid == 'note' %}<p id="cv-note-error" class="field-error">{{ cv.field_error }}</p>{% endif %}
+      {% if dv.version %}
+      <label><input id="cv-replace-all" type="checkbox" name="replace_all" value="1"{% if cv.posted.get('replace_all') == '1' %} checked{% endif %}> Replace everything, including my edits</label>
+      <label><input id="cv-confirm-replace" type="checkbox" name="confirm_replace" value="1"{% if cv.posted.get('confirm_replace') == '1' %} checked{% endif %}{% if cv.invalid == 'confirm_replace' %} aria-invalid="true" aria-describedby="cv-replace-error" data-autofocus{% endif %}> Yes, replace my edits too</label>
+      {% if cv.invalid == 'confirm_replace' %}<p id="cv-replace-error" class="field-error">{{ cv.field_error }}</p>{% endif %}
+      {% endif %}
+      <button id="cv-generate-start" type="submit"{% if cv.blocked %} aria-disabled="true"{% if cv.reason %} aria-describedby="{{ cv.reason.id }}"{% endif %}{% endif %}>{{ 'Regenerate' if dv.version else 'Generate CV' }}</button>
+    </form>
+  {% endif %}
+  {% if dv.versions %}<h6>Versions</h6><ol id="cv-versions">{% for version in dv.versions %}<li data-version-id="{{ version.id }}" data-version-status="{{ version.status }}">
+    Version {{ version.number }} · {{ version.status | capitalize }}{% if loop.first %} · Latest{% endif %} · {{ 'Edited by you' if version.origin == 'user' else 'Written by the AI' }}{% if version.note %}<p>{{ version.note }}</p>{% endif %}
+    <a href="{{ base }}?tab=tailoring&amp;step=3&amp;version={{ version.id }}" hx-get="{{ cb }}/version/{{ version.id }}" hx-target="#tailoring" hx-swap="outerHTML" hx-push-url="{{ base }}?tab=tailoring&amp;step=3&amp;version={{ version.id }}"{% if dv.version.id == version.id %} aria-current="true"{% endif %}>View version {{ version.number }}</a>
+  </li>{% endfor %}</ol>{% endif %}
+  {% if cv.offer %}<dialog id="cv-save-fact" class="modal" data-modal role="dialog" aria-modal="true" aria-labelledby="cv-save-fact-title" aria-describedby="cv-save-fact-claims" data-return-focus="#line-{{ cv.offer.unit_id }}">
+    <h5 id="cv-save-fact-title">Save this as a fact?</h5><ul id="cv-save-fact-claims">{% for claim in cv.offer.claims %}<li>{{ claim }}</li>{% endfor %}</ul>
+    <form method="post" action="{{ cb }}/unit/{{ cv.offer.unit_id }}/confirm" hx-post="{{ cb }}/unit/{{ cv.offer.unit_id }}/confirm" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button"><input type="hidden" name="version" value="{{ dv.version.id }}"><button type="submit">Yes, save it as a fact</button></form>
+    <button type="button" data-modal-close data-return-focus="#line-{{ cv.offer.unit_id }}" autofocus>Not now</button>
+  </dialog>{% endif %}
+  {% if cv.dialog %}{% with budget_dialog=cv.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}
+</section>

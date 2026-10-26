@@ -28,6 +28,7 @@ from app.api.application_detail import register_application_detail_routes
 from app.api.board import register_board_routes
 from app.api.companies import register_company_routes
 from app.api.company_contacts import register_company_contact_routes
+from app.api.cv_step import register_cv_routes
 from app.api.errors import register_error_handlers
 from app.api.events import (
     DEFAULT_EVENT_QUEUE_SIZE,
@@ -1276,6 +1277,7 @@ def create_app(
     register_job_summary_routes(app)
     register_job_fit_routes(app)
     register_tailoring_routes(app)
+    register_cv_routes(app)
     register_job_detail_routes(app)
     register_company_routes(app)
     register_company_contact_routes(app)

@@ -285,8 +285,9 @@
     if (!(region instanceof Element) || region !== requester) return false;
     if (!region.hasAttribute("data-keep-edits")) return false;
     var active = document.activeElement;
-    return region.querySelector("details[open], [data-holds-refresh]") !== null ||
-      (active instanceof Element && active !== region && region.contains(active));
+    return region.querySelector("details[open], [data-holds-refresh], .htmx-request, [data-autofocus]") !== null ||
+      (active instanceof Element && active !== region && region.contains(active) &&
+        !active.hasAttribute("data-refresh-safe-focus"));
   }
   function showStaleNote(region) {
     var note = region.querySelector("[data-stale-note]");

@@ -2744,3 +2744,28 @@ kbd,
 .settings-disclosure > summary::before { content: "\25B8"; margin-right: var(--space-2); color: var(--color-accent); }
 .settings-disclosure[open] > summary::before { content: "\25BE"; }
 
+
+/* CV review: the words and symbols carry meaning in both themes. */
+#cv-step { max-width: 58rem; overflow-wrap: anywhere; }
+#cv-step h5 { font-size: 1.35rem; }
+#cv-step h6 { font-size: 1.1rem; margin-block: 1.5rem 0.75rem; }
+.cv-legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; list-style: none; padding: 0; }
+.cv-lines { list-style: none; padding: 0; }
+.cv-lines > li { border: 1px solid var(--color-border); border-inline-start: 4px solid var(--color-accent); border-radius: var(--radius); padding: 1rem; margin-block: 1rem; background: var(--color-surface); }
+.cv-lines > li[data-flagged] { border-inline-start-color: var(--color-warning-border); }
+#cv-step [data-flags] { background: var(--color-warning-bg); padding: 0.75rem 0.75rem 0.75rem 2rem; }
+#cv-step [data-diff-mark], #cv-step [data-moved-mark] { font-weight: 650; }
+#cv-step [data-origin-label] { color: var(--color-text-muted); font-size: 0.9rem; }
+#cv-step form { margin-block: 0.75rem; }
+#cv-step textarea, #cv-step select { box-sizing: border-box; width: 100%; max-width: 100%; }
+#cv-step textarea { min-height: 5rem; }
+#cv-step summary { cursor: pointer; min-height: var(--target-min); padding-block: 0.5rem; }
+#cv-step [data-line-facts] ul { margin-block: 0.5rem; }
+#cv-step [data-line-facts] a { display: inline-block; min-height: 24px; padding-block: 0.25rem; }
+#cv-step ins { background: var(--color-accent-soft); color: var(--color-text); text-decoration: underline; }
+#cv-step del { color: var(--color-text-muted); }
+#cv-step .cv-word-diff { font-size: 0.95rem; }
+@media (hover: hover) {
+  #cv-step li[data-line]:hover [data-line-facts]:not([open]) > ul { display: block; }
+  #cv-step li[data-line]:hover [data-line-facts]:not([open])::details-content { content-visibility: visible; }
+}

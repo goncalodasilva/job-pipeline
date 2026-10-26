@@ -183,7 +183,7 @@ def test_workspace_steps_phone_390x844_and_axe(
                 .all()
             ):
                 assert_target_size(link, f"stepper link on step {step}")
-            if step >= 3:
+            if step >= 4:
                 expect(region(page)).to_contain_text(re.compile("later step", re.IGNORECASE))
             assert_no_serious_violations(page)
 

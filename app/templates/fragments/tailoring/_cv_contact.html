@@ -1,0 +1,8 @@
+<div id="cv-contact"{% if not cv.private %} hx-get="/applications/{{ cv.view.application_id }}/tailoring/3/contact{% if cv.old and cv.view.version %}?version={{ cv.view.version.id }}{% endif %}"{% if cv.view.version and not cv.old %} hx-vals="{{ {'version': cv.view.version.id} | tojson | forceescape }}"{% endif %} hx-trigger="load" hx-swap="outerHTML"{% endif %}>
+{% if cv.private %}
+  {% if cv.view.contact.name %}<p data-contact-name>{{ cv.view.contact.name }}</p>
+  {% else %}<p id="cv-contact-empty">Add your name in Settings before exporting.</p>{% endif %}
+  <ul>{% for line in cv.view.contact.lines %}<li data-contact-line>{{ line }}</li>{% endfor %}</ul>
+  <a href="/settings">Change in Settings</a>
+{% endif %}
+</div>
