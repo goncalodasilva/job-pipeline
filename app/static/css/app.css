@@ -2705,3 +2705,42 @@ kbd,
 #tailoring .field { margin-bottom: 0; }
 #tailoring .field input, #tailoring .field textarea { box-sizing: border-box; min-width: 0; }
 #tailoring h5 { margin: var(--space-3) 0 var(--space-1); }
+
+/* Settings > Your details (M6.6): the inline photo preview and the country select */
+.photo-preview { display: block; max-width: 10rem; max-height: 13rem; height: auto; border: 1px solid var(--color-border); border-radius: var(--radius); }
+#photo-block { display: grid; gap: var(--space-2); margin-top: var(--space-4); }
+.country-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.country-row select { flex: 1 1 12rem; min-width: 0; max-width: 100%; }
+
+/* Country CV templates (M6.6): the unit on step 3 of the Tailoring tab and in Settings, and the
+   Settings list. Status is always words (Draft, Approved), never colour alone. The twelve section
+   slots put the section and its heading side by side where there is room and stack on phones. */
+.cv-template { overflow-wrap: anywhere; max-width: 48rem; margin-block: var(--space-4); }
+.cv-template form { display: grid; gap: var(--space-2); max-width: 100%; margin-block: var(--space-2); }
+.cv-template .field { margin-bottom: 0; min-width: 0; }
+.cv-template .field input:not([type="checkbox"]), .cv-template .field textarea, .cv-template .field select { box-sizing: border-box; min-width: 0; }
+.cv-template fieldset { min-width: 0; margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius); }
+.cv-template legend { padding-inline: var(--space-1); font-weight: 600; }
+.cv-template .template-slot { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--space-2) var(--space-3); padding-block: var(--space-2); border-bottom: 1px solid var(--color-border); }
+.cv-template summary { min-height: var(--target-min); display: flex; align-items: center; cursor: pointer; color: var(--color-accent); list-style: none; }
+.cv-template summary::before { content: "\25B8"; margin-right: var(--space-2); }
+.cv-template details[open] > summary::before { content: "\25BE"; }
+.cv-template h3, .cv-template h5 { margin: var(--space-3) 0 var(--space-1); }
+.template-list { margin: var(--space-3) 0; padding: 0; list-style: none; }
+.template-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); padding-block: var(--space-2); border-bottom: 1px solid var(--color-border); }
+.template-state { font-weight: 600; }
+.template-task { color: var(--color-text-muted); }
+/* What the AI said about a field in its draft: set apart from this form's fixed help text by a
+   rule and a label, never by colour alone. */
+.draft-note { margin-block: var(--space-1); padding-inline-start: var(--space-2); border-inline-start: 3px solid var(--color-border); color: var(--color-text-muted); }
+.draft-note-label { font-weight: 600; }
+.draft-note-text { display: inline; margin: 0; overflow-wrap: anywhere; }
+#template-editor { margin-top: var(--space-4); }
+
+/* Settings > Your details (M6.6): a native disclosure under the section heading. The chevron marks
+   it, as in the Tailoring tab; the summary is a full-size target. */
+.settings-disclosure > summary { min-height: var(--target-min); display: flex; align-items: center; cursor: pointer; list-style: none; }
+.settings-disclosure > summary::-webkit-details-marker { display: none; }
+.settings-disclosure > summary::before { content: "\25B8"; margin-right: var(--space-2); color: var(--color-accent); }
+.settings-disclosure[open] > summary::before { content: "\25BE"; }
+

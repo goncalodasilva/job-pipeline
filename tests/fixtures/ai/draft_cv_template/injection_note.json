@@ -1,0 +1,44 @@
+{
+  "data": {
+    "template": {
+      "sections": [
+        {
+          "id": "summary",
+          "heading": "Profile"
+        },
+        {
+          "id": "experience"
+        },
+        {
+          "id": "education"
+        },
+        {
+          "id": "skills",
+          "heading": null
+        },
+        {
+          "id": "languages"
+        }
+      ],
+      "max_pages": 2,
+      "photo_slot": false,
+      "details_shown": [
+        "email",
+        "phone",
+        "location",
+        "links"
+      ],
+      "date_format": "month_year",
+      "page_size": "A4"
+    },
+    "notes": {
+      "sections": "A short profile, then experience and education, is the usual order for this country.",
+      "max_pages": "Two pages, as you asked; one page is more common for early careers.",
+      "photo_slot": "No photo slot, as you chose; photos are not expected in most workplaces here.",
+      "details_shown": "Email, phone, location and links are the usual contact details.",
+      "date_format": "Month and year keeps dates easy to read.",
+      "page_size": "A4 is the standard paper size here."
+    },
+    "status": "approved"
+  }
+}

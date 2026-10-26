@@ -66,14 +66,15 @@ class Probe:
     uploads: list[Any] = field(default_factory=list)
 
 
-def _probe() -> Probe:
+def _probe(max_bytes: int | None = None) -> Probe:
     read_upload = _uploads().read_upload
+    extra = {} if max_bytes is None else {"max_bytes": max_bytes}
     app = FastAPI()
     register_error_handlers(app)
     probe = Probe(app=app)
 
     async def receive_upload(request: Request) -> JSONResponse:
-        upload = await read_upload(request)
+        upload = await read_upload(request, **extra)
         probe.uploads.append(upload)
         return JSONResponse({"source": upload.source, "size": len(upload.data)})
 
@@ -272,6 +273,34 @@ async def test_file_at_the_cap_is_held_in_memory_only(monkeypatch: pytest.Monkey
 
     assert answer.status == 200, answer.text
     assert rollovers == [], "the upload was moved to a temporary file on disk"
+
+
+FIVE_MB = 5 * MIB
+
+
+async def test_a_route_can_pass_a_lower_cap_and_the_stream_stops_there() -> None:
+    probe = _probe(FIVE_MB)
+    total = 40 * MIB
+
+    answer = await _post(probe.app, _endless_file(total), content_length=total + 200)
+
+    _assert_refused(answer, 413, "UploadTooLarge", probe)
+    assert answer.delivered <= FIVE_MB + SLACK, (
+        f"the app read {answer.delivered} bytes past a 5 MB route cap"
+    )
+
+
+async def test_a_lower_cap_accepts_a_file_of_exactly_the_cap_and_refuses_one_byte_more() -> None:
+    probe = _probe(FIVE_MB)
+    exact = multipart_body(FilePart("p.jpg", b"z" * FIVE_MB))
+    over = multipart_body(FilePart("p.jpg", b"z" * (FIVE_MB + 1)))
+
+    accepted = await _post(probe.app, _in_chunks(exact), content_length=len(exact))
+    refused = await _post(probe.app, _in_chunks(over), content_length=len(over))
+
+    assert accepted.status == 200, accepted.text
+    assert len(probe.uploads) == 1 and len(probe.uploads[0].data) == FIVE_MB
+    assert refused.status == 413 and refused.text == _message("UploadTooLarge")
 
 
 # --- what is accepted ------------------------------------------------------------------------

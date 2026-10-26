@@ -10,6 +10,10 @@ launch token; POSTs also the app's origin:
 - ``POST .../tailoring/1/facts`` (``text``, optional ``requirement_id``): a fact typed at a gap,
   confirmed at once (422 when blank or over 10,000 characters; a text a confirmed fact already
   has is not stored twice); nothing is asked of the AI.
+- ``POST .../tailoring/country`` (``version``, ``cv_country``): the CV country of this
+  application, stored on the workspace (created by the first save). The select is on every step;
+  it shows the workspace's country, else the preference's. 422 for a code not in the list
+  (tied to the select), 409 for a stale version, 400 for any other form shape.
 - ``POST .../tailoring/2/angle`` (``name``, ``description``, ``version``, optional
   ``reuse_angle_id``, and ``slot``, the form it came from): saves the angle on the workspace
   (400 without a version, 409 stale, 422 refused). A refused or stale answer shows the same
@@ -22,6 +26,7 @@ focus, after a refusal the invalid field (or the reload prompt). The step refres
 
 import json
 from typing import Any, Final
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, Response
@@ -30,6 +35,8 @@ from starlette.concurrency import run_in_threadpool
 from app.api.budget_gate import dialog_context, reason_context, refusal_message
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx, posted_version, read_form, single_value_form
+from app.api.settings_templates import STEP_LEVEL as STEP_UNIT_LEVEL
+from app.api.settings_templates import unit_context
 from app.api.templating import templates
 from app.domain.errors import (
     ApplicationNotFound,
@@ -39,12 +46,19 @@ from app.domain.errors import (
     message_for_kind,
 )
 from app.domain.gap_check import NOT_IN_FACT_BANK
+from app.domain.locales import COUNTRIES
 from app.onboarding.registry import Form
 from app.services.budget_gate import Start, confirmation_from_form
 from app.services.cv_import import tier_from_form
 from app.services.facts import FactInput
 from app.services.job_fit import PRACTICE_NOTICE
-from app.services.tailoring import STEP_TITLES, AngleInvalid, TailoringService, TailoringView
+from app.services.tailoring import (
+    STEP_TITLES,
+    AngleInvalid,
+    CountryInvalid,
+    TailoringService,
+    TailoringView,
+)
 
 FRAGMENT: Final = "fragments/tailoring/_tailoring.html"
 STEP_LINK_PREFIX: Final = "tailoring-step-"
@@ -72,6 +86,7 @@ def register_tailoring_routes(app: FastAPI) -> None:
     app.add_api_route(base + "/1/facts", add_fact, methods=["POST"])
     app.add_api_route(base + "/2/propose", start_propose, methods=["POST"])
     app.add_api_route(base + "/2/angle", save_angle, methods=["POST"])
+    app.add_api_route(base + "/country", save_country, methods=["POST"])
 
 
 def _service(request: Request) -> TailoringService:
@@ -170,13 +185,15 @@ def tailoring_context(
     fact_form: dict[str, str] | None = None,
     fact_added: str | None = None,
     angle_form: dict[str, Any] | None = None,
+    country_form: dict[str, Any] | None = None,
     polled: bool = False,
 ) -> dict[str, Any]:
     """Everything ``fragments/tailoring/_tailoring.html`` shows for one step.
 
     ``message`` is announced and takes the heading's focus; ``announce`` is announced only.
     ``fact_form`` and ``angle_form`` carry what a refused form had (its values and error),
-    ``fact_added`` the requirement a fact was just added for, ``polled`` that the step
+    ``fact_added`` the requirement a fact was just added for, ``country_form`` what a refused
+    or stale country save had (``error``, ``conflict``), ``polled`` that the step
     refreshed itself while its task ran."""
     service = _service(request)
     view = service.view(aid, step)
@@ -200,8 +217,16 @@ def tailoring_context(
             "fact_added": fact_added,
             "angle_form": _angle_form(angle_form, len(view.angles)),
             "conflict_message": VersionConflict.message,
+            "countries": COUNTRIES,
+            "country_form": country_form or {},
             "titles": STEP_TITLES,
         }
+    )
+    # Step 3 holds the CV country's template unit (M6.6): a read, which writes nothing.
+    found["template_unit"] = (
+        unit_context(request, view.cv_country, level=STEP_UNIT_LEVEL)
+        if view.step == 3 and view.cv_country
+        else None
     )
     if message:
         found["message"] = message
@@ -372,6 +397,63 @@ async def save_angle(request: Request, application_id: str) -> Response:
         try:
             return _answer(
                 request, tailoring_context(request, application_id, 2, message="Angle saved.")
+            )
+        except ApplicationNotFound:
+            return _not_found()
+
+    return await run_in_threadpool(save)
+
+
+def _open_step(request: Request) -> int | None:
+    """The step the page was showing (``step`` in the address htmx reports), so a country save
+    leaves the user where they were; None (the derived step) when there is none."""
+    current = request.headers.get("HX-Current-URL", "")
+    try:
+        found = parse_qs(urlsplit(current).query).get("step", [])
+    except ValueError:
+        return None
+    return step_from_query(found[0]) if len(found) == 1 else None
+
+
+async def save_country(request: Request, application_id: str) -> Response:
+    form = await single_value_form(request, {"version", "cv_country"})
+    if isinstance(form, Response):
+        return form
+    version = posted_version(form, minimum=0)
+    if version is None or "cv_country" not in form:
+        return PlainTextResponse(INVALID_REQUEST, status_code=400)
+
+    def refused(*, conflict: bool = False, error: str = "") -> Response:
+        shown = {"conflict": conflict, "error": error}
+        try:
+            context = tailoring_context(
+                request,
+                application_id,
+                _open_step(request),
+                country_form=shown,
+                announce=error or None,
+            )
+        except ApplicationNotFound:
+            return _not_found()
+        return _answer(request, context, status=409 if conflict else 422)
+
+    def save() -> Response:
+        try:
+            _service(request).save_country(
+                application_id, cv_country=form["cv_country"], version=version
+            )
+        except ApplicationNotFound:
+            return _not_found()
+        except VersionConflict:
+            return refused(conflict=True)
+        except CountryInvalid as error:
+            return refused(error=error.message)
+        try:
+            return _answer(
+                request,
+                tailoring_context(
+                    request, application_id, _open_step(request), message="CV country saved."
+                ),
             )
         except ApplicationNotFound:
             return _not_found()

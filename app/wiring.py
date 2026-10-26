@@ -67,6 +67,7 @@ from app.modules.ai.providers.fake import KNOWN_MODELS as FAKE_MODELS
 from app.modules.ai.providers.fake_scripts import real_task_scripts
 from app.modules.ai.providers.job_scripts import (
     angles_scripts,
+    cv_template_scripts,
     fit_scripts,
     gap_check_scripts,
     summary_scripts,
@@ -450,6 +451,7 @@ def _saved_fake() -> FakeAIProvider:
     provider.script_keywords("assess_fit", fit_scripts())
     provider.script_keywords("gap_check", gap_check_scripts())
     provider.script_keywords("propose_angles", angles_scripts())
+    provider.script_keywords("draft_cv_template", cv_template_scripts())
     for task, script in real_task_scripts().items():
         provider.script_keywords(task, script)
     return provider

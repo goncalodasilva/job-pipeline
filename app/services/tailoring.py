@@ -28,12 +28,14 @@ from app.domain.fact_selection import facts_for_ai
 from app.domain.facts import FactRef
 from app.domain.gap_check import GapCheckResult
 from app.domain.ids import IdFactory, is_safe_id
-from app.domain.settings import AIProviderSettings, Tier
+from app.domain.locales import COUNTRIES
+from app.domain.settings import JOB_PREFERENCES, AIProviderSettings, Tier
 from app.domain.tasks import TaskRef
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import AIProviderFactory, AITaskRunner
 from app.modules.storage import job_fit_repo, skills_repo, tailoring_repo
 from app.services.job_summary import ResultWriter, SummaryContext, SummaryPlan, SummaryWorkspace
+from app.services.settings import SettingsService
 from app.services.tailoring_ai import (
     GAP_CHECK,
     MAX_EARLIER_ANGLES,
@@ -61,6 +63,9 @@ MAX_ANGLE_NAME: Final = 120
 MAX_ANGLE_DESCRIPTION: Final = 2000
 NAME_FIELD: Final = "name"
 DESCRIPTION_FIELD: Final = "description"
+COUNTRY_FIELD: Final = "cv_country"
+COUNTRY_INVALID: Final = "Choose a country from the list."
+_COUNTRY_CODES: Final = frozenset(code for code, _ in COUNTRIES)
 _ATTENTION: Final = ("failed", "interrupted")
 _ACTIVE: Final = ("queued", "running")
 
@@ -73,6 +78,15 @@ class AngleInvalid(ValueError):
         super().__init__(message)
         self.message = message
         self.field = field
+
+
+class CountryInvalid(ValueError):
+    """The CV country is not one of the listed ISO 3166-1 codes (nothing stored)."""
+
+    def __init__(self) -> None:
+        super().__init__(COUNTRY_INVALID)
+        self.message = COUNTRY_INVALID
+        self.field = COUNTRY_FIELD
 
 
 @dataclass(frozen=True)
@@ -155,6 +169,7 @@ class TailoringView:
     angles: tuple[AngleRow, ...]
     chosen_angle: str | None
     workspace_version: int
+    cv_country: str  # the workspace's, else the preference's (never copied); "" when neither
 
 
 @dataclass(frozen=True)
@@ -470,6 +485,46 @@ class TailoringService:
         )
         return angle_id
 
+    # --- the CV country ---------------------------------------------------------------------
+
+    def save_country(self, application_id: str, *, cv_country: str, version: int) -> None:
+        """Store the CV country on the application's workspace, creating the row (no angle) when
+        there is none (``version`` 0); the angle and letter choices stay as they are.
+        ``CountryInvalid`` (nothing stored), ``ApplicationNotFound``, ``VersionConflict``.
+
+        Creating the workspace row counts as changing the application: a database guard then
+        refuses to delete it with "Back to queue" (``ApplicationService.undo_apply``). The
+        country form says so in a hint (ADR-106 item 6)."""
+        if not is_safe_id(application_id):
+            raise ApplicationNotFound()
+        if cv_country not in _COUNTRY_CODES:
+            raise CountryInvalid()
+        now = self._clock.now().isoformat()
+        with self._open().db.transaction() as conn:
+            if tailoring_repo.application_job_id(conn, application_id) is None:
+                raise ApplicationNotFound()
+            current = tailoring_repo.workspace(conn, application_id)
+            if (current.version if current else 0) != version:
+                raise VersionConflict()
+            if current is None:
+                tailoring_repo.insert_workspace(
+                    conn,
+                    id=self._ids.new(),
+                    application_id=application_id,
+                    angle_id=None,
+                    cv_country=cv_country,
+                    now=now,
+                )
+            else:
+                tailoring_repo.update_workspace(
+                    conn,
+                    current.id,
+                    cv_country=cv_country,
+                    angle_id=current.angle_id,
+                    now=now,
+                    expected_version=current.version,
+                )
+
     # --- reading ----------------------------------------------------------------------------
 
     def has_confirmed_fact(self, text: str) -> bool:
@@ -485,7 +540,8 @@ class TailoringService:
     def view(self, application_id: str, step: int | None) -> TailoringView:
         """What the tab shows for ``step`` (None: the derived resume step). Reads only."""
         source = self._source(application_id, full=False)
-        with self._open().db.read() as conn:
+        opened = self._open()
+        with opened.db.read() as conn:
             header = tailoring_repo.application_header(conn, application_id)
             if header is None:
                 raise ApplicationNotFound()
@@ -501,6 +557,7 @@ class TailoringService:
             requirements = _requirement_rows(conn, gap)
             framing = _framing_rows(conn, gap)
             angles = _angle_rows(conn, proposal)
+        preferred = SettingsService(opened.db, self._clock).load(JOB_PREFERENCES).value
         notice, notice_link = self._notice(source)
         chosen = workspace.angle_name if workspace and workspace.angle_id else None
         job_id, title, company = header
@@ -536,6 +593,8 @@ class TailoringService:
             angles=angles,
             chosen_angle=chosen,
             workspace_version=workspace.version if workspace else 0,
+            cv_country=(workspace.cv_country if workspace else None)
+            or (preferred.cv_country if preferred else ""),
         )
 
 
@@ -637,6 +696,7 @@ __all__ = [
     "GAP_CHECK_LABEL",
     "PROPOSE_ANGLES_LABEL",
     "AngleInvalid",
+    "CountryInvalid",
     "TailoringService",
     "TailoringView",
 ]

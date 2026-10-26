@@ -5,18 +5,20 @@ from pathlib import Path
 
 import pytest
 
+from app.domain.template_draft import PhotoConvention, TemplateStyle
 from app.modules.ai.tasks import TASK_SPECS
 from tests.asgi_stream import open_stream
 from tests.cv_fixtures import fixture_path
 from tests.cv_import_harness import importing, said
 from tests.leak_scan import RawLogRecords
-from tests.refine_harness import refine_path, refining
+from tests.refine_harness import TARGET, refine_path, refining
 from tests.tailoring_pages import Tailoring
 from tests.waiting import wait_until
 
 pytestmark = pytest.mark.integration
 CV = fixture_path("cv.txt").read_text(encoding="utf-8")
 HIDDEN = "Confidential fictional Brightwater audit statement."
+DRAFT_NOTE = "Keep it plain."
 
 
 @pytest.mark.parametrize("task", sorted(TASK_SPECS))
@@ -29,6 +31,7 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
         "assess_fit",
         "gap_check",
         "propose_angles",
+        "draft_cv_template",
     }
     with refining(tmp_path) as r:
         hidden = r.typed(HIDDEN, privacy="never_use")
@@ -54,6 +57,13 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
                 desk.check(application.id, None)
             else:
                 desk.propose(application.id, None)
+        elif task == "draft_cv_template":
+            # M6.6: the calling service and its task over the real prompt and the app's
+            # provider. The request carries no fact text at all (ADR-106 item 12).
+            ref = r.run.app.state.cv_templates.start_draft(
+                "NL", TemplateStyle(pages=2, photo=PhotoConvention.OPTIONAL), DRAFT_NOTE
+            )
+            assert ref is not None and r.run.wait_terminal(ref.id).status.value == "succeeded"
         else:
             r.started(target.id)
         requests = [request for request in r.run.spy.requests if request.task == task]
@@ -61,6 +71,13 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
         for request in requests:
             assert HIDDEN not in repr(request)
             assert f"F{hidden.number}@" not in repr(request)
+            if task == "draft_cv_template":
+                # The check bites: the recorded request does hold the country and the note.
+                assert "Netherlands" in repr(request) and DRAFT_NOTE in repr(request)
+                fact_texts = [row["text"] for row in r.run.rows("SELECT text FROM fact_versions")]
+                assert TARGET in fact_texts and HIDDEN in fact_texts
+                assert not [text for text in fact_texts if text and text in repr(request)]
+                assert "F1@" not in repr(request) and "fact_ids" not in repr(request)
         assert r.current(hidden.id).privacy == "never_use"
 
 

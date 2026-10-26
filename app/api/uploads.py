@@ -46,9 +46,21 @@ class _InMemoryParser(MultiPartParser):
     spool_max_size = _MAX_BODY_BYTES + 1
 
 
-async def read_upload(request: Request) -> Upload:
+async def read_upload(
+    request: Request,
+    *,
+    fields: dict[str, list[str]] | None = None,
+    max_bytes: int = MAX_UPLOAD_BYTES,
+) -> Upload:
     """The one file part named ``file``, or the ``text`` field. Raises ``UploadTooLarge`` past
     the cap and ``UploadNotAccepted`` for anything else (two files, both, neither, malformed).
+
+    A route whose form has other plain fields (a version) passes ``fields``: every field that is
+    not ``text`` is added to it, name to values, once the upload has been accepted.
+
+    ``max_bytes`` (at most ``MAX_UPLOAD_BYTES``) is the route's own cap on the file or text.
+    The stream is counted against it plus the multipart envelope, so a smaller cap stops the
+    reading sooner (the photo route passes 5 MB).
 
     A route using this must take only ``Request``: a ``Form()`` or ``UploadFile`` parameter
     would make FastAPI parse the body first, uncapped."""
@@ -57,19 +69,21 @@ async def read_upload(request: Request) -> Upload:
         raise UploadNotAccepted(detail="not a multipart form")
     if _charset(content_type) not in _CHARSETS:
         raise UploadNotAccepted(detail="a charset other than UTF-8")
+    max_bytes = min(max_bytes, MAX_UPLOAD_BYTES)
+    body_cap = max_bytes + _ENVELOPE_BYTES
     parser = _InMemoryParser(
         request.headers,
-        _capped(request.stream()),
+        _capped(request.stream(), body_cap),
         max_files=_MAX_FILE_PARTS,
         max_fields=_MAX_FIELD_PARTS,
-        max_part_size=_MAX_BODY_BYTES,
+        max_part_size=body_cap,
     )
     try:
         form = await parser.parse()
     except (MultiPartException, ValueError, ClientDisconnect) as error:
         raise UploadNotAccepted(detail=type(error).__name__) from None
     try:
-        return await _chosen(form)
+        return await _chosen(form, fields, max_bytes)
     finally:
         await form.close()
 
@@ -80,22 +94,30 @@ def _charset(content_type: str) -> bytes:
     return options.get(b"charset", b"utf-8").lower()
 
 
-async def _capped(stream: AsyncIterator[bytes]) -> AsyncGenerator[bytes, None]:
+async def _capped(stream: AsyncIterator[bytes], cap: int) -> AsyncGenerator[bytes, None]:
     received = 0
     async for chunk in stream:
         received += len(chunk)
-        if received > _MAX_BODY_BYTES:
+        if received > cap:
             raise UploadTooLarge(detail="the request body passed the cap")
         yield chunk
 
 
-async def _chosen(form: FormData) -> Upload:
+async def _chosen(
+    form: FormData,
+    fields: dict[str, list[str]] | None = None,
+    max_bytes: int = MAX_UPLOAD_BYTES,
+) -> Upload:
     files: list[tuple[str, UploadFile]] = []
     texts: list[str] = []
+    others: dict[str, list[str]] = {}
     for name, value in form.multi_items():
         if isinstance(value, str):
-            if name == TEXT_FIELD and value.strip():
-                texts.append(value)
+            if name == TEXT_FIELD:
+                if value.strip():
+                    texts.append(value)
+            else:
+                others.setdefault(name, []).append(value)
         elif value.filename or value.size:  # a browser's empty file input is no file
             files.append((name, value))
     if len(files) == 1 and len(texts) == 1:
@@ -103,11 +125,15 @@ async def _chosen(form: FormData) -> Upload:
     if len(files) + len(texts) != 1:
         raise UploadNotAccepted(detail="expected one file or a text")
     if texts:
-        return _upload(_utf8(texts[0]), "text")
-    name, file = files[0]
-    if name != FILE_FIELD:
-        raise UploadNotAccepted(detail="a file in an unexpected field")
-    return _upload(await file.read(), "file")
+        upload = _upload(_utf8(texts[0]), "text", max_bytes)
+    else:
+        name, file = files[0]
+        if name != FILE_FIELD:
+            raise UploadNotAccepted(detail="a file in an unexpected field")
+        upload = _upload(await file.read(), "file", max_bytes)
+    if fields is not None:
+        fields.update(others)
+    return upload
 
 
 def _utf8(text: str) -> bytes:
@@ -117,9 +143,9 @@ def _utf8(text: str) -> bytes:
         raise UploadNotAccepted(detail="a text that is not UTF-8") from None
 
 
-def _upload(data: bytes, source: Literal["file", "text"]) -> Upload:
+def _upload(data: bytes, source: Literal["file", "text"], max_bytes: int) -> Upload:
     if not data:
         raise UploadNotAccepted(detail="an empty file")
-    if len(data) > MAX_UPLOAD_BYTES:
+    if len(data) > max_bytes:
         raise UploadTooLarge(detail="the content passed the cap")
     return Upload(data=data, source=source)

@@ -1,0 +1,96 @@
+{# Settings > Your details (M6.6; ADR-106 items 3 and 4): contact details for the CV header and
+   the letter sign-off, and the optional CV photo. Needs `details` (app/api/settings_details.py).
+   Protected: it is fetched with the launch token and never part of the token-free page. The
+   details form swaps this whole section (outerHTML); the photo forms swap only #photo-block (and
+   refresh the two spots that depend on the stored setting, #details-version and
+   #details-contents, out of band), so a photo action never wipes details typed and not yet
+   saved. The server answers with the whole section either way. The heading is outside the
+   disclosure so it stays a heading. Exactly one element of an answer takes focus: the heading
+   after a details success, the done line after a photo success, the first refused control after
+   a refusal, the general message after a failed write, the reload prompt after a stale version;
+   a plain load takes none. A result belongs where the action was: above the details form for the
+   details form, inside #photo-block for the photo forms (details.scope). Typed values stay in the
+   inputs after a refusal and are escaped; error texts are fixed copy that never holds an entered
+   value or a file name. The form is one native disclosure: closed in the answer to the lazy load
+   (one Tab stop instead of ten, so the Settings Tab count stays small) and open in every answer
+   to a POST in it, so a result, an error or the reload prompt is visible and focus can move
+   inside. The photo is shown inline from the stored file, so no image address exists to open
+   without the token. After a stale version the two out-of-band spots are left without their ids,
+   so the newer version never lands on a form that still shows older text. #}
+{% macro text_field(name, label, kind, complete, hint, plain=false) %}
+{% set err = details.errors.get(name) %}
+<div class="field">
+  <label for="details-{{ name }}">{{ label }}</label>
+  <input id="details-{{ name }}" name="{{ name }}" type="{{ kind }}" autocomplete="{{ complete }}"{% if plain %} autocapitalize="off" spellcheck="false"{% endif %} value="{{ details.shown[name] }}"{% if err %} aria-invalid="true" aria-describedby="details-{{ name }}-error{% if hint %} details-{{ name }}-hint{% endif %}"{% if details.first_error == name %} data-autofocus{% endif %}{% elif hint %} aria-describedby="details-{{ name }}-hint"{% endif %}>
+  {% if hint %}<p id="details-{{ name }}-hint" class="field-hint">{{ hint }}</p>{% endif %}
+  {% if err %}<p id="details-{{ name }}-error" class="field-error">{{ err }}</p>{% endif %}
+</div>
+{% endmacro %}
+{# The outcome of the last action: a reload prompt, a failed write, or the done line. The failed
+   write is announced by the answer's own announce message, so it is not also a live region. #}
+{% macro outcome() %}
+  {% if details.conflict %}
+  {% set reload_id = "details-conflict" %}
+  {% set reload_message = details.conflict_message %}
+  {% set reload_detail = details.conflict_detail %}
+  {% set reload_url = details.settings_url %}
+  {% set reload_link = "Reload" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% endif %}
+  {% if details.problem %}<p id="details-problem" class="field-error" tabindex="-1" data-autofocus>{{ details.problem }}</p>{% endif %}
+  {% if details.message %}<p id="details-done" class="budget-done"{% if details.scope == "photo" %} tabindex="-1" data-autofocus{% endif %}>{{ details.message }}</p>{% endif %}
+  {% if details.after %}<p id="details-after" class="field-hint">{{ details.after }}</p>{% endif %}
+{% endmacro %}
+{% set oob = not details.conflict %}
+<section id="details-settings" class="settings-section" aria-labelledby="details-heading">
+  <h2 id="details-heading" tabindex="-1"{% if details.message and details.scope == "details" %} data-autofocus{% endif %}>Your details</h2>
+  <p{% if oob %} id="details-contents"{% endif %} class="field-hint">Name, email, phone, links and photo. A name is needed to export your CV. Name: {{ "Saved" if details.name_saved else "Not set yet" }}. Photo: {{ "Saved" if details.photo else "Not set yet" }}.</p>
+  <details id="details-disclosure" class="settings-disclosure"{% if details.opened %} open{% endif %}>
+  <summary id="details-summary">{{ "Edit your details" if details.name_saved else "Show your details form" }}</summary>
+  {% if details.scope == "details" %}{{ outcome() }}{% endif %}
+  <p class="field-hint">These go on the header of your CV and the end of your cover letter. They stay on this computer and are never sent to the AI.</p>
+  <form id="details-form" class="step-form" method="post" action="{{ details.details_url }}"
+        hx-post="{{ details.details_url }}" hx-target="#details-settings" hx-swap="outerHTML"
+        hx-disabled-elt="find button" novalidate>
+    <input{% if oob %} id="details-version"{% endif %} type="hidden" name="version" value="{{ details.version }}">
+    {{ text_field("name", "Name", "text", "name", "Needed to export a CV or letter. Everything else is optional.") }}
+    {{ text_field("email", "Email", "email", "email", "", true) }}
+    {{ text_field("phone", "Phone", "tel", "tel", "") }}
+    {{ text_field("location", "Location", "text", "off", "") }}
+    {{ text_field("link_1", "Link 1", "url", "url", "Up to three links, such as a portfolio or profile. Each starts with http:// or https://.", true) }}
+    {{ text_field("link_2", "Link 2", "url", "url", "", true) }}
+    {{ text_field("link_3", "Link 3", "url", "url", "", true) }}
+    <div class="form-actions"><button type="submit" class="button button-primary">Save details</button></div>
+  </form>
+  <div id="photo-block">
+    <h3 id="photo-heading">Photo</h3>
+    {% if details.scope == "photo" %}{{ outcome() }}{% endif %}
+    <p id="photo-help" class="field-hint">Optional, and only used on CV templates that have a place for one. A JPEG or PNG of up to 5 MB, between 100 and 4000 pixels on each side. Hidden data in the file, such as where it was taken, is removed before it is kept. It is never sent to the AI.</p>
+    {% if details.photo %}
+    <img id="photo-preview" class="photo-preview" alt="Your CV photo" src="data:{{ details.photo.media_type }};base64,{{ details.photo.data_base64 }}">
+    {% else %}
+    <p id="photo-empty">No photo yet.</p>
+    {% endif %}
+    {% set file_error = details.errors.get("file") %}
+    <form id="photo-form" class="step-form" method="post" action="{{ details.photo_url }}" enctype="multipart/form-data"
+          hx-post="{{ details.photo_url }}" hx-encoding="multipart/form-data" hx-target="#photo-block" hx-select="#photo-block" hx-select-oob="#details-version,#details-contents" hx-swap="outerHTML"
+          hx-disabled-elt="find button" novalidate>
+      <input type="hidden" name="version" value="{{ details.version }}">
+      <div class="field">
+        <label for="photo-file">Photo file (JPEG or PNG)</label>
+        <input type="file" id="photo-file" name="file" accept="image/jpeg,image/png" aria-describedby="photo-help{% if file_error %} photo-file-error{% endif %}"{% if file_error %} aria-invalid="true" data-autofocus{% endif %}>
+        {% if file_error %}<p id="photo-file-error" class="field-error">{{ file_error }}</p>{% endif %}
+      </div>
+      <div class="form-actions"><button type="submit" class="button">{{ "Replace photo" if details.photo else "Upload photo" }}</button></div>
+    </form>
+    {% if details.photo %}
+    <form id="photo-remove-form" class="step-form" method="post" action="{{ details.photo_remove_url }}"
+          hx-post="{{ details.photo_remove_url }}" hx-target="#photo-block" hx-select="#photo-block" hx-select-oob="#details-version,#details-contents" hx-swap="outerHTML"
+          hx-disabled-elt="find button" novalidate>
+      <input type="hidden" name="version" value="{{ details.version }}">
+      <div class="form-actions"><button type="submit" class="button">Remove photo</button></div>
+    </form>
+    {% endif %}
+  </div>
+  </details>
+</section>

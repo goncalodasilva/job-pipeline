@@ -1,0 +1,28 @@
+{# Settings > CV templates (M6.6; ADR-106 items 3, 6 and 12): one template per country, drafted by
+   the AI once and approved by you, then reused by every application in that country. Needs
+   `cv_templates` (app/api/settings_templates.py). It holds no personal data, so the token-free
+   Settings page carries it. The list refreshes itself on the body's `templates-changed` event (a
+   template was saved, approved or drafted in the editor or on an application's CV step) with a GET
+   that changes nothing and takes no focus; only the list is replaced, never the editor. Review
+   loads the country's unit into the editor in place and moves focus to its heading. #}
+<section id="templates-settings" class="settings-section" aria-labelledby="templates-heading">
+  <h2 id="templates-heading" tabindex="-1">CV templates</h2>
+  <p class="field-hint">A CV template says which sections a CV has and in what order, how long it is, whether it has a photo slot, which contact details it shows and how dates look. You draft one per country from an application's Tailoring tab, review every field, then approve it. Nothing about you is sent to the AI.</p>
+  <div id="template-list-box" hx-get="{{ cv_templates.base }}" hx-trigger="templates-changed from:body" hx-select="#template-list-box" hx-swap="outerHTML">
+    {% if cv_templates.rows %}
+    <ul id="template-list" class="template-list">
+      {% for row in cv_templates.rows %}
+      <li id="template-{{ row.code }}" data-country="{{ row.code }}" data-status="{{ row.status }}">
+        <span class="template-name">{{ row.country }} ({{ row.code }})</span>
+        <span class="template-state">{{ "Approved" if row.status == "approved" else "Draft" }}</span>
+        {% if row.draft == "running" %}<span class="template-task">Redrafting…</span>{% elif row.draft == "failed" %}<span class="template-task">Last redraft failed</span>{% endif %}
+        <button type="button" id="template-review-{{ row.code }}" class="button" hx-get="{{ cv_templates.base }}/{{ row.code }}" hx-target="#template-editor" hx-swap="innerHTML" hx-select="unset">Review {{ row.country }} template</button>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p id="template-empty">No templates yet. Open the CV step of an application's Tailoring tab to draft one for its country.</p>
+    {% endif %}
+  </div>
+  <div id="template-editor"></div>
+</section>

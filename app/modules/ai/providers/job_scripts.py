@@ -96,3 +96,42 @@ def angles_scripts() -> KeywordScript:
             ("fake-angles-four", ScriptedResponse(data=four)),
         ),
     )
+
+
+def cv_template_scripts() -> KeywordScript:
+    # A plain practice template: the fake never reads the country, style or note. The notes
+    # say it is practice data, so a person reviewing it is not misled. It cannot see the
+    # style; resolve_template_draft pins the page and photo choices afterwards (and rewrites
+    # the note of a field it changed), so the stored draft is coherent with the choices.
+    ok: dict[str, Any] = {
+        "template": {
+            "sections": [
+                {"id": "summary"},
+                {"id": "experience"},
+                {"id": "education"},
+                {"id": "skills"},
+                {"id": "languages"},
+            ],
+            "max_pages": 2,
+            "photo_slot": True,
+            "details_shown": ["email", "phone", "location", "links"],
+            "date_format": "month_year",
+            "page_size": "A4",
+        },
+        "notes": {
+            "sections": "Practice data: a plain section order, not read from the country.",
+            "max_pages": "Practice data: two pages, whatever length was asked for.",
+            "photo_slot": "Practice data: a photo slot, used only if you add a photo.",
+            "details_shown": "Practice data: the usual contact details.",
+            "date_format": "Practice data: month and year.",
+            "page_size": "Practice data: A4.",
+        },
+    }
+    four_pages = {"template": {**ok["template"], "max_pages": 4}, "notes": ok["notes"]}
+    return KeywordScript(
+        default=ScriptedResponse(data=ok),
+        by_keyword=(
+            ("fake-template-malformed", ScriptedResponse(raw_text="fictional malformed template")),
+            ("fake-template-four-pages", ScriptedResponse(data=four_pages)),
+        ),
+    )

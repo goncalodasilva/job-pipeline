@@ -20,6 +20,8 @@ M6.4 sweep (2026-10-25): TD-279 (rowid-replace path in older tables) and TD-280 
 
 M6.5 sweep (2026-10-25): TD-281 (retry route skips the budget gate for the two M6.5 tasks, see TD-171) and TD-282 (fact length limit only in the workspace route) added.
 
+M6.6 sweep (2026-10-26): TD-283 (template note in the task row) and TD-284 (redraft overwrites edits saved while it runs) added.
+
 M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolved the table drawer links, due markers and reminder response refreshes; this task documents the local-page/privacy boundaries and HX-Current-URL. Prior checkpoints are recorded in PROGRESS. Remaining M5 limits are TD-266–TD-276 below; TD-257 also covers contacts and application history.
 
 ## 1. Security and hardening
@@ -172,6 +174,8 @@ M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolv
 | TD-280 | The Your details form (M6.6) validates with pydantic models whose `str(error)`, `.errors()` and `input_value` contain the entered name, email and phone. | M6.4 security review | medium: contact details could reach a response or a log | Map errors to field names only, never log or render `str(exc)` or `exc.errors()`; add a test that a refused form never echoes the entered values in the response or captured logs. |
 | TD-281 | The generic `POST /tasks/{id}/retry` route re-queues `gap_check` and `propose_angles` without the budget gate, as it does for the fit and summary tasks (TD-171). | M6.5 security review; TD-171 | low: hard blocks still apply, only the warning dialog is skipped | Resolve together with TD-171. |
 | TD-282 | The 10,000-character limit on a fact entered through the workspace "Add a fact" form is enforced in `app/api/tailoring.py` only. Other fact entry points rely on the 64 KB form cap. | M6.5 security review | low: one very long fact makes every later prompt larger | Move the limit into `app/services/facts.py` (validation) so every entry point shares it. |
+| TD-283 | The free-text note (up to 300 characters) for `draft_cv_template` is stored in `tasks.input_ref`. Other tasks store only ids and the tier there. | M6.6 security review; spec 2.10 | low: nothing reads `input_ref` into a response or log, but it persists in the task row | Keep the note out of the task row (a small content table keyed by task id) or clear it when the task finishes, and add a leak-scan allowlist entry. |
+| TD-284 | Saving a CV template while a redraft for the same country runs lets the redraft overwrite the saved edits when it finishes. | M6.6 code review | low: the draft is reviewed again before approval, but typed edits are lost | Refuse or queue the save while a redraft runs, or write the redraft as a pending row. |
 
 ## 6. Usage and budgets
 

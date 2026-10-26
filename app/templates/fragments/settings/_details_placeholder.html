@@ -1,0 +1,10 @@
+{# Settings > Your details on the token-free Settings page (M6.6; spec 2.9 rule 13). The page
+   itself carries no contact detail and no photo: this placeholder fetches the protected section
+   (GET /settings/details) as soon as it loads, with the launch token htmx sends on every
+   request, and the answer replaces it. Loading takes no focus and announces nothing. #}
+<section id="details-settings" class="settings-section" aria-labelledby="details-heading"
+         hx-get="/settings/details" hx-trigger="load" hx-swap="outerHTML">
+  <h2 id="details-heading">Your details</h2>
+  <p class="field-hint">Loading your details…</p>
+  <noscript><p class="field-hint">Your details need scripts to load here.</p></noscript>
+</section>

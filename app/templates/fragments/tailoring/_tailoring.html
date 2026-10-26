@@ -17,8 +17,16 @@
   </nav>
   <h4 id="tailoring-heading" tabindex="-1"{% if tailoring.autofocus %} data-autofocus{% endif %}>Step {{ tw.step }}: {{ tailoring.titles[tw.step] }}</h4>
   {% if tailoring.already %}<p id="already-running" class="notice">{{ tailoring.message }}</p>{% endif %}
+  {% include "fragments/tailoring/_country.html" %}
   {% if tw.step == 1 %}{% include "fragments/tailoring/_gap_check.html" %}
   {% elif tw.step == 2 %}{% include "fragments/tailoring/_angle.html" %}
-  {% else %}<p>{{ tailoring.later }}</p>{% endif %}
+  {% else %}
+    {% if tw.step == 3 %}
+      {# The country's CV template (M6.6): drafted once, approved, then reused by every application in that country. #}
+      {% if tailoring.template_unit %}{% with unit = tailoring.template_unit %}{% include "fragments/settings/_template_unit.html" %}{% endwith %}
+      {% else %}<p class="field-hint">Choose a CV country above to draft its template.</p>{% endif %}
+    {% endif %}
+    <p>{{ tailoring.later }}</p>
+  {% endif %}
   {% if tailoring.dialog %}{% with budget_dialog = tailoring.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}
 </section>

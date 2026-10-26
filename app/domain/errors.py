@@ -664,3 +664,18 @@ class RenderFailed(AppError):
 
     kind = "RenderFailed"
     message = "The document couldn't be turned into a PDF."
+
+
+class DetailsNotSaved(AppError):
+    """Saving the contact details failed in the database. ``detail`` is an error type only."""
+
+    kind = "DetailsNotSaved"
+    message = "Your details couldn't be saved. Nothing was changed. Try again."
+
+
+class PhotoNotSaved(AppError):
+    """Storing or removing the CV photo failed (the folder, the file or the database).
+    ``detail`` is an error type only; the photo and the setting are as they were."""
+
+    kind = "PhotoNotSaved"
+    message = "The photo couldn't be saved or removed. Nothing was changed. Try again."

@@ -54,6 +54,8 @@ from app.api.reminders import register_reminder_routes
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.api.settings import register_settings_pages
 from app.api.settings_board import register_board_settings_routes
+from app.api.settings_details import register_details_routes
+from app.api.settings_templates import register_template_routes
 from app.api.settings_usage import register_usage_settings
 from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
@@ -125,6 +127,7 @@ from app.services.cv_import import (
     import_target,
     sweep_orphan_imports,
 )
+from app.services.cv_templates import DRAFT_LABEL, CvTemplateService
 from app.services.fact_duplicates import FactDuplicates
 from app.services.fact_editor import FactEditor
 from app.services.fact_history import FactHistory
@@ -142,6 +145,7 @@ from app.services.job_fit import ASSESS_FIT, FIT_LABEL, JobFitService
 from app.services.job_intake import JobIntakeService
 from app.services.job_summary import SUMMARIZE_JOB, SUMMARIZE_LABEL, JobSummaryService
 from app.services.job_triage import JobTriageService
+from app.services.personal_details import PersonalDetailsService, sweep_orphan_photos
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.reminders import ReminderRules, ReminderService
@@ -157,12 +161,14 @@ from app.services.tailoring import (
 from app.services.tailoring_ai import GAP_CHECK, PROPOSE_ANGLES
 from app.services.task_views import TaskView, TaskViews, failed_message
 from app.services.tasks import TaskService
+from app.services.template_ai import DRAFT_CV_TEMPLATE
 from app.services.today import TodayService
 from app.services.usage import UsageService
 from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
 from app.tasks.cv_import import cv_import_handler
+from app.tasks.cv_templates import draft_cv_template_handler
 from app.tasks.fact_refine import fact_refine_handler
 from app.tasks.job_fit import job_fit_handler
 from app.tasks.job_summary import job_summary_handler
@@ -323,8 +329,9 @@ def _prepare_workspace(
 ) -> ProviderHealth:
     """Run when a workspace opens, before logging moves into it and before its task service
     is handed to the runner: clear leftover AI call folders, mark tasks a killed process left
-    running as interrupted (ADR-076 item 10), remove stored CV files no import names (M3.4:
-    the folder lock is held, the database is migrated and no upload can be stored yet), mark
+    running as interrupted (ADR-076 item 10), remove stored photo files no setting names (M6.6)
+    and stored CV files no import names (M3.4: the folder lock is held, the database is
+    migrated and no upload can be stored yet), mark
     the CV import step done when the fact bank already holds something (M3.7; ADR-052), then
     check the provider (ADR-049, ADR-057), which refreshes the setup decision."""
     try:
@@ -341,6 +348,11 @@ def _prepare_workspace(
         sweep_orphan_imports(folder, db)
     except sqlite3.Error as error:
         detail = f"can't list imports ({type(error).__name__})"
+        raise DataFolderUnavailable(detail=detail) from None
+    try:
+        sweep_orphan_photos(folder, db)
+    except sqlite3.Error as error:
+        detail = f"can't read the photo setting ({type(error).__name__})"
         raise DataFolderUnavailable(detail=detail) from None
     _mark_cv_import_if_started(db, registry=registry, clock=clock)
     return _check_provider(db, wiring=wiring, onboarding=onboarding, registry=registry, clock=clock)
@@ -696,6 +708,27 @@ def _tailoring(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) ->
         return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
 
     return TailoringService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=workspace,
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None),
+        usage=_open_usage(app),
+    )
+
+
+def _cv_templates(
+    app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory
+) -> CvTemplateService:
+    def workspace() -> Workspace | None:
+        return getattr(app.state, "workspace", None)
+
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
+
+    return CvTemplateService(
         factory=wiring,
         clock=clock,
         ids=ids,
@@ -1101,6 +1134,14 @@ def create_app(
             job_fit_handler(app.state.job_fit),
         )
     app.state.tailoring = _tailoring(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    # Settings > Your details (M6.6): the setting and the photo file; no AI task reads them.
+    app.state.cv_templates = _cv_templates(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.personal_details = PersonalDetailsService(
+        lambda: _current_db(app),
+        app_clock,
+        app_ids,
+        lambda: getattr(getattr(app.state, "workspace", None), "data_dir", None),
+    )
     if task_registry is None:
         handlers.register(
             GAP_CHECK,
@@ -1111,6 +1152,11 @@ def create_app(
             PROPOSE_ANGLES,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), PROPOSE_ANGLES_LABEL),
             propose_angles_handler(app.state.tailoring),
+        )
+        handlers.register(
+            DRAFT_CV_TEMPLATE,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), DRAFT_LABEL),
+            draft_cv_template_handler(app.state.cv_templates),
         )
     app.state.job_intake = JobIntakeService(
         lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()
@@ -1187,6 +1233,8 @@ def create_app(
     register_settings_pages(app)
     register_usage_settings(app)
     register_board_settings_routes(app)
+    register_details_routes(app)
+    register_template_routes(app)
     register_task_routes(app)
     register_fact_import_routes(app)
     # Before the fact pages: their "{id:path}/discard" would also match ".../refine/discard".

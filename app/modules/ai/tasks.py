@@ -36,5 +36,8 @@ _SPECS: Final = (
     TaskSpec("gap_check", kind="feedback"),
     # M6.5: two or three positioning angles built from the confirmed facts; never a new claim.
     TaskSpec("propose_angles", kind="feedback"),
+    # M6.6: a country's CV layout from the country, style choices and a short note only; no
+    # facts and no personal details reach it, so it is a plain summary (no honesty notice).
+    TaskSpec("draft_cv_template", kind="summary"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

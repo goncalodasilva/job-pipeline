@@ -1226,3 +1226,29 @@ The drawer and page share the timeline and editors; drawer status moves use the 
   - Gap check and angles send the full posting and requirements (up to about 12k tokens) on the Thorough tier. This is an open limit (see the M6.5 Evidence line).
   - The injection limit TD-241 applies: a model that obeys a posting and cites a valid fact keeps its verdicts. The page shows the user's fact wording next to each verdict.
   - The generic `POST /tasks/{id}/retry` route re-queues without the budget gate (inherited, TD-281).
+
+## ADR-112 — M6.6 details, photo and CV template decisions (2026-10-26)
+
+- Context: M6.6 added Settings > Your details (versioned personal details and a photo), the per-application country select, the `draft_cv_template` task, the template review form and Settings > CV templates. The plan left several details open. The build and its reviews settled them. The refill rule for refused forms was a lead decision, based on `.claude/rules/ui-htmx.md`. No user decision is recorded for the other items.
+- Decision:
+  1. A refused details form refills the typed values, escaped. Error texts and logs never contain entered values (TD-280). The lead chose this reading of `ui-htmx.md`, which keeps typed text. The test author's stricter reading, that a refused form shows no typed values at all, was changed to match.
+  2. "Your details" is a collapsed native disclosure, with its heading above it. It is closed on the lazy GET and open in every POST answer. The first version added ten tab stops and broke the 120-Tab test in `tests/e2e/test_setup_provider_test.py`; collapsing it keeps that test unchanged.
+  3. Template notes are stored inside the spec JSON wrapper: `cv_templates.spec = {"template": TemplateSpec JSON, "notes": {...}}`. Provenance stays in the discrete columns, and `tailoring_repo.template_spec()` unwraps the wrapper. No migration 0007 is added, because the M6 schema stays in 0006 (ADR-110).
+  4. The person's style choices win over the model and over the note. `max_pages` is the chosen page count, and `photo_slot` is set unless the photo choice is none. Both are pinned in code.
+  5. A duplicate section in a schema-valid answer is refused without a retry.
+  6. Approve is refused while a redraft is queued or running.
+  7. Photo forms swap only `#photo-block`.
+  8. The 5 MB cap is enforced while the upload streams, not after the whole body is read.
+  9. The orphan sweep at workspace open removes only files with generated names. It removes regular files only, never links.
+  10. A photo slot that is optional or expected both map to a slot. The slot is filled only if a photo is uploaded.
+  11. Photos are written exclusively with mode 0600, fsynced, and the new file is written before the setting that names it. The old file is deleted after the setting changes. A failure removes the new file.
+  12. Image checks read headers and metadata only, and do not decode pixels. Pixel-level validation is left to the M6.7 renderers.
+  13. `draft_cv_template` is a Thorough task of kind `summary`, so the honesty notice (ADR-109) does not apply to it. Its request carries only the country, the style choices and the untrusted note. It carries no facts and no personal details. `prompts/draft_cv_template` is version 2 after prompt review.
+  14. A template is drafted once per country. Another application in the same country reuses it without a request. Approve stores `approved` and `approved_at`. An edit resets the template to draft (ADR-110 item 5).
+  15. `photo_dimensions` moves to `app/domain/images.py`, and `app/domain/rendering.py` re-exports it. The M6.2 Evidence line asked for this move.
+- Consequences:
+  - The never-use case in `tests/integration/test_m3_cross_cutting.py` drives `draft_cv_template` through `CvTemplateService` (ADR-106 item 12, pre-approved).
+  - Two lead-approved mechanical test edits: `tests/integration/test_reminders.py::test_ac_m5_5_nothing_scheduled_no_task_or_timer` gained `draft_cv_template` in both sorted lists, and `tests/integration/test_tailoring_workspace.py::test_steps_three_to_five_are_placeholders_that_say_so` ignores `form#country-form` and `#cv-template` on step 3. The second edit is needed because the required country select and the template panel contradict "no forms". The test still asserts that no other form or button exists and that the "later step" text is present.
+  - The free-text template note is stored in `tasks.input_ref`, unlike other tasks that store only ids (TD-283). The lead is adding TD-283 and TD-284 to `docs/TECH_DEBT.md`. TD-284 covers a redraft overwriting edits saved while it runs.
+  - Routes, the `assets/` folder rules and the personal-details rules still need to be written into `docs/TECHNICAL_SPEC.md` 2.9 (M6.12 spec update).
+  - Open items and checks still to run are listed in the M6.6 Evidence line in `docs/PROGRESS.md`.

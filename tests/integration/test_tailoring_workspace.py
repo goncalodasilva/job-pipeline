@@ -170,7 +170,22 @@ def test_steps_three_to_five_are_placeholders_that_say_so(tw: Tailoring, step: i
         assert re.search(r"later step", said_text(shown), re.IGNORECASE)
         assert "Coming later" in states(shown)[step]
         body = by_id(shown, "tailoring")
-        assert not [f for f in forms_in(shown, body)]  # nothing to start or save yet
+        # Nothing to start or save yet. M6.6 (lead-approved, narrow): the CV country form is on
+        # every step, and step 3 also holds the #cv-template panel; nothing else may be there.
+        allowed = [
+            e
+            for e in elements(shown)
+            if e.attrs.get("id") == "country-form"
+            or (step == 3 and e.attrs.get("id") == "cv-template")
+        ]
+        stray = [
+            e
+            for e in elements(shown)
+            if e.tag in ("form", "button")
+            and e.within(body)
+            and not any(e is a or e.within(a) for a in allowed)
+        ]
+        assert not stray, [(e.tag, e.attrs.get("id")) for e in stray]
     assert tw.post(app.id, step, "check").status_code in (404, 405)
 
 

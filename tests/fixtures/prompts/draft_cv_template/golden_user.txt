@@ -1,0 +1,13 @@
+The person's note about the template (empty when they wrote none):
+
+<untrusted_document source="user_note" id="NL">
+Keep it plain.
+</untrusted_document>
+
+The country the template is for:
+{"code": "NL", "name": "Netherlands"}
+
+The style the person chose:
+{"pages": 2, "photo": "optional"}
+
+Return only the template and its notes, as JSON matching the schema.

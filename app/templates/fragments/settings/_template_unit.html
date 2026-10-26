@@ -1,0 +1,157 @@
+{# The CV template of one country (M6.6; ADR-106 items 3, 6 and 12): draft once, review every field,
+   approve, reuse. The swap target of every answer (`#cv-template`, outerHTML), shown on step 3 of
+   the Tailoring tab and as the editor in Settings > CV templates. `unit` comes from
+   app/api/settings_templates.py. The unit refetches itself every 2 s only while its draft task
+   runs, so typing in a form is never replaced; its forms are left out while it runs. The AI's
+   notes, headings and the person's note are escaped text, never marked safe. Exactly one element
+   of an answer takes focus: the heading after a success, the first refused control after a
+   refusal, the reload prompt after a stale version, the budget reason after a blocked start; a
+   plain load or a poll takes none. Error texts are fixed copy that never holds an entered value. #}
+{% set v = unit.view %}
+{% set lvl = unit.level %}
+{% macro attrs(name, note) -%}
+{%- set err = unit.errors.get(name) -%}
+{%- set ids = [] -%}
+{%- if err %}{% set _ = ids.append('template-error-' ~ name) %}{% endif -%}
+{%- if unit.notes.get(note) %}{% set _ = ids.append('template-note-label-' ~ note) %}{% set _ = ids.append('template-note-' ~ note) %}{% endif -%}
+{%- if ids %} aria-describedby="{{ ids | join(' ') }}"{% endif -%}
+{%- if err %} aria-invalid="true"{% if unit.first_error == name %} data-autofocus{% endif %}{% endif -%}
+{%- endmacro %}
+{# What the draft said about a field, as the draft's own reason: its class and label set it apart from this form's fixed help text, and it stays as written when the field is changed. #}
+{% macro draft_note(key) -%}
+{%- if unit.notes.get(key) %}<div class="draft-note"><span id="template-note-label-{{ key }}" class="draft-note-label">Note from the draft:</span> <p id="template-note-{{ key }}" class="draft-note-text">{{ unit.notes.get(key) }}</p></div>{% endif -%}
+{%- endmacro %}
+{% macro note_ref(key) -%}
+{%- if unit.notes.get(key) %} aria-describedby="template-note-label-{{ key }} template-note-{{ key }}"{% endif -%}
+{%- endmacro %}
+{% macro error_line(name) -%}
+{%- if unit.errors.get(name) %}<p id="template-error-{{ name }}" class="field-error">{{ unit.errors.get(name) }}</p>{% endif -%}
+{%- endmacro %}
+{% macro draft_form(label) %}
+{% set d = unit.draft %}
+<form id="template-draft-form" method="post" action="{{ unit.base }}/{{ unit.code }}/draft" hx-post="{{ unit.base }}/{{ unit.code }}/draft" hx-target="#cv-template" hx-swap="outerHTML" hx-disabled-elt="find button" novalidate>
+  <p class="field-hint">The AI is asked only for the country and the choices below. Nothing about you or any job is sent. You review the result before it is used.</p>
+  <div class="field">
+    <label for="template-pages">Length</label>
+    <select id="template-pages" name="pages"{% if unit.draft_errors.get('pages') %} aria-invalid="true" aria-describedby="template-draft-error-pages"{% if unit.first_draft_error == 'pages' %} data-autofocus{% endif %}{% endif %}>
+      {% for value, text in unit.page_options %}<option value="{{ value }}"{% if value == d.pages %} selected{% endif %}>{{ text }}</option>{% endfor %}
+    </select>
+    {% if unit.draft_errors.get('pages') %}<p id="template-draft-error-pages" class="field-error">{{ unit.draft_errors.get('pages') }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="template-photo">Photo</label>
+    <select id="template-photo" name="photo" aria-describedby="{% if unit.draft_errors.get('photo') %}template-draft-error-photo {% endif %}template-photo-hint"{% if unit.draft_errors.get('photo') %} aria-invalid="true"{% if unit.first_draft_error == 'photo' %} data-autofocus{% endif %}{% endif %}>
+      {% for value, text in unit.photo_options %}<option value="{{ value }}"{% if value == d.photo %} selected{% endif %}>{{ text }}</option>{% endfor %}
+    </select>
+    <p id="template-photo-hint" class="field-hint">A photo shows only if the template has a photo slot and you've uploaded one in Settings &gt; Your details. Some countries' CVs usually include one and others usually leave it out.</p>
+    {% if unit.draft_errors.get('photo') %}<p id="template-draft-error-photo" class="field-error">{{ unit.draft_errors.get('photo') }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="template-note">Note (optional)</label>
+    <textarea id="template-note" name="note" rows="3" maxlength="{{ unit.max_note }}" aria-describedby="{% if unit.draft_errors.get('note') %}template-draft-error-note {% endif %}template-note-hint"{% if unit.draft_errors.get('note') %} aria-invalid="true"{% if unit.first_draft_error == 'note' %} data-autofocus{% endif %}{% endif %}>{{ d.note }}</textarea>
+    <p id="template-note-hint" class="field-hint">A short wish about the style, up to {{ unit.max_note }} characters. It is sent as text to consider, never as an instruction.</p>
+    {% if unit.draft_errors.get('note') %}<p id="template-draft-error-note" class="field-error">{{ unit.draft_errors.get('note') }}</p>{% endif %}
+  </div>
+  {% if unit.reason %}{% with budget_blocked = unit.reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}{% endif %}
+  <div class="form-actions"><button id="template-draft-start" class="button" type="submit"{% if unit.blocked %} aria-disabled="true"{% if unit.reason %} aria-describedby="{{ unit.reason.id }}"{% endif %}{% endif %}>{{ label }}</button></div>
+</form>
+{% endmacro %}
+<section id="cv-template" class="cv-template" data-country="{{ unit.code }}" data-state="{{ unit.state }}" aria-labelledby="cv-template-heading"
+         {% if unit.polling %}hx-get="{{ unit.base }}/{{ unit.code }}" hx-trigger="{% if unit.refresh_once %}load, {% endif %}every 2s, tasks:updated from:body" hx-swap="outerHTML"{% endif %}>
+  <h{{ lvl }} id="cv-template-heading" tabindex="-1"{% if unit.autofocus %} data-autofocus{% endif %}>CV template: {{ unit.country }}</h{{ lvl }}>
+  {% if unit.conflict %}
+    {% with reload_id='template-reload', reload_message=unit.conflict_message, reload_detail='Your change was not saved. This template changed in another tab and now shows the latest. Check it and try again.', reload_url=unit.settings_url, reload_link='Reload' %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}
+  {% endif %}
+  {% if unit.busy %}<p id="template-busy" class="field-error" tabindex="-1" data-autofocus>{{ unit.busy }}</p>{% endif %}
+  {% if v.spec %}
+    {% if v.practice %}<p class="badge badge-practice">{{ unit.practice_notice }}</p>{% endif %}
+    <p id="template-status" class="template-status">{% if v.status == 'approved' %}<strong>Approved.</strong>{% if v.approved_at %} Approved on <time datetime="{{ v.approved_at }}">{{ v.approved_at[:10] }} at {{ v.approved_at[11:16] }} UTC</time>.{% endif %} Applications in {{ unit.country }} use it.{% else %}<strong>Draft: not approved yet.</strong> Review it, then approve it to use it.{% endif %}</p>
+  {% endif %}
+  {% if unit.polling %}
+    <p id="template-running" role="status" hx-preserve>Drafting a template for {{ unit.country }}… Approving is paused until the draft is ready.</p>
+  {% else %}
+    {% if unit.error %}<p id="template-failed" role="alert" class="field-error">{{ unit.error }}</p>{% endif %}
+    {% if v.spec %}
+    <form id="template-form" class="template-form" method="post" action="{{ unit.base }}/{{ unit.code }}" hx-post="{{ unit.base }}/{{ unit.code }}" hx-target="#cv-template" hx-swap="outerHTML" hx-disabled-elt="find button" novalidate>
+      <input type="hidden" name="version" value="{{ unit.form_version }}">
+      <p class="field-hint">Each "Note from the draft" is the AI's reason for its first suggestion. It stays as written when you change a field.</p>
+      <fieldset class="template-group"{{ note_ref('sections') }}>
+        <legend>Sections and order</legend>
+        {{ draft_note('sections') }}
+        <p class="field-hint">Up to {{ unit.slots | length }} slots, in the order they appear. Leave a slot empty to skip it. A heading is optional and replaces the section's usual name.</p>
+        {% for n in unit.slots %}
+        {% set sname = 'section_' ~ n %}
+        {% set hname = 'heading_' ~ n %}
+        <div class="template-slot">
+          <div class="field">
+            <label for="template-section-{{ n }}">Section {{ n }}</label>
+            <select id="template-section-{{ n }}" name="{{ sname }}"{{ attrs(sname, '') }}>
+              <option value=""{% if not unit.shown[sname] %} selected{% endif %}>(none)</option>
+              {% for value, text in unit.section_options %}<option value="{{ value }}"{% if unit.shown[sname] == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+            </select>
+            {{ error_line(sname) }}
+          </div>
+          <div class="field">
+            <label for="template-heading-{{ n }}">Heading for section {{ n }}</label>
+            <input id="template-heading-{{ n }}" name="{{ hname }}" type="text" maxlength="40" autocomplete="off" value="{{ unit.shown[hname] }}"{{ attrs(hname, '') }}>
+            {{ error_line(hname) }}
+          </div>
+        </div>
+        {% endfor %}
+      </fieldset>
+      <div class="field">
+        <label for="template-max-pages">Maximum pages</label>
+        <select id="template-max-pages" name="max_pages"{{ attrs('max_pages', 'max_pages') }}>
+          {% for value, text in unit.page_options %}<option value="{{ value }}"{% if unit.shown.get('max_pages') == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+        </select>
+        {{ draft_note('max_pages') }}
+        {{ error_line('max_pages') }}
+      </div>
+      <div class="field field-check">
+        <input id="template-photo-slot" type="checkbox" name="photo_slot" value="1"{% if unit.shown.get('photo_slot') %} checked{% endif %} aria-describedby="{% if unit.notes.get('photo_slot') %}template-note-label-photo_slot template-note-photo_slot {% endif %}template-photo-slot-hint">
+        <label for="template-photo-slot">Photo slot</label>
+      </div>
+      {{ draft_note('photo_slot') }}
+      <p id="template-photo-slot-hint" class="field-hint">A photo shows only if the template has a photo slot and you've uploaded one in Settings &gt; Your details. Some countries' CVs usually include one and others usually leave it out.</p>
+      <fieldset class="template-group"{{ note_ref('details_shown') }}>
+        <legend>Details in the CV header</legend>
+        {{ draft_note('details_shown') }}
+        <p class="field-hint">Your name is always shown.</p>
+        {% for value, text in unit.detail_options %}
+        <div class="field field-check">
+          <input id="template-detail-{{ value }}" type="checkbox" name="detail_{{ value }}" value="1"{% if unit.shown.get('detail_' ~ value) %} checked{% endif %}>
+          <label for="template-detail-{{ value }}">{{ text }}</label>
+        </div>
+        {% endfor %}
+      </fieldset>
+      <div class="field">
+        <label for="template-date-format">Date format</label>
+        <select id="template-date-format" name="date_format"{{ attrs('date_format', 'date_format') }}>
+          {% for value, text in unit.date_options %}<option value="{{ value }}"{% if unit.shown.get('date_format') == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+        </select>
+        {{ draft_note('date_format') }}
+        {{ error_line('date_format') }}
+      </div>
+      <div class="field">
+        <label for="template-page-size">Page size</label>
+        <select id="template-page-size" name="page_size"{{ attrs('page_size', 'page_size') }}>
+          {% for value, text in unit.size_options %}<option value="{{ value }}"{% if unit.shown.get('page_size') == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+        </select>
+        {{ draft_note('page_size') }}
+        {{ error_line('page_size') }}
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="button" name="action" value="save">Save changes</button>
+        <button type="submit" class="button button-primary" name="action" value="approve">Approve template</button>
+      </div>
+    </form>
+    <details id="template-redraft"{% if unit.draft_open %} open{% endif %}>
+      <summary>Redraft this template</summary>
+      {{ draft_form('Draft again') }}
+    </details>
+    {% else %}
+      {{ draft_form('Draft a template for ' ~ unit.country) }}
+    {% endif %}
+  {% endif %}
+  {% if unit.dialog %}{% with budget_dialog = unit.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}
+</section>

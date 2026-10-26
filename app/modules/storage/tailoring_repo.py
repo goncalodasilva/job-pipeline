@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from pydantic import ValidationError
+
+from app.domain.cv_templates import TemplateSpec
 from app.domain.errors import VersionConflict
 
 
@@ -198,12 +201,18 @@ def insert_angle(
 
 
 def insert_workspace(
-    conn: sqlite3.Connection, *, id: str, application_id: str, angle_id: str, now: str
+    conn: sqlite3.Connection,
+    *,
+    id: str,
+    application_id: str,
+    angle_id: str | None,
+    now: str,
+    cv_country: str | None = None,
 ) -> None:
     conn.execute(
-        "INSERT INTO workspaces (id, application_id, angle_id, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (id, application_id, angle_id, now, now),
+        "INSERT INTO workspaces (id, application_id, cv_country, angle_id, created_at, "
+        "updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (id, application_id, cv_country, angle_id, now, now),
     )
 
 
@@ -327,3 +336,130 @@ def latest_task(
     """(id, status, error, attempt) of the active task, else the latest, for a dedupe key."""
     row = conn.execute(_LATEST_TASK, (dedupe_key,)).fetchone()
     return (row[0], row[1], row[2], row[3]) if row else None
+
+
+# --- country CV templates (M6.6) ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StoredTemplate:
+    """A ``cv_templates`` row; ``data`` is the checked ``spec`` column (template and notes)."""
+
+    id: str
+    country: str
+    status: str
+    data: dict[str, Any]
+    spec_json: str  # the column's text, for ``template_spec``
+    approved_at: str | None
+    provider: str | None
+    version: int
+
+
+def template_spec(spec_json: str) -> TemplateSpec:
+    """The closed spec inside a ``cv_templates.spec`` text (``{"template": ..., "notes": ...}``);
+    the notes play no part. ``ValueError`` for text that is not a valid spec."""
+    try:
+        loaded = json.loads(spec_json)
+    except (TypeError, ValueError):
+        raise ValueError("The stored template is not valid.") from None
+    if not isinstance(loaded, dict) or not isinstance(loaded.get("template"), dict):
+        raise ValueError("The stored template is not valid.")
+    try:
+        return TemplateSpec.model_validate(loaded["template"])
+    except ValidationError:
+        raise ValueError("The stored template is not valid.") from None
+
+
+_TEMPLATE_SELECT = (
+    "SELECT id, country, status, spec, approved_at, provider, version FROM cv_templates"
+)
+
+
+def _stored_template(row: Sequence[Any]) -> StoredTemplate:
+    return StoredTemplate(
+        row[0], row[1], row[2], json.loads(row[3]), row[3], row[4], row[5], int(row[6])
+    )
+
+
+def get_template(conn: sqlite3.Connection, country: str) -> StoredTemplate | None:
+    row = conn.execute(_TEMPLATE_SELECT + " WHERE country = ?", (country,)).fetchone()
+    return _stored_template(row) if row else None
+
+
+def list_templates(conn: sqlite3.Connection) -> tuple[StoredTemplate, ...]:
+    rows = conn.execute(_TEMPLATE_SELECT + " ORDER BY country")
+    return tuple(_stored_template(row) for row in rows)
+
+
+def put_drafted_template(
+    conn: sqlite3.Connection,
+    *,
+    id: str,
+    country: str,
+    data: dict[str, Any],
+    provider: str,
+    model: str,
+    prompt_id: str,
+    prompt_version: str,
+    task_id: str,
+    now: str,
+) -> None:
+    """Store a fresh AI draft: a new row, or the country's existing row put back to a draft
+    (new spec, notes and provenance; ``version`` + 1). Call inside the task's result
+    transaction, which holds the write lock."""
+    spec = json.dumps(data, ensure_ascii=False)
+    existing = conn.execute(
+        "SELECT version FROM cv_templates WHERE country = ?", (country,)
+    ).fetchone()
+    if existing is None:
+        conn.execute(
+            "INSERT INTO cv_templates (id, country, status, spec, approved_at, provider, model, "
+            "prompt_id, prompt_version, task_id, created_at, updated_at) "
+            "VALUES (?, ?, 'draft', ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+            (id, country, spec, provider, model, prompt_id, prompt_version, task_id, now, now),
+        )
+        return
+    result = conn.execute(
+        "UPDATE cv_templates SET status = 'draft', spec = ?, approved_at = NULL, provider = ?, "
+        "model = ?, prompt_id = ?, prompt_version = ?, task_id = ?, updated_at = ?, "
+        "version = version + 1 WHERE country = ? AND version = ?",
+        (
+            spec,
+            provider,
+            model,
+            prompt_id,
+            prompt_version,
+            task_id,
+            now,
+            country,
+            existing[0],
+        ),
+    )
+    if result.rowcount != 1:
+        raise VersionConflict()
+
+
+def update_template(
+    conn: sqlite3.Connection,
+    country: str,
+    *,
+    data: dict[str, Any],
+    approved_at: str | None,
+    now: str,
+    expected_version: int,
+) -> None:
+    """Store the edited spec: approved when ``approved_at`` is given, else back to a draft."""
+    result = conn.execute(
+        "UPDATE cv_templates SET status = ?, spec = ?, approved_at = ?, updated_at = ?, "
+        "version = version + 1 WHERE country = ? AND version = ?",
+        (
+            "draft" if approved_at is None else "approved",
+            json.dumps(data, ensure_ascii=False),
+            approved_at,
+            now,
+            country,
+            expected_version,
+        ),
+    )
+    if result.rowcount != 1:
+        raise VersionConflict()

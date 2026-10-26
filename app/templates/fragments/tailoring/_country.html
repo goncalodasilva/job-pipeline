@@ -1,0 +1,30 @@
+{# The CV country of this application (M6.6; ADR-106 item 6), on every step. It shows the
+   workspace's country, else the country in the job preferences (read when shown, never copied).
+   Saving stores it on the workspace row (version checked). A code outside the list is tied to the
+   select; a stale version shows the reload prompt here. The form is left out while a step's task
+   runs, because the step refetches itself then and would drop an unsaved choice. #}
+{% set tw = tailoring.view %}
+{% set posted = tailoring.country_form %}
+{% if not tailoring.polling %}
+<form id="country-form" method="post" action="/applications/{{ tw.application_id }}/tailoring/country" hx-post="/applications/{{ tw.application_id }}/tailoring/country" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+  <input type="hidden" name="version" value="{{ tw.workspace_version }}">
+  {% if posted and posted.conflict %}
+    {% with reload_id='country-reload', reload_message=tailoring.conflict_message, reload_detail='Reload the page to see the latest country and choose again.', reload_url='/applications/' ~ tw.application_id ~ '?tab=tailoring&step=' ~ tw.step %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}
+  {% endif %}
+  <div class="field">
+    <label for="cv-country">CV country</label>
+    <div id="country-row" class="country-row">
+    <select id="cv-country" name="cv_country" aria-describedby="{% if posted and posted.error %}cv-country-error {% endif %}cv-country-hint cv-country-note"{% if posted and posted.error %} aria-invalid="true" data-autofocus{% endif %}>
+      {% if not tw.cv_country %}<option value="" selected>Choose a country</option>{% endif %}
+      {% for code, name in tailoring.countries %}
+      <option value="{{ code }}"{% if code == tw.cv_country %} selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+    <button class="button" type="submit">Save country</button>
+    </div>
+    <p id="cv-country-hint" class="field-hint">CV conventions differ between countries, such as length and which personal details to include. This applies to this application only.</p>
+    <p id="cv-country-note" class="field-hint">Choosing a country keeps this application on your list. Saving refreshes this step, so save anything you have typed below first.</p>
+    {% if posted and posted.error %}<p id="cv-country-error" class="field-error">{{ posted.error }}</p>{% endif %}
+  </div>
+</form>
+{% endif %}

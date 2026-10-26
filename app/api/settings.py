@@ -55,6 +55,7 @@ from app.api.budget_gate import dialog_context, reason_context, refusal_message
 from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
+from app.api.settings_templates import section_context
 from app.api.setup_redirect import setup_step_path
 from app.api.templating import render, renders_fragment, templates
 from app.api.usage_forms import (
@@ -333,6 +334,8 @@ def _render(
             "usage": usage_context(request, usage) if shows_usage else None,
             "usage_panel": panel_context(request) if shows_panel else None,
             "board": board_context(request, board) if shows_board else None,
+            # Settings > CV templates (M6.6): read only; holds no personal data.
+            "cv_templates": section_context(request) if shows_panel else None,
             # Keyboard shortcuts (M4.7): its own block, saved by app/api/inbox.py.
             "shortcuts": request.app.state.inbox_views.shortcuts() if shows_panel else None,
             "shortcuts_saved": False,
