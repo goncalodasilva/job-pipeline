@@ -62,6 +62,7 @@ from app.api.settings_templates import register_template_routes
 from app.api.settings_usage import register_usage_settings
 from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
+from app.api.submit_step import register_submit_routes
 from app.api.tailoring import register_tailoring_routes
 from app.api.tasks import register_task_routes
 from app.api.templating import STATIC_DIR, STATIC_URL
@@ -132,6 +133,8 @@ from app.services.cv_import import (
 )
 from app.services.cv_templates import DRAFT_LABEL, CvTemplateService
 from app.services.documents import TAILOR_CV_LABEL, DocumentService
+from app.services.export_files import sweep_orphan_exports
+from app.services.exports import ExportService
 from app.services.fact_duplicates import FactDuplicates
 from app.services.fact_editor import FactEditor
 from app.services.fact_history import FactHistory
@@ -364,6 +367,11 @@ def _prepare_workspace(
         sweep_orphan_photos(folder, db)
     except sqlite3.Error as error:
         detail = f"can't read the photo setting ({type(error).__name__})"
+        raise DataFolderUnavailable(detail=detail) from None
+    try:
+        sweep_orphan_exports(folder, db)
+    except sqlite3.Error as error:
+        detail = f"can't list exports ({type(error).__name__})"
         raise DataFolderUnavailable(detail=detail) from None
     _mark_cv_import_if_started(db, registry=registry, clock=clock)
     return _check_provider(db, wiring=wiring, onboarding=onboarding, registry=registry, clock=clock)
@@ -1186,6 +1194,16 @@ def create_app(
         app_ids,
         lambda: getattr(getattr(app.state, "workspace", None), "data_dir", None),
     )
+    app.state.exports = ExportService(
+        lambda: _current_db(app),
+        lambda: getattr(getattr(app.state, "workspace", None), "data_dir", None),
+        app_clock,
+        app_ids,
+        app.state.documents,
+        app.state.letters,
+        app.state.personal_details,
+        app_wiring.document_renderers(),
+    )
     if task_registry is None:
         handlers.register(
             GAP_CHECK,
@@ -1302,6 +1320,7 @@ def create_app(
     register_job_summary_routes(app)
     register_job_fit_routes(app)
     register_tailoring_routes(app)
+    register_submit_routes(app)
     register_cv_routes(app)
     register_letter_routes(app)
     register_job_detail_routes(app)

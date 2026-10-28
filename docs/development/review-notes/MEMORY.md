@@ -2,6 +2,8 @@
 
 Recurring issues and project-specific patterns, one line each. Keep this file short and current.
 
+- Partial export retries must retain the original rendering inputs across formats, including mutable details, photos and role headers. Semantic actions such as "mark Applied" need stable status keys rather than user-reorderable column positions (M6.10).
+
 - Marker checks must use `item.get_closest_marker(name)`, not `name in item.keywords` (keywords include node names: dirs, param ids); pytester tests should place fixtures where dir names can't mask the bug.
 - import-linter `forbidden` contracts check indirect chains by default; layered "X must not import Y" rules where X legitimately reaches Y via services need `allow_indirect_imports = true`, plus a positive self-test of the legal chain.
 - Coverage/gate scripts: check they fail closed (e.g. report without branch data must not read as 100%), and that relative paths in coverage reports are relative to the cwd at report time, not the repo root.

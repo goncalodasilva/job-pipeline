@@ -107,7 +107,6 @@ def test_tailoring_page_read_only_resume_step_derived(tw: Tailoring):
     words = states(shown.text)
     assert "Not started" in words[1] and "Not started" in words[2]
     assert "Not started" in words[3]
-    assert all("Coming later" in words[step] for step in (5,))
     assert all(TITLES[step] in words[step] for step in TITLES)
 
     # Any step opens, and exactly the open step's link is the current one.
@@ -159,35 +158,6 @@ def test_tailoring_step_shows_running_while_the_task_runs(tw: Tailoring):
     tw.r.run.hold.open()
     tw.ended(GAP_CHECK, app.id)
     assert "Done" in states(tw.fragment(app.id, 1).text)[1]
-
-
-@pytest.mark.parametrize("step", [5])
-def test_steps_three_to_five_are_placeholders_that_say_so(tw: Tailoring, step: int):
-    app = tw.ready()
-
-    for shown in (tw.page(app.id, step).text, tw.fragment(app.id, step).text):
-        assert open_step(shown) == step
-        assert f"Step {step}: {TITLES[step]}" in said_text(shown)
-        assert re.search(r"later step", said_text(shown), re.IGNORECASE)
-        assert "Coming later" in states(shown)[step]
-        body = by_id(shown, "tailoring")
-        # Nothing to start or save yet. M6.6 (lead-approved, narrow): the CV country form is on
-        # every step, and step 3 also holds the #cv-template panel; nothing else may be there.
-        allowed = [
-            e
-            for e in elements(shown)
-            if e.attrs.get("id") == "country-form"
-            or (step == 3 and e.attrs.get("id") == "cv-template")
-        ]
-        stray = [
-            e
-            for e in elements(shown)
-            if e.tag in ("form", "button")
-            and e.within(body)
-            and not any(e is a or e.within(a) for a in allowed)
-        ]
-        assert not stray, [(e.tag, e.attrs.get("id")) for e in stray]
-    assert tw.post(app.id, step, "check").status_code in (404, 405)
 
 
 def test_open_workspace_links_to_the_tailoring_tab(tw: Tailoring):

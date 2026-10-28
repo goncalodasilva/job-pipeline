@@ -183,8 +183,6 @@ def test_workspace_steps_phone_390x844_and_axe(
                 .all()
             ):
                 assert_target_size(link, f"stepper link on step {step}")
-            if step == 5:
-                expect(region(page)).to_contain_text(re.compile("later step", re.IGNORECASE))
             assert_no_serious_violations(page)
 
         # Step 1 with a result, and with a gap's "Add a fact" open.

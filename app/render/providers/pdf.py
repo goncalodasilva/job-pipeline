@@ -182,7 +182,7 @@ class PdfRenderer:
             library = _load_typst()
         except (ImportError, OSError):
             raise RendererUnavailable(UNAVAILABLE_MESSAGE) from None
-        now = self._clock.now().astimezone(UTC)
+        now = self._clock.now().astimezone(UTC).replace(microsecond=0)
         data = _template_data(document)
         root = Path(tempfile.mkdtemp(prefix="jobpipeline-render-"))
         try:

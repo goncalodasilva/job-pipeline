@@ -91,6 +91,9 @@ from app.modules.secrets.providers.keyring_store import (
     KeyringSecretStore,
 )
 from app.modules.secrets.providers.redacting import register_environment_secrets
+from app.render import DocumentRenderer
+from app.render.providers.pdf import PdfRenderer
+from app.render.providers.word import WordRenderer
 
 __all__ = [
     "AI_TEMP_FOLDER",
@@ -312,6 +315,9 @@ class Wiring:
     def calendar_provider(self) -> CalendarProvider:
         """The local file provider needs no credentials or settings."""
         return IcsCalendarProvider(self.clock)
+
+    def document_renderers(self) -> tuple[DocumentRenderer, ...]:
+        return (PdfRenderer(self.clock), WordRenderer(self.clock))
 
     def _offered(self) -> frozenset[ProviderKind]:
         return frozenset(choice.kind for choice in self.provider_choices())

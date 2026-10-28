@@ -511,10 +511,7 @@ def test_cv_step_replaces_the_step_three_placeholder(cv: CvStep):
         assert by_id(shown, "cv-heading").text == "Tailored CV"
     page = cv.page3(app.id).text
     assert open_step(page) == 3
-    # Step 5 is still a placeholder; the other steps hold no CV step.
-    for number in (5,):
-        shown = cv.fragment(app.id, number).text
-        assert "later step" in said_text(shown).lower() and "Coming later" in states(shown)[number]
+    # The other steps hold no CV step.
     for number in (1, 2, 4, 5):
         assert not has_id(cv.fragment(app.id, number).text, "cv-step"), number
 

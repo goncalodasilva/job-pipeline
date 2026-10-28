@@ -242,6 +242,20 @@ def tailoring_context(
     found["autofocus"] = (autofocus or bool(found["message"])) and found["dialog"] is None
     found["cv_state"] = step_state(document_service(request).view(aid))
     found["letter_state"] = step_state(letter_service(request).view(aid))
+    submit = request.app.state.exports.view(aid)
+    found["submit_state"] = (
+        "Done" if submit.applied else "Ready" if submit.files_done else "Not started"
+    )
+    if view.step == 5:
+        found["submit"] = {
+            "view": submit,
+            "focus": autofocus or bool(message),
+            "message": "",
+            "error": "",
+            "unavailable": "",
+            "conflict": False,
+        }
+        found["autofocus"] = False
     if view.step == 3:
         found["cv"] = cv_context(request, aid)
         found["polling"] = found["cv"]["view"].task.active

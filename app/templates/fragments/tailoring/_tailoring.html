@@ -11,7 +11,7 @@
   <nav aria-label="Tailoring steps" class="tailoring-steps">
     <ol>
     {% for item in tw.steps %}
-      {% set shown = tailoring.cv_state if item.step == 3 else tailoring.letter_state if item.step == 4 else item.state %}
+      {% set shown = tailoring.cv_state if item.step == 3 else tailoring.letter_state if item.step == 4 else tailoring.submit_state if item.step == 5 else item.state %}
       <li data-step="{{ item.step }}" data-state="{{ shown | lower | replace(' ', '-') }}"><a id="tailoring-step-{{ item.step }}" href="{{ base }}?tab=tailoring&amp;step={{ item.step }}"
          hx-get="{{ base }}/tailoring/{{ item.step }}" hx-target="#tailoring" hx-swap="outerHTML" hx-push-url="{{ base }}?tab=tailoring&amp;step={{ item.step }}"{% if item.step == tw.step %} aria-current="step"{% endif %}>{{ item.title }}: <span class="step-state">{{ shown }}</span><span class="visually-hidden">.</span></a></li>
     {% endfor %}
@@ -31,6 +31,7 @@
     {% endif %}
     {% if tw.step == 4 %}
       {% with letter = tailoring.letter %}{% include "fragments/tailoring/_letter.html" %}{% endwith %}
+    {% elif tw.step == 5 %}{% with submit = tailoring.submit %}{% include "fragments/tailoring/_submit.html" %}{% endwith %}
     {% elif tw.step != 3 %}<p>{{ tailoring.later }}</p>{% endif %}
   {% endif %}
   {% if tailoring.dialog %}{% with budget_dialog = tailoring.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}

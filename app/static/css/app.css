@@ -827,6 +827,20 @@ body.layout-guide {
   content: "Error: ";
 }
 
+#submit-files li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  margin-block: .75rem;
+  overflow-wrap: anywhere;
+}
+
+#submit-step .button {
+  max-width: 100%;
+  white-space: normal;
+}
+
 .form-actions {
   display: flex;
   flex-wrap: wrap;

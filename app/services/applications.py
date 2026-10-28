@@ -33,7 +33,7 @@ from app.domain.errors import (
 from app.domain.events import wall_time_to_utc
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.jobs import Triage, TriageAction, TriageState, apply, local_today
-from app.modules.storage import Database, applications_repo, jobs_repo, reminders_repo
+from app.modules.storage import Database, applications_repo, exports_repo, jobs_repo, reminders_repo
 from app.modules.storage.applications_repo import StoredApplication, StoredStatus
 from app.modules.storage.jobs_repo import StoredJob
 
@@ -127,7 +127,13 @@ class ApplicationService:
             return saved
 
     def move(
-        self, application_id: str, status_key: str, *, expected_version: int, source: str
+        self,
+        application_id: str,
+        status_key: str,
+        *,
+        expected_version: int,
+        source: str,
+        first_submission: bool = False,
     ) -> MoveResult:
         """Move to any status. The status, its history row and the first applied time are
         written together; a move to the current status is recorded too."""
@@ -145,6 +151,8 @@ class ApplicationService:
                 raise ApplicationNotFound()
             if current.version != expected_version:
                 raise VersionConflict()
+            if first_submission and current.applied_at is not None:
+                raise StatusNotAllowed("This application is already marked Applied.")
             target = applications_repo.get_status(conn, status_key)
             if target is None:
                 raise StatusNotAllowed()
@@ -174,10 +182,21 @@ class ApplicationService:
                 source=transition.source,
                 now=stamp,
             )
+            if current.applied_at is None and transition.applied_at is not None:
+                exports_repo.freeze(conn, application_id, transition.applied_at.isoformat())
             saved = applications_repo.get_application(conn, application_id)
             if saved is None:
                 raise ApplicationNotFound()
             return MoveResult(saved, transition.follow_up)
+
+    def mark_submitted(self, application_id: str, *, expected_version: int) -> MoveResult:
+        return self.move(
+            application_id,
+            "applied",
+            expected_version=expected_version,
+            source="drawer",
+            first_submission=True,
+        )
 
     def exists(self, application_id: str) -> bool:
         """Whether the id names a stored application (an unsafe id names none). Reads only."""
