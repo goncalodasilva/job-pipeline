@@ -1,6 +1,6 @@
 # Progress
 
-Current milestone: M6
+Current milestone: M7
 
 How to use this file: `/plan-milestone M<n>` writes a milestone's tasks here, `/run-milestone` (or `/next-task`, one at a time) works through them, and `docs-keeper` ticks each task with evidence. Scripts parse this format, so keep it: a `Current milestone:` line, `## M<n> — Title` headings, and tasks written as `- [ ] M<n>.<k> Title` with indented `AC:`, `Tests:` and `Evidence:` lines, plus optional `Checkpoint:` and `Blocked:` lines (ADR-065). Open technical debt, known limits and unverified items are listed in `docs/TECH_DEBT.md`.
 
@@ -478,7 +478,9 @@ Branch: `m5-applications-board`. Decisions for this plan: ADR-102 (ten larger ta
 
 ## M6 — Tailoring, honesty enforcement and documents
 
-Status: planned
+Status: accepted (2026-10-28)
+
+Accepted on the user's instruction without running the manual checks, explicitly deferred until after M7 acceptance. Automated verification passed at ec6c4cb. The manual checks, the carried M5 checks and the opt-in live test `test_m6_schemas_accepted_by_real_service` remain unperformed in `docs/acceptance/M6.md`. Open limits are listed there and in `docs/TECH_DEBT.md`.
 
 Acceptance carry-over: preserve and complete the unchecked M5 manual checks in `docs/acceptance/M6.md` alongside M6's own acceptance criteria. User-approved deferral: 2026-10-24.
 
@@ -725,3 +727,5 @@ Status: not planned
 - 2026-10-28: `$run-milestone M6 --max 3` completed M6.11 from a clean milestone branch with tests first. Independent code/security/UX reviews APPROVE; full verification PASS (7,886 fast/smoke, 517 e2e, 96% coverage, all critical thresholds, 15 contracts and hooks/history scan), log `/private/tmp/m6-11-verify-full.log`. Task-owned commit follows. No parked questions. Left for the user: M6 acceptance visual checks and existing limits. Continuing to M6.12, the second and final open task; M6 remains planned. No push or merge.
 
 - 2026-10-28: M6.12 done (ec6c4cb) via `/run-milestone`. M6 now has all 12 tasks ticked. Milestone acceptance steps 1–5 follow; acceptance (step 6) waits for the user. No push or merge.
+
+- 2026-10-28: M6 closed on the user's chat instruction: accepted (`Status: accepted (2026-10-28)`), with the manual checks deferred until after M7, as M5's were. Deferred and unperformed: M6's manual checks in `docs/acceptance/M6.md`, the carried M5 checks (TD-254, TD-275) and the opt-in live test `test_m6_schemas_accepted_by_real_service`. Open limits carried: TD-277, TD-290, TD-296 to TD-299, and the M6.4 stored personal-data checkpoint. Current milestone is M7 (Enrichment sessions and coverage), not planned. Branch `m6-tailoring-documents` stays local, stacked on `m5-applications-board`; no push, PR or merge. Only documentation changed in this step; no verification run.
