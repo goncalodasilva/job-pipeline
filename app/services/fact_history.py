@@ -15,6 +15,8 @@ from typing import Final
 from app.domain.diff import DiffOp, word_diff
 from app.domain.errors import format_day_time
 from app.domain.facts import FactContent
+from app.modules.storage import document_usage_repo
+from app.modules.storage.document_usage_repo import FactUse
 from app.services.fact_editor import PRIVACY_LABELS
 from app.services.fact_views import PRACTICE_PROVIDER, FactBank, local_time, open_bank
 from app.services.facts import EventView, VersionView
@@ -95,6 +97,7 @@ class HistoryView:
     fact_id: str
     events: tuple[EventLine, ...]
     versions: tuple[VersionEntry, ...]
+    used_in: tuple[FactUse, ...] = ()
 
 
 def diff_runs(old: str, new: str) -> tuple[tuple[DiffRun, ...], bool]:
@@ -158,7 +161,9 @@ class FactHistory:
             for index, version in enumerate(versions)
         ]
         lines = [EventLine(_event_label(event), *self._when(event.created_at)) for event in events]
-        return HistoryView(fact_id, tuple(reversed(lines)), tuple(reversed(entries)))
+        with bank.db.read() as conn:
+            uses = document_usage_repo.used_in(conn, (fact_id,))
+        return HistoryView(fact_id, tuple(reversed(lines)), tuple(reversed(entries)), uses)
 
     def _when(self, moment: datetime) -> tuple[str, str]:
         """The moment for a ``<time>``: with its offset, and as the page writes it."""

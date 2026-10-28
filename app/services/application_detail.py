@@ -14,7 +14,7 @@ from app.domain.events import all_day_range, wall_time_to_utc
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.jobs import local_today
 from app.modules.calendar import CalendarFile, CalendarProvider, EventData, EventType
-from app.modules.storage import Database, applications_repo, contacts_repo
+from app.modules.storage import Database, applications_repo, contacts_repo, document_usage_repo
 from app.modules.storage import application_detail_repo as repo
 from app.services.applications import _zone
 from app.services.board_views import zone_names
@@ -51,6 +51,7 @@ class ApplicationDetail:
             company_id = application["company_id"]
             on_file = contacts_repo.for_company(conn, company_id) if company_id else []
             linked = set(contacts_repo.linked_ids(conn, aid))
+            sent_documents = document_usage_repo.sent_documents(conn, aid)
         company_contacts = sorted(on_file, key=lambda c: (c["name"].casefold(), c["name"], c["id"]))
         for interaction in interactions:
             interaction["channel_label"] = CHANNELS.get(interaction["channel"], "Other")
@@ -80,6 +81,7 @@ class ApplicationDetail:
         timeline.sort(key=lambda entry: (entry["at"], entry["id"]), reverse=True)
         return {
             "application": application,
+            "sent_documents": sent_documents,
             "notes": notes,
             "events": events,
             "timeline": timeline,

@@ -22,11 +22,16 @@
     <p><a href="/inbox?view=queue">Review new jobs</a></p>
   </section>
   {% endif %}
-  {% if today.drafts %}
+  {% if today.drafts or today.document_drafts %}
   <section id="today-drafts" class="today-block" aria-labelledby="today-drafts-heading">
     <h2 id="today-drafts-heading">Drafts to review</h2>
-    <p>{{ today.drafts }} fact {{ 'draft' if today.drafts == 1 else 'drafts' }} to review.</p>
+    {% if today.drafts %}<p>{{ today.drafts }} fact {{ 'draft' if today.drafts == 1 else 'drafts' }} to review.</p>
     <p><a href="/facts?tab=drafts">Review fact drafts</a></p>
+    {% endif %}
+    {% if today.document_drafts %}
+    <p>{{ today.document_drafts|length }} document {{ 'draft' if today.document_drafts|length == 1 else 'drafts' }} awaiting approval.</p>
+    <ul>{% for doc in today.document_drafts %}<li><a href="/applications/{{ doc.application_id }}?tab=tailoring&amp;step={{ 3 if doc.kind == 'cv' else 4 }}">{{ 'CV' if doc.kind == 'cv' else 'Cover letter' }} · {{ doc.company or 'No company' }} · {{ doc.role }}</a></li>{% endfor %}</ul>
+    {% endif %}
   </section>
   {% endif %}
   {% if unfinished %}

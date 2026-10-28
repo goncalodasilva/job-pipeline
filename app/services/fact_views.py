@@ -19,7 +19,8 @@ from urllib.parse import urlencode
 from app.domain.errors import FactInputInvalid, format_day_time
 from app.domain.facts import FactStatus, FactType, Privacy
 from app.domain.tasks import is_task_id
-from app.modules.storage import Database, facts_repo
+from app.modules.storage import Database, document_usage_repo, facts_repo
+from app.modules.storage.document_usage_repo import FactUse
 from app.services.cv_import import STATE_DONE, ImportSummary
 from app.services.fact_library import FactLibrary, LibraryPage, LibraryQuery, checked_status
 from app.services.facts import FactService, FactView, fact_view
@@ -142,6 +143,7 @@ class FactItem:
     fields: tuple[EditField, ...]
     merged: bool = False
     """A draft a merge closed: its way back is "Undo merge", never "Restore draft"."""
+    used_in: tuple[FactUse, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -436,7 +438,17 @@ class FactViews:
         found = self._search(bank, params, status)
         with bank.db.read() as conn:
             counts = facts_repo.count_by_status(conn)
-        return self._results(replace(form, status=params.status), params, found, labels, counts)
+            uses = document_usage_repo.used_in(conn, tuple(item.id for item in found.items))
+        result = self._results(replace(form, status=params.status), params, found, labels, counts)
+        grouped: dict[str, list[FactUse]] = {}
+        for use in uses:
+            grouped.setdefault(use.fact_id, []).append(use)
+        return replace(
+            result,
+            items=tuple(
+                replace(item, used_in=tuple(grouped.get(item.id, ()))) for item in result.items
+            ),
+        )
 
     def _search(
         self, bank: FactBank, params: LibraryParams, status: FactStatus | None

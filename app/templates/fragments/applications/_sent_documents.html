@@ -1,0 +1,18 @@
+<section id="documents-sent" aria-labelledby="documents-sent-heading">
+  <h3 id="documents-sent-heading">Documents sent</h3>
+  {% if sent_documents %}
+  {% for doc in sent_documents %}
+  <section aria-labelledby="sent-{{ doc.kind }}-heading">
+    <h4 id="sent-{{ doc.kind }}-heading">{{ 'CV' if doc.kind == 'cv' else 'Cover letter' }} · Version {{ doc.number }}</h4>
+    <p>Recorded as sent: <time datetime="{{ doc.frozen_at }}">{{ doc.frozen_at[:10] }} {{ doc.frozen_at[11:16] }} UTC</time></p>
+    <p>Facts used:</p>
+    {% if doc.facts %}<ul>{% for fact_id, number, version in doc.facts %}
+      <li>{% if is_safe_id(fact_id) %}<a href="/facts/{{ fact_id }}/edit#fact-version-{{ version }}">F{{ number }}@{{ version }}</a>{% else %}F{{ number }}@{{ version }}{% endif %}</li>
+    {% endfor %}</ul>{% else %}<p>No facts cited.</p>{% endif %}
+    {% if doc.files %}<ul>{% for export_id, format in doc.files %}
+      {% if is_safe_id(export_id) %}<li><button type="button" class="button" data-file-download="/applications/{{ application.id }}/exports/{{ export_id }}" hidden>Download sent {{ 'CV' if doc.kind == 'cv' else 'cover letter' }} ({{ 'PDF' if format == 'pdf' else 'Word' }})</button><p data-file-status></p></li>{% endif %}
+    {% endfor %}</ul>{% else %}<p>No exported files were recorded for this version.</p>{% endif %}
+  </section>
+  {% endfor %}
+  {% else %}<p>No documents from this app were recorded as sent.</p>{% endif %}
+</section>

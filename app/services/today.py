@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 from app.domain.clock import Clock
 from app.domain.errors import format_day, format_day_time
 from app.domain.ids import is_safe_id
-from app.modules.storage import Database, today_repo
+from app.modules.storage import Database, document_usage_repo, today_repo
+from app.modules.storage.document_usage_repo import DocumentDraft
 from app.modules.storage.today_repo import JobRow
 from app.services.reminders import Notifications, ReminderService
 
@@ -32,10 +33,17 @@ class TodayView:
     strong: tuple[JobRow, ...]
     drafts: int
     statuses: tuple[tuple[str, int], ...]
+    document_drafts: tuple[DocumentDraft, ...] = ()
 
     @property
     def empty(self) -> bool:
-        return not (self.interviews or self.reminders.due or self.unseen or self.drafts)
+        return not (
+            self.interviews
+            or self.reminders.due
+            or self.unseen
+            or self.drafts
+            or self.document_drafts
+        )
 
 
 class TodayService:
@@ -63,6 +71,7 @@ class TodayService:
                 until=(now + timedelta(days=7)).isoformat(),
                 today=now.astimezone(self._zone).date().isoformat(),
             )
+            documents = document_usage_repo.document_drafts(conn)
         interviews = []
         for row in rows.interviews:
             if not is_safe_id(row.application_id):
@@ -88,4 +97,5 @@ class TodayService:
             tuple(j for j in rows.strong if is_safe_id(j.id)),
             rows.drafts,
             rows.statuses,
+            tuple(d for d in documents if is_safe_id(d.application_id)),
         )

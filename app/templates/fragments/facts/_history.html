@@ -9,6 +9,7 @@
    read, seen or copied as "6080". Wording is the user's or AI-made: always escaped. #}
 <section id="fact-history" class="fact-history" aria-labelledby="fact-history-heading"{% if oob %} hx-swap-oob="true"{% endif %}>
   <h2 id="fact-history-heading">History</h2>
+  {% with uses=history.used_in, usage_id='fact-used-in' %}{% include "fragments/facts/_used_in.html" %}{% endwith %}
   <h3 id="fact-history-events-heading">What happened</h3>
   <ol id="fact-history-events" class="history-events" aria-labelledby="fact-history-events-heading">
     {% for event in history.events %}

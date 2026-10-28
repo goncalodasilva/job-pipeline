@@ -41,6 +41,7 @@
     </details>
     {% endif %}
   </section>
+  {% include "fragments/applications/_sent_documents.html" %}
   <h3>Timeline</h3>
   <ol class="application-timeline">
   {% for entry in timeline %}{% set item = entry.item %}

@@ -1,0 +1,8 @@
+<div class="fact-used-in"{% if usage_id %} id="{{ usage_id }}"{% endif %}>
+  <p><strong>Used in</strong></p>
+  {% if uses %}
+  <ul>{% for use in uses %}
+    <li>{% if is_safe_id(use.application_id) %}<a href="/applications/{{ use.application_id }}">{{ use.company or 'No company' }} · {{ use.role }}</a>{% else %}{{ use.company or 'No company' }} · {{ use.role }}{% endif %}{% if use.sent %} · Sent{% endif %}{% if use.differs %}<p>The version sent differs from this one.</p>{% endif %}</li>
+  {% endfor %}</ul>
+  {% else %}<p>No documents use this fact yet.</p>{% endif %}
+</div>

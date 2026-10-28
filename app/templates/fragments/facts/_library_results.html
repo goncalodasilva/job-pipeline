@@ -31,6 +31,7 @@
     {% for item in library.items %}
     <div id="fact-{{ item.id }}" class="fact-card" role="listitem">
       {% include "fragments/facts/_fact_body.html" %}
+      {% with uses=item.used_in, usage_id='' %}{% include "fragments/facts/_used_in.html" %}{% endwith %}
       {% if item.status == "draft" %}
       {% if item.needs_check %}
       {% with note_id = "fact-" ~ item.id ~ "-check" %}{% include "fragments/facts/_needs_check.html" %}{% endwith %}
