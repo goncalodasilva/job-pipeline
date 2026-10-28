@@ -233,3 +233,45 @@ def tailor_cv_scripts() -> KeywordScript:
             ("fake-tailor-invented", ScriptedResponse(data=invented)),
         ),
     )
+
+
+def _practice_paragraph(text: str, fact_ids: list[str]) -> dict[str, Any]:
+    return {"text": _PRACTICE_LABEL + text, "fact_ids": fact_ids, "added_details": []}
+
+
+class _LetterScript(_TailorCvScript):
+    """The keyword script of ``draft_cover_letter``: like ``_TailorCvScript``, its well-behaved
+    answer restates, word for word, the first two usable facts it was sent, one paragraph each,
+    each cited by its id and starting "Practice data."."""
+
+    def response_for(self, text: str) -> ScriptedResponse:
+        chosen = KeywordScript.response_for(self, text)
+        if chosen is not self.default:
+            return chosen
+        facts = self._first_facts(text)
+        if not facts:
+            return self.default
+        return ScriptedResponse(
+            data={"paragraphs": [_practice_paragraph(words, [ref]) for ref, _, words in facts]}
+        )
+
+
+def draft_cover_letter_scripts() -> KeywordScript:
+    # The default is only the fallback when no fact could be read: one practice paragraph that
+    # cites nothing, so the page flags it.
+    fallback: dict[str, Any] = {
+        "paragraphs": [_practice_paragraph("No facts were read from this request.", [])]
+    }
+    invented = {
+        "paragraphs": [
+            _practice_paragraph("Led a team of 50 people at Imaginary Aerospace Corp.", ["F1@1"])
+        ]
+    }
+    return _LetterScript(
+        default=ScriptedResponse(data=fallback),
+        by_keyword=(
+            ("fake-letter-malformed", ScriptedResponse(raw_text="fictional malformed letter")),
+            ("fake-letter-status", ScriptedResponse(data={**fallback, "status": "approved"})),
+            ("fake-letter-invented", ScriptedResponse(data=invented)),
+        ),
+    )

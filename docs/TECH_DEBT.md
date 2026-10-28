@@ -24,6 +24,8 @@ M6.6 sweep (2026-10-26): TD-283 (template note in the task row) and TD-284 (redr
 
 M6.7 sweep (2026-10-26): TD-285 (no cap on the facts block), TD-286 (personal values in kept user lines), TD-287 (duplicate role labels) and TD-288 (employer in the role header under generalize names) added.
 
+M6.9 sweep (2026-10-28): TD-290 (letter frame order) to TD-295 (`units_without_fact_ids` keyed on the property name) added.
+
 M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolved the table drawer links, due markers and reminder response refreshes; this task documents the local-page/privacy boundaries and HX-Current-URL. Prior checkpoints are recorded in PROGRESS. Remaining M5 limits are TD-266–TD-276 below; TD-257 also covers contacts and application history.
 
 ## 1. Security and hardening
@@ -183,6 +185,12 @@ M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolv
 | TD-287 | Two roles with the same title and employer have the same label, so a generated line for the later stint maps to the first role and can get the wrong header dates. | M6.7 security review | low: correctness only | Flag duplicate labels or key roles by id in the facts block. |
 | TD-288 | A fact marked "generalize names" still shows its `Role:` line with the employer in the request, and the code-built role header prints that employer in the CV. | M6.7 prompt review | low: confirm this is intended under the generalize-names mode | Decide whether role headers should follow the privacy mode, and record it in an ADR. |
 | TD-289 | The CV review's Remove action has no Undo button. Earlier versions remain readable, and removed text can be copied into Add a line. | M6.8 UX review; ADR-114 | low: recovery takes extra steps | Consider a version-checked restore action with Undo, preserving the original citations and provenance. |
+| TD-290 | The letter frame renders the greeting, opening line, closing and name as one block above the paragraphs, so the letter reads out of order. The step hint says the paragraphs go between them. | M6.9 UX review (must-fix, not done); ADR-115 | medium: the letter reads out of order on the step | Split the frame into a top part and a bottom part around the paragraphs, and change the frame test. The test change needs the user's approval. |
+| TD-291 | `workspaces.letter_tone` and `workspaces.letter_length` (migration 0006) are not used. Tone and length are stored per version. | M6.9; ADR-115 | low: two unused columns in the schema | Remove or use them in a later migration. Committed migrations are never edited. |
+| TD-292 | The letter greeting and closing are English only. The M6 plan says documents are written in the facts' language. | M6.9; ADR-115; M6 plan header | medium: a letter in another language gets English frame text | Decide the frame wording for other languages with the user, and record an ADR. |
+| TD-293 | UX should-fixes not done on the letter step: the approve-disabled reason does not name the next step; the generate form comes after "Continue without a letter" when there is no draft; the two Replace checkboxes look almost the same; select options are bare words; the frame placeholder has no failure state. | M6.9 UX review (should-fix, not done) | low: harder to use and understand the step | Fix each with a test, with the UX reviewer. |
+| TD-294 | Model paragraph text is not checked for URLs or email addresses. The export (M6.10) would write it into a file. | M6.9 Left (4); ADR-115 | medium: an address or link could reach an exported letter unchecked | Check paragraph text for URLs and emails before export, with a test (M6.10). |
+| TD-295 | The test helper `units_without_fact_ids` chooses its rule by property name: any schema with a `paragraphs` property is checked as a paragraph list with no `kind`, whatever its task. | M6.9 test edit (c); ADR-115 | low: a future task whose schema uses that property name skips the kind check | Key the rule on the task or on an explicit marker, with a test. |
 
 ## 6. Usage and budgets
 

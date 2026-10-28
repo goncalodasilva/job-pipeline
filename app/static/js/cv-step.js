@@ -44,7 +44,7 @@
   document.body.addEventListener("htmx:beforeSwap", function (e) {
     var captured = requests.get(e.detail.xhr);
     if (!captured) return;
-    var saved = e.detail.xhr.status === 200 && e.detail.xhr.responseText.indexOf('id="tailoring-dialog-3"') === -1;
+    var saved = e.detail.xhr.status === 200 && e.detail.xhr.responseText.indexOf('id="tailoring-dialog-') === -1;
     captured.forEach(function (entry) {
       var laterTyping = entry.box.value !== entry.text;
       if (!saved && !laterTyping) pending.delete(entry.box);
@@ -69,7 +69,7 @@
     if (key) e.detail.headers["X-JP-CV-Seen"] = key;
   });
   function restore() {
-    var root = document.getElementById("cv-step");
+    var root = document.querySelector("#cv-step, #letter-step");
     if (!root || root.getAttribute("data-readonly") === "true") return;
     var boxes = Array.from(root.querySelectorAll("textarea[data-draft-key]"));
     var restored = false;
@@ -109,7 +109,7 @@
       restored = true;
     });
     if (restored) {
-      var note = document.getElementById("cv-draft-note");
+      var note = root.querySelector("[data-draft-note]");
       if (note.hidden) {
         note.hidden = false;
         document.body.dispatchEvent(new CustomEvent("announce", {detail: {value: note.textContent}}));

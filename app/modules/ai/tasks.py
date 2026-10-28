@@ -43,5 +43,8 @@ _SPECS: Final = (
     # Kind generation: the executor appends the honesty notice last (ADR-106 item 7, ADR-109)
     # and code checks every unit against its cited facts (spec 3.1).
     TaskSpec("tailor_cv", kind="generation"),
+    # M6.9: the body paragraphs of a cover letter from the confirmed facts, each citing fact ids;
+    # the greeting, opening line, closing and name come from code. Kind generation, as tailor_cv.
+    TaskSpec("draft_cover_letter", kind="generation"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

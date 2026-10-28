@@ -1,0 +1,22 @@
+{
+  "data": {
+    "paragraphs": [
+      {
+        "text": "I planned 60 delivery routes a week with a team of 3.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": [
+          "the routes served hospitals"
+        ]
+      },
+      {
+        "text": "I also cut invoice processing time by 35% across 4 warehouses.",
+        "fact_ids": [
+          "F2@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

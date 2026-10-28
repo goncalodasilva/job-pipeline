@@ -1,0 +1,17 @@
+{# The parts of the letter that code writes (M6.9): the greeting, the opening line that names the job
+   and company, the closing and the name. Needs `letter` (`view`, `private`). The name is personal
+   data, so the token-free page holds only a placeholder that loads this (spec 2.9 rule 13).
+   Nothing in here can be edited or pressed. #}
+{% if letter.private %}{% set frame = letter.view.frame %}
+<div id="letter-frame">
+  <p data-letter-greeting>{{ frame.greeting }}</p>
+  <p data-letter-opening>{{ frame.opening }}</p>
+  <p class="field-hint">The application writes the greeting, the opening line, the closing and your name. Your paragraphs go between the opening line and the closing.</p>
+  <p data-letter-closing>{{ frame.closing }}</p>
+  {% if frame.name %}<p data-letter-name>{{ frame.name }}</p>
+  {% else %}<p id="letter-name-missing">Add your name in Settings before exporting.</p>{% endif %}
+  <a href="/settings">Change in Settings</a>
+</div>
+{% else %}
+<div id="letter-frame" hx-get="/applications/{{ letter.view.application_id }}/tailoring/4/frame" hx-trigger="load" hx-swap="outerHTML"><p class="field-hint">Loading the greeting, opening line, closing and name…</p></div>
+{% endif %}

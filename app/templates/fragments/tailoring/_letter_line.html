@@ -1,0 +1,26 @@
+{# One paragraph of the letter (M6.9), like a CV line without a diff: its text, flags, the facts it
+   rests on and, unless the version is read-only, Edit, Remove and "This is true". #}
+{% set uid = unit.unit_id %}{% set flags = letter.flags[uid] %}
+<li id="line-{{ uid }}" data-line data-unit-id="{{ uid }}" data-origin="{{ unit.origin }}" tabindex="-1"{% if flags %} data-flagged="true"{% endif %}{% if letter.focus == 'line-' ~ uid %} data-autofocus{% endif %}>
+  <p data-line-text id="line-text-{{ uid }}">{{ unit.text }}</p>
+  {% if unit.origin == 'user' %}<p data-origin-label>Edited by you</p>{% endif %}
+  {% if flags %}<ul data-flags>{% for kind, label, claim in flags %}<li data-flag="{{ kind }}"><strong data-flag-label>{{ label }}</strong> <span data-flag-claim>{{ claim }}</span></li>{% endfor %}</ul>{% endif %}
+  {% if unit.cited %}<details data-line-facts><summary>Facts used ({{ unit.cited | length }})</summary>
+    <ul data-fact-list>{% for fact in unit.cited %}<li>{% if is_safe_id(fact.id) %}<a href="/facts/{{ fact.id }}/edit">{{ fact.text }}</a>{% else %}{{ fact.text }}{% endif %}</li>{% endfor %}</ul>
+  </details>{% else %}<p data-no-facts>No facts cited.</p>{% endif %}
+  {% if not letter.readonly %}
+  <details data-line-edit{% if letter.invalid_unit == uid %} open{% endif %}><summary>Edit</summary>
+    <form data-line-form="edit" method="post" action="{{ lb }}/unit/{{ uid }}/edit" hx-post="{{ lb }}/unit/{{ uid }}/edit" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ dv.version.id }}">
+      <label for="edit-{{ uid }}">Edit this paragraph</label>
+      <textarea id="edit-{{ uid }}" name="text" data-draft-key="edit:{{ uid }}" data-draft-identity="{{ [unit.fact_ids, unit.text] | tojson | forceescape }}"{% if letter.invalid_unit == uid %} aria-invalid="true" aria-describedby="letter-field-error" data-autofocus{% endif %}>{{ letter.posted.get('text', unit.text) if letter.invalid_unit == uid else unit.text }}</textarea>
+      {% if letter.invalid_unit == uid %}<p id="letter-field-error" class="field-error">{{ letter.field_error }}</p>{% endif %}
+      <button type="submit" aria-describedby="line-text-{{ uid }}">Save paragraph</button>
+    </form>
+  </details>
+  {% for action, label in [('remove', 'Remove'), ('confirm', 'This is true — save it as a fact')] %}{% if action != 'confirm' or flags %}
+  <form data-line-form="{{ action }}" method="post" action="{{ lb }}/unit/{{ uid }}/{{ action }}" hx-post="{{ lb }}/unit/{{ uid }}/{{ action }}" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="version" value="{{ dv.version.id }}"><button type="submit" aria-describedby="line-text-{{ uid }}">{{ label }}</button>
+  </form>{% endif %}{% endfor %}
+  {% endif %}
+</li>

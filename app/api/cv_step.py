@@ -1,6 +1,7 @@
 """Protected CV review fragments and version-checked actions (M6.8)."""
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -20,7 +21,7 @@ from app.domain.errors import (
 from app.domain.ids import is_safe_id
 from app.services.budget_gate import Start, confirmation_from_form
 from app.services.cv_import import tier_from_form
-from app.services.document_screen import screen_data
+from app.services.document_screen import screen_data, view_state
 from app.services.documents import (
     ApprovalBlocked,
     DocumentService,
@@ -49,23 +50,10 @@ def cv_context(request: Request, aid: str, *, version: str | None = None) -> dic
             wanted = None
     view = service(request).view(aid, wanted) if wanted else current
     old = bool(view.version and current.version and view.version.id != current.version.id)
-    state = (
-        "running"
-        if view.task.active
-        else "failed"
-        if view.task.attention
-        else (
-            "approved"
-            if view.version and view.version.status in ("approved", "sent")
-            else "draft"
-            if view.version
-            else "none"
-        )
-    )
     found: dict[str, Any] = {
         "view": view,
         **screen_data(view),
-        "state": state,
+        "state": view_state(view),
         "readonly": old or view.task.active,
         "old": old,
         "private": is_htmx(request),
@@ -111,6 +99,36 @@ def register_cv_routes(app: FastAPI) -> None:
     app.add_api_route(base + "/unit/{unit_id}/{action}", unit_action, methods=["POST"])
 
 
+def tailoring_answer(
+    request: Request,
+    aid: str,
+    step: int,
+    key: str,
+    context_for: Callable[..., dict[str, Any]],
+    *,
+    status: int = 200,
+    message: str = "",
+    version: str | None = None,
+    **values: Any,
+) -> Response:
+    """The ``#tailoring`` fragment for a step that holds a document (``cv`` on step 3, ``letter``
+    on step 4): its context for ``version`` when one is named, with ``values`` set on it."""
+    # Imported here because the shared workspace context also builds this step's context.
+    from app.api.tailoring import tailoring_context
+
+    context = tailoring_context(request, aid, step)
+    if version:
+        context[key] = context_for(request, aid, version=version)
+    context[key].update(values)
+    context["autofocus"] = False
+    response = templates.TemplateResponse(
+        request, "fragments/tailoring/_tailoring.html", {"tailoring": context}, status_code=status
+    )
+    if message:
+        response.headers["HX-Trigger"] = json.dumps({"announce": message})
+    return response
+
+
 def answer(
     request: Request,
     aid: str,
@@ -120,20 +138,9 @@ def answer(
     version: str | None = None,
     **values: Any,
 ) -> Response:
-    # Imported here because the shared workspace context also builds this step's context.
-    from app.api.tailoring import tailoring_context
-
-    context = tailoring_context(request, aid, 3)
-    if version:
-        context["cv"] = cv_context(request, aid, version=version)
-    context["cv"].update(values)
-    context["autofocus"] = False
-    response = templates.TemplateResponse(
-        request, "fragments/tailoring/_tailoring.html", {"tailoring": context}, status_code=status
+    return tailoring_answer(
+        request, aid, 3, "cv", cv_context, status=status, message=message, version=version, **values
     )
-    if message:
-        response.headers["HX-Trigger"] = json.dumps({"announce": message})
-    return response
 
 
 def not_found() -> Response:

@@ -37,6 +37,8 @@ from app.api.cv_step import cv_context
 from app.api.cv_step import service as document_service
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx, posted_version, read_form, single_value_form
+from app.api.letter_step import letter_context
+from app.api.letter_step import service as letter_service
 from app.api.settings_templates import STEP_LEVEL as STEP_UNIT_LEVEL
 from app.api.settings_templates import unit_context
 from app.api.templating import templates
@@ -77,7 +79,6 @@ STARTS: Final = {
 }
 LATER: Final = {
     3: "Tailoring the CV comes in a later step. Nothing to do here yet.",
-    4: "The cover letter comes in a later step. Nothing to do here yet.",
     5: "Submitting comes in a later step. You always submit applications yourself.",
 }
 
@@ -240,6 +241,7 @@ def tailoring_context(
     found["announce"] = found["message"] or announce or finished
     found["autofocus"] = (autofocus or bool(found["message"])) and found["dialog"] is None
     found["cv_state"] = step_state(document_service(request).view(aid))
+    found["letter_state"] = step_state(letter_service(request).view(aid))
     if view.step == 3:
         found["cv"] = cv_context(request, aid)
         found["polling"] = found["cv"]["view"].task.active
@@ -252,6 +254,18 @@ def tailoring_context(
             and request.headers.get("X-JP-CV-Seen") != found["cv"]["view"].task.key
         ):
             found["announce"] = "CV ready to review."
+    if view.step == 4:
+        found["letter"] = letter_context(request, aid)
+        found["polling"] = found["letter"]["view"].task.active
+        found["autofocus"] = False
+        if message:
+            found["letter"]["focus"] = "letter-heading"
+        if (
+            polled
+            and found["letter"]["view"].task.status == "succeeded"
+            and request.headers.get("X-JP-CV-Seen") != found["letter"]["view"].task.key
+        ):
+            found["announce"] = "Letter ready to review."
     return found
 
 

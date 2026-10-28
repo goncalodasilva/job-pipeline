@@ -4,7 +4,7 @@
 <section id="cv-step" data-state="{{ cv.state }}" data-readonly="{{ 'true' if cv.readonly else 'false' }}"{% if dv.version %} data-version-id="{{ dv.version.id }}" data-version-number="{{ dv.version.number }}"{% endif %} aria-labelledby="cv-heading">
   <h5 id="cv-heading" tabindex="-1" data-refresh-safe-focus{% if cv.focus == 'cv-heading' %} data-autofocus{% endif %}>Tailored CV</h5>
   <p>These checks help you review the CV. Read every word before approving it.</p>
-  <p id="cv-draft-note" class="notice" hidden>Your unsaved typing was put back.</p>
+  <p id="cv-draft-note" data-draft-note class="notice" hidden>Your unsaved typing was put back.</p>
   {% if cv.conflict %}{% with reload_id='cv-conflict', reload_message=tailoring.conflict_message, reload_detail='', reload_url=base ~ '?tab=tailoring&step=3' %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}
     {% if cv.kept is not none %}<label for="cv-kept-text">Your unsaved text</label><textarea id="cv-kept-text" readonly>{{ cv.kept }}</textarea>{% endif %}
   {% endif %}

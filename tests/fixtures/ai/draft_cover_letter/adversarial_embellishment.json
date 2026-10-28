@@ -1,0 +1,27 @@
+{
+  "data": {
+    "paragraphs": [
+      {
+        "text": "I planned 60 delivery routes a week with a team of 3.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": []
+      },
+      {
+        "text": "As a senior and experienced planner I led a large global team and cut costs.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": []
+      },
+      {
+        "text": "I delivered this work for Harbor Kite Fictional, where I managed 12 vans.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

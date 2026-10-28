@@ -34,6 +34,7 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
         "propose_angles",
         "draft_cv_template",
         "tailor_cv",
+        "draft_cover_letter",
     }
     with refining(tmp_path) as r:
         hidden = r.typed(HIDDEN, privacy="never_use")
@@ -72,6 +73,13 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
             desk = Documents(r)
             application = desk.cv_ready("never-use-job", seed_facts=False)
             ref = r.run.app.state.documents.start_generate(application.id)
+            assert r.run.wait_terminal(ref.id).status.value == "succeeded"
+        elif task == "draft_cover_letter":
+            # M6.9: the calling service (LetterService) and its task over the real prompt and the
+            # app's provider, with the never-use and target facts already stored.
+            desk = Documents(r)
+            application = desk.cv_ready("never-use-job", seed_facts=False, template=False)
+            ref = r.run.app.state.letters.start_generate(application.id)
             assert r.run.wait_terminal(ref.id).status.value == "succeeded"
         else:
             r.started(target.id)

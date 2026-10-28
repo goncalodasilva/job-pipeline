@@ -436,6 +436,7 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
         # Exactly the task types of before M5.7 (the practice task is offered with fakes).
         assert sorted(registered) == [
             "assess_fit",
+            "draft_cover_letter",
             "draft_cv_template",
             "extract_cv",
             "gap_check",
@@ -447,6 +448,7 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
         ]
         assert sorted(TASK_SPECS) == [
             "assess_fit",
+            "draft_cover_letter",
             "draft_cv_template",
             "extract_cv",
             "gap_check",

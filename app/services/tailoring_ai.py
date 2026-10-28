@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from app.domain.angles import AnglesResult, resolve_angles
+from app.domain.cover_letter import LENGTHS, TONES, resolve_letter_paragraphs
 from app.domain.cv_templates import TemplateSpec
 from app.domain.documents import DocumentUnit
 from app.domain.fact_selection import AIFact, FactRecord, facts_for_ai, prompt_fact_block
@@ -33,6 +34,7 @@ from app.modules.ai import AITaskRunner, CancelToken, TaskResult, TokenUsage, Us
 GAP_CHECK: Final = "gap_check"
 PROPOSE_ANGLES: Final = "propose_angles"
 TAILOR_CV: Final = "tailor_cv"
+DRAFT_COVER_LETTER: Final = "draft_cover_letter"
 MAX_EARLIER_ANGLES: Final = 10
 MAX_NOTE_CHARS: Final = 500
 MAX_KEPT_UNITS: Final = 80
@@ -46,6 +48,8 @@ class TailoringJob:
     job_id: str
     posting: str
     requirements: tuple[Requirement, ...]
+    title: str = ""  # the job's title and company: sent to a cover letter request only
+    company: str = ""
 
 
 @dataclass(frozen=True)
@@ -103,9 +107,11 @@ class TailorCvOutput(TaskOutput):
     withheld_unit_ids: tuple[str, ...]
 
 
-def _job_context(job: TailoringJob) -> str:
+def _job_context(job: TailoringJob, *, names: bool = False) -> str:
+    named = {"title": job.title, "company": job.company} if names else {}
     return json.dumps(
         {
+            **named,
             "posting": job.posting,
             "requirements": [
                 {"requirement_id": item.id, "kind": item.kind, "text": item.text}
@@ -319,5 +325,69 @@ async def run_tailor_cv(
     )
     resolved = resolve_cv_units(
         result.data, facts, template, known_skills=known_skills, new_id=new_id
+    )
+    return TailorCvOutput(result=resolved, withheld_unit_ids=withheld, **_provenance(result, facts))
+
+
+async def run_draft_cover_letter(
+    runner: AITaskRunner,
+    job: TailoringJob,
+    records: Sequence[FactRecord],
+    angle: ChosenAngle | None,
+    tone: str,
+    length: str,
+    note: str,
+    keep_units: Sequence[DocumentUnit],
+    cancel: CancelToken,
+    *,
+    meter: UsageMeter,
+    tier: Tier | None = None,
+    task_id: str | None = None,
+    known_skills: Sequence[str] = (),
+    new_id: Callable[[], str] | None = None,
+) -> TailorCvOutput:
+    """One cover letter request. The job's title and company go to the model and may support
+    names in the paragraphs (and nothing else). ``tone`` and ``length`` are words the caller has
+    already checked against their sets. The greeting, opening line, closing and name are built
+    by code and never sent. Otherwise like ``run_tailor_cv``; ``result`` holds the paragraphs as
+    units."""
+    if tone not in TONES or length not in LENGTHS:
+        raise ValueError("A letter request needs a tone and a length from the fixed sets.")
+    facts = facts_for_ai(records)
+    if not facts:
+        raise ValueError("A tailoring request needs at least one usable confirmed fact.")
+    cleaned = note.strip()
+    if len(cleaned) > MAX_NOTE_CHARS:
+        raise ValueError(f"The note can be at most {MAX_NOTE_CHARS} characters.")
+    kept, withheld = _kept_for_ai(keep_units, facts)
+    result = await runner.run_task(
+        DRAFT_COVER_LETTER,
+        {
+            "job_context": _job_context(job, names=True),
+            "facts": prompt_fact_block(facts),
+            "angle": json.dumps(
+                None if angle is None else {"name": angle.name, "description": angle.description},
+                ensure_ascii=False,
+            ),
+            "tone": tone,
+            "length": length,
+            "note": json.dumps({"note": cleaned}, ensure_ascii=False),
+            "keep_units": json.dumps(
+                [{"text": unit["text"], "fact_ids": unit["fact_ids"]} for unit in kept],
+                ensure_ascii=False,
+            ),
+            "job_id": job.job_id,
+        },
+        cancel,
+        meter=meter,
+        tier=tier,
+        task_id=task_id,
+    )
+    resolved = resolve_letter_paragraphs(
+        result.data,
+        facts,
+        name_sources=[name for name in (job.title, job.company) if name],
+        known_skills=known_skills,
+        new_id=new_id,
     )
     return TailorCvOutput(result=resolved, withheld_unit_ids=withheld, **_provenance(result, facts))

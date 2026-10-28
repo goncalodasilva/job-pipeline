@@ -511,8 +511,8 @@ def test_cv_step_replaces_the_step_three_placeholder(cv: CvStep):
         assert by_id(shown, "cv-heading").text == "Tailored CV"
     page = cv.page3(app.id).text
     assert open_step(page) == 3
-    # Steps 4 and 5 are still placeholders; the other steps hold no CV step.
-    for number in (4, 5):
+    # Step 5 is still a placeholder; the other steps hold no CV step.
+    for number in (5,):
         shown = cv.fragment(app.id, number).text
         assert "later step" in said_text(shown).lower() and "Coming later" in states(shown)[number]
     for number in (1, 2, 4, 5):
@@ -750,7 +750,7 @@ def test_cv_step_stale_note_is_in_the_step_and_hidden(cv: CvStep):
     assert STALE_NOTE in note.text
     assert "data-keep-edits" in by_id(shown, "tailoring").attrs
     assert not autofocus_elements(shown)  # a plain read takes no focus
-    for other in (1, 2, 4, 5):
+    for other in (1, 2, 5):
         assert "data-keep-edits" not in by_id(cv.fragment(app.id, other).text, "tailoring").attrs
     assert open_step(shown) == 3
 

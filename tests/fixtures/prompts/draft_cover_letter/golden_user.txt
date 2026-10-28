@@ -1,0 +1,35 @@
+The job title, company, posting and its extracted requirements, each with its requirement_id:
+
+<untrusted_document source="job_requirements" id="job-fictional">
+{"title":"Fictional Route Planner","company":"Fictional Harbor Kite","posting":"Fictional route planner","requirements":[]}
+</untrusted_document>
+
+The person's usable confirmed facts, with versioned references and the Role: of each:
+
+<untrusted_document source="facts" id="job-fictional">
+[F1@1]
+Text: Planned fictional routes.
+</untrusted_document>
+
+The chosen angle (null when none):
+
+<untrusted_document source="angle" id="job-fictional">
+{"name":"Planner","description":"Lead with routes."}
+</untrusted_document>
+
+Tone: warm
+Length: medium
+
+The person's note for this letter:
+
+<untrusted_document source="note" id="job-fictional">
+{"note":"Keep it short."}
+</untrusted_document>
+
+The person's kept_units, which the application keeps as they are:
+
+<untrusted_document source="kept_units" id="job-fictional">
+[{"text":"Kept paragraph.","fact_ids":["F1@1"]}]
+</untrusted_document>
+
+Return only the letter paragraphs, as JSON matching the schema.

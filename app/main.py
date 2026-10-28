@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta, tzinfo
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
@@ -49,6 +50,7 @@ from app.api.job_detail import register_job_detail_routes
 from app.api.job_fit import register_job_fit_routes
 from app.api.job_intake import register_job_intake_routes
 from app.api.job_summary import register_job_summary_routes
+from app.api.letter_step import register_letter_routes
 from app.api.notifications import register_notification_routes
 from app.api.pages import register_pages
 from app.api.reminders import register_reminder_routes
@@ -147,6 +149,7 @@ from app.services.job_fit import ASSESS_FIT, FIT_LABEL, JobFitService
 from app.services.job_intake import JobIntakeService
 from app.services.job_summary import SUMMARIZE_JOB, SUMMARIZE_LABEL, JobSummaryService
 from app.services.job_triage import JobTriageService
+from app.services.letters import DRAFT_COVER_LETTER_LABEL, LetterService
 from app.services.personal_details import PersonalDetailsService, sweep_orphan_photos
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
@@ -160,7 +163,12 @@ from app.services.tailoring import (
     PROPOSE_ANGLES_LABEL,
     TailoringService,
 )
-from app.services.tailoring_ai import GAP_CHECK, PROPOSE_ANGLES, TAILOR_CV
+from app.services.tailoring_ai import (
+    DRAFT_COVER_LETTER,
+    GAP_CHECK,
+    PROPOSE_ANGLES,
+    TAILOR_CV,
+)
 from app.services.task_views import TaskView, TaskViews, failed_message
 from app.services.tasks import TaskService
 from app.services.template_ai import DRAFT_CV_TEMPLATE
@@ -171,7 +179,7 @@ from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
 from app.tasks.cv_import import cv_import_handler
 from app.tasks.cv_templates import draft_cv_template_handler
-from app.tasks.documents import tailor_cv_handler
+from app.tasks.documents import draft_cover_letter_handler, tailor_cv_handler
 from app.tasks.fact_refine import fact_refine_handler
 from app.tasks.job_fit import job_fit_handler
 from app.tasks.job_summary import job_summary_handler
@@ -722,6 +730,17 @@ def _tailoring(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) ->
 
 
 def _documents(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> DocumentService:
+    return DocumentService(**_document_args(app, wiring, clock, ids))
+
+
+def _letters(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> LetterService:
+    return LetterService(**_document_args(app, wiring, clock, ids))
+
+
+def _document_args(app: FastAPI, wiring: Wiring, clock: Clock, ids: IdFactory) -> dict[str, Any]:
+    """What the CV and the cover letter services are built from (they share their stored
+    documents)."""
+
     def workspace() -> Workspace | None:
         return getattr(app.state, "workspace", None)
 
@@ -729,16 +748,16 @@ def _documents(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) ->
         db = _current_db(app)
         return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
 
-    return DocumentService(
-        factory=wiring,
-        clock=clock,
-        ids=ids,
-        workspace=workspace,
-        settings=settings,
-        tasks=lambda: getattr(app.state, "task_service", None),
-        usage=_open_usage(app),
-        facts=lambda: getattr(app.state, "facts", None),
-    )
+    return {
+        "factory": wiring,
+        "clock": clock,
+        "ids": ids,
+        "workspace": workspace,
+        "settings": settings,
+        "tasks": lambda: getattr(app.state, "task_service", None),
+        "usage": _open_usage(app),
+        "facts": lambda: getattr(app.state, "facts", None),
+    }
 
 
 def _cv_templates(
@@ -1160,6 +1179,7 @@ def create_app(
     # Settings > Your details (M6.6): the setting and the photo file; no AI task reads them.
     app.state.cv_templates = _cv_templates(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.documents = _documents(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.letters = _letters(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.personal_details = PersonalDetailsService(
         lambda: _current_db(app),
         app_clock,
@@ -1186,6 +1206,11 @@ def create_app(
             TAILOR_CV,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), TAILOR_CV_LABEL),
             tailor_cv_handler(app.state.documents),
+        )
+        handlers.register(
+            DRAFT_COVER_LETTER,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), DRAFT_COVER_LETTER_LABEL),
+            draft_cover_letter_handler(app.state.letters),
         )
     app.state.job_intake = JobIntakeService(
         lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()
@@ -1278,6 +1303,7 @@ def create_app(
     register_job_fit_routes(app)
     register_tailoring_routes(app)
     register_cv_routes(app)
+    register_letter_routes(app)
     register_job_detail_routes(app)
     register_company_routes(app)
     register_company_contact_routes(app)

@@ -486,12 +486,24 @@ def _name_runs(text: str) -> Iterator[tuple[list[str], bool]]:
         yield run, starts_sentence
 
 
-def _new_names(suggested: str, sources: Sequence[str], skills: frozenset[str]) -> Iterator[Claim]:
+def _new_names(
+    suggested: str,
+    sources: Sequence[str],
+    skills: frozenset[str],
+    whole_names: Sequence[str] = (),
+) -> Iterator[Claim]:
+    """The capitalised names the sources don't support. A name may be any run of words inside a
+    source; ``whole_names`` (a job's title or company) support only a run that is all of one."""
     source_words = [_folded_words(source) for source in sources]
+    whole_words = [_folded_words(name) for name in whole_names]
 
     def known(words: Sequence[str]) -> bool:
         folded = [word.casefold() for word in words]
-        return " ".join(folded) in skills or any(_contains(s, folded) for s in source_words)
+        return (
+            " ".join(folded) in skills
+            or any(_contains(s, folded) for s in source_words)
+            or tuple(folded) in whole_words
+        )
 
     # Currency codes belong to their amount, rather than to capitalised names.
     without_codes = re.sub(rf"\b(?:{_CURRENCY_CODES})\b", " ", _prepared(suggested))
@@ -552,18 +564,22 @@ def new_claims(
     known_skills: Iterable[str] = (),
     added_details: Iterable[str] = (),
     name_hidden_sources: Iterable[str | None] = (),
+    name_only_sources: Iterable[str | None] = (),
 ) -> tuple[Claim, ...]:
     """What ``suggested`` says that no allowed source does, plus every detail the model
     reported adding, each claim once, in this order: quantities, names, skills, added
     details. ``name_hidden_sources`` (facts whose names the user withholds) support
-    quantities and skills, but no capitalised name."""
+    quantities and skills, but no capitalised name. ``name_only_sources`` (a cover letter's job
+    title and company) support a capitalised name only when it is all of one source, and
+    nothing else: no quantity, no skill."""
     sources = [source for source in allowed_sources if source]
+    whole_names = [source for source in name_only_sources if source]
     with_hidden = [*sources, *(source for source in name_hidden_sources if source)]
     skills = tuple(known_skills)
     folded_skills = frozenset(_folded(skill) for skill in skills)
     found = [
         *_new_quantities(suggested, with_hidden),
-        *_new_names(suggested, sources, folded_skills),
+        *_new_names(suggested, sources, folded_skills, whole_names),
         *_new_skills(suggested, with_hidden, skills),
         *(Claim("added_detail", detail.strip()) for detail in added_details if detail.strip()),
     ]
@@ -616,8 +632,11 @@ def check_units(
     *,
     template_headings: Iterable[str] = (),
     known_skills: Iterable[str] = (),
+    name_sources: Iterable[str] = (),
 ) -> tuple[HonestyFlag, ...]:
     """What the units say that the facts sent in that request don't (spec 3.1 item 3).
+    ``name_sources`` are extra texts that may support a capitalised name and nothing else (a
+    cover letter passes the job's title and company; a CV passes none).
 
     A structure unit must be exactly a template heading; any other text counts as uncited
     content. A content unit needs ids, every id must be among the facts sent, and its
@@ -626,9 +645,10 @@ def check_units(
     by_ref = {str(fact.ref): fact for fact in sent}
     headings = frozenset(template_headings)
     skills = tuple(known_skills)
+    names = tuple(name_sources)
     flags: list[HonestyFlag] = []
     for unit in units:
-        flags.extend(_unit_flags(unit, by_ref, headings, skills))
+        flags.extend(_unit_flags(unit, by_ref, headings, skills, names))
     return tuple(flags)
 
 
@@ -637,6 +657,7 @@ def _unit_flags(
     sent: Mapping[str, AIFact],
     headings: frozenset[str],
     skills: Sequence[str],
+    names: Sequence[str],
 ) -> tuple[HonestyFlag, ...]:
     if unit.kind == "structure":
         return (
@@ -651,7 +672,7 @@ def _unit_flags(
         *(HonestyFlag("needs_check", ref, unit.unit_id) for ref in _other_role(unit, ids, sent)),
         *(
             HonestyFlag("needs_check", claim.text, unit.unit_id)
-            for claim in _claims(unit, cited, skills)
+            for claim in _claims(unit, cited, skills, names)
         ),
         *(
             HonestyFlag("needs_check", word, unit.unit_id)
@@ -685,7 +706,7 @@ def _other_role(unit: GeneratedUnit, ids: Sequence[str], sent: Mapping[str, AIFa
 
 
 def _claims(
-    unit: GeneratedUnit, cited: Sequence[AIFact], skills: Sequence[str]
+    unit: GeneratedUnit, cited: Sequence[AIFact], skills: Sequence[str], names: Sequence[str]
 ) -> tuple[Claim, ...]:
     """The claims of the unit's wording against its own cited facts; the text of a
     "generalize names" fact supports quantities and skills, never a name."""
@@ -695,6 +716,7 @@ def _claims(
         known_skills=skills,
         added_details=unit.added_details,
         name_hidden_sources=[fact_text(fact) for fact in cited if fact.generalize],
+        name_only_sources=names,
     )
 
 

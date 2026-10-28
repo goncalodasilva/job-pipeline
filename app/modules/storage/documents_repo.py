@@ -35,6 +35,8 @@ class StoredVersion:
     provider: str | None
     created_at: str
     version: int
+    tone: str | None = None
+    length: str | None = None
 
 
 @dataclass(frozen=True)
@@ -91,35 +93,44 @@ class NewVersion:
     prompt_version: str | None
     task_id: str | None
     now: str
+    tone: str | None = None
+    length: str | None = None
 
 
 # Literal SQL only (no string building).
 _VERSION_SELECT = (
     "SELECT id, number, status, parent_version_id, origin, template_snapshot, angle_text, note, "
-    "provider, created_at, version FROM document_versions "
+    "provider, created_at, version, tone, length FROM document_versions "
 )
 
 
 def document_for_application(
-    conn: sqlite3.Connection, application_id: str
+    conn: sqlite3.Connection, application_id: str, kind: str = "cv"
 ) -> StoredDocument | None:
+    """The application's document of ``kind`` (``cv`` or ``cover_letter``)."""
     row = conn.execute(
         "SELECT id, current_version_id, version FROM documents "
-        "WHERE application_id = ? AND kind = 'cv'",
-        (application_id,),
+        "WHERE application_id = ? AND kind = ?",
+        (application_id, kind),
     ).fetchone()
     return StoredDocument(row[0], row[1], row[2]) if row else None
 
 
 def insert_document(
-    conn: sqlite3.Connection, *, id: str, application_id: str, first_version_id: str, now: str
+    conn: sqlite3.Connection,
+    *,
+    id: str,
+    application_id: str,
+    first_version_id: str,
+    now: str,
+    kind: str = "cv",
 ) -> None:
     """The document of an application, pointing at its first version. Insert the version in the
     same transaction: the schema checks the pointer at commit."""
     conn.execute(
         "INSERT INTO documents (id, application_id, kind, current_version_id, created_at, "
-        "updated_at) VALUES (?, ?, 'cv', ?, ?, ?)",
-        (id, application_id, first_version_id, now, now),
+        "updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (id, application_id, kind, first_version_id, now, now),
     )
 
 
@@ -146,8 +157,9 @@ def next_number(conn: sqlite3.Connection, document_id: str) -> int:
 def insert_version(conn: sqlite3.Connection, new: NewVersion) -> None:
     conn.execute(
         "INSERT INTO document_versions (id, document_id, number, origin, parent_version_id, "
-        "template_snapshot, angle_text, note, provider, model, prompt_id, prompt_version, "
-        "task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "template_snapshot, angle_text, tone, length, note, provider, model, prompt_id, "
+        "prompt_version, task_id, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             new.id,
             new.document_id,
@@ -156,6 +168,8 @@ def insert_version(conn: sqlite3.Connection, new: NewVersion) -> None:
             new.parent_version_id,
             new.template_snapshot,
             new.angle_text,
+            new.tone,
+            new.length,
             new.note,
             new.provider,
             new.model,

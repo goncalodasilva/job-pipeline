@@ -84,18 +84,18 @@ class _Accepted:
     added_details: tuple[str, ...]
 
 
-def _strings(value: object) -> tuple[str, ...] | None:
+def strings_of(value: object) -> tuple[str, ...] | None:
     if not isinstance(value, list | tuple) or not all(isinstance(item, str) for item in value):
         return None
     return tuple(dict.fromkeys(value))
 
 
-def _said(raw: object, key: str) -> str:
+def said_of(raw: object, key: str) -> str:
     value = raw.get(key) if isinstance(raw, Mapping) else None
     return value if isinstance(value, str) else ""
 
 
-def _without_invisible(value: str) -> str:
+def without_invisible(value: str) -> str:
     return _INVISIBLE.sub("", value)
 
 
@@ -144,7 +144,7 @@ def _accept(
     index: int, raw: object, sections: frozenset[str], headings: frozenset[str]
 ) -> _Accepted | DroppedUnit:
     def drop(reason: DropReason) -> DroppedUnit:
-        return DroppedUnit(index, reason, _said(raw, "section"), _said(raw, "text"))
+        return DroppedUnit(index, reason, said_of(raw, "section"), said_of(raw, "text"))
 
     if not isinstance(raw, Mapping):
         return drop("invalid")
@@ -154,15 +154,15 @@ def _accept(
         raw.get("text"),
         raw.get("role"),
     )
-    fact_ids, details = _strings(raw.get("fact_ids")), _strings(raw.get("added_details", ()))
+    fact_ids, details = strings_of(raw.get("fact_ids")), strings_of(raw.get("added_details", ()))
     if kind not in _KINDS or not isinstance(section, str) or not isinstance(text, str):
         return drop("invalid")
     if fact_ids is None or details is None or not (role is None or isinstance(role, str)):
         return drop("invalid")
     if not _usable_text(text) or not all(_usable_detail(item) for item in details):
         return drop("invalid")
-    text = _without_invisible(text)
-    details = tuple(dict.fromkeys(d for d in map(_without_invisible, details) if d.strip()))
+    text = without_invisible(text)
+    details = tuple(dict.fromkeys(d for d in map(without_invisible, details) if d.strip()))
     if not text.strip():
         return drop("invalid")
     if section not in sections:
@@ -206,7 +206,7 @@ def resolve_cv_units(
     for index, raw in enumerate(entries):
         if index >= MAX_CV_UNITS:
             dropped.append(
-                DroppedUnit(index, "too_many", _said(raw, "section"), _said(raw, "text"))
+                DroppedUnit(index, "too_many", said_of(raw, "section"), said_of(raw, "text"))
             )
             continue
         item = _accept(index, raw, sections, headings)
@@ -246,12 +246,12 @@ def resolve_cv_units(
     )
     return TailoredCv(
         units=tuple(units),
-        flags=_in_unit_order(units, role_flags, checked),
+        flags=in_unit_order(units, role_flags, checked),
         dropped=tuple(dropped),
     )
 
 
-def _in_unit_order(
+def in_unit_order(
     units: Sequence[DocumentUnit],
     role_flags: Mapping[str, HonestyFlag],
     checked: Sequence[HonestyFlag],

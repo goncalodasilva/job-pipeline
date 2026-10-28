@@ -1,0 +1,75 @@
+{# Step 4 of the Tailoring tab: the cover letter (M6.9). `letter` comes from app/api/letter_step.py;
+   `tw` and `base` from _tailoring.html. The greeting, opening line, closing and name are built by
+   code (_letter_frame.html) and never editable; only the paragraphs between them are. Everything
+   from the AI, the job and the user is escaped; nothing here is marked safe. #}
+{% set dv = letter.view %}{% set lb = base ~ '/tailoring/4' %}
+{% set tone_now = letter.posted.get('tone') if letter.posted.get('tone') in letter.tones else letter.chosen_tone %}
+{% set length_now = letter.posted.get('length') if letter.posted.get('length') in letter.lengths else letter.chosen_length %}
+<p id="letter-stale-note" data-stale-note class="notice" hidden>A newer version of the letter is ready. Finish your edit, then revisit this step.</p>
+<section id="letter-step" data-state="{{ letter.state }}" data-readonly="{{ 'true' if letter.readonly else 'false' }}"{% if dv.version %} data-version-id="{{ dv.version.id }}" data-version-number="{{ dv.version.number }}"{% endif %} aria-labelledby="letter-heading">
+  <h5 id="letter-heading" tabindex="-1" data-refresh-safe-focus{% if letter.focus == 'letter-heading' %} data-autofocus{% endif %}>Cover letter</h5>
+  <p id="letter-optional">The cover letter is optional. You can continue without one.</p>
+  <p>These checks help you review the letter. Read every word before approving it.</p>
+  <p id="letter-draft-note" data-draft-note class="notice" hidden>Your unsaved typing was put back.</p>
+  {% if letter.conflict %}{% with reload_id='letter-conflict', reload_message=tailoring.conflict_message, reload_detail='', reload_url=base ~ '?tab=tailoring&step=4' %}{% include "fragments/shell/_reload_prompt.html" %}{% endwith %}
+    {% if letter.kept is not none %}<label for="letter-kept-text">Your unsaved text</label><textarea id="letter-kept-text" readonly>{{ letter.kept }}</textarea>{% endif %}
+  {% endif %}
+  {% if letter.error %}<p id="letter-error" role="alert" class="field-error">{{ letter.error }}</p>{% endif %}
+  {% if letter.not_ready %}<p id="letter-not-ready">{{ letter.not_ready.message }}</p>
+    {% if letter.not_ready.reason == 'facts' %}<a id="letter-not-ready-link" href="/facts">Open facts</a>
+    {% else %}<a id="letter-not-ready-link" href="/jobs/{{ tw.job_id }}">Open job</a>{% endif %}
+  {% endif %}
+  {% if letter.state == 'running' %}<p id="letter-running" role="status" hx-preserve>Drafting your letter…</p>{% endif %}
+  {% if dv.practice_notice %}<p id="letter-practice" class="badge">{{ dv.practice_notice }}</p>{% endif %}
+  {% if dv.version %}
+    <p id="letter-status">{% if letter.old %}Version {{ dv.version.number }} (read-only).{% elif dv.version.status in ['approved', 'sent'] %}Approved, version {{ dv.version.number }}.{% else %}Draft, version {{ dv.version.number }}. Not approved yet.{% endif %}</p>
+    {% if letter.old %}<p id="letter-readonly-note">This version is read-only and is not the latest. <a id="letter-latest" href="{{ base }}?tab=tailoring&amp;step=4" hx-get="{{ lb }}" hx-target="#tailoring" hx-swap="outerHTML" hx-push-url="{{ base }}?tab=tailoring&amp;step=4">Back to the latest version</a></p>{% endif %}
+  {% endif %}
+  {% include "fragments/tailoring/_letter_frame.html" %}
+  {% if dv.units %}<ol id="letter-paragraphs" class="cv-lines">{% for unit in dv.units %}{% include "fragments/tailoring/_letter_line.html" %}{% endfor %}</ol>
+  {% elif dv.version %}<p id="letter-empty">This version has no paragraphs.</p>{% endif %}
+  {% if dv.version and not letter.readonly %}
+    <details id="letter-add"{% if letter.invalid_unit == 'add' %} open{% endif %}><summary>Add a paragraph</summary>
+      <form id="letter-add-form" method="post" action="{{ lb }}/unit/add" hx-post="{{ lb }}/unit/add" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="version" value="{{ dv.version.id }}">
+        <label for="letter-add-text">New paragraph</label><textarea id="letter-add-text" name="text" data-draft-key="add"{% if letter.invalid_unit == 'add' %} aria-invalid="true" aria-describedby="letter-add-error" data-autofocus{% endif %}>{{ letter.posted.get('text', '') if letter.invalid_unit == 'add' else '' }}</textarea>
+        {% if letter.invalid_unit == 'add' %}<p id="letter-add-error" class="field-error">{{ letter.field_error }}</p>{% endif %}
+        <button type="submit">Add paragraph</button>
+      </form>
+    </details>
+    {% if dv.version.status == 'draft' %}
+      {% if letter.approve_reason %}<p id="letter-approve-reason">{{ letter.approve_reason }}</p>{% endif %}
+      <form method="post" action="{{ lb }}/approve" hx-post="{{ lb }}/approve" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button"><input type="hidden" name="version" value="{{ dv.version.id }}"><button id="letter-approve" type="submit"{% if letter.approve_reason %} aria-disabled="true" aria-describedby="letter-approve-reason"{% endif %}>Approve letter</button></form>
+    {% else %}<p id="letter-approved">Approved. Changing a paragraph starts a new draft.</p>{% endif %}
+  {% endif %}
+  <p><a id="letter-next" href="{{ base }}?tab=tailoring&amp;step=5">{{ 'Continue to Submit' if letter.state == 'approved' else 'Continue without a letter' }}</a></p>
+  {% if not letter.readonly and not letter.not_ready %}
+    {% if letter.reason %}{% with budget_blocked=letter.reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}{% endif %}
+    <form id="letter-generate-form" method="post" action="{{ lb }}/generate" hx-post="{{ lb }}/generate" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button">
+      {% for field, label, options, now in [('tone', 'Tone', letter.tones, tone_now), ('length', 'Length', letter.lengths, length_now)] %}
+      <label for="letter-{{ field }}">{{ label }}</label><select id="letter-{{ field }}" name="{{ field }}"{% if letter.invalid == field %} aria-invalid="true" aria-describedby="letter-{{ field }}-error" data-autofocus{% endif %}>
+        {% for option in options %}<option value="{{ option }}"{% if option == now %} selected{% endif %}>{{ option | capitalize }}</option>{% endfor %}
+      </select>
+      {% if letter.invalid == field %}<p id="letter-{{ field }}-error" class="field-error">{{ letter.field_error }}</p>{% endif %}
+      {% endfor %}
+      <label for="letter-note">Note for the letter (optional)</label><textarea id="letter-note" name="note" data-draft-key="note"{% if letter.invalid == 'note' %} aria-invalid="true" aria-describedby="letter-note-error" data-autofocus{% endif %}>{{ letter.posted.get('note', '') }}</textarea>
+      {% if letter.invalid == 'note' %}<p id="letter-note-error" class="field-error">{{ letter.field_error }}</p>{% endif %}
+      {% if dv.version %}
+      <label><input id="letter-replace-all" type="checkbox" name="replace_all" value="1"{% if letter.posted.get('replace_all') == '1' %} checked{% endif %}> Replace everything, including my edits</label>
+      <label><input id="letter-confirm-replace" type="checkbox" name="confirm_replace" value="1"{% if letter.posted.get('confirm_replace') == '1' %} checked{% endif %}{% if letter.invalid == 'confirm_replace' %} aria-invalid="true" aria-describedby="letter-replace-error" data-autofocus{% endif %}> Yes, replace my edits too</label>
+      {% if letter.invalid == 'confirm_replace' %}<p id="letter-replace-error" class="field-error">{{ letter.field_error }}</p>{% endif %}
+      {% endif %}
+      <button id="letter-generate-start" type="submit"{% if letter.blocked %} aria-disabled="true"{% if letter.reason %} aria-describedby="{{ letter.reason.id }}"{% endif %}{% endif %}>{{ 'Regenerate' if dv.version else 'Draft the letter' }}</button>
+    </form>
+  {% endif %}
+  {% if dv.versions %}<h6>Versions</h6><ol id="letter-versions">{% for version in dv.versions %}<li data-version-id="{{ version.id }}" data-version-status="{{ version.status }}">
+    Version {{ version.number }} · {{ version.status | capitalize }}{% if loop.first %} · Latest{% endif %} · {{ 'Edited by you' if version.origin == 'user' else 'Written by the AI' }}{% if version.note %}<p>{{ version.note }}</p>{% endif %}
+    <a href="{{ base }}?tab=tailoring&amp;step=4&amp;version={{ version.id }}" hx-get="{{ lb }}/version/{{ version.id }}" hx-target="#tailoring" hx-swap="outerHTML" hx-push-url="{{ base }}?tab=tailoring&amp;step=4&amp;version={{ version.id }}"{% if dv.version.id == version.id %} aria-current="true"{% endif %}>View version {{ version.number }}</a>
+  </li>{% endfor %}</ol>{% endif %}
+  {% if letter.offer %}<dialog id="letter-save-fact" class="modal" data-modal role="dialog" aria-modal="true" aria-labelledby="letter-save-fact-title" aria-describedby="letter-save-fact-claims" data-return-focus="#line-{{ letter.offer.unit_id }}">
+    <h5 id="letter-save-fact-title">Save this as a fact?</h5><ul id="letter-save-fact-claims">{% for claim in letter.offer.claims %}<li>{{ claim }}</li>{% endfor %}</ul>
+    <form method="post" action="{{ lb }}/unit/{{ letter.offer.unit_id }}/confirm" hx-post="{{ lb }}/unit/{{ letter.offer.unit_id }}/confirm" hx-target="#tailoring" hx-swap="outerHTML" hx-disabled-elt="find button"><input type="hidden" name="version" value="{{ dv.version.id }}"><button type="submit">Yes, save it as a fact</button></form>
+    <button type="button" data-modal-close data-return-focus="#line-{{ letter.offer.unit_id }}" autofocus>Not now</button>
+  </dialog>{% endif %}
+  {% if letter.dialog %}{% with budget_dialog=letter.dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}
+</section>

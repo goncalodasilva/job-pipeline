@@ -113,16 +113,21 @@ def open_objects(schema: Any, path: str = "$", *, inside_closed: bool = False) -
 def units_without_fact_ids(schema: dict[str, Any]) -> list[str]:
     """What stops a generation schema from forcing fact ids onto every unit (spec 3.1 item 2;
     the pattern of ``prompt-file-format.md``). Empty when the rule holds."""
-    if "units" not in schema.get("required", []):
-        return ["'units' is not required"]
-    units = schema.get("properties", {}).get("units", {})
+    # A cover letter's schema is a list of paragraphs (no kind); every other generation
+    # task returns units with a kind.
+    key = "paragraphs" if "paragraphs" in schema.get("properties", {}) else "units"
+    if key not in schema.get("required", []):
+        return [f"'{key}' is not required"]
+    units = schema.get("properties", {}).get(key, {})
     if units.get("type") != "array" or units.get("minItems", 0) < 1:
-        return ["'units' is not a list of at least one unit"]
+        return [f"'{key}' is not a list of at least one unit"]
     item = units.get("items", {})
     problems = []
-    if not {"kind", "text", "fact_ids"} <= set(item.get("required", [])):
-        problems.append("a unit doesn't require kind, text and fact_ids")
-    if item.get("properties", {}).get("kind", {}).get("enum") != ["content", "structure"]:
+    needed = {"text", "fact_ids"} if key == "paragraphs" else {"kind", "text", "fact_ids"}
+    if not needed <= set(item.get("required", [])):
+        problems.append(f"a unit doesn't require {', '.join(sorted(needed))}")
+    kind = item.get("properties", {}).get("kind", {})
+    if key == "units" and kind.get("enum") != ["content", "structure"]:
         problems.append("a unit's kind is not content or structure")
     fact_ids = item.get("properties", {}).get("fact_ids", {})
     if fact_ids.get("type") != "array" or fact_ids.get("uniqueItems") is not True:
