@@ -102,6 +102,41 @@ Server side: return `HX-Redirect: /setup` for htmx requests, a normal 303 redire
 
 The delegated helper in `app.js` validates the safe same-origin path, sends `X-JP-Token` from the body's `hx-headers` in a fetch header, checks the response and its calendar content type, and saves a blob with a temporary object URL as `jobpipeline-event.ics`. It disables/restores the button and announces the result. The token is never a query parameter. This is a protected, read-only in-memory export, not a normal navigation or a background task; do not add file writes, secret reads or external service/network calls to its GET. Calling the local in-memory calendar provider is the approved formatter boundary.
 
+## Export download (M6)
+
+```html
+<button type="button" data-file-download="/applications/{{ application.id }}/exports/{{ export.id }}">Download PDF</button>
+<span data-file-status></span>
+```
+
+The status element must be the button's next sibling, because `app.js` writes the words there. The delegated helper accepts only `/applications/<id>/exports/<export id>`, sends `X-JP-Token` from the body's `hx-headers` in a fetch header, and checks that `Content-Disposition` names a generated `cv-v<n>-…` or `cover-letter-v<n>-…` file whose media type matches its extension. It then saves the blob, announces "File downloaded.", and returns focus to the button. The route is `GET /applications/{id}/exports/{export_id}` (protected, read only, `no-store`); it answers from the stored row, never from a name in the URL.
+
+## Lazy protected block on a token-free page (M6)
+
+```html
+<div id="letter-frame" hx-get="/applications/{{ id }}/tailoring/4/frame" hx-trigger="load" hx-swap="outerHTML">
+  <p class="field-hint">Loading the greeting, opening line, closing and name…</p>
+</div>
+```
+
+The page holds only the placeholder. The `GET` it loads is a protected fragment, so the token comes from `<body hx-headers>` and the value never sits in the token-free page. The Settings page uses the same idea for Your details (`hx-get="/settings/details" hx-trigger="load"`).
+
+## Form that swaps only its own block (M6)
+
+```html
+<div id="photo-block">
+  <form method="post" action="{{ details.photo_url }}" enctype="multipart/form-data"
+        hx-post="{{ details.photo_url }}" hx-encoding="multipart/form-data"
+        hx-target="#photo-block" hx-select="#photo-block"
+        hx-select-oob="#details-version,#details-contents" hx-swap="outerHTML">
+    <input type="hidden" name="version" value="{{ details.version }}">
+    ...
+  </form>
+</div>
+```
+
+The photo forms replace only `#photo-block`, plus two out-of-band spots (`#details-version` and `#details-contents`), so unsaved text in the details form is never wiped. The outcome line is rendered inside the block (`fragments/settings/_details.html`).
+
 ## Prefetching the next inbox card
 
 The queue fragment includes the next card's id; `app/static/js/shortcuts.js` fetches `GET /inbox/jobs/<next-id>/card` after the current card settles and keeps the HTML in memory for 30 seconds, swapping it in when the user presses J. It prefetches only same-origin `/inbox/jobs/` paths, and the GET marks nothing seen. The shown card sends its own `POST /inbox/jobs/<id>/seen` (`hx-trigger="load"`); a key pressed before that answer is held until it arrives, because the answer changes the job's version.

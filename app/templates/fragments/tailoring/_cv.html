@@ -9,7 +9,8 @@
     {% if cv.kept is not none %}<label for="cv-kept-text">Your unsaved text</label><textarea id="cv-kept-text" readonly>{{ cv.kept }}</textarea>{% endif %}
   {% endif %}
   {% if cv.error %}<p id="cv-error" role="alert" class="field-error">{{ cv.error }}</p>{% endif %}
-  {% if cv.not_ready %}<p id="cv-not-ready">{{ cv.not_ready.message }}</p>
+  {# While the template is the missing piece, approving it (the panel below sends `templates-changed`) refreshes only this section, so the focused panel is never swapped. #}
+  {% if cv.not_ready %}<p id="cv-not-ready"{% if cv.not_ready.reason == 'template' %} hx-get="{{ cb }}" hx-trigger="templates-changed from:body" hx-target="#cv-step" hx-select="#cv-step" hx-swap="outerHTML"{% endif %}>{{ cv.not_ready.message }}</p>
     {% set links = {'summary': ('Open job', '/jobs/' ~ tw.job_id), 'requirements': ('Open job', '/jobs/' ~ tw.job_id), 'facts': ('Open facts', '/facts'), 'country': ('Choose the CV country', '#cv-country'), 'template': ('Draft the template', '#cv-template-heading')} %}
     <a id="cv-not-ready-link" href="{{ links[cv.not_ready.reason][1] }}">{{ links[cv.not_ready.reason][0] }}</a>
   {% endif %}

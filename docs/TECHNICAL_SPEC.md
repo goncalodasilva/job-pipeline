@@ -145,11 +145,12 @@ These rules are enforced by import-linter contracts in `pyproject.toml` and chec
 1. `app.domain` MUST be pure Python: no I/O, no framework imports, nothing from other `app` packages.
 2. `app.modules.*` MAY import `app.domain`. They MUST NOT import `app.services`, `app.api`, `app.onboarding` or `app.tasks`.
 3. Vendor SDKs MUST be imported only inside the provider package that wraps them. For example, `claude_agent_sdk` is imported only in `app.modules.ai.providers.claude_sdk`, and `keyring` only in `app.modules.secrets.providers.keyring_store`.
-   PDF and Word parsing follow the same rule: `pypdf` only in `app.modules.extract.providers.pdf`, `docx` only in `app.modules.extract.providers.docx` (ADR-089). Job page fetching too: `httpx` only in `app.modules.fetch.providers.guarded` (the contract is narrowed to that module; ADR-098 update of M4.1).
+   PDF and Word parsing follow the same rule: `pypdf` only in `app.modules.extract.providers.pdf`, `docx` only in `app.modules.extract.providers.docx` (ADR-089). Job page fetching too: `httpx` only in `app.modules.fetch.providers.guarded` (the contract is narrowed to that module; ADR-098 update of M4.1). Rendering follows the same rule: `typst` only in `app.render.providers.pdf` (ADR-108), and `docx` only in `app.render.providers.word` and the extractor's Word adapter (ADR-106).
 4. `app.services` MAY import `app.domain` and the public interface of each module (`app.modules.<name>`, not its `providers` subpackage). Services MUST NOT import FastAPI, Starlette or Jinja2.
 5. `app.api` MAY import services, onboarding and the task runner's public functions. It MUST NOT import `app.modules.*` or `sqlite3`.
 6. `app.tasks` MAY import services and domain. Task handlers are thin: they call a service function. The runner reaches the AI module and storage only through services; the 2.5 diagram shows the logical flow (ADR-034).
 7. Provider selection happens in one place, `app/wiring.py`, which builds concrete providers from settings and hands them to services through constructor injection.
+8. `app.render` (M6; ADR-106, ADR-108) sits in the layer beside `app.modules`. Its interface (`app/render/__init__.py` and `app/domain/rendering.py`) imports no vendor library, and each file format has one provider module under `app/render/providers/`. Services may use the interface but not the providers. The API and the task handlers may not import `app.render` at all, `app.render` may not import services, and providers are chosen only in `app/wiring.py` (`Wiring.document_renderers()`). These rules are the layering, service, API, task and provider contracts in `pyproject.toml`.
 
 ### 2.4 Key interfaces
 
@@ -272,6 +273,33 @@ Job fetching and intake (M4, ADR-036, ADR-098):
 - The fetch runs inside the Add-job request (`POST /inbox/intake`), awaited, with "Fetching the page…" shown. It is not a background task: its result decides what the form shows next, and it uses no AI budget (ADR-098 item 4). `JobIntakeService.add_url` fetches, runs `page_text` in a worker thread (raw markup capped at 512 Ki characters, two-second await limit, parser depth and work limits), cleans control, bidi and zero-width characters, refuses text over 50,000 characters instead of cutting it, and treats fewer than twelve words as "no job text". A refused or failed fetch answers 422 with the paste-text message, opens the text box and keeps the URL as the link to the original. `add_text` stores pasted text with an optional http or https link, which is stored and never fetched.
 - The posting is stored before any AI request (snapshot, source with canonical URL, capture time). `summarize_job:<job id>` then starts as a background task through the budget gate, and `assess_fit:<job id>` runs after a successful summary as its own task (ADR-098 items 4 and 5). Duplicates are found by word-multiset similarity (0.80) and merged as another source; "Not a duplicate" splits them and remembers the pair.
 
+Document rendering (M6, ADR-106 to ADR-116). Services hand a `RenderDocument` to one renderer per file format and get the bytes back. The export service runs the render on a worker thread, serialised by its own lock, before its short write transaction.
+
+```python
+# app/render/__init__.py (ADR-106, ADR-108)
+class DocumentRenderer(Protocol):
+    format: str                       # "pdf" or "docx"
+    media_type: str
+    def render(self, document: RenderDocument) -> RenderedFile: ...
+@dataclass(frozen=True)
+class RenderedFile:
+    content: bytes
+    page_count: int | None            # None for Word, which has no fixed pages
+class RendererUnavailable(Exception): ...   # the library cannot be imported or loaded
+
+# app/domain/rendering.py (pure)
+@dataclass(frozen=True)
+class RenderDocument:                 # title, author, page_size ("A4" | "Letter"), header_lines,
+    ...                               # sections (heading, lines, entries of heading and lines),
+                                      # photo bytes and photo_type ("jpeg" | "png"), both or neither
+def clean_render_text(text: str) -> str: ...   # drops control characters except tab and newline
+```
+
+- `app/render/providers/pdf.py` (`PdfRenderer`, format `pdf`) uses `typst==0.15.0` (ADR-108), imported only when the first render runs, so the app starts and Word export works without it. The typesetting source is one static template with no `#import`, `#read` or `eval`; the document reaches it only as JSON in `sys_inputs`. Each compile runs in a fresh, empty temporary folder that is removed afterwards, and the only file it can hold is the photo, under a fixed name. Fonts are the bundled Libertinus Serif from the wheel, with system fonts ignored. The timestamp comes from the injected clock, in whole seconds, and the library's Creator and Producer entries are blanked. Bidi override and isolate characters are removed before typesetting. A run of more than fifty characters without a space gets zero-width spaces every twenty-five characters, so it can wrap.
+- Caps: 2,000 pieces (headings and lines) and 200,000 characters per document, title and author included; a photo of at most 5 MiB, 4,000 pixels a side and 16 million pixels, measured from its header. A document over a cap raises `RenderTooLarge`. The 10-second limit runs the compile on a worker thread, with at most four compiles in flight. A compile that times out cannot be cancelled and keeps its slot until it ends (`RenderTimedOut`). A library failure, or a photo that does not match its stated type, raises `RenderFailed`.
+- `app/render/providers/word.py` (`WordRenderer`, format `docx`) uses python-docx with styles set in code (Arial; headings keep with the next paragraph). Core properties come from the document and the clock. The template's thumbnail and custom XML are dropped, and every zip entry takes the clock's time. Word files keep bidi controls.
+- `Wiring.document_renderers()` returns `(PdfRenderer(clock), WordRenderer(clock))`. An unavailable PDF renderer leaves Word export working and shows the install message.
+
 ### 2.5 Runtime flows
 
 Page and fragment requests: route → service → repository → template. Full pages render the app shell; htmx requests (`HX-Request: true`) receive fragments only.
@@ -320,9 +348,9 @@ Data folder layout:
 <data folder>/
   app.db                    SQLite database (WAL mode)
   backups/                  automatic copies before migrations (last 5 kept)
-  documents/<application>/  exported CVs and letters, by version
+  documents/<application>/  exported CVs and letters, by version (M6; folder 0700, files 0600)
   imports/                  uploaded CV files
-  assets/                   user photo for CV templates, if any
+  assets/                   the CV photo, photo-<generated id>.jpg or .png (M6; 0600)
   prompts/overrides/        user-edited prompt templates
   exports/                  JSON exports
   logs/                     rotating logs (redacted)
@@ -335,6 +363,8 @@ Migrations are numbered SQL files in `app/modules/storage/migrations/NNNN_descri
 Full-text search uses FTS5 tables for facts and jobs, kept in sync by triggers.
 
 The table list in `detailed-design.md` (State machines and database schema) is the starting point for the schema. Every mutable table carries `created_at`, `updated_at` and an integer `version` for optimistic concurrency.
+
+M6 storage (ADR-110, ADR-116). Migration `0006_tailoring.sql` adds 13 tables, all `WITHOUT ROWID`. `angles`, `workspaces`, `cv_templates`, `documents` and `document_versions` are mutable and carry `created_at`, `updated_at` and `version`. `gap_checks`, `gap_check_facts`, `angle_proposals`, `document_units`, `document_unit_facts`, `document_sent_facts`, `document_exports` and `application_submissions` are append-only: triggers refuse their UPDATE, DELETE and replacement. A document version is inserted only as a draft. Units, citations and sent-fact rows can be added only to a draft, its content never changes, and its status moves only draft → approved → sent. `applications_delete_only_untouched` refuses any application that has a tailoring row, so a tailoring row makes the application "touched". Personal details have no table. They are the versioned setting `personal_details` (name, email, phone, location, up to three http or https links, and the photo's stored name). Date of birth, nationality and marital status are never stored. Export files live in `documents/<application id>/` under code-built names, `cv-v<n>-<24 hex>.pdf` or `.docx` and `cover-letter-v<n>-<24 hex>.pdf` or `.docx`, where the hex is the start of the version id's SHA-256. Each export row keeps its format, stored name, size, SHA-256 and page count. An exported file embeds the contact details as they stood at its first export; later edits do not rewrite it.
 
 ### 2.8 Configuration
 
@@ -349,7 +379,7 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 2. A random launch token (32 bytes, URL-safe) is generated at startup and embedded in the base template. htmx sends it on every request as `X-JP-Token` via `hx-headers`. Every fragment, JSON and state-changing endpoint MUST require it. Full-page GETs, static files and `GET /health` MAY omit it (ADR-023).
 3. State-changing requests MUST also carry an `Origin` or `Referer` matching the app's own origin.
 4. Jinja2 autoescaping stays on. AI output and job text MUST NOT be marked safe. Where Markdown from AI is rendered, it is converted and then sanitized with nh3.
-5. Uploads: 10 MB limit, type checked by content (PDF, DOCX, plain text), stored under the data folder with generated names, parsed with timeouts.
+5. Uploads: 10 MB limit, type checked by content (PDF, DOCX, plain text), stored under the data folder with generated names, parsed with timeouts. The CV photo is a separate image upload: JPEG or PNG by content, at most 5 MB (the cap is enforced while the upload streams), with its metadata removed and its headers checked (M6, ADR-112).
 6. Job URL fetching: http and https only; the resolved address MUST NOT be private, loopback, link-local or multicast, checked again after each redirect; 5 MB and 15 s limits; no cookies. This module never crawls: one user-supplied URL at a time. As built (M4.1, ADR-098): a URL is refused when any of its DNS answers is not a global unicast address; at most 5 redirects, each checked again; the connection goes to the address that was checked, with the original host as `Host` and TLS server name; proxy settings and `.netrc` are ignored; the size cap counts decoded bytes; only text content types are read; the fetched URL is never logged. Fetched text is untrusted content (3.3). Known gaps are listed in `docs/TECH_DEBT.md` (TD-225 to TD-233).
 7. Untrusted content (job text, web results, CV text) is delimited and treated as data (3.3). Plain AI tasks run with no tools allowed; only explicitly requested web questions allow the provider's web search tool.
 8. When the app calls the Agent SDK, it MUST isolate the call from any developer configuration: run in an empty temporary working directory and disable loading of filesystem settings (the SDK's `setting_sources` option at the time of writing; verify against the installed SDK version).
@@ -361,10 +391,16 @@ The table list in `detailed-design.md` (State machines and database schema) is t
    Job and company pages (M4; ADR-094 pattern, ADR-098, ADR-099, ADR-100). These five GET routes are registered as pages, so they load without the token and read only: `/inbox` (its filter, view, group-by, saved-view and page values are query values of the same route), `/inbox/values`, `/jobs/{id}`, `/companies` and `/companies/{id}`. They show stored job data (snapshots, summaries, notes, removal reasons) to anyone on this computer who can load a page. A job or company id is one path segment of the safe shape (`is_safe_id`), checked before any lookup; any other shape or an unknown id answers a fixed plain-text 404 that echoes nothing. A GET never marks a card seen, starts a task or changes a filter or view: a card is marked seen by the POST it sends once it is displayed, and the next card is prefetched by GET without marking it. A filter form is a plain GET to `/inbox`; its fragment answer sets `HX-Push-Url` to the `/inbox` page address, never to a fragment route (a reload of a fragment route answers 403). The company list's sort and page values and its htmx fragment are the same routes with `HX-Request`, so the fragment needs the token.
    Token-protected GET fragments added in M4 (never pages, no side effects): `/inbox/queue`, `/inbox/jobs/{id}/card`, `/inbox/jobs/{id}/detail` (the drawer), `/inbox/jobs/{id}/header`, `/inbox/jobs/{id}/summary`, `/inbox/jobs/{id}/fit` and `/settings/shortcuts`. Token-protected POST routes, which also need the origin (rule 3): `/inbox/intake`, `/inbox/jobs/{id}/not-duplicate`, `/inbox/jobs/{id}/seen`, `/inbox/jobs/{id}/triage` (snooze, remove, to apply, undo, restore), `/inbox/jobs/{id}/summarize`, `/inbox/jobs/{id}/assess-fit`, `/inbox/jobs/{id}/edit` (fields and notes), `/inbox/jobs/{id}/detail-triage`, `/inbox/jobs/{id}/split`, `/inbox/values/{id}` (map, add as new value, ignore), `/inbox/saved-views`, `/inbox/saved-views/{id}` (rename, delete), `/companies/{id}/edit` and `/settings/shortcuts`. Writes to an existing record (triage, field and note edits, value mapping, saved views, company edits, the shortcuts switch) carry the record's version and answer 409 with the reload prompt when it is stale. Form bodies are read with a size cap (a plain-text 413) and a fixed field list (a plain-text 400).
    M5 pages (ADR-102): `/board` (including `view=table`, sort, page and Closed state), `/applications/{id}` and `/` (Today) are read-only pages; htmx requests still require the token. Application ids are checked before lookup and use the fixed non-reflecting `ApplicationNotFound` 404. Protected GET fragments: `/board/columns`, `/applications/{id}/detail`, `/today/content`, `/notifications/panel`, `/notifications/count`. Protected POSTs (also origin checked): `/applications/{id}/status`, `/interview-date` and `/feedback` under the same application prefix; `/applications/{id}/notes` and `/notes/{note_id}`; `/applications/{id}/events`, `/events/{event_id}` and `/events/{event_id}/cancel`; `/applications/{id}/contacts`, `/contacts/new`, `/contacts/{contact_id}/unlink` and `/interactions`; `/companies/{id}/contacts` and `/contacts/{contact_id}`; `/reminders/{key}/done`, `/dismiss` and `/snooze`; `/notifications/seen`; `/settings/board/statuses`, `/settings/board/statuses/{key}/rename`, `/move` and `/delete` under that status prefix, and `/settings/board/reminders/{key}`. Settings > Board is a section of `/settings`, not a separate page or GET route. All fragment and action routes retain the default token requirement. GETs mark no reminder seen; `/notifications/seen` takes only the displayed occurrence keys. Board actions read only the validated `/board` path and `closed=1` from `HX-Current-URL` to retain the Closed view; this header never authorizes an action.
-13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it. Pages with a fact id in the path expose that fact locally, the same as the library; the id is not an authorization boundary (ADR-094). The same holds for `/inbox`, `/jobs/{id}` and `/companies/{id}`: job text, summaries, your notes and your removal reasons are readable by any local process that loads them. M5 adds application status/history, notes, rejection feedback, event details and contact/interaction data to local pages. Company pages expose contact names, emails, phones and notes without a token; application pages expose linked contacts and interactions. Board and Today expose application and reminder summaries. These features send none of that data to AI.
+13. The launch token stops other websites from acting through the browser; it is not authentication. Any local process or other user on the same computer can load a page and read it. Pages with a fact id in the path expose that fact locally, the same as the library; the id is not an authorization boundary (ADR-094). The same holds for `/inbox`, `/jobs/{id}` and `/companies/{id}`: job text, summaries, your notes and your removal reasons are readable by any local process that loads them. M5 adds application status/history, notes, rejection feedback, event details and contact/interaction data to local pages. Company pages expose contact names, emails, phones and notes without a token; application pages expose linked contacts and interactions. Board and Today expose application and reminder summaries. These features send none of that data to AI. M6 extends this rule to personal details (name, email, phone, location, links and photo, from the `personal_details` setting only; see the M6 paragraph after rule 12): they are never in any AI request, because the code builds the CV header and the letter frame from them and they are not inputs to any task. They stay out of logs, task and usage rows, events and error copy, and form errors name fields without echoing a value (TD-280). The token-free pages hold no personal value: Settings and the Tailoring steps load the details through protected routes, and the photo preview is an inline data URI inside a protected fragment. Two limits remain. A name or phone typed into a kept CV line or a letter note is sent to the model as typed (TD-286, ADR-115), and model text is not checked for URLs or e-mail addresses (TD-294).
 14. The data folder is locked while the app runs (ADR-072, ADR-076 item 9, M2.4). Before logging, the database, migrations or the AI temporary clean-up, the CLI and the app's start take `flock(LOCK_EX | LOCK_NB)` on `<data folder>/.lock`. The file is created with mode 0600 and refused unless it is a private regular file owned by the user with one link. A second copy gets `DataFolderInUse`, whose message names no path, and exits. The lock is POSIX only; where `fcntl` is missing it does nothing (ADR-061). The operating system releases it when the process exits or is killed.
 
 M5.5 application detail (ADR-102): `/applications/{id}` is a read-only full page with the same safe-id check and fixed, non-reflecting 404 as the job pages; htmx requests still need the launch token. `/applications/{id}/detail` and all note/event POST routes are protected; writes also need the origin. The approved exception to rule 12's export wording is `GET /applications/{id}/events/{event_id}/ics`: it builds calendar bytes in memory, writes no files or rows, calls no external service, requires the token header, and returns a fixed `jobpipeline-event.ics` attachment with `text/calendar` and `no-store`. The fetch-and-save helper never puts the token in a URL. Like the other token-free pages, the application page makes its stored notes and event details readable locally (rule 13).
+
+M6 routes and files (ADR-106 item 10, ADR-112, ADR-114 to ADR-116). The Tailoring tab is the existing token-free page `GET /applications/{id}?tab=tailoring[&step=1..5]`. It is read only, its resume step is derived, and its contact block (step 3) and letter frame (step 4) are placeholders that load protected fragments. The protected GET fragments are `/applications/{id}/tailoring/{step}`, `.../tailoring/3/contact`, `.../tailoring/3/version/{version id}`, `.../tailoring/4/frame`, `.../tailoring/4/version/{version id}`, `/settings/details`, `/settings/cv-templates`, `/settings/cv-templates/{code}` and the export download below. The protected POSTs also check the origin and carry the version they change: `/applications/{id}/tailoring/country`, `.../tailoring/1/check`, `.../1/facts`, `.../2/propose`, `.../2/angle`, `.../3/generate`, `.../3/approve`, `.../3/unit/add`, `.../3/unit/{unit id}/{edit|remove|confirm}`, the same under `.../4/`, `.../5/export`, `.../5/applied` (the Submit move), `/settings/details`, `/settings/details/photo`, `/settings/details/photo/remove`, `/settings/cv-templates/{code}` (save or approve) and `/settings/cv-templates/{code}/draft`. Citations are never posted. A CV line added by hand posts its text, section and role, which the service checks against the document. A letter paragraph posts its text only.
+
+The export download `GET /applications/{id}/exports/{export_id}` is the approved exception to rule 12's wording on exports, as the `.ics` download is (ADR-106 item 10). It reads one stored file, writes nothing and calls no provider. It needs the token header, checks the stored name, size and SHA-256 before it answers, and sends the fixed media type, the stored name as an attachment and `Cache-Control: no-store`. The browser's delegated `[data-file-download]` helper fetches it with the header, checks the name and type, and saves a blob. The token is never in a URL.
+
+Assets and export folders (rule 12; ADR-112 items 9 and 11, ADR-116 item 4). `assets/` must be a real folder, created 0700, and links are refused. A photo is written exclusively with mode 0600, flushed to disk, and only then named in the `personal_details` setting. The old file is deleted after the setting changes, and a failed write removes the new file. Workspace open removes orphan files with generated photo names, and only regular files, never links, folders or other names. Export folders follow the same rules: directory-relative opens refuse links at every component, and a generated export file with no row is removed at workspace open.
 
 ### 2.10 Logging and diagnostics
 
@@ -377,6 +413,8 @@ Task, service, AI-module and event-stream loggers write constant format strings.
 AC-M1.4 also covers CV text, fact wording and refine answers: these stay out of task/usage rows, events, logs and error copy. They belong in uploads, fact versions and local refine conversations/source snapshots (ADR-092, ADR-097). Uvicorn access records omit the complete query string before formatting, so a search cannot put fact text in a log (ADR-093).
 
 M4 extends the same rule to job data: job text and snapshots, summaries, notes, removal reasons and company notes stay out of logs, `tasks` rows, usage rows, events and error copy (AC-M4.11 leak scans). The fetched URL is never logged, in a message, an error detail or a chained cause; the fetcher's errors name no address, and the `httpx` and `httpcore` loggers are dropped below WARNING and reduced to level, logger and exception type from there (`ClientRecordFilter`; the fetcher also holds those loggers at WARNING). The query string is removed from access records, so the inbox search and filters (`/inbox?search=`, `/inbox/queue?...`) and the company list values never reach a log. A uvicorn record that carries an exception (an unexpected error in a route) and the records of the uncaught-exception hooks are reduced to level, logger name and exception type (`ErrorRecordFilter`), because the exception text and traceback can quote the text being processed; the log still shows that an error happened and which kind. The CLI's start-up failure keeps its traceback in the log file, since no job text exists yet.
+
+M6 extends the same rule to document text (CV and letter lines and paragraphs, angles, gap-check wording and notes), personal details and the photo. They stay out of logs, `tasks` and usage rows, events, error copy and access records. M6.12 adds the leak scans for them. One exception is stored, where other tasks store only ids: the free-text note of a CV start (up to 500 characters), a letter start (up to 500 characters) or a template draft (up to 300 characters) is kept in `tasks.input_ref` (TD-283; the template note is also recorded in the Consequences of ADR-112).
 
 ### 2.11 Errors
 
@@ -462,6 +500,29 @@ M5 errors and refusals:
 
 `DetailInvalid` and `ContactInvalid` are form-validation exceptions, not `AppError`s: 422 with "Check the highlighted fields." and field messages, preserving escaped typing in the submitting editor. Unknown contacts answer the fixed "This contact wasn't found." (404). Stale application, note, event, contact, status, rule or reminder versions use `VersionConflict` (409); Settings > Board refreshes its section, while application editors preserve typing. A malformed, unknown or repeated form field is 400; an oversized form is 413. Refused status moves do not create history or feedback. Skipping optional interview/feedback dialogs keeps the already saved status move.
 
+M6 errors and refusals (ADR-106 to ADR-116):
+
+| Error | Raised by | User-facing message pattern |
+| --- | --- | --- |
+| `RenderTooLarge` | PDF renderer, export | "This document is too large to export. Shorten the text or use a smaller photo." |
+| `RenderTimedOut` | PDF renderer, export | "Creating the PDF took too long, or is still busy with another. Try again in a moment, or shorten the document." |
+| `RenderFailed` | PDF renderer, export | "The document couldn't be turned into a PDF." (its detail names a fixed phrase or an error type, never document text) |
+| `RendererUnavailable` (not an `AppError`) | PDF renderer, export | "PDF export needs typst. Word export still works; see the README." |
+| `DetailsNotSaved` | Personal details service | "Your details couldn't be saved. Nothing was changed. Try again." |
+| `PhotoNotSaved` | Personal details service | "The photo couldn't be saved or removed. Nothing was changed. Try again." |
+| `ExportRefused` (a `ValueError`) | Export service | "Add your name in Settings > Your details before exporting."; "Approve the CV in step 3 before exporting."; "The files couldn't be saved. Nothing was changed. Try again." |
+| `GenerateNotReady` (reasons `summary`, `requirements`, `facts`, `country`, `template`) | CV and letter starts | Says what to do first, for example "Choose the CV country first, so the right template is used." or "Approve a CV template for this country in Settings first." |
+| `GenerateInProgress` | CV and letter starts | "A CV is already being made. Wait for it to finish." (a letter: "A letter is already being drafted. Wait for it to finish.") |
+| `ReplaceNotConfirmed` | CV regenerate | "Confirm that you want to replace everything, including your edits." |
+| `NothingToApprove` | CV and letter approval | "There is nothing to approve yet." |
+| `ApprovalBlocked` | CV and letter approval | "1 line needs your check." or "N lines need your check." (a letter says paragraphs) |
+| `UnitInvalid` | Line edit, add and remove | A message that says what to change (nothing written). A 121st line in one version gets "A CV can have at most 120 lines. Remove one before adding another." |
+| `TemplateBusy` | Template approval | "A new draft is being made. Approve the template once it is ready." |
+| `TemplateNotFound` | Template routes | A fixed plain-text 404 ("Not found") |
+| `VersionConflict` | Every M6 write | The shared reload prompt (409), inside the form's own block. Whether typed text is kept depends on the form (ADR-112 item 5, ADR-111) |
+
+Form refusals are `ValueError`s, not `AppError`s: `DetailsInvalid`, `PhotoInvalid`, `StyleInvalid`, `ReviewInvalid`, `AngleInvalid` and `CountryInvalid` answer 422 with a fixed message tied to the field, and never echo the entered value. Photo messages: "Choose a JPEG or PNG picture."; "The picture is too big. Choose one of 5 MB or less."; "The picture must be between 100 and 4000 pixels on each side." Detail fields name their rule, for example "Write the email as name@example.com." A download of a missing or unsafe export answers the fixed 404 "That file wasn't found."
+
 Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
 Refusals of a start answer 409, for htmx and for a plain request, with the reason: a blocking point, a tier cap without a free Fast tier, or unreadable budgets (ADR-086). A warning that isn't confirmed answers 200 with the warning dialog for htmx, and 409 as text for a plain request (ADR-086). A stale version of a budget form, or of the guide's budget step, answers 409 with the reload prompt (`fragments/shell/_reload_prompt.html`, `role="alert"`): the form's own explanation, then a "Reload the page" link. In the usage budget forms the message is `VersionConflict`'s copy (ADR-081, ADR-087).
@@ -482,7 +543,7 @@ Refusals of a start answer 409, for htmx and for a plain request, with the reaso
 | Paths | `platformdirs` | Bootstrap config and default data folder |
 | Job page fetch | `httpx` with the SSRF guard | Runtime dependency since M4.1. Text extraction with the standard library `html.parser` (ADR-098); no new dependency |
 | CV import | `pypdf`, `python-docx`, `python-multipart` | Approved in ADR-089; PDF fixtures passed. Word brings transitive `lxml`; parsing runs in a child process |
-| Rendering | PDF from HTML (WeasyPrint is the default candidate), Word via `python-docx` | M6 starts with a spike: WeasyPrint needs system libraries on some platforms |
+| Rendering | PDF via `typst==0.15.0` (Apache-2.0), Word via `python-docx` (ADR-106) | PDF library chosen at the M6.1 checkpoint from the ADR-107 comparison (ADR-108). Typst needs no system libraries and brings its font. Its template is static and data enters as JSON; the Linux check is a Docker dev script (`scripts/linux_render_check.sh`) |
 | HTML sanitizing | `nh3` | For rendered Markdown. Not used in M4: summaries and job text are escaped plain text (ADR-098 item 2) |
 | Calendar | `icalendar` (ADR-102) | Imported only inside `app.modules.calendar.providers.ics`; synchronous in-memory export with an injected clock; no sync or network |
 | Validation | `pydantic` v2 | Settings, AI schemas, DTOs |
@@ -520,40 +581,44 @@ job-pipeline/
   app/
     api/            routes: pages, fragments, JSON; middleware (host, token, origin)
     onboarding/     setup guide: detection, step registry, steps/
-    services/       jobs, companies, applications, facts, sessions, tailoring,
+    services/       jobs, companies, applications, facts, sessions, tailoring
+                    (steps 1 to 5), documents, letters, exports, CV templates, personal details (M6),
                     prep, usage, settings, reminders, provider setup
     domain/         models, enums, state machines, honesty checker, budget math,
-                    normalization, clock, ids, locales
+                    normalization, clock, ids, locales; M6: documents, master CV and diff, CV templates,
+                    tailored CV, gap check, angles, cover letter, images, rendering, template draft
     modules/
       ai/           interface, prompt library, executor.py, schemas, tasks.py,
                     providers/ (claude_sdk.py, fake.py)
       search/       interface, providers/
       calendar/     frozen EventData/CalendarFile, provider protocol; providers/ics.py
-      storage/      database.py, runner.py, migrations/ (0001 to 0005; 0004_jobs.sql adds companies,
+      storage/      database.py, runner.py, migrations/ (0001 to 0006; 0004_jobs.sql adds companies,
                     jobs, sources, summaries, assessments, requirements, controlled values,
                     the unknown-value queue, saved views and jobs_fts; 0005_applications.sql adds
                     statuses/history, applications, contacts/links/interactions, notes, events,
-                    reminder rules/states), repositories including board, detail, reminders, Today
+                    reminder rules/states; 0006_tailoring.sql adds the 13 M6 tailoring tables), repositories including board, detail, reminders, Today, tailoring, documents and exports
       secrets/      interface, providers/ (keyring_store.py, env.py, chained.py,
                     redacting.py, memory.py)
       fetch/        guard.py (SSRF checks), text.py (page_text), content and codings helpers,
                     providers/ (guarded.py, fake.py, demo_pages.py) (M4; ADR-098)
       extract/      public sniff/extract interface, killed parser child, providers/pdf.py,
                     docx.py and text.py (M3; ADR-089)
-    render/         CV and letter rendering (PDF, Word), country templates (planned, M6)
+    render/         DocumentRenderer interface and RenderedFile (__init__.py); providers/pdf.py (typst)
+                    and providers/word.py (python-docx) (M6; ADR-106, ADR-108)
     tasks/          runner, handler registry, practice, cv_import, fact_refine, job_summary and
-                    job_fit handlers (the event publisher is api/events.py; ADR-077)
+                    job_fit handlers, and the M6 tailoring, documents and cv_templates handlers (the event publisher is api/events.py; ADR-077)
     templates/      Jinja2 pages and fragments
     static/         vendor/ (htmx, SortableJS and licenses), js/ (app.js; shortcuts.js and
                     job-detail.js; board.js, status-menu.js, application-detail.js,
-                    notifications.js and today.js), css/
+                    notifications.js, today.js and cv-step.js (M6)), css/
     wiring.py       builds providers and services from settings (ADR-047, ADR-059)
     config.py       runtime config and data folder resolution (ADR-025, ADR-030)
     logging_config.py  logging setup with redaction (ADR-030, ADR-070)
     cli.py          jobpipeline command
     main.py         app factory and lifespan
   prompts/          default prompt templates and output schemas per task (3.6): extract_cv,
-                    refine_fact, summarize_job, assess_fit
+                    refine_fact, summarize_job, assess_fit, and the M6 tasks gap_check, propose_angles,
+                    draft_cv_template, tailor_cv, draft_cover_letter
   demo/             fictional persona, facts and jobs (planned, M9)
   docs/
     PROGRESS.md     milestone tracking and session log
@@ -563,7 +628,7 @@ job-pipeline/
     references/     product spec, detailed design
     acceptance/     acceptance reports per milestone
     development/    agent setup, handoffs and shared review notes
-  scripts/          developer scripts (check_critical_coverage.py, etc.)
+  scripts/          developer scripts (check_critical_coverage.py, linux_render_check.sh (M6.2, a Docker dev check), etc.)
   tests/
     unit/           fast unit tests
     integration/    fast integration tests with real SQLite
@@ -616,9 +681,13 @@ The AI draws facts out of the user and rephrases them; it never invents experien
    M3 refinement checks against the target fact/role, the user's answers and the confirmed context sent in that request. `facts_for_ai()` is the shared context selector: confirmed, current, non-never-use only. Names in generalized context cannot support named claims. The suggestion keeps a source/version snapshot; Accept rechecks its claims, the target version and context privacy. The checker flags quantities (including number words), capitalized name tokens, controlled skill names and the model's `added_details`. Lower-case non-numeric embellishment and a lone capitalized word at a sentence start may escape it; users review the whole diff. CV import checks digit quantities against each source quote and leaves every unit a draft (ADR-092, ADR-097).
 6. Tests MUST include adversarial fake outputs (invented employer, wrong id, inflated number, uncited paragraph) and prove each is flagged.
 
+As built in M6 (ADR-106 item 8, ADR-109, ADR-113, ADR-115). `check_units` in `app/domain/honesty.py` compares each generated unit only with the facts it cites, and only facts sent in that request count as sent. It returns `unsupported` for a citation to a fact that was not sent, for a content unit with no ids, and for a structure unit whose text is not exactly a template heading (any other text is uncited content). It returns `needs_check` for a number, percentage, year, money amount or number word that none of the cited facts states; for a capitalised name or a controlled skill that none states (a fact marked "generalize names" never supports a name); for each `added_details` entry; for a citation to another role's fact, or a role header over a fact with no role; and for a word that mixes Latin letters with others. For letters only, the job's company and title may support a capitalised name (`name_sources`). `approval_blockers` checks the citations again at approval. A fact that is now never-use, archived, discarded, still a draft, missing, or at a version that doesn't exist is `unsupported`. A superseded version is `needs_check`. Approval is refused while any blocker stands (`ApprovalBlocked`, and nothing changes), and the flags are recomputed on every edit. The honesty notice is code-owned. The executor appends `HONESTY_NOTICE` as the last part of the system text of `generation` and `feedback` tasks, once, including on the retry; it is a suffix, not a prefix. Known limits, all recorded in `docs/TECH_DEBT.md` or the module docstring: number words are English only; a single capitalised word at a sentence start can escape the name check; a privacy change after generation is not caught (TD-277); model text is not checked for URLs or e-mail addresses (TD-294). The check helps, and the person still reads every word.
+
 ### 3.2 Drafts, approval and versions
 
 AI output is stored with status `draft` and becomes `approved` only by a user action. Every edit to a fact or document creates a new version. Marking an application "Applied" freezes the document versions and fact versions it used; later edits create new versions and never alter what was sent.
+
+As built in M6 (ADR-110, ADR-113, ADR-116). A document version moves draft → approved → sent and never backwards; a draft can't go straight to sent. Every edit, addition, removal and confirmation makes a new draft version, checked against the version the user saw. Editing an approved version makes a new draft, and approved and sent versions never change. The first move into an active status, which sets `applied_at`, freezes in the same transaction one version for each document. The choice is the latest exported approved (or sent) version, else the latest approved (or sent), else none; the chosen version becomes `sent` and an `application_submissions` row records it. The row is written once. Later moves never replace it. A later edit makes a new version. Exporting a version that already has files reuses them, so its files never change; a version with a missing format needs a new approved version for that format.
 
 ### 3.3 Untrusted content
 
@@ -655,11 +724,11 @@ Each AI task has one prompt template, one output schema, a default tier, and fix
 | `refine_fact` | Fast | Sharpening questions, suggested wording, no new claims | M3 |
 | `summarize_job` | Fast | 2 to 3 line summary, structured fields, requirements marked must-have, key or nice-to-have; no URL fields | M4 |
 | `assess_fit` | Fast | Each requirement met (with the fact ids it cites) or missing, and preference conflicts with a quote; no band and no prose about the user: the band is computed in code from the fact ids actually sent | M4 |
-| `gap_check` | Thorough | Requirement-to-fact map, gaps, honest framing, worth-applying note | M6 |
-| `propose_angles` | Thorough | 2–3 positioning angles with rationale | M6 |
-| `tailor_cv` | Thorough | CV units with fact ids | M6 |
-| `draft_cover_letter` | Thorough | Paragraphs with fact ids | M6 |
-| `draft_cv_template` | Thorough | Country template specification | M6 |
+| `gap_check` | Thorough | Per requirement: met, partial or missing, with the fact ids it cites; framing ideas with cited ids. Code applies the counting rules and writes the worth-applying sentence | M6 |
+| `propose_angles` | Thorough | 2–3 positioning angles, each with a one-line rationale, cited fact ids and an optional reused angle id | M6 |
+| `tailor_cv` | Thorough | Up to 80 CV units, each with kind, section, role label, text (400 characters at most), fact ids and added details; no status field | M6 |
+| `draft_cover_letter` | Thorough | Up to 8 body paragraphs, each with text (1,200 characters at most), fact ids and added details; the greeting, opening line, closing and name come from code | M6 |
+| `draft_cv_template` | Thorough | A closed template specification with a short note per field; the person's style choices are pinned in code | M6 |
 | `enrichment_question` | Fast | One open question and why it is asked | M7 |
 | `structure_answer` | Fast | Draft fact or story, missing parts | M7 |
 | `interview_questions` | Thorough | Questions with type and origin | M8 |
@@ -686,6 +755,14 @@ M4 registers `summarize_job` (kind summary) and `assess_fit` (kind feedback) (AD
 - `summarize_job` (Fast; `TaskSpec("summarize_job", kind="summary")`) reads the job text and the controlled lists with their aliases, and nothing else: no facts and no preferences (ADR-098 item 7). Both go into one untrusted block (`posting_context`), so stored list values are data too. Its closed schema has the title, company, industry, department or team, work mode, locations, employment type, seniority, experience (min, max and text), salary (min, max, currency, period), posted date, the summary and the requirements; it has no URL field and no status field. Salary and experience numbers are kept only when the posting states them (`extract_quantities`), a posted date only as a source-literal ISO date; an unsupported group is left empty. Values are normalized to the controlled lists by value or alias (case, spacing and accents ignored); an unknown value is stored as written and queued for the user to map. A user-corrected field is never replaced by a later summary. Each run adds a new `job_summaries` row with provider, model, prompt id, prompt version and task id, written with task success in one transaction.
 - `assess_fit` (Fast; `TaskSpec("assess_fit", kind="feedback")`) receives three delimited documents: the posting with its numbered requirements, the confirmed, current, non-never-use facts from `facts_for_ai` (versioned ids and wording; generalize-names policy kept), and the user's numbered preference lines. It returns, for each requirement, met or missing with the cited `fact_ids`, and conflicts with the numbered must-haves and deal-breakers with a quote from the posting. It returns no band. `app/domain/fit.py` computes the band: a requirement counts as met only if every fact id it cites was sent in that request; Strong = all must-haves and at least three quarters of the key requirements met; Stretch = any must-have missing or fewer than half the key requirements met; otherwise Possible. A conflict is kept only when its preference line exists and its quote occurs in the snapshot. One mechanical flag is added by code: the stated salary below the preferred minimum in the same currency and period. Jobs with conflicts are flagged, never hidden. Valid fact references prove which facts were sent, not that the match is true; the drawer therefore shows the user's own current fact wording, linked, and no AI-written explanation (TD-241). No request is made while no confirmed fact is usable. Each run adds a new `job_assessments` row with the fact versions used.
 - Both tasks label fake output "Practice data (fake provider)"; the fake summary also says the posting was not read (ADR-088, ADR-089 item 8). The never-use request-log test covers both through their calling services.
+
+M6 registers five tasks, all in `TASK_SPECS` and all started by a user action through the budget gate, each through its service (ADR-111 to ADR-115). Each start sends one request, plus at most one automatic retry on invalid output (TD-055 is unchanged).
+- `gap_check` and `propose_angles` (feedback; dedupe `gap_check:<application id>` and `propose_angles:<application id>`) read the posting's requirements as summarized (TD-258) and the facts from `facts_for_ai` only. Untrusted blocks: `job_requirements` and `facts`, and for angles `other_angles` (up to ten angles from other applications). `resolve_gap_check` counts a verdict only if it cites at least one fact and every cited id was sent. `resolve_angles` keeps two or three angles, ignores unknown reuse ids, and checks the description and rationale, not the name.
+- `draft_cv_template` (summary, so no honesty notice; dedupe `draft_cv_template:<CC>`) receives the country code and name, the style choices and an optional note of up to 300 characters, untrusted as `user_note`. It receives no facts and no personal details. The person's page count and photo choice are pinned in code, and a duplicate section is refused without a retry.
+- `tailor_cv` (generation; dedupe `tailor_cv:<application id>`) needs an approved template for the application's country. Untrusted blocks: `job_requirements`, `facts`, `angle`, `template`, `note` (500 characters at most) and `kept_units`. Kept lines that cite withdrawn, generalized or superseded facts are withheld, and at most 80 are sent. The role key is the role label string. An invented role label is cleared and flagged.
+- `draft_cover_letter` (generation; dedupe `draft_cover_letter:<application id>`) uses the untrusted blocks `job_requirements`, `facts`, `angle`, `note` and `kept_units`. Tone (`warm`, `formal`, `direct`) and length (`short`, `medium`, `long`) are plain fields checked against closed lists before and after the run.
+- Schema conventions shared by the generation tasks: each unit or paragraph has `fact_ids` (pattern `F<number>@<version>`, at most 20, unique) and `added_details` (at most 10 items of 200 characters). Text may not contain control or bidi characters. No output has a status or approval field, and the `tailor_cv` schema refuses one. The honesty checker reads `added_details` by that exact name.
+- Fake output is labelled "Practice data." (CV) or with the letter's practice notice, and its citations are checked like any other.
 
 ### 3.7 Tiers and usage
 
@@ -1045,6 +1122,12 @@ M6's own acceptance checks.
 **Test plan:** unit tests for the honesty checker including every adversarial case, and for diffing; integration tests for the tailoring pipeline with fixtures; e2e for the full workspace flow; renderer tests on the CI operating-system matrix.
 
 **Exit checks:** full verification; the user produces and reads one real tailored CV locally.
+
+**As built (M6.1 to M6.11; ADR-106 to ADR-116):** Steps 1 to 5 of the Tailoring tab are built, with the honesty review screen (step 3), the cover letter (step 4) and Submit with exports and the first-active freeze (step 5). Country templates, Your details and the photo are built in Settings. The renderer spike compared five PDF libraries on macOS arm64 and Linux (Docker), and the user chose typst 0.15.0 (ADR-107, ADR-108). Word uses python-docx. Migration 0006 holds all M6 schema; there is no migration 0007. "Used in" links, Documents sent and Today's document drafts are built (M6.11). M6.11 has no ADR; its decisions are recorded in `docs/PROGRESS.md`.
+
+Deviations from the plan above: (1) the renderer spike covers macOS and Linux, because Windows is suspended (ADR-061); (2) the Linux render check is a local Docker run (`scripts/linux_render_check.sh`), and CI installs nothing extra for PDF and runs only after a push (ADR-106 item 2, ADR-108 item 3); (3) the honesty notice is a suffix, not a prefix (ADR-109); (4) `draft_cv_template` has no honesty notice, because it is a summary task (ADR-112 item 13); (5) the freeze picks the latest exported approved version first (ADR-116 item 1); (6) existing tests changed for M6 are listed in ADR-106 item 12, ADR-111 to ADR-116 and the Evidence lines of M6.3 to M6.11 in `docs/PROGRESS.md`.
+
+Limits (TECH_DEBT): TD-043 is closed (M6.3). TD-277 and TD-279 to TD-295 record the M6 items, including the privacy change after generation, the facts block size, personal values in kept lines, the step-4 frame order and its English frame text, the Remove undo and the unchecked URLs and e-mail addresses in approved text. TD-045, TD-055, TD-171 and TD-258 stay open. Known honesty limits are in ADR-111, ADR-113 and ADR-115. Image checks read headers and metadata only, and do not decode pixels (ADR-112 item 12). The manual acceptance checks are in `docs/acceptance/M6.md`, and none has been run.
 
 ### M7 — Enrichment sessions and coverage
 

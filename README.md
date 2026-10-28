@@ -2,7 +2,7 @@
 
 A local, open-source web app for running a job search: collect postings, see honestly how well you fit, position yourself for each role with a growing bank of your own facts, draft tailored CVs and cover letters, track every application on a board, and prepare for interviews. You always submit applications yourself.
 
-**Status:** M0–M5 are accepted. The Fact bank, CV import, Refine with AI, job intake, Job inbox, Companies, application tracking, contacts, calendar files, in-app reminders and Today are available. M6 is not planned. The user deferred M5's unperformed manual checks to M6 acceptance; see `docs/PROGRESS.md` and `docs/acceptance/M6.md`.
+**Status:** M0–M5 are accepted. The Fact bank, CV import, Refine with AI, job intake, Job inbox, Companies, application tracking, contacts, calendar files, in-app reminders and Today are available. M6 (tailoring, the honesty checks, your details, CV templates and PDF and Word exports) is in progress: its features are built, and its acceptance checks have not been run. The user deferred M5's unperformed manual checks to M6 acceptance; see `docs/PROGRESS.md` and `docs/acceptance/M6.md`.
 
 ## How it works
 
@@ -98,6 +98,32 @@ If `typst` can't be loaded, PDF export says "PDF export needs typst. Word export
 
 Developers can check the renderers on Linux from any OS with Docker running: `bash scripts/linux_render_check.sh` runs only the renderer tests in a `python:3.11-slim-bookworm` container (it pulls the image and downloads the locked packages inside the container, and prints `LINUX RENDER CHECK: PASS`). It is not part of `verify.sh` or CI.
 
+Exports are made only when you press **Export files** in step 5 of the Tailoring tab. They use the approved CV and, when it is approved, the approved cover letter (a letter that is not approved is left out). Files are written to a folder for the application inside your data folder, `documents/<application id>/`, which only your user account can read. Names look like `cv-v2-<24 characters>.pdf` or `cover-letter-v1-<24 characters>.docx`, where the number is the version. Download each file from step 5. The app never sends them anywhere. An export keeps the name and contact details that were current when that version was first exported; a later change to your details does not rewrite it. If a format is missing for a version, approve a new version of that document to export it.
+
+When you mark the application Applied, the app records the latest exported approved version of the CV and of the letter (or the latest approved version, if none was exported) as sent. Their files never change. Later edits make new versions, which you export as new files.
+
+## Your details and photo
+
+Open **Settings > Your details** to save your name, email, phone, location and up to three links (http or https). Your name is needed to export a CV or letter; the other fields are optional. The details appear in the header of a CV and in the sign-off of a letter. They are never sent to the AI. The app does not store or ask for a date of birth, nationality or marital status.
+
+You can add one photo: a JPEG or PNG of at most 5 MB, between 100 and 4000 pixels on each side. The app removes hidden data from the file, such as where and on what it was taken and any text notes, and keeps the photo in the `assets` folder of your data folder under a generated name, readable only by your user account. The photo appears on a CV only when that CV's template has a place for one and you have uploaded a photo. Replacing or removing the photo deletes the old file.
+
+## CV templates
+
+A country's CV template sets the sections and their order, optional heading labels, one to three pages, whether a photo place is shown, which contact details appear, the date format and the page size. Press **Draft a template for <country>** under **Settings > CV templates** (or the **Draft the template** link in step 3 of the Tailoring tab, shown while no template is ready), and the AI proposes one from the country, your style choices and an optional short note. No facts and no personal details are sent for this. Review every field, then press **Approve template**. Other applications in the same country reuse the approved template without a new request. Editing an approved template returns it to draft until you approve it again.
+
+## Tailoring a CV and cover letter
+
+Each application has a **Tailoring** tab with five steps. Every AI step starts only when you press its button, counts toward your usage budget, and sends one request (plus at most one automatic correction if the answer is malformed).
+
+1. **Gap check.** The AI compares the job's requirements with your confirmed facts. A requirement counts as shown only when the facts you confirmed show it. If must-have requirements are missing, the app says that the role may not be worth applying for. You can add a fact at a gap, or check again.
+2. **Angle.** The AI proposes two or three angles for the application. Pick one, edit it, or write your own.
+3. **CV.** A draft CV is built only from confirmed facts. Each line is marked Added, Removed, Reworded or Moved against your master CV. A line the checker cannot support (a number, employer or skill that your facts do not state) is flagged. Edit, remove or confirm each flag, and **Approve CV** stays disabled until nothing is flagged. Read every word: the check helps, but it cannot catch every embellishment.
+4. **Cover letter.** Optional. The greeting, opening line, closing and your name come from the app. The body paragraphs are drafted from the same confirmed facts, and you approve them with **Approve letter**. Submit says "No cover letter" if you skip it.
+5. **Submit.** A checklist, the export of PDF and Word files, and the button **I've submitted it — mark Applied**. The app never submits an application for you.
+
+With the fake provider, every draft is labelled as practice data and uses fictional text.
+
 ## Fact bank and CV import
 
 Open **Fact bank > Drafts to review** to import a CV (up to 10 MB and 60,000 extracted characters). Scans need pasted text; there is no OCR. Review each draft beside its source quote, then confirm, edit and confirm, merge into a confirmed fact, or discard with undo. Batch confirmation leaves drafts marked “Needs check” for individual review. A failed import keeps its upload with Start and Remove actions. Removing an upload keeps facts already extracted from it.
@@ -136,7 +162,7 @@ Open an application from a card or table row to see its drawer: status, timeline
 
 **Calendar files.** Add an interview, follow-up, deadline or offer deadline, with a date and IANA time zone such as `Europe/Paris`. Timed events also take a time and duration; deadlines can be all day. **Download calendar file** saves a `.ics` file for you to import into your calendar app. Check its time and zone there. This is a file export; there is no calendar sync. A time in a spring clock-change gap is refused; an ambiguous autumn time uses the first occurrence with a notice. The file preserves the stored instant, including an event that ends in the repeated hour.
 
-**Today** shows upcoming interviews in the next seven days, due reminders, unseen jobs (with up to three Strong matches), fact drafts to review, and optional setup steps still to finish, in that order. Empty blocks are hidden; when none needs attention it says so. Application counts appear in words.
+**Today** shows upcoming interviews in the next seven days, due reminders, unseen jobs (with up to three Strong matches), fact drafts to review and document drafts awaiting approval, and optional setup steps still to finish, in that order. Empty blocks are hidden; when none needs attention it says so. Application counts appear in words.
 
 **Notifications** contains due reminders and a link to tasks needing attention. Opening it marks only the reminders shown as seen. Done, Dismiss and Snooze are separate actions, shared with Today. Cards show "Follow-up due" in words. Reminders are computed when you read them: they work only inside the running app, with no background scheduler, email, push notification or work while the app is closed. A thank-you reminder does not draft a message. A completed event reminder does not become new when that same event is rescheduled; create a new event if you need a new reminder.
 

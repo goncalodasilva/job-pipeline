@@ -49,7 +49,7 @@ Rules:
 - Limits: `prompt.md` up to 256 KiB, rendered system plus user up to 2 MiB.
 - No personal data, names, employers or criteria in the template; they arrive through inputs.
 - Keep instructions positive and specific; explain why when a rule matters ("so the user can verify each claim").
-- Generation tasks state the honesty contract in the system section: use only the provided facts, cite their ids, never add employers, titles, dates, numbers or skills that aren't in the facts.
+- Generation tasks state the honesty contract in the system section: use only the provided facts, cite their ids, never add employers, titles, dates, numbers or skills that aren't in the facts. For `generation` and `feedback` kinds the executor also appends the code-owned `HONESTY_NOTICE` as the last part of the system text (ADR-109), so the prompt does not repeat it. A prompt that reads job requirements keeps its own line that they are not facts about the person (the M6 prompts do; ADR-111, ADR-115).
 
 ## schema.json
 
@@ -85,6 +85,8 @@ A JSON Schema (draft 2020-12) for the response. Generation tasks follow this pat
 ```
 
 Content units must have at least one fact id; the honesty checker enforces this after validation, because JSON Schema can't express "non-empty only when kind is content" readably.
+
+M6 generation schemas (`prompts/tailor_cv/schema.json` is the reference; `draft_cover_letter` has paragraphs and no kind) add: `fact_ids` capped at 20 and unique; `added_details` as an array of at most 10 strings of 200 characters, under that exact name; text with no control or bidi characters; and no status or approval field, which `additionalProperties: false` refuses.
 
 ## Overrides
 
