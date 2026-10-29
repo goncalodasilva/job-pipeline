@@ -542,12 +542,17 @@ def test_0006_adds_exactly_the_tailoring_tables_and_no_personal_details_table(
     for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
         if migration.name < "0006":
             shutil.copy(migration, earlier / migration.name)
+    through_0006 = tmp_path / "through-0006"
+    through_0006.mkdir()
+    for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        if migration.name < "0007":
+            shutil.copy(migration, through_0006 / migration.name)
     query = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
     with Database.open(tmp_path / "before/app.db") as before:
         apply_migrations(before, earlier, tmp_path / "b1", FrozenClock(NOW))
         old = {row[0] for row in before.connection.execute(query)}
     with Database.open(tmp_path / "after/app.db") as after:
-        apply_migrations(after, MIGRATIONS_DIR, tmp_path / "b2", FrozenClock(NOW))
+        apply_migrations(after, through_0006, tmp_path / "b2", FrozenClock(NOW))
         new = {row[0] for row in after.connection.execute(query)}
         # Personal details are a versioned setting (ADR-106 item 3), so nothing seeds one.
         assert after.connection.execute("SELECT count(*) FROM settings").fetchone()[0] == 0
