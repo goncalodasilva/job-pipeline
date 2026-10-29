@@ -293,6 +293,23 @@ class ShortcutSettings(BaseModel):
     enabled: bool = True
 
 
+class SessionSettings(BaseModel):
+    """Session defaults; persistence uses the existing versioned setting service."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+    frequency: Literal["never", "weekly", "twice_weekly", "after_application"] = "weekly"
+    length: Literal[3, 5] = 3
+    ask_later_default: Literal["next_session", "week", "month"] = "week"
+    paused: bool = False
+
+    @field_validator("length", mode="before")
+    @classmethod
+    def _whole_length(cls, value: object) -> object:
+        if type(value) is not int:
+            raise ValueError("Choose 3 or 5 questions.")
+        return value
+
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -320,3 +337,4 @@ TASK_RUNNER = SettingSpec("task_runner", TaskRunnerSettings, TaskRunnerSettings(
 USAGE_BUDGETS = SettingSpec("usage_budgets", UsageBudgets, UsageBudgets())
 SHORTCUTS = SettingSpec("shortcuts", ShortcutSettings, ShortcutSettings())
 PERSONAL_DETAILS = SettingSpec("personal_details", PersonalDetails, PersonalDetails())
+SESSIONS = SettingSpec("sessions", SessionSettings, SessionSettings())
