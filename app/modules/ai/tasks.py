@@ -47,5 +47,6 @@ _SPECS: Final = (
     # the greeting, opening line, closing and name come from code. Kind generation, as tailor_cv.
     TaskSpec("draft_cover_letter", kind="generation"),
     TaskSpec("enrichment_question", kind="feedback"),
+    TaskSpec("structure_answer", kind="feedback"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

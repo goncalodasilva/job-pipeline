@@ -1,0 +1,13 @@
+{
+  "data": {
+    "type": "fact",
+    "text": "Worked at Globex Corporation.",
+    "situation": null,
+    "action": null,
+    "result": null,
+    "role_key": null,
+    "skills": [],
+    "missing": [],
+    "added_details": []
+  }
+}

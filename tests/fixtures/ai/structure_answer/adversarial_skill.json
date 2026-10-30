@@ -1,0 +1,15 @@
+{
+  "data": {
+    "type": "fact",
+    "text": "Used Terraform.",
+    "situation": null,
+    "action": null,
+    "result": null,
+    "role_key": null,
+    "skills": [
+      "Terraform"
+    ],
+    "missing": [],
+    "added_details": []
+  }
+}

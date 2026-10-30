@@ -1,0 +1,17 @@
+<untrusted_document source="session_question" id="session-1">
+What did you do?
+</untrusted_document>
+
+<untrusted_document source="item_answers" id="session-1">
+["I planned 12 routes."]
+</untrusted_document>
+
+<untrusted_document source="item_target" id="session-1">
+{"note":"Planned garden routes","fact":"(none)"}
+</untrusted_document>
+
+<untrusted_document source="roles_and_skills" id="session-1">
+{"roles":{},"generalized_roles":[],"skills":["Python"]}
+</untrusted_document>
+
+Structure this item's answers into a draft, keeping unsupported details visible.

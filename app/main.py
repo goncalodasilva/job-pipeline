@@ -158,7 +158,13 @@ from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.reminders import ReminderRules, ReminderService
 from app.services.roles import RoleService
-from app.services.sessions import ENRICHMENT_QUESTION, QUESTION_LABEL, SessionService
+from app.services.sessions import (
+    ANSWER_LABEL,
+    ENRICHMENT_QUESTION,
+    QUESTION_LABEL,
+    STRUCTURE_ANSWER,
+    SessionService,
+)
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
 from app.services.skills import SkillService
@@ -188,7 +194,7 @@ from app.tasks.fact_refine import fact_refine_handler
 from app.tasks.job_fit import job_fit_handler
 from app.tasks.job_summary import job_summary_handler
 from app.tasks.practice import practice_handler
-from app.tasks.sessions import enrichment_question_handler
+from app.tasks.sessions import enrichment_question_handler, structure_answer_handler
 from app.tasks.tailoring import gap_check_handler, propose_angles_handler
 from app.wiring import (
     TASK_TIMEOUT_FLOOR,
@@ -1205,6 +1211,11 @@ def create_app(
     app.state.tailoring = _tailoring(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.sessions = _sessions(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     if task_registry is None:
+        handlers.register(
+            STRUCTURE_ANSWER,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), ANSWER_LABEL),
+            structure_answer_handler(app.state.sessions),
+        )
         handlers.register(
             ENRICHMENT_QUESTION,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), QUESTION_LABEL),

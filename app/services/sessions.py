@@ -8,7 +8,7 @@ import asyncio
 import json
 import sqlite3
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, tzinfo
 from typing import Any, Final, cast
 
@@ -23,14 +23,17 @@ from app.domain.errors import (
     VersionConflict,
 )
 from app.domain.fact_selection import FactPromptBlock, fact_text, facts_for_ai, prompt_fact_block
+from app.domain.facts import Privacy
 from app.domain.honesty import new_claims
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.questions import fallback_question, question_problems
 from app.domain.settings import SESSIONS, AIProviderSettings, Tier
+from app.domain.structured_answer import resolve_structured_answer
 from app.domain.tasks import TaskRef, dedupe_key
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND, ServiceId
 from app.modules.ai import AIProviderFactory
 from app.modules.storage import (
+    capture_repo,
     enrichment_repo,
     sessions_repo,
     settings_repo,
@@ -38,7 +41,9 @@ from app.modules.storage import (
     tasks_repo,
 )
 from app.services.budget_gate import BudgetGate, Refusal, Start
+from app.services.facts import DraftInput, DraftOrigin, FactService
 from app.services.job_summary import ResultWriter, SummaryContext, SummaryWorkspace
+from app.services.session_answers import AnswerSources, answer_sources, follow_up, item_for
 from app.services.session_backlog import (
     FocusKind,
     SessionFocus,
@@ -55,6 +60,8 @@ from app.services.usage_meter import ServiceUsageMeter
 
 ENRICHMENT_QUESTION: Final = "enrichment_question"
 QUESTION_LABEL: Final = "Ask a session question"
+STRUCTURE_ANSWER: Final = "structure_answer"
+ANSWER_LABEL: Final = "Structure a session answer"
 
 
 @dataclass(frozen=True)
@@ -72,7 +79,9 @@ class SessionView:
 
     @property
     def practice(self) -> bool:
-        return any(a.question_provider == "fake" for a in self.answers)
+        return any(
+            a.question_provider == "fake" or a.structure_provider == "fake" for a in self.answers
+        )
 
 
 def request_notice(length: int) -> str:
@@ -91,7 +100,14 @@ def _session(
 
 
 def _active(conn: sqlite3.Connection, sid: str) -> tasks_repo.TaskRow | None:
-    return tasks_repo.get_active(conn, dedupe_key(ENRICHMENT_QUESTION, "session:" + sid))
+    return next(
+        (
+            r
+            for kind in (ENRICHMENT_QUESTION, STRUCTURE_ANSWER)
+            if (r := tasks_repo.get_active(conn, dedupe_key(kind, "session:" + sid)))
+        ),
+        None,
+    )
 
 
 def _focus(row: sessions_repo.StoredSession) -> SessionFocus:
@@ -127,7 +143,7 @@ def _output_safe(question: str, why: str, entry: SessionItem, known: tuple[str, 
         else ()
     )
     note = (entry.payload,) if entry.item.kind == "capture_note" else ()
-    allowed = (*ordinary, *topic, *note)
+    allowed = (*ordinary, *topic, *note, *entry.personal_answers)
     return not question_problems(
         question, allowed, known, name_hidden_sources=hidden
     ) and not new_claims(why, allowed, known_skills=known, name_hidden_sources=hidden)
@@ -208,10 +224,17 @@ class SessionService:
 
     def view(self, sid: str) -> SessionView:
         with self._open().db.read() as conn:
+            answers = sessions_repo.list_answers(conn, sid)
+            kind = (
+                STRUCTURE_ANSWER
+                if answers and answers[-1].answer_text is not None
+                else ENRICHMENT_QUESTION
+            )
             return SessionView(
                 _session(conn, sid),
-                sessions_repo.list_answers(conn, sid),
-                tasks_repo.get_latest(conn, dedupe_key(ENRICHMENT_QUESTION, "session:" + sid)),
+                answers,
+                _active(conn, sid)
+                or tasks_repo.get_latest(conn, dedupe_key(kind, "session:" + sid)),
             )
 
     def start(
@@ -324,6 +347,17 @@ class SessionService:
             raise SessionBusy()
         if len(answers) >= row.length:
             raise SessionEmpty()
+        for answer in answers:
+            if (
+                answer.outcome == "answered"
+                and answer.missing
+                and not answer.follow_up_of
+                and not any(a.follow_up_of == answer.id for a in answers)
+            ):
+                try:
+                    return follow_up(conn, answer, item_for(conn, answer, self._clock.now()))
+                except (SessionEmpty, VersionConflict):
+                    continue
         asked = {a.question_id for a in answers}
         exclude = frozenset(
             r.kind + ":" + target_of(r)
@@ -380,7 +414,7 @@ class SessionService:
             sessions_repo.update_answer(
                 conn,
                 aid,
-                answer_text=None,
+                answer_text=answer.answer_text,
                 outcome=outcome,
                 now=now.isoformat(),
                 expected_version=expected_version,
@@ -400,6 +434,254 @@ class SessionService:
         tasks = self._tasks()
         if active and tasks:
             tasks.request_cancel(active.id)
+
+    def answer(
+        self,
+        sid: str,
+        aid: str,
+        text: str,
+        *,
+        expected_version: int,
+        session_version: int,
+        tier: Tier = "fast",
+        confirmation: Confirmation | None = None,
+    ) -> SessionStart:
+        if (
+            not text.strip()
+            or len(text) > 4000
+            or "\x00" in text
+            or tier not in ("fast", "thorough")
+        ):
+            raise ValueError("Write an answer of up to 4,000 characters.")
+        opened = self._open()
+        with opened.db.read() as conn:
+            row = _session(conn, sid)
+            active = _active(conn, sid)
+            answer = sessions_repo.get_answer(conn, aid)
+            if row.state != "open":
+                raise SessionBusy()
+            if (
+                active
+                and active.type == STRUCTURE_ANSWER
+                and answer
+                and answer.session_id == sid
+                and answer.outcome == "pending"
+                and answer.answer_text == text
+            ):
+                return SessionStart(sid, TaskRef(active.id, False))
+            _session(conn, sid, session_version)
+            if active:
+                raise SessionBusy()
+            if answer is None or answer.session_id != sid:
+                raise SessionNotFound()
+            if answer.version != expected_version or answer.outcome != "pending":
+                raise VersionConflict()
+            initial = answer_sources(conn, answer, self._clock.now())
+            if not _same_sources(conn, answer, initial.entry):
+                raise VersionConflict()
+        _, service = self._provider()
+        checked = self._gate().check(service, tier=tier, confirmation=confirmation)
+        if not isinstance(checked, Start):
+            return SessionStart(sid, refusal=checked)
+        tasks = self._tasks()
+        if tasks is None:
+            raise SessionNotFound()
+        now = self._clock.now().isoformat()
+        submitted = replace(answer, answer_text=text, version=answer.version + 1, updated_at=now)
+        prepared = replace(
+            initial, answer=submitted, own_answers=(*initial.entry.personal_answers, text)
+        )
+
+        def eligible(conn: sqlite3.Connection) -> bool:
+            _session(conn, sid, row.version)
+            if _active(conn, sid):
+                raise VersionConflict()
+            fresh = sessions_repo.get_answer(conn, aid)
+            if fresh is None or answer_sources(conn, fresh, self._clock.now()) != initial:
+                raise VersionConflict()
+            sessions_repo.update_answer(
+                conn,
+                aid,
+                answer_text=text,
+                outcome="pending",
+                now=now,
+                expected_version=expected_version,
+            )
+            sessions_repo.touch_session(conn, sid, now=now, expected_version=session_version)
+            return True
+
+        task = tasks.enqueue_if(
+            STRUCTURE_ANSWER,
+            "session:" + sid,
+            input_ref=json.dumps(
+                {"session": sid, "answer": aid, "tier": tier, "source": prepared.stamp}
+            ),
+            eligible=eligible,
+        )
+        return SessionStart(sid, task)
+
+    def _answer_input(
+        self, sid: str, aid: str, stamp: str
+    ) -> tuple[sessions_repo.StoredSession, AnswerSources]:
+        with self._open().db.read() as conn:
+            session = _session(conn, sid)
+            answer = sessions_repo.get_answer(conn, aid)
+            if (
+                session.state != "open"
+                or answer is None
+                or answer.session_id != sid
+                or answer.outcome != "pending"
+                or answer.answer_text is None
+            ):
+                raise SessionBusy()
+            data = answer_sources(conn, answer, self._clock.now())
+            if data.stamp != stamp or not _same_sources(conn, answer, data.entry):
+                raise VersionConflict()
+            return session, data
+
+    async def run_answer(self, ctx: SummaryContext) -> ResultWriter:
+        try:
+            ref = json.loads(ctx.input_ref or "")
+            sid, aid, tier, stamp = ref["session"], ref["answer"], ref["tier"], ref["source"]
+            if (
+                set(ref) != {"session", "answer", "tier", "source"}
+                or not all(is_safe_id(v) for v in (sid, aid, stamp))
+                or tier not in ("fast", "thorough")
+            ):
+                raise ValueError
+        except (ValueError, TypeError, KeyError):
+            raise SessionNotFound() from None
+        sid, aid, stamp = str(sid), str(aid), str(stamp)
+        await ctx.heartbeat(0)
+        session, data = await asyncio.to_thread(self._answer_input, sid, aid, stamp)
+        settings, service = await asyncio.to_thread(self._provider)
+        opened, usage = self._open(), self._usage()
+        if usage is None:
+            raise SessionNotFound()
+        try:
+            provider = self._factory.ai_provider(settings, data_dir=opened.data_dir)
+        except ValueError:
+            raise ProviderNotConfigured() from None
+        runner = self._factory.task_runner(provider, lambda: settings, data_dir=opened.data_dir)
+        target_block = prompt_fact_block((data.target,) if data.target else ())
+        generalized = target_block.generalize or bool(data.generalized_roles)
+        inputs = {
+            "question": data.answer.question,
+            "answers": json.dumps(data.own_answers, ensure_ascii=False),
+            "target": FactPromptBlock(
+                json.dumps({"note": data.note, "fact": str(target_block)}, ensure_ascii=False),
+                generalized,
+            ),
+            "choices": json.dumps(
+                {
+                    "roles": data.roles,
+                    "generalized_roles": sorted(data.generalized_roles),
+                    "skills": data.skills,
+                },
+                ensure_ascii=False,
+            ),
+            "session_id": sid,
+        }
+        await ctx.heartbeat(10)
+        result = await runner.run_task(
+            STRUCTURE_ANSWER,
+            inputs,
+            ctx.cancel_flag,
+            meter=ServiceUsageMeter(usage, service),
+            tier=cast(Tier, tier),
+            task_id=ctx.task_id,
+        )
+        ctx.check_cancelled()
+        resolved = resolve_structured_answer(
+            result.data,
+            data.own_answers,
+            note=data.note,
+            target=data.target,
+            roles=data.roles,
+            generalized_roles=data.generalized_roles,
+            known_skills=data.skills,
+        )
+        privacy = (
+            Privacy.GENERALIZE
+            if (data.target and data.target.generalize)
+            or resolved.role_key in data.generalized_roles
+            else Privacy.NORMAL
+        )
+        draft = DraftInput(
+            type=resolved.type,
+            text=resolved.content.text,
+            situation=resolved.content.situation,
+            action=resolved.content.action,
+            result=resolved.content.result,
+            role_key=resolved.role_key,
+            skills=resolved.skills,
+            original_answer="\n\n".join(data.own_answers),
+            needs_check=resolved.needs_check,
+            privacy=privacy,
+        )
+        origin = DraftOrigin(
+            "session", provider.name, result.model, result.prompt_id, result.prompt_version
+        )
+
+        def write(conn: sqlite3.Connection) -> str:
+            _session(conn, sid, session.version)
+            fresh = sessions_repo.get_answer(conn, aid)
+            if fresh is None or answer_sources(conn, fresh, self._clock.now()) != data:
+                raise VersionConflict()
+            facts = FactService(opened.db, self._clock, self._ids)
+            roles = {k: k for k in data.roles}
+            if data.draft_id:
+                made = facts.revise_session_draft_in(
+                    conn,
+                    data.draft_id,
+                    origin,
+                    draft,
+                    expected_version=cast(int, data.draft_version),
+                    existing_roles=roles,
+                )
+            else:
+                (made,) = facts.create_drafts_in(conn, origin, (draft,), existing_roles=roles)
+            now = self._clock.now()
+            if (
+                data.entry.item.kind == "capture_note"
+                and not data.entry.follow_up_of
+                and not capture_repo.resolve_note(
+                    conn, data.entry.item.target_key, fact_id=made.id, now=now.isoformat()
+                )
+            ):
+                raise VersionConflict()
+            question = enrichment_repo.get_question(conn, fresh.question_id)
+            if question is None:
+                raise SessionNotFound()
+            enrichment_repo.update_question(
+                conn,
+                question.id,
+                state=record_outcome(state_of(question), "answered", now, UTC),
+                now=now.isoformat(),
+                expected_version=question.version,
+            )
+            sessions_repo.update_answer(
+                conn,
+                aid,
+                answer_text=fresh.answer_text,
+                outcome="answered",
+                now=now.isoformat(),
+                expected_version=fresh.version,
+                draft_fact_id=made.id,
+                missing=resolved.missing,
+                flagged_claims=tuple(asdict(f) for f in resolved.flags),
+                structure_provider=provider.name,
+                structure_model=result.model,
+                structure_prompt_id=result.prompt_id,
+                structure_prompt_version=result.prompt_version,
+                structure_task_id=ctx.task_id,
+            )
+            sessions_repo.touch_session(
+                conn, sid, now=now.isoformat(), expected_version=session.version
+            )
+            return "session_answer:" + aid
+
+        return write
 
     def _question_input(
         self, sid: str, item_id: str, source_id: str
@@ -513,6 +795,7 @@ class SessionService:
                 question_prompt_id=result.prompt_id,
                 question_prompt_version=result.prompt_version,
                 question_task_id=ctx.task_id,
+                follow_up_of=entry.follow_up_of,
                 fallback=fallback,
             )
             sessions_repo.touch_session(conn, sid, now=now, expected_version=row.version)

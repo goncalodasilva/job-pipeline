@@ -444,6 +444,7 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
             "practice",
             "propose_angles",
             "refine_fact",
+            "structure_answer",
             "summarize_job",
             "tailor_cv",
         ]
@@ -456,6 +457,7 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
             "gap_check",
             "propose_angles",
             "refine_fact",
+            "structure_answer",
             "summarize_job",
             "tailor_cv",
         ]

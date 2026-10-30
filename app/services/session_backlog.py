@@ -48,6 +48,8 @@ class SessionItem:
     facts: tuple[FactRecord, ...] = ()
     cluster_id: str | None = None
     corpus_stamp: str = ""
+    follow_up_of: str | None = None
+    personal_answers: tuple[str, ...] = ()
 
     @property
     def identifier(self) -> str:
@@ -66,6 +68,8 @@ class SessionItem:
             self.item.target_key,
             self.payload,
             self.facts,
+            self.follow_up_of,
+            self.personal_answers,
         )
         return hashlib.sha256(repr(snapshot).encode()).hexdigest()
 
@@ -93,7 +97,11 @@ def target_of(row: enrichment_repo.StoredQuestion) -> str:
 
 
 def sources(
-    conn: sqlite3.Connection, focus: SessionFocus, now: datetime
+    conn: sqlite3.Connection,
+    focus: SessionFocus,
+    now: datetime,
+    *,
+    resolved_note_draft: str | None = None,
 ) -> tuple[SessionItem, ...]:
     coverage = coverage_repo.read(conn)
     bank = session_sources_repo.facts(conn)
@@ -115,6 +123,10 @@ def sources(
         for f in bank
     )
     corpus_stamp = hashlib.sha256(repr((coverage, metadata, notes)).encode()).hexdigest()
+    if focus.kind == "capture_note" and resolved_note_draft:
+        note = capture_repo.get_note(conn, focus.ref or "")
+        if note and note.deleted_at is None and note.resolved_fact_id == resolved_note_draft:
+            notes = (*notes, note)
     interviews = session_sources_repo.interviews(conn, now.isoformat())
     by_id = {f.id: f for f in bank}
     result = []

@@ -1,0 +1,13 @@
+{
+  "data": {
+    "type": "fact",
+    "text": "Planned 950 routes.",
+    "situation": null,
+    "action": null,
+    "result": null,
+    "role_key": null,
+    "skills": [],
+    "missing": [],
+    "added_details": []
+  }
+}

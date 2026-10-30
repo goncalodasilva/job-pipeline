@@ -118,6 +118,7 @@ class DraftInput:
     needs_check: bool = False
     start_date: str | None = None
     end_date: str | None = None
+    privacy: Privacy = Privacy.NORMAL
 
 
 @dataclass(frozen=True)
@@ -547,6 +548,7 @@ class FactService:
         drafts: Sequence[DraftInput],
         *,
         roles: Sequence[DraftRole] = (),
+        existing_roles: Mapping[str, str] | None = None,
     ) -> tuple[FactView, ...]:
         """``create_drafts`` inside a transaction the caller owns, such as a task's result
         writer. Everything is checked before the first row is written."""
@@ -554,11 +556,19 @@ class FactService:
             role.key: checked_role(role.employer, role.title, role.start_date, role.end_date)
             for role in roles
         }
-        checked = [self._checked_draft(draft, role_fields) for draft in drafts]
+        existing_roles = existing_roles or {}
+        if set(role_fields) & set(existing_roles):
+            raise FactInputInvalid("role_key", _ROLE_KEY_UNKNOWN)
+        for role_id in existing_roles.values():
+            _require_role(conn, role_id)
+        checked = [
+            self._checked_draft(draft, {**role_fields, **existing_roles}) for draft in drafts
+        ]
         now = self._now()
         role_ids = {key: self._ids.new() for key in role_fields}
         for key, fields in role_fields.items():
             insert_role(conn, role_ids[key], fields, RoleStatus.DRAFT, now)
+        role_ids.update(existing_roles)
         made = []
         for draft, content, details in checked:
             wording = _Wording(
@@ -566,8 +576,74 @@ class FactService:
             )
             if draft.role_key is not None:
                 details = replace(details, role_id=role_ids[draft.role_key])
-            made.append(self._insert(conn, wording, details, FactStatus.DRAFT, draft.skills, now))
+            made.append(
+                self._insert(
+                    conn,
+                    wording,
+                    details,
+                    FactStatus.DRAFT,
+                    draft.skills,
+                    now,
+                    privacy=draft.privacy.value,
+                )
+            )
         return tuple(fact_view(conn, fact_id) for fact_id in made)
+
+    def revise_session_draft_in(
+        self,
+        conn: sqlite3.Connection,
+        fact_id: str,
+        origin: DraftOrigin,
+        draft: DraftInput,
+        *,
+        expected_version: int,
+        existing_roles: Mapping[str, str],
+    ) -> FactView:
+        """A follow-up adds a version to its draft, never overwriting a user edit."""
+        row = _load(conn, fact_id, expected_version)
+        if row.status != FactStatus.DRAFT or row.privacy == Privacy.NEVER_USE:
+            raise VersionConflict()
+        for role_id in existing_roles.values():
+            _require_role(conn, role_id)
+        _, content, _ = self._checked_draft(draft, existing_roles)
+        now, version_id = self._now(), self._ids.new()
+        facts_repo.insert_version(
+            conn,
+            facts_repo.StoredVersion(
+                id=version_id,
+                fact_id=fact_id,
+                version=row.current.version + 1,
+                text=content.text,
+                situation=content.situation,
+                action=content.action,
+                result=content.result,
+                source=origin.source,
+                original_answer=draft.original_answer,
+                provider=origin.provider,
+                model=origin.model,
+                prompt_id=origin.prompt_id,
+                prompt_version=origin.prompt_version,
+                needs_check=draft.needs_check or row.current.needs_check,
+                created_at=now,
+            ),
+        )
+        _save(
+            conn,
+            row,
+            replace(
+                _state(row),
+                type=draft.type.value,
+                privacy=Privacy.GENERALIZE.value
+                if draft.privacy == Privacy.GENERALIZE
+                else row.privacy,
+                role_id=existing_roles.get(draft.role_key or ""),
+                current_version_id=version_id,
+            ),
+            now,
+        )
+        self._set_skills(conn, fact_id, draft.skills, now)
+        self._event(conn, fact_id, "edited", version_id, now)
+        return fact_view(conn, fact_id)
 
     # --- editing ------------------------------------------------------------------
 
@@ -839,6 +915,8 @@ class FactService:
         draft: DraftInput,
         role_fields: Mapping[str, object],
     ) -> tuple[DraftInput, FactContent, _Details]:
+        if not isinstance(draft.privacy, Privacy):
+            raise FactInputInvalid("privacy", "Choose a privacy setting.")
         if draft.role_key is not None and draft.role_key not in role_fields:
             raise FactInputInvalid("role_key", _ROLE_KEY_UNKNOWN)
         content = _checked_content(

@@ -36,6 +36,7 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
         "tailor_cv",
         "draft_cover_letter",
         "enrichment_question",
+        "structure_answer",
     }
     with refining(tmp_path) as r:
         hidden = r.typed(HIDDEN, privacy="never_use")
@@ -75,12 +76,24 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
             application = desk.cv_ready("never-use-job", seed_facts=False)
             ref = r.run.app.state.documents.start_generate(application.id)
             assert r.run.wait_terminal(ref.id).status.value == "succeeded"
-        elif task == "enrichment_question":
+        elif task in ("enrichment_question", "structure_answer"):
             from app.services.sessions import SessionFocus
 
             made = r.run.app.state.sessions.start(SessionFocus("fact", target.id), 3)
             assert made.task is not None
             assert r.run.wait_terminal(made.task.id).status.value == "succeeded"
+            if task == "structure_answer":
+                view = r.run.app.state.sessions.view(made.session_id)
+                answer = view.answers[-1]
+                structured = r.run.app.state.sessions.answer(
+                    made.session_id,
+                    answer.id,
+                    "I planned delivery routes.",
+                    expected_version=answer.version,
+                    session_version=view.session.version,
+                )
+                assert structured.task is not None
+                assert r.run.wait_terminal(structured.task.id).status.value == "succeeded"
         elif task == "draft_cover_letter":
             # M6.9: the calling service (LetterService) and its task over the real prompt and the
             # app's provider, with the never-use and target facts already stored.

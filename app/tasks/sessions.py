@@ -10,3 +10,10 @@ def enrichment_question_handler(service: SessionService) -> TaskHandler:
         return await ctx.complete(await service.run_question(ctx))
 
     return handle
+
+
+def structure_answer_handler(service: SessionService) -> TaskHandler:
+    async def handle(ctx: TaskContext) -> str | None:
+        return await ctx.complete(await service.run_answer(ctx))
+
+    return handle

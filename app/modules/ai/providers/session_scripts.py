@@ -12,3 +12,21 @@ def enrichment_question_scripts() -> KeywordScript:
             }
         )
     )
+
+
+def structure_answer_scripts() -> KeywordScript:
+    return KeywordScript(
+        default=ScriptedResponse(
+            data={
+                "type": "fact",
+                "text": "An experience to review.",
+                "situation": None,
+                "action": None,
+                "result": None,
+                "role_key": None,
+                "skills": [],
+                "missing": [],
+                "added_details": ["Practice wording; review against your answer."],
+            }
+        )
+    )

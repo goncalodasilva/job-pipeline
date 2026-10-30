@@ -307,6 +307,23 @@ def drive_enrichment_question(desk: Exporting) -> None:
     assert desk.r.run.wait_terminal(made.task.id).status.value == "succeeded"
 
 
+def drive_structure_answer(desk: Exporting) -> None:
+    drive_enrichment_question(desk)
+    sessions = desk.r.run.app.state.sessions
+    sid = desk.r.run.rows("SELECT id FROM sessions")[0]["id"]
+    view = sessions.view(sid)
+    answer = view.answers[-1]
+    made = sessions.answer(
+        sid,
+        answer.id,
+        "I planned delivery routes.",
+        expected_version=answer.version,
+        session_version=view.session.version,
+    )
+    assert made.task is not None
+    assert desk.r.run.wait_terminal(made.task.id).status.value == "succeeded"
+
+
 DRIVERS: dict[str, Callable[[Exporting], None]] = {
     "extract_cv": drive_extract_cv,
     "refine_fact": drive_refine_fact,
@@ -318,6 +335,7 @@ DRIVERS: dict[str, Callable[[Exporting], None]] = {
     "tailor_cv": drive_tailor_cv,
     "draft_cover_letter": drive_cover_letter,
     "enrichment_question": drive_enrichment_question,
+    "structure_answer": drive_structure_answer,
 }
 
 
