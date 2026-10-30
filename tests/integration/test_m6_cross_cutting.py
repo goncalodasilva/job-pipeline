@@ -298,6 +298,15 @@ def drive_cover_letter(desk: Exporting) -> None:
     desk.draft(desk.letter_ready("letter-job").id, "ok")
 
 
+def drive_enrichment_question(desk: Exporting) -> None:
+    from app.services.sessions import SessionFocus
+
+    target = desk.r.target()
+    made = desk.r.run.app.state.sessions.start(SessionFocus("fact", target.id), 3)
+    assert made.task is not None
+    assert desk.r.run.wait_terminal(made.task.id).status.value == "succeeded"
+
+
 DRIVERS: dict[str, Callable[[Exporting], None]] = {
     "extract_cv": drive_extract_cv,
     "refine_fact": drive_refine_fact,
@@ -308,6 +317,7 @@ DRIVERS: dict[str, Callable[[Exporting], None]] = {
     "draft_cv_template": drive_template,
     "tailor_cv": drive_tailor_cv,
     "draft_cover_letter": drive_cover_letter,
+    "enrichment_question": drive_enrichment_question,
 }
 
 

@@ -679,3 +679,25 @@ class PhotoNotSaved(AppError):
 
     kind = "PhotoNotSaved"
     message = "The photo couldn't be saved or removed. Nothing was changed. Try again."
+
+
+class SessionNotFound(AppError):
+    message = "This session wasn't found. Open Sessions to start another."
+
+
+class SessionEmpty(AppError):
+    message = (
+        "Nothing to ask right now. Add a capture note or save jobs to explore more experience."
+    )
+
+
+class SessionBusy(AppError):
+    message = "Finish this question first, or end the session."
+
+
+class SessionAlreadyOpen(AppError):
+    message = "You already have an open session. Continue that session or end it first."
+
+    def __init__(self, session_id: str = "") -> None:
+        super().__init__()
+        self.session_id = session_id

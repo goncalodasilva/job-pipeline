@@ -46,5 +46,6 @@ _SPECS: Final = (
     # M6.9: the body paragraphs of a cover letter from the confirmed facts, each citing fact ids;
     # the greeting, opening line, closing and name come from code. Kind generation, as tailor_cv.
     TaskSpec("draft_cover_letter", kind="generation"),
+    TaskSpec("enrichment_question", kind="feedback"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

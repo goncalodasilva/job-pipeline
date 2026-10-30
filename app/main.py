@@ -158,6 +158,7 @@ from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.reminders import ReminderRules, ReminderService
 from app.services.roles import RoleService
+from app.services.sessions import ENRICHMENT_QUESTION, QUESTION_LABEL, SessionService
 from app.services.settings import SettingsService
 from app.services.setup_state import SetupStateService
 from app.services.skills import SkillService
@@ -187,6 +188,7 @@ from app.tasks.fact_refine import fact_refine_handler
 from app.tasks.job_fit import job_fit_handler
 from app.tasks.job_summary import job_summary_handler
 from app.tasks.practice import practice_handler
+from app.tasks.sessions import enrichment_question_handler
 from app.tasks.tailoring import gap_check_handler, propose_angles_handler
 from app.wiring import (
     TASK_TIMEOUT_FLOOR,
@@ -737,6 +739,23 @@ def _tailoring(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) ->
     )
 
 
+def _sessions(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> SessionService:
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
+
+    return SessionService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=lambda: getattr(app.state, "workspace", None),
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None),
+        usage=_open_usage(app),
+        gate=lambda: app.state.budget_gate,
+    )
+
+
 def _documents(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> DocumentService:
     return DocumentService(**_document_args(app, wiring, clock, ids))
 
@@ -1184,6 +1203,13 @@ def create_app(
             job_fit_handler(app.state.job_fit),
         )
     app.state.tailoring = _tailoring(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.sessions = _sessions(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    if task_registry is None:
+        handlers.register(
+            ENRICHMENT_QUESTION,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), QUESTION_LABEL),
+            enrichment_question_handler(app.state.sessions),
+        )
     # Settings > Your details (M6.6): the setting and the photo file; no AI task reads them.
     app.state.cv_templates = _cv_templates(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.documents = _documents(app, wiring=app_wiring, clock=app_clock, ids=app_ids)

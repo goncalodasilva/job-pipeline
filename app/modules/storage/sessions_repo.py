@@ -119,6 +119,16 @@ def end_session(
         raise VersionConflict()
 
 
+def touch_session(conn: sqlite3.Connection, id: str, *, now: str, expected_version: int) -> None:
+    result = conn.execute(
+        "UPDATE sessions SET updated_at=?,version=version+1 "
+        "WHERE id=? AND version=? AND state='open'",
+        (now, id, expected_version),
+    )
+    if result.rowcount != 1:
+        raise VersionConflict()
+
+
 def insert_answer(
     conn: sqlite3.Connection,
     *,
@@ -168,6 +178,15 @@ def get_answer(conn: sqlite3.Connection, id: str) -> StoredAnswer | None:
 
 def list_answers(conn: sqlite3.Connection, session_id: str) -> tuple[StoredAnswer, ...]:
     rows = conn.execute(_ANSWER + " WHERE session_id=? ORDER BY position", (session_id,))
+    return tuple(_answer(row) for row in rows)
+
+
+def not_sure_answers(conn: sqlite3.Connection, question_id: str) -> tuple[StoredAnswer, ...]:
+    rows = conn.execute(
+        _ANSWER
+        + " WHERE question_id=? AND outcome='not_sure' ORDER BY updated_at DESC,id DESC LIMIT 5",
+        (question_id,),
+    )
     return tuple(_answer(row) for row in rows)
 
 

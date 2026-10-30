@@ -1,0 +1,17 @@
+<untrusted_document source="session_item" id="session-1">
+{"label":"Planning routes","requirements":["Plan routes"]}
+</untrusted_document>
+
+<untrusted_document source="related_facts" id="session-1">
+{"facts":"(none)"}
+</untrusted_document>
+
+<untrusted_document source="session_history" id="session-1">
+[]
+</untrusted_document>
+
+<untrusted_document source="earlier_wordings" id="session-1">
+[]
+</untrusted_document>
+
+Ask one open question about this item and explain why it is being asked.

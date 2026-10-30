@@ -74,6 +74,7 @@ from app.modules.ai.providers.job_scripts import (
     summary_scripts,
     tailor_cv_scripts,
 )
+from app.modules.ai.providers.session_scripts import enrichment_question_scripts
 from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS, TaskSpec
 from app.modules.calendar import CalendarProvider
 from app.modules.calendar.providers.ics import IcsCalendarProvider
@@ -462,6 +463,7 @@ def _saved_fake() -> FakeAIProvider:
     provider.script_keywords("draft_cv_template", cv_template_scripts())
     provider.script_keywords("tailor_cv", tailor_cv_scripts())
     provider.script_keywords("draft_cover_letter", draft_cover_letter_scripts())
+    provider.script_keywords("enrichment_question", enrichment_question_scripts())
     for task, script in real_task_scripts().items():
         provider.script_keywords(task, script)
     return provider
