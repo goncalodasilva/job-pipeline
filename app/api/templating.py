@@ -18,7 +18,9 @@ from starlette.templating import Jinja2Templates
 from app.api.security import TOKEN_HEADER
 from app.domain.contacts import LIMITS as CONTACT_LIMITS
 from app.domain.contacts import NOTE_LIMIT
+from app.domain.errors import SessionNotFound
 from app.domain.ids import is_safe_id
+from app.domain.settings import SessionSettings
 from app.onboarding.registry import PROVIDER, StepRegistry
 from app.onboarding.startup import OnboardingState
 from app.services.reminders import Notifications, ReminderService
@@ -35,6 +37,22 @@ def static(path: str) -> str:
     return f"{STATIC_URL}/{path}"
 
 
+def session_offer_length(request: Request) -> int:
+    """The Sessions setting's default length, which every session entry point offers (M7.9).
+    Reads the stored setting (the default before one is saved) without a write lock, once per
+    request: a page with many offers (a Library of hinted facts) does not read it per card."""
+    cached = getattr(request.state, "session_offer_length", None)
+    if cached is not None:
+        return int(cached)
+    preferences = getattr(request.app.state, "session_preferences", None)
+    try:
+        length = int(preferences.load().value.length) if preferences else SessionSettings().length
+    except SessionNotFound:
+        length = SessionSettings().length
+    request.state.session_offer_length = length
+    return length
+
+
 def _environment() -> Environment:
     env = Environment(
         loader=FileSystemLoader(TEMPLATES_DIR),
@@ -43,6 +61,7 @@ def _environment() -> Environment:
     )
     env.globals["static"] = static
     env.globals["is_safe_id"] = is_safe_id
+    env.globals["session_offer_length"] = session_offer_length
     env.globals["contact_limits"] = {**CONTACT_LIMITS, "interaction_note": NOTE_LIMIT}
     return env
 

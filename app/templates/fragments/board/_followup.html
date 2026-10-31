@@ -5,6 +5,7 @@
    Esc and Skip close it and send nothing). Save posts the answer; a refused one answers 422 and
    only the form is replaced, with the error tied to its field. When it closes without saving,
    focus returns to the moved card's title. #}
+{% from "fragments/sessions/_offer.html" import session_offer %}
 <dialog id="board-followup" class="modal" role="dialog" aria-modal="true" aria-labelledby="board-followup-heading" aria-describedby="board-followup-description" data-modal data-return-focus='{% if followup_return is defined %}{{ followup_return }}{% else %}li.board-card[data-application-id="{{ follow_up.application_id }}"] .board-card-title{% endif %}'>
   {% if follow_up.kind == "interview_date" %}
   <h2 id="board-followup-heading">Add the interview date?</h2>
@@ -14,5 +15,13 @@
   <h2 id="board-followup-heading">Any feedback worth noting?</h2>
   <p id="board-followup-description">{% if follow_up.moved_to %}Moved to {{ follow_up.moved_to }}. {% endif %}It is kept with the application. You can skip this.</p>
   {% include "fragments/board/_feedback_form.html" %}
+  {# The offer is its own form beside the feedback form (forms do not nest). The feedback text is
+     never a field of it: a session is about the role's requirements (M7.9). #}
+  {% if follow_up.job_id and is_safe_id(follow_up.job_id) %}
+  <div class="session-offer-block">
+    <p id="rejection-offer-note" class="field-hint">Save your feedback first. Starting a session leaves this page.</p>
+    {{ session_offer("rejection", "rejection", "Start a session about this role's requirements", "job:" ~ follow_up.job_id, session_offer_length(request), "rejection-offer-note") }}
+  </div>
+  {% endif %}
   {% endif %}
 </dialog>

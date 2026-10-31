@@ -49,6 +49,8 @@
   {% endif %}
   {% if editor.fields %}
   {% include "fragments/facts/_editor_form.html" %}
+  {# Hints of the saved wording, beside the form and never in it: saving is never blocked (M7.9). #}
+  {% if editor.fact_id and not conflict %}{% with hints=editor.hints, fact_id=editor.fact_id, describedby="page-heading" %}{% include "fragments/facts/_quality_hints.html" %}{% endwith %}{% endif %}
   {% if editor.fact_id and not conflict and not editor.draft %}
   {% include "fragments/facts/_editor_state.html" %}
   {% endif %}

@@ -50,6 +50,7 @@
       <p class="fact-links"><a href="/facts/{{ item.id }}/edit#fact-history" aria-describedby="wording-{{ item.id }}">History</a></p>
       {% else %}
       <p class="fact-links"><a href="/facts/{{ item.id }}/edit" aria-describedby="wording-{{ item.id }}">Edit</a> <a href="/facts/{{ item.id }}/edit#fact-history" aria-describedby="wording-{{ item.id }}">History</a></p>
+      {% with hints=item.hints, fact_id=item.id, describedby="wording-" ~ item.id %}{% include "fragments/facts/_quality_hints.html" %}{% endwith %}
       {% endif %}
     </div>
     {% endfor %}

@@ -70,71 +70,66 @@ def new_session(request: Request) -> Response:
     return _new(request)
 
 
-# The Coverage tab's Start session buttons post here and aim their answer at this element (htmx
-# sends its id as ``HX-Target``). A refusal for such a request is the reason alone, not the whole
-# new-session screen. The header only picks how the answer looks; every check is the same.
+# A form that starts a session can aim its answer at a slot element of its own (htmx sends the
+# element's id as ``HX-Target``): the Coverage tab's rows (M7.7), Today's Suggested session block
+# (M7.8) and the entry points of M7.9 (``session-refusal-<key>``, fragments/sessions/_offer.html).
+# A refusal for such a request is the reason alone, in that slot, with the form's own focus and
+# length kept, not the whole new-session screen. The header only picks how the answer looks;
+# every check is the same.
 COVERAGE_SLOT = "coverage-start"
-# Today's Suggested session block (M7.8) does the same with its Start form: a refusal for a
-# request aimed at this element is the reason alone, with the form's own focus and length kept.
 TODAY_SLOT = "today-session-refusal"
+_ENTRY_SLOT = re.compile(r"session-refusal-[A-Za-z0-9_-]{1,100}")
 _TODAY_START = "#today-session-start button"  # gets focus back from the budget dialog
 _CLUSTER_ID = re.compile(r"[0-9a-f]{12}")
 
 
-def _from_coverage(request: Request) -> bool:
-    return is_htmx(request) and request.headers.get("HX-Target") == COVERAGE_SLOT
+def _slot(request: Request) -> str | None:
+    """The slot an htmx request asked to be answered in, if it is one of the known shapes."""
+    target = request.headers.get("HX-Target", "") if is_htmx(request) else ""
+    if target in (COVERAGE_SLOT, TODAY_SLOT) or _ENTRY_SLOT.fullmatch(target):
+        return target
+    return None
 
 
-def _from_today(request: Request) -> bool:
-    return is_htmx(request) and request.headers.get("HX-Target") == TODAY_SLOT
+def _slot_button(slot: str, form: Form) -> str:
+    """The control that gets focus back from a budget dialog closed without a start."""
+    if slot == TODAY_SLOT:
+        return _TODAY_START
+    if slot == COVERAGE_SLOT:  # the row's Start session button, else the tab's heading
+        kind, _, ref = _one(form, "focus").partition(":")
+        ok = kind == "cluster" and _CLUSTER_ID.fullmatch(ref)
+        return f"#{COVERAGE_SLOT}-{ref}" if ok else "#coverage-heading"
+    return "#session-offer-" + slot.removeprefix("session-refusal-")
 
 
-def _coverage_button(form: Form) -> str:
-    """The row's Start session button (focus goes back to it), else the tab's heading."""
-    kind, _, ref = _one(form, "focus").partition(":")
-    ok = kind == "cluster" and _CLUSTER_ID.fullmatch(ref)
-    return f"#{COVERAGE_SLOT}-{ref}" if ok else "#coverage-heading"
-
-
-def _coverage_refused(
-    request: Request, *, status: int, error: str | None = None, open_id: str = "", **extra: Any
+def _slot_refused(
+    request: Request,
+    slot: str,
+    *,
+    status: int,
+    error: str | None = None,
+    open_id: str = "",
+    **extra: Any,
 ) -> Response:
     """Only why nothing started, in the slot's own element: the error, a way to continue an open
     session, the budget dialog or its reason. No heading and no focus or length form."""
     ctx = {
+        "slot_id": slot,
         "error": error,
         "open_id": open_id if is_safe_id(open_id) else "",
         "dialog": None,
         "budget_reason": None,
         **extra,
     }
-    response = templates.TemplateResponse(request, "fragments/sessions/_coverage_refusal.html", ctx)
-    response.status_code = status
-    return response
-
-
-def _today_refused(
-    request: Request, *, status: int, error: str | None = None, open_id: str = "", **extra: Any
-) -> Response:
-    """Only why Today's Start did not start, in the block's own slot (the same parts as the
-    Coverage answer): no heading and no focus or length form."""
-    ctx = {
-        "error": error,
-        "open_id": open_id if is_safe_id(open_id) else "",
-        "dialog": None,
-        "budget_reason": None,
-        **extra,
-    }
-    response = templates.TemplateResponse(request, "fragments/sessions/_today_refusal.html", ctx)
+    response = templates.TemplateResponse(request, "fragments/sessions/_slot_refusal.html", ctx)
     response.status_code = status
     return response
 
 
 def _start_screen(request: Request, form: Form, status: int, **extra: Any) -> Response:
-    if _from_coverage(request):
-        return _coverage_refused(request, status=status, **extra)
-    if _from_today(request):
-        return _today_refused(request, status=status, **extra)
+    slot = _slot(request)
+    if slot:
+        return _slot_refused(request, slot, status=status, **extra)
     return _new(request, form=form, status=status, **extra)
 
 
@@ -254,24 +249,15 @@ def _refusal(request: Request, sid: str | None, form: Form, action: str, answer:
     if not is_htmx(request):
         return PlainTextResponse(refusal_message(answer), status_code=409)
     fields = {k: v[0].replace("\x00", "") for k, v in form.items() if len(v) == 1}
-    coverage = sid is None and _from_coverage(request)
-    today = sid is None and _from_today(request)
+    slot = _slot(request) if sid is None else None
     dialog = dialog_context(
         answer,
         dialog_id="session-budget",
         action=action,
-        target=f"#{COVERAGE_SLOT}"
-        if coverage
-        else f"#{TODAY_SLOT}"
-        if today
-        else "#session-panel"
-        if sid
-        else "#session-new",
+        target=f"#{slot}" if slot else "#session-panel" if sid else "#session-new",
         fields=fields,
-        return_focus=_coverage_button(form)
-        if coverage
-        else _TODAY_START
-        if today
+        return_focus=_slot_button(slot, form)
+        if slot
         else "#session-status"
         if sid
         else "#session-start",

@@ -5,7 +5,9 @@
    form here swaps this whole section. "Turn into a fact" opens the editor with the note's
    text typed in; saving it there takes the note out of this list. Every swap settles at once
    (settle:0ms), so a quick keyboard user never reaches a form htmx hasn't wired up yet.
-   Notes are the user's own text: escaped like everything else. #}
+   Each note also has "Expand in a session" (M7.9: fragments/sessions/_offer.html, focus on the
+   note). Notes are the user's own text: escaped like everything else. #}
+{% from "fragments/sessions/_offer.html" import session_offer %}
 <section id="capture-inbox" class="facts-section capture-inbox" aria-labelledby="capture-heading">
   <h2 id="capture-heading">Capture inbox</h2>
   <p class="field-hint">Jot down something you did, in a line. When you have time, turn each note into a fact for your Library.</p>
@@ -49,6 +51,7 @@
                 hx-disabled-elt="find button">
             <button type="submit" class="button" aria-describedby="capture-text-{{ note.id }}">Delete</button>
           </form>
+          {% if is_safe_id(note.id) %}{{ session_offer("note", "note-" ~ note.id, "Expand in a session", "capture_note:" ~ note.id, session_offer_length(request), "capture-text-" ~ note.id) }}{% endif %}
         </div>
       </li>
       {% endfor %}

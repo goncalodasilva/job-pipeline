@@ -1,0 +1,22 @@
+{# One entry point into a session (M7.9): a small form that posts to the existing POST /sessions
+   (launch token and origin, the budget gate and the one-open-session rule are the Start
+   session's own) and a sibling slot, outside the form, that a refused start fills with its
+   reason only (app/api/sessions.py, fragments/sessions/_slot_refusal.html). Nothing the user
+   wrote is a field: only the focus and the Sessions setting's default length.
+
+   {{ session_offer(place, key, label, focus, length, describedby) }}
+   place       data-session-offer: gap, interview, rejection, note or hint
+   key         unique on the page: names the slot (session-refusal-<key>) and the button
+               (session-offer-<key>, which gets focus back from a budget dialog)
+   focus       job:<id>, capture_note:<id> or fact:<id>, built from stored ids
+   length      session_offer_length(request)
+   describedby ids of the elements that carry the item's own words, where a page repeats the
+               button (events, notes, facts), so that each button has its own accessible name #}
+{% macro session_offer(place, key, label, focus, length, describedby="") %}
+<form method="post" action="/sessions" hx-post="/sessions" hx-target="#session-refusal-{{ key }}" hx-swap="outerHTML" hx-disabled-elt="find button" class="session-offer" data-session-offer="{{ place }}">
+  <input type="hidden" name="focus" value="{{ focus }}">
+  <input type="hidden" name="length" value="{{ length }}">
+  <button type="submit" id="session-offer-{{ key }}" class="button"{% if describedby %} aria-describedby="{{ describedby }}"{% endif %}>{{ label }}</button>
+</form>
+<div id="session-refusal-{{ key }}" class="session-refusal"></div>
+{% endmacro %}

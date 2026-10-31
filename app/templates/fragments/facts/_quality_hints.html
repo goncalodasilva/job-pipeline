@@ -1,0 +1,13 @@
+{# Quality hints of a confirmed, usable fact (M7.2, M7.9; design "Quality hints"): plain,
+   non-blocking words ("Add a result?"), never an error, and "Answer in a session" (one form for
+   the fact, shown only with at least one hint). Needs `hints` (app/domain/quality_hints.py,
+   through a FactItem or an EditorView), `fact_id` and `describedby` (the id of the element that
+   carries the fact's own words, so each button has its own accessible name). #}
+{% from "fragments/sessions/_offer.html" import session_offer %}
+{% if hints and is_safe_id(fact_id) %}
+<div class="quality-hints">
+  {% set ns = namespace(ids=describedby) %}
+  {% for hint in hints %}{% set hint_id = "quality-hint-" ~ fact_id ~ "-" ~ loop.index %}{% set ns.ids = ns.ids ~ " " ~ hint_id %}<p id="{{ hint_id }}" class="field-hint" data-quality-hint>{{ hint }}</p>{% endfor %}
+  {{ session_offer("hint", "hint-" ~ fact_id, "Answer in a session", "fact:" ~ fact_id, session_offer_length(request), ns.ids) }}
+</div>
+{% endif %}

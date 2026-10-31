@@ -630,10 +630,12 @@ def test_follow_up_dialog_for_interviewing_and_rejected_only(tmp_path):
         [dialog] = dialogs(shown.text)
         assert "data-modal" in dialog.attrs
         form = [e for e in elements(shown.text) if e.tag == "form" and e.within(dialog)]
-        assert [e.attrs["action"] for e in form] == [
-            f"/applications/{made['board-job-4'].id}/feedback"
-        ]
-        assert set(fields_in(shown.text, dialog)) == {"text"}
+        # M7.9 (ADR-117 item 11): the dialog gains the "Start a session about this role's
+        # requirements" form beside the feedback form; the feedback form itself is unchanged.
+        assert sorted(e.attrs["action"] for e in form) == sorted(
+            [f"/applications/{made['board-job-4'].id}/feedback", "/sessions"]
+        )
+        assert set(fields_in(shown.text, dialog)) == {"text", "focus", "length"}
         names = {e.text for e in elements(shown.text) if e.tag == "button" and e.within(dialog)}
         assert {"Skip", "Save"} <= names
 

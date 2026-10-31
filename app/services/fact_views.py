@@ -18,6 +18,7 @@ from urllib.parse import urlencode
 
 from app.domain.errors import FactInputInvalid, format_day_time
 from app.domain.facts import FactStatus, FactType, Privacy
+from app.domain.quality_hints import quality_hints
 from app.domain.tasks import is_task_id
 from app.modules.storage import Database, document_usage_repo, facts_repo
 from app.modules.storage.document_usage_repo import FactUse
@@ -146,6 +147,8 @@ class FactItem:
     merged: bool = False
     """A draft a merge closed: its way back is "Undo merge", never "Restore draft"."""
     used_in: tuple[FactUse, ...] = ()
+    hints: tuple[str, ...] = ()
+    """Non-blocking quality hints of a confirmed, usable fact ("Add a result?", M7.2/M7.9)."""
 
 
 @dataclass(frozen=True)
@@ -304,6 +307,7 @@ def fact_item(view: FactView, roles: Mapping[str, str], quote: str | None = None
         import_id=view.cv_import_id,
         fields=fields,
         merged=view.merged_into_fact_id is not None,
+        hints=quality_hints(view.type, view.content, view.status, view.privacy),
     )
 
 

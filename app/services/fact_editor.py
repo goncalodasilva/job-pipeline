@@ -18,6 +18,7 @@ from typing import Final
 from app.domain.errors import FactInputInvalid
 from app.domain.facts import FactStatus, FactType, Privacy, RoleStatus
 from app.domain.ids import is_safe_id
+from app.domain.quality_hints import quality_hints
 from app.modules.storage import facts_repo
 from app.services.capture import NoteView
 from app.services.fact_views import (
@@ -176,6 +177,8 @@ class EditorView:
     """What a refused save typed for a fact that has no form any more, to be copied."""
     note_id: str | None = None
     """The capture note a new fact is made from (M3.7): sent back in a hidden field."""
+    hints: tuple[str, ...] = ()
+    """Non-blocking quality hints of the fact as it is saved (M7.9), shown outside the form."""
 
 
 def one(typed: Typed, name: str) -> str:
@@ -354,6 +357,7 @@ class FactEditor:
             merged=fact.merged_into_fact_id is not None,
             intro=_STORY_INTRO if editable and fact.type is FactType.STORY else None,
             draft=self._draft(bank, fact) if is_draft else None,
+            hints=quality_hints(fact.type, fact.content, fact.status, fact.privacy),
             back_url=back_url,
             back_label=back_label,
             kept=() if editable or typed is None else _kept(fact, typed),

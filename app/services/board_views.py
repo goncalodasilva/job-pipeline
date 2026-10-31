@@ -97,6 +97,7 @@ class FollowUpView:
     zone_names: tuple[str, ...]
     submitted: Mapping[str, str]
     errors: Mapping[str, str]
+    job_id: str = ""  # the moved application's job: what the rejection's session offer is about
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,7 @@ class TableScreen:
 class MoveOutcome:
     label: str
     follow_up: str | None
+    job_id: str = ""
 
 
 @cache
@@ -233,6 +235,7 @@ class BoardViews:
         submitted: Mapping[str, str] | None = None,
         errors: Mapping[str, str] | None = None,
         moved_to: str = "",
+        job_id: str = "",
     ) -> FollowUpView:
         """The question to ask after a move; ``time_zone`` is the computer's, when known."""
         return FollowUpView(
@@ -244,6 +247,7 @@ class BoardViews:
             zone_names(),
             submitted or {},
             errors or {},
+            job_id,
         )
 
     # --- writing ----------------------------------------------------------------------------
@@ -260,7 +264,7 @@ class BoardViews:
             (s.label for s in self._statuses.listing() if s.key == moved.application.status_key),
             moved.application.status_key,
         )
-        return MoveOutcome(label, moved.follow_up)
+        return MoveOutcome(label, moved.follow_up, moved.application.job_id)
 
     def exists(self, application_id: str) -> bool:
         return self._applications.exists(application_id)

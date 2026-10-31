@@ -327,6 +327,7 @@ def _move_answer(
             application_id,
             time_zone=_system_zone(request),
             moved_to=outcome.label,
+            job_id=outcome.job_id,
         )
         if outcome.follow_up
         else None

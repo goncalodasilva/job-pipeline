@@ -1,5 +1,8 @@
 {# Step 1: which requirements the confirmed facts show (M6.5). Verdicts, the sentence about the
-   must-haves and the "isn't in your fact bank" notes are built by code (app/domain/gap_check.py). #}
+   must-haves and the "isn't in your fact bank" notes are built by code (app/domain/gap_check.py).
+   A stored result with a partial or missing requirement offers one session about the job's gaps
+   (M7.9: fragments/sessions/_offer.html), not while a check runs. #}
+{% from "fragments/sessions/_offer.html" import session_offer %}
 {% set tw = tailoring.view %}
 {% set posted = tailoring.fact_form %}
 <p class="field-hint">Compares this role's requirements with your confirmed facts. Nothing is changed.</p>
@@ -15,6 +18,7 @@
   {% with action='1/check', label=('Check again' if tw.gap_stored else 'Check gaps'), running_text='' %}{% include "fragments/tailoring/_start.html" %}{% endwith %}
   {% if tw.gap_stored and tw.gap_stale and not tw.notice %}<p class="field-hint">The job summary changed since this check. Check again to use the new requirements.</p>{% endif %}
   {% if tw.gap_message %}<p id="gap-check-message" class="notice">{{ tw.gap_message }}</p>{% endif %}
+  {% if is_safe_id(tw.job_id) and tw.requirements | selectattr('is_gap') | list %}{{ session_offer("gap", "gap", "Answer a few questions about these gaps", "job:" ~ tw.job_id, session_offer_length(request)) }}{% endif %}
   {% if tw.requirements %}
   <ul class="gap-list">
     {% for req in tw.requirements %}

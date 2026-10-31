@@ -95,6 +95,28 @@ ORDER BY s.normalized_name, f.id
 _SKILLS = "SELECT name,aliases FROM skills ORDER BY normalized_name"
 
 
+_CLOSED_JOB = """
+SELECT r.id, j.id, r.kind, r.text, 'closed'
+FROM jobs j
+JOIN applications a ON a.job_id = j.id
+JOIN application_statuses st ON st.key = a.status_key AND st.phase = 'closed'
+JOIN job_summaries s ON s.id = (
+    SELECT id FROM job_summaries WHERE job_id = j.id ORDER BY created_at DESC, rowid DESC LIMIT 1
+)
+JOIN job_requirements r ON r.summary_id = s.id
+WHERE j.id = ? AND j.merged_into_job_id IS NULL AND j.triage_state <> 'removed'
+ORDER BY r.id
+"""
+
+
+def closed_job_requirements(
+    conn: sqlite3.Connection, job_id: str
+) -> tuple[CoverageRequirement, ...]:
+    """The current requirements of a job whose application is closed (rejected, withdrawn): out
+    of the coverage clusters, but still what a session about that role is about (M7.9)."""
+    return tuple(CoverageRequirement(*row) for row in conn.execute(_CLOSED_JOB, (job_id,)))
+
+
 def read(conn: sqlite3.Connection) -> CoverageData:
     """Exactly five reads, independent of job, requirement and fact counts. No fact text."""
     requirements = tuple(CoverageRequirement(*row) for row in conn.execute(_REQUIREMENTS))

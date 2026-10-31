@@ -41,8 +41,9 @@ class SettingsService:
     def load(
         self, spec: SettingSpec[T] | OptionalSettingSpec[T]
     ) -> Versioned[T] | Versioned[T | None]:
-        """The stored value, or the default when missing (version 0) or invalid."""
-        with self._db.transaction() as conn:
+        """The stored value, or the default when missing (version 0) or invalid. A lookup: it
+        takes no write lock."""
+        with self._db.read() as conn:
             stored = get_setting(conn, spec.key)
         if stored is None:
             return Versioned(spec.default, 0)

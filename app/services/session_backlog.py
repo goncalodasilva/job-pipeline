@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Literal, cast
 
-from app.domain.coverage import cluster_requirements, strength
+from app.domain.coverage import CoverageData, cluster_requirements, strength
 from app.domain.enrichment import BacklogItem, ItemSignals, ItemState, JobDemand, order_backlog
 from app.domain.fact_selection import FactRecord, facts_for_ai
 from app.domain.quality_hints import quality_hints
@@ -96,6 +96,25 @@ def target_of(row: enrichment_repo.StoredQuestion) -> str:
     return row.cluster_key or row.fact_id or row.capture_note_id or ""
 
 
+def _live_like_closed_job(
+    conn: sqlite3.Connection, coverage: CoverageData, job_id: str
+) -> frozenset[str]:
+    """Ids of the live requirements that share a cluster with a closed job's requirements.
+
+    A rejected or withdrawn application is out of the coverage clusters (ADR-117 item 4), so a
+    session about it asks about what other saved or active jobs still demand of the same things;
+    when no other job does, there is nothing to ask. Reads only the closed job's requirements.
+    """
+    closed = coverage_repo.closed_job_requirements(conn, job_id)
+    closed_ids = {r.id for r in closed}
+    shared: set[str] = set()
+    for cluster in cluster_requirements((*coverage.requirements, *closed), coverage.skills):
+        ids = {r.id for r in cluster.requirements}
+        if ids & closed_ids:
+            shared |= ids - closed_ids
+    return frozenset(shared)
+
+
 def sources(
     conn: sqlite3.Connection,
     focus: SessionFocus,
@@ -129,6 +148,9 @@ def sources(
             notes = (*notes, note)
     interviews = session_sources_repo.interviews(conn, now.isoformat())
     by_id = {f.id: f for f in bank}
+    like_closed: frozenset[str] = frozenset()
+    if focus.kind == "job" and not any(r.job_id == focus.ref for r in coverage.requirements):
+        like_closed = _live_like_closed_job(conn, coverage, focus.ref or "")
     result = []
     for cluster in cluster_requirements(coverage.requirements, coverage.skills):
         reqs = {r.id for r in cluster.requirements}
@@ -150,7 +172,9 @@ def sources(
             )
             if cluster.key != "skill:" + normalize_skill(skill):
                 continue
-        if focus.kind == "job" and not any(r.job_id == focus.ref for r in cluster.requirements):
+        if focus.kind == "job" and not any(
+            r.job_id == focus.ref or r.id in like_closed for r in cluster.requirements
+        ):
             continue
         if focus.kind in ("fact", "role", "capture_note"):
             continue
