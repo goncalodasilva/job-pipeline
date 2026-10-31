@@ -442,7 +442,19 @@ def visit_every_page(session: Session) -> None:
         application = state.applications.apply_to_job(
             job.job_id, expected_job_version=stored.version
         ).application
+    from app.modules.storage import sessions_repo
+
+    with state.workspace.db.transaction() as conn:
+        if sessions_repo.get_session(conn, "session-leak-page") is None:
+            sessions_repo.insert_session(
+                conn,
+                id="session-leak-page",
+                focus_kind="most_useful",
+                length=3,
+                now="2026-10-30T10:00:00+00:00",
+            )
     fact_pages = {
+        "/sessions/{sid}": "/sessions/session-leak-page",
         "/facts/{fact_id}/edit": f"/facts/{fact_ids['fact_id']}/edit",
         "/facts/{draft_id}/merge": f"/facts/{fact_ids['draft_id']}/merge",
         "/jobs/{job_id}": f"/jobs/{job.job_id}",

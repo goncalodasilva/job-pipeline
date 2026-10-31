@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% set live_updates = true %}
+{% block title %}Enrichment session{% endblock %}
+{% block extra_scripts %}<link rel="stylesheet" href="{{ static('css/sessions.css') }}"><script src="{{ static('js/sessions.js') }}" defer></script>{% endblock %}
+{% block content %}<h1>Enrichment session</h1>{% include "fragments/sessions/_panel.html" %}{% endblock %}

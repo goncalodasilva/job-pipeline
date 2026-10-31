@@ -620,6 +620,13 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
     visited: dict[str, str] = {}
     with TestClient(app, base_url=f"http://{HOST}") as client:
         known_params.update(seed_page_ids(app.state.facts))
+        from app.modules.storage import sessions_repo
+
+        with app.state.workspace.db.transaction() as conn:
+            sessions_repo.insert_session(
+                conn, id="session-page", focus_kind="most_useful", length=3, now=START.isoformat()
+            )
+        known_params["sid"] = "session-page"
         from tests.job_fixtures import generate_jobs, seed_jobs
 
         seed_jobs(app.state.workspace.db, generate_jobs(1))

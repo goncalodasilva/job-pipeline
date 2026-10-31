@@ -55,6 +55,7 @@ from app.api.notifications import register_notification_routes
 from app.api.pages import register_pages
 from app.api.reminders import register_reminder_routes
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
+from app.api.sessions import register_session_routes
 from app.api.settings import register_settings_pages
 from app.api.settings_board import register_board_settings_routes
 from app.api.settings_details import register_details_routes
@@ -158,6 +159,7 @@ from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.reminders import ReminderRules, ReminderService
 from app.services.roles import RoleService
+from app.services.session_screen import SessionScreens
 from app.services.sessions import (
     ANSWER_LABEL,
     ENRICHMENT_QUESTION,
@@ -1307,6 +1309,8 @@ def create_app(
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
     _publish_fact_screens(app, tz=app_tz, clock=app_clock, ids=app_ids)
+    app.state.session_screens = SessionScreens(app.state.sessions, _fact_bank(app), app_clock)
+    app.state.session_zone = app_tz
     fact_refine = _fact_refine(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.fact_refine = fact_refine
     if task_registry is None:  # real task types: with or without fakes
@@ -1339,6 +1343,7 @@ def create_app(
     register_error_handlers(app)
     app.include_router(health_router)
     register_pages(app)
+    register_session_routes(app)
     register_settings_pages(app)
     register_usage_settings(app)
     register_board_settings_routes(app)

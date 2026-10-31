@@ -1,0 +1,44 @@
+{% set view = panel.view %}{% set last = panel.last %}{% set base = '/sessions/' ~ view.session.id %}
+{% macro versions() %}<input type="hidden" name="session_version" value="{{ editor_versions.session if editor_versions else view.session.version }}">{% if last %}<input type="hidden" name="answer_id" value="{{ editor_versions.id if editor_versions else last.id }}"><input type="hidden" name="version" value="{{ editor_versions.answer if editor_versions else last.version }}">{% endif %}{% endmacro %}
+{% macro action(name, label) %}<form method="post" action="{{ base }}/{{ name }}" hx-post="{{ base }}/{{ name }}" hx-target="#session-panel" hx-swap="outerHTML" hx-disabled-elt="find button">{{ versions() }}<button type="submit" class="button"{% if conflict %} aria-disabled="true" aria-describedby="session-reload"{% endif %}>{{ label }}</button></form>{% endmacro %}
+<section id="session-panel" class="session-screen" aria-labelledby="session-panel-heading" data-session-id="{{ view.session.id }}" data-session-phase="{{ panel.phase }}"{% if conflict %} data-session-conflict{% endif %}{% if editor_versions %} data-session-retained{% endif %}{% if panel.task_key and (panel.phase == 'waiting' or message) %} data-task-announcement-key="{{ panel.task_key }}"{% endif %}>
+  <h2 id="session-panel-heading">{% if panel.phase == 'ended' %}Session summary{% else %}Question {{ last.position if last else 1 }} of {{ view.session.length }}{% endif %}</h2>
+  <p id="session-status" class="fact-result" tabindex="-1"{% if focus and not field %} data-autofocus{% endif %}{% if panel.phase != 'ended' %} hx-get="{{ base }}/panel" hx-trigger="every 3s, tasks:resync from:body, tasks:updated from:body" hx-vals='{{ {"was": panel.signature} | tojson }}' hx-target="#session-panel" hx-swap="outerHTML"{% endif %}>{% if message %}{{ message }}{% elif panel.phase == 'waiting' %}{{ 'Structuring your answer…' if view.task.type == 'structure_answer' else 'Preparing your question…' }}{% elif panel.phase == 'failed' %}This request couldn't finish. Your saved answer is kept.{% elif panel.phase == 'ended' %}Your drafts are ready to review.{% else %}Take your time. You can skip any question.{% endif %}</p>
+  {% if error %}<p id="session-error" class="field-error" role="alert"{% if not field %} tabindex="-1" data-autofocus{% endif %}>{{ error }}</p>{% endif %}
+  {% if conflict %}{% with reload_id='session-reload', reload_message='This session changed.', reload_detail='Your typing is kept here. Copy any unsaved answer before reloading. Reload before submitting again.', reload_url=base %}{% include 'fragments/shell/_reload_prompt.html' %}{% endwith %}{% endif %}
+  {% if dialog %}{% with budget_dialog=dialog %}{% include 'fragments/budget/_dialog.html' %}{% endwith %}{% endif %}
+  {% if budget_reason %}{% with budget_blocked=budget_reason %}{% include 'fragments/budget/_blocked.html' %}{% endwith %}{% endif %}
+  {% if panel.phase == 'ended' %}
+    {% for draft in panel.drafts %}{% include 'fragments/sessions/_draft.html' %}{% else %}<p>No drafts were created. You can try another session when you're ready.</p>{% endfor %}
+    <p><a class="button" href="/facts?tab=drafts">Leave in Drafts to review</a> <a href="/sessions/new">Start another session</a></p>
+  {% else %}
+    {% if view.practice %}<p class="badge badge-practice">Practice data (fake provider)</p>{% endif %}
+    {% if last %}
+    <h3 id="session-question">{{ last.question }}</h3>
+    <p><strong>Why this question:</strong> {{ last.why }}</p>
+    {% if last.outcome == 'pending' or last.answer_text is not none %}
+    <form id="session-answer-form" method="post" action="{{ base }}/answers" hx-post="{{ base }}/answers" hx-target="#session-panel" hx-swap="outerHTML" hx-disabled-elt="find button">
+      {{ versions() }}<label for="session-answer">Your answer</label>
+      <textarea id="session-answer" name="answer" rows="5" maxlength="4000" data-session-answer="{{ last.id }}" aria-describedby="session-answer-hint{% if field == 'answer' %} session-error{% endif %}"{% if field == 'answer' %} aria-invalid="true" data-autofocus{% endif %}{% if last.outcome != 'pending' %} readonly{% endif %}>
+{{ typed if typed is not none else (last.answer_text or '') }}</textarea>
+      <p id="session-answer-hint" class="field-hint">Use your own words, up to 4,000 characters. Drafts need your review.</p>
+      <p data-session-typing-note class="field-hint" hidden>Your newer typing has been kept. It hasn't been saved; copy it before moving on.</p>
+      {% if last.outcome == 'pending' %}<button type="submit" class="button button-primary"{% if conflict %} aria-disabled="true" aria-describedby="session-reload"{% elif panel.phase == 'waiting' %} aria-disabled="true" aria-describedby="session-status"{% endif %}>Submit answer</button>{% endif %}
+    </form>
+    {% endif %}
+    {% if last.outcome == 'pending' and panel.phase != 'waiting' %}
+    <div class="form-actions">{{ action('skip','Skip') }}{{ action('not-sure',"I don't remember") }}</div>
+    <details class="session-later"{% if field == 'later_date' %} open{% endif %}><summary>Ask me later</summary>
+      <form method="post" action="{{ base }}/later" hx-post="{{ base }}/later" hx-target="#session-panel" hx-swap="outerHTML">{{ versions() }}
+        <label for="session-later-choice">When should we ask again?</label><select id="session-later-choice" name="later_choice">{% for value, label in [('next_session','Next session'),('week','In a week'),('month','In a month'),('date','Pick a date')] %}<option value="{{ value }}"{% if value == (later_choice or panel.later_default) %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <label for="session-later-date">Date (when choosing Pick a date)</label><input id="session-later-date" name="later_date" type="date" value="{{ later_date }}"{% if field == 'later_date' %} aria-invalid="true" aria-describedby="session-error" data-autofocus{% endif %}>
+        <button class="button" type="submit"{% if conflict %} aria-disabled="true" aria-describedby="session-reload"{% endif %}>Save for later</button>
+      </form>
+    </details>
+    {% endif %}
+    {% endif %}
+    {% if panel.current_draft %}{% with draft=panel.current_draft %}{% include 'fragments/sessions/_draft.html' %}{% endwith %}{% endif %}
+    {% if panel.phase == 'failed' and view.task %}<p>Try again from <button class="button" type="button" data-session-open-tasks>Tasks</button>, or end this session.</p>{% endif %}
+    <div class="form-actions session-navigation">{% if panel.can_next %}{{ action('next','Next question') }}{% endif %}{{ action('end','End session') }}</div>
+  {% endif %}
+</section>

@@ -61,3 +61,8 @@ def interviews(conn: sqlite3.Connection, now: str) -> dict[str, datetime]:
             (now,),
         )
     }
+
+
+def job_labels(conn: sqlite3.Connection) -> dict[str, str]:
+    """Labels for focus choices in one read, rather than a lookup per saved job."""
+    return dict(conn.execute("SELECT id,title FROM jobs"))

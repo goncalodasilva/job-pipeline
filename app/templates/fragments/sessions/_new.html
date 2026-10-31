@@ -1,0 +1,22 @@
+<section id="session-new" class="session-screen" aria-labelledby="session-new-heading">
+  <h1 id="session-new-heading">Start a session</h1>
+  <p>Recall your experience one question at a time. Your answers become drafts for you to review.</p>
+  {% if error %}<p class="field-error" role="alert" tabindex="-1" data-autofocus>{{ error }}</p>{% endif %}
+  {% if new.open_session %}
+  <p>You have an open session. <a class="button" href="/sessions/{{ new.open_session.id }}">Continue your session</a></p>
+  {% else %}
+  <form method="post" action="/sessions" hx-post="/sessions" hx-target="#session-new" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <div class="field"><label for="session-focus">Focus</label>
+      <select id="session-focus" name="focus">{% for value, label in new.choices %}<option value="{{ value }}"{% if value == new.selected %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    </div>
+    <div class="field"><label for="session-length">Length</label>
+      <select id="session-length" name="length"><option value="3"{% if new.length == 3 %} selected{% endif %}>3 questions · about 5 minutes</option><option value="5"{% if new.length == 5 %} selected{% endif %}>5 questions · about 8 minutes</option></select>
+    </div>
+    <p id="session-request-notice" class="field-hint">{{ new.notice }}</p>
+    {% if not new.configured %}<p id="session-provider-reason" class="blocked-action">Choose an AI provider in <a href="/settings#providers">Settings</a> before starting.</p>{% endif %}
+    <button id="session-start" class="button button-primary" type="submit" aria-describedby="session-request-notice{% if not new.configured %} session-provider-reason{% endif %}"{% if not new.configured %} aria-disabled="true"{% endif %}>Start session</button>
+  </form>
+  {% endif %}
+  {% if dialog %}{% with budget_dialog = dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}
+  {% if budget_reason %}{% with budget_blocked = budget_reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}{% endif %}
+</section>

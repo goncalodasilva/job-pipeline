@@ -1,0 +1,11 @@
+.session-screen { max-width: 52rem; }
+.session-screen textarea, .session-screen select { width: 100%; max-width: 100%; }
+.session-screen select, .session-screen input[type="date"], .session-screen summary { min-height: 2rem; }
+.session-screen form, .session-screen .field { min-width: 0; }
+.session-screen .session-wording { white-space: pre-wrap; overflow-wrap: anywhere; }
+.session-screen h3, .session-screen li { overflow-wrap: anywhere; }
+.session-screen .session-later { margin-block: 1rem; }
+.session-screen .session-later form { display: grid; gap: .65rem; margin-block: .8rem; }
+.session-screen .session-later button { justify-self: start; }
+.session-screen .session-navigation { margin-block: 1.5rem; }
+.session-screen .session-draft { margin-block: 1rem; }

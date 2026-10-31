@@ -4,6 +4,7 @@
    `current_tab`, `refused` and, for the chosen tab, `library`, or `drafts`, `edits`,
    `cv_import` and `duplicates` (none: the region is filled on demand), or `capture`. #}
 <h1 id="page-heading"{% if not refused %} data-autofocus{% endif %}>{{ area.name }}</h1>
+<p><a class="button" href="/sessions/new">Start session</a></p>
 <nav class="tabs" aria-label="Fact bank sections">
   <ul>
     {% for tab in tabs %}

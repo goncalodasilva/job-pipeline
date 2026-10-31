@@ -863,7 +863,7 @@
   document.body.addEventListener("htmx:beforeSend", function (event) {
     var detail = event.detail || {};
     var from = detail.elt;
-    if (from instanceof Element && from.closest("#fact-refine, #job-intake, [id^='job-summary-']") &&
+    if (from instanceof Element && from.closest("#fact-refine, #job-intake, [id^='job-summary-'], #session-panel, #session-new") &&
         detail.requestConfig && detail.requestConfig.verb === "post") {
       var xhr = detail.xhr;
       pendingOwnedRequests.add(xhr);

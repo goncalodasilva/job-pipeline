@@ -1,0 +1,24 @@
+{% set fact = draft.fact %}
+<article class="fact-card session-draft" aria-labelledby="session-draft-{{ fact.id }}">
+  <h3 id="session-draft-{{ fact.id }}">F{{ fact.number }} · {{ fact.status.value | title }}</h3>
+  {% if fact.origin_provider == 'fake' %}<p class="badge badge-practice">Practice data (fake provider)</p>{% endif %}
+  {% for label, value in [('Fact', fact.content.text), ('Situation', fact.content.situation), ('Action', fact.content.action), ('Result', fact.content.result)] %}
+  {% if value %}<p class="part-label">{{ label }}</p><p class="session-wording">{{ value }}</p>{% endif %}
+  {% endfor %}
+  {% if fact.status.value == 'draft' and fact.needs_check %}
+  <p class="blocked-action">Review this draft before confirming it.</p>
+  {% if draft.flags %}<p>This isn't in your answer</p><ul>{% for flag in draft.flags %}<li>{{ flag.text }}</li>{% endfor %}</ul>{% endif %}
+  {% endif %}
+  {% if draft.missing %}<p>Still missing: {% for part in draft.missing %}{{ {'result':'result','number':'a number','scale':'scale','own_part':'your own part','context':'context'}[part] }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+  {% if draft.original %}<details><summary>Your original answer</summary><p class="session-wording">{{ draft.original }}</p></details>{% endif %}
+  {% if panel.phase == 'ended' and fact.status.value == 'draft' %}
+  <div class="form-actions">
+    {% for action, label in [('confirm','Confirm'),('discard','Discard')] %}
+    <form method="post" action="/sessions/{{ panel.view.session.id }}/drafts/{{ fact.id }}/{{ action }}" hx-post="/sessions/{{ panel.view.session.id }}/drafts/{{ fact.id }}/{{ action }}" hx-target="#session-panel" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ fact.version }}"><button class="button" type="submit" aria-describedby="session-draft-{{ fact.id }}">{{ label }}</button>
+    </form>{% endfor %}
+    <a class="button" href="/facts/{{ fact.id }}/edit">Edit</a>
+    {% if draft.merge %}<a class="button" href="{{ draft.merge.url }}">Merge into F{{ draft.merge.number }}</a>{% endif %}
+  </div>
+  {% endif %}
+</article>
