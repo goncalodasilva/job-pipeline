@@ -172,6 +172,19 @@
     element.focus();
   }
 
+  // A button with data-dismiss-into="<selector>" empties that slot (a panel a swap filled, such
+  // as the Coverage tab's related facts) and gives focus to data-return-focus, the control that
+  // opened it. Nothing is sent.
+  document.addEventListener("click", function (event) {
+    var target = event.target instanceof Element ? event.target.closest("[data-dismiss-into]") : null;
+    if (!target) return;
+    var slot = document.querySelector(target.getAttribute("data-dismiss-into"));
+    var backSelector = target.getAttribute("data-return-focus");
+    var back = backSelector ? document.querySelector(backSelector) : null;
+    if (slot) slot.replaceChildren();
+    if (back) focusQuietly(back);
+  });
+
   // Arriving on a page at a section marked data-hash-focus (an "Add event" link from the Board
   // or a job) puts keyboard focus on that section's heading, as the in-page link does.
   function focusHashSection() {

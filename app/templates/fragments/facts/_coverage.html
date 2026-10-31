@@ -1,0 +1,77 @@
+{# The Coverage tab (M7.7; AC-M7.5): the requirement clusters of the saved and active jobs,
+   biggest gap first (None, then Thin, then Strong; inside each, more demand first). Needs
+   `coverage` (coverage_context in app/api/facts_coverage.py): `view`, a CoverageView, and
+   `count_focus` (an answer to a paging link: the count takes focus, since the link is gone).
+   The strength is a word and a symbol, never colour alone. Start session posts to the
+   existing POST /sessions with the cluster as the focus and the Sessions setting's length, and
+   aims its answer at #coverage-start (outerHTML: a refusal is the slot itself, see
+   fragments/sessions/_coverage_refusal.html; a start is an HX-Redirect). Strengthen (Thin rows)
+   fills #coverage-detail-slot with the related facts. Requirement wording comes from job
+   postings: untrusted, always escaped.
+
+   On a phone the rows stack as cards (CSS only). The table roles are written out because
+   display changes make some browsers drop the table semantics.
+
+   Deliberate deviations from "works without scripts":
+   - Strengthen is an hx-get button with no no-script path: the fragment is all the task asks for.
+   - Start session's plain POST works without scripts only when the launch token is on the
+     request: the middleware wants X-JP-Token on every POST and only htmx adds it, so with
+     scripts off the POST is refused (403). The form keeps method/action for the tests' contract.
+   - Strong and None rows can start a session as well as Thin ones: "selecting a row starts a
+     session" (AC-M7.5). #}
+{% set view = coverage.view %}
+<section id="coverage" class="facts-section coverage" aria-labelledby="coverage-heading">
+  <h2 id="coverage-heading">Coverage</h2>
+  {% if view.empty %}
+  <p class="coverage-none">{{ view.empty_text }}</p>
+  {% else %}
+  <p class="field-hint">What your saved and active jobs ask for, and how well your confirmed facts cover it. The biggest gaps come first.</p>
+  <p id="coverage-count" class="library-count"{% if coverage.count_focus %} tabindex="-1" data-autofocus{% endif %}>{{ view.count_text }}</p>
+  <div class="table-scroll coverage-scroll" role="region" tabindex="0" aria-labelledby="coverage-caption">
+    <table id="coverage-table" class="coverage-table" role="table">
+      <caption id="coverage-caption" class="visually-hidden">Requirements, biggest gap first</caption>
+      <thead role="rowgroup">
+        <tr role="row">
+          <th scope="col" role="columnheader">Requirement</th>
+          <th scope="col" role="columnheader">Asked by</th>
+          <th scope="col" role="columnheader">Evidence</th>
+          <th scope="col" role="columnheader">Actions</th>
+        </tr>
+      </thead>
+      <tbody role="rowgroup">
+      {% for row in view.rows %}
+        <tr role="row" data-cluster-id="{{ row.id }}" data-strength="{{ row.strength }}">
+          <td role="cell" data-cell="label">{{ row.label }}</td>
+          <td role="cell" data-cell="asked">{{ row.asked }}</td>
+          <td role="cell" data-cell="strength"><span class="coverage-symbol" aria-hidden="true">{{ row.symbol }}</span> {{ row.word }}</td>
+          <td role="cell" data-cell="actions">
+            <div class="coverage-actions">
+              <form method="post" action="/sessions" hx-post="/sessions" hx-target="#coverage-start" hx-swap="outerHTML" hx-disabled-elt="find button">
+                <input type="hidden" name="focus" value="cluster:{{ row.id }}">
+                <input type="hidden" name="length" value="{{ view.length }}">
+                <button type="submit" id="coverage-start-{{ row.id }}" class="button" aria-label="Start session: {{ row.label }}">Start session</button>
+              </form>
+              {% if row.strength == "thin" %}
+              <button type="button" id="coverage-strengthen-{{ row.id }}" class="button" hx-get="/facts/coverage/{{ row.id }}" hx-target="#coverage-detail-slot" hx-swap="innerHTML" hx-disabled-elt="this" aria-label="Strengthen: {{ row.label }}">Strengthen</button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if view.previous_query or view.next_query %}
+  <nav class="coverage-pages" aria-label="Coverage pages">
+    {% if view.previous_query %}
+    <a id="coverage-previous" class="button" href="/facts?{{ view.previous_query }}" hx-get="/facts/coverage?page={{ view.page - 1 }}" hx-target="#coverage" hx-swap="outerHTML" hx-push-url="/facts?{{ view.previous_query }}">Previous</a>
+    {% endif %}
+    {% if view.next_query %}
+    <a id="coverage-next" class="button" href="/facts?{{ view.next_query }}" hx-get="/facts/coverage?page={{ view.page + 1 }}" hx-target="#coverage" hx-swap="outerHTML" hx-push-url="/facts?{{ view.next_query }}">Next</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+  <div id="coverage-start"></div>
+  <div id="coverage-detail-slot"></div>
+  {% endif %}
+</section>

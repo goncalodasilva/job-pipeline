@@ -49,7 +49,12 @@ DRAFTS_URL = "/facts/drafts"
 IMPORTS_URL = "/facts/imports"
 IMPORT_URL = "/facts/import"
 FRAGMENT_URLS = (LIBRARY_URL, DRAFTS_URL, IMPORTS_URL)
-TABS = {"library": "Library", "drafts": "Drafts to review", "capture": "Capture inbox"}
+TABS = {
+    "library": "Library",
+    "drafts": "Drafts to review",
+    "capture": "Capture inbox",
+    "coverage": "Coverage",  # M7.7 (ADR-117 item 11: the tab lists gain Coverage)
+}
 PAGE_SIZE = 25  # ``LibraryQuery.page_size``
 
 

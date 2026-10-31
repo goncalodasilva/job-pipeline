@@ -1,6 +1,7 @@
 """Read-only session pages, protected panels and versioned actions (M7.6)."""
 
 import json
+import re
 from datetime import date
 from typing import Any, Literal, cast
 
@@ -14,9 +15,9 @@ from app.api.facts import form_version
 from app.api.forms import is_htmx, read_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
-from app.api.templating import render
+from app.api.templating import render, templates
 from app.domain.enrichment import LaterChoice
-from app.domain.errors import AppError, SessionNotFound, VersionConflict
+from app.domain.errors import AppError, SessionAlreadyOpen, SessionNotFound, VersionConflict
 from app.domain.ids import is_safe_id
 from app.domain.settings import Tier
 from app.onboarding.registry import Form
@@ -67,6 +68,47 @@ def _new(
 
 def new_session(request: Request) -> Response:
     return _new(request)
+
+
+# The Coverage tab's Start session buttons post here and aim their answer at this element (htmx
+# sends its id as ``HX-Target``). A refusal for such a request is the reason alone, not the whole
+# new-session screen. The header only picks how the answer looks; every check is the same.
+COVERAGE_SLOT = "coverage-start"
+_CLUSTER_ID = re.compile(r"[0-9a-f]{12}")
+
+
+def _from_coverage(request: Request) -> bool:
+    return is_htmx(request) and request.headers.get("HX-Target") == COVERAGE_SLOT
+
+
+def _coverage_button(form: Form) -> str:
+    """The row's Start session button (focus goes back to it), else the tab's heading."""
+    kind, _, ref = _one(form, "focus").partition(":")
+    ok = kind == "cluster" and _CLUSTER_ID.fullmatch(ref)
+    return f"#{COVERAGE_SLOT}-{ref}" if ok else "#coverage-heading"
+
+
+def _coverage_refused(
+    request: Request, *, status: int, error: str | None = None, open_id: str = "", **extra: Any
+) -> Response:
+    """Only why nothing started, in the slot's own element: the error, a way to continue an open
+    session, the budget dialog or its reason. No heading and no focus or length form."""
+    ctx = {
+        "error": error,
+        "open_id": open_id if is_safe_id(open_id) else "",
+        "dialog": None,
+        "budget_reason": None,
+        **extra,
+    }
+    response = templates.TemplateResponse(request, "fragments/sessions/_coverage_refusal.html", ctx)
+    response.status_code = status
+    return response
+
+
+def _start_screen(request: Request, form: Form, status: int, **extra: Any) -> Response:
+    if _from_coverage(request):
+        return _coverage_refused(request, status=status, **extra)
+    return _new(request, form=form, status=status, **extra)
 
 
 def _shown(request: Request, sid: str, *, status: int = 200, **extra: Any) -> Response:
@@ -164,9 +206,10 @@ def _start(request: Request, form: Form) -> Response:
             return _refusal(request, None, form, "/sessions", result.refusal)
         return _redirect(request, cast(str, result.session_id))
     except ValueError:
-        return _new(request, form=form, status=422, error="Choose a focus and 3 or 5 questions.")
+        return _start_screen(request, form, 422, error="Choose a focus and 3 or 5 questions.")
     except AppError as error:
-        return _new(request, form=form, status=409, error=error.user_message)
+        open_id = error.session_id if isinstance(error, SessionAlreadyOpen) else ""
+        return _start_screen(request, form, 409, error=error.user_message, open_id=open_id)
 
 
 async def start_session(request: Request) -> Response:
@@ -184,13 +227,18 @@ def _refusal(request: Request, sid: str | None, form: Form, action: str, answer:
     if not is_htmx(request):
         return PlainTextResponse(refusal_message(answer), status_code=409)
     fields = {k: v[0].replace("\x00", "") for k, v in form.items() if len(v) == 1}
+    coverage = sid is None and _from_coverage(request)
     dialog = dialog_context(
         answer,
         dialog_id="session-budget",
         action=action,
-        target="#session-panel" if sid else "#session-new",
+        target=f"#{COVERAGE_SLOT}" if coverage else "#session-panel" if sid else "#session-new",
         fields=fields,
-        return_focus="#session-status" if sid else "#session-start",
+        return_focus=_coverage_button(form)
+        if coverage
+        else "#session-status"
+        if sid
+        else "#session-start",
     )
     extra = {
         "dialog": dialog,
@@ -202,7 +250,7 @@ def _refusal(request: Request, sid: str | None, form: Form, action: str, answer:
     return (
         _shown(request, sid, status=status, typed=_one(form, "answer"), **_retained(form), **extra)
         if sid
-        else _new(request, form=form, status=status, **extra)
+        else _start_screen(request, form, status, **extra)
     )
 
 

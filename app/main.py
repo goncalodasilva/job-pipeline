@@ -41,6 +41,7 @@ from app.api.events import (
 from app.api.fact_editor import register_fact_editor_routes
 from app.api.facts import register_fact_pages
 from app.api.facts_capture import register_fact_capture_routes
+from app.api.facts_coverage import register_fact_coverage_routes
 from app.api.facts_import import register_fact_import_routes
 from app.api.facts_refine import register_fact_refine_routes
 from app.api.health import router as health_router
@@ -123,6 +124,7 @@ from app.services.budget_gate import BudgetGate
 from app.services.capture import CaptureService
 from app.services.companies import CompaniesService
 from app.services.contacts import ContactsService
+from app.services.coverage_views import CoverageViews
 from app.services.cv_import import (
     EXTRACT_CV,
     EXTRACT_CV_LABEL,
@@ -1310,6 +1312,7 @@ def create_app(
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
     _publish_fact_screens(app, tz=app_tz, clock=app_clock, ids=app_ids)
     app.state.session_screens = SessionScreens(app.state.sessions, _fact_bank(app), app_clock)
+    app.state.coverage_views = CoverageViews(bank=_fact_bank(app), clock=app_clock)
     app.state.session_zone = app_tz
     fact_refine = _fact_refine(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.fact_refine = fact_refine
@@ -1356,6 +1359,7 @@ def create_app(
     register_fact_pages(app)
     register_fact_editor_routes(app)
     register_fact_capture_routes(app)
+    register_fact_coverage_routes(app)
     register_inbox_routes(app)
     register_inbox_organisation_routes(app)
     register_job_intake_routes(app)

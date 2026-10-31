@@ -1,7 +1,7 @@
 """The Fact bank page: Library and Drafts to review (M3.5; AC-M3.1, AC-M3.2, AC-M3.6).
 
 ``GET /facts`` is a page route (``PAGE_TAG``, like ``register_pages``): with ``HX-Request:
-true`` it returns the main content only. ``?tab=library|drafts|capture`` picks the tab (any
+true`` it returns the main content only. ``?tab=library|drafts|capture|coverage`` picks the tab (any
 other value is the Library and is never shown back); the Library also reads ``q``, ``role``,
 ``skill``, ``status`` and ``page``. GET and HEAD change nothing (spec 2.9 rule 12).
 
@@ -48,6 +48,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from app.api.facts_coverage import coverage_context
 from app.api.facts_import import DRAFTS_TAB_URL, IMPORT_PATH, import_context
 from app.api.forms import is_htmx, read_form
 from app.api.pages import AREAS, area
@@ -65,6 +66,7 @@ from app.onboarding.registry import Form
 from app.services.capture import CaptureService
 from app.services.fact_views import (
     CAPTURE,
+    COVERAGE,
     DRAFTS,
     LIBRARY,
     MSG_CONFIRMED,
@@ -149,7 +151,7 @@ def register_fact_pages(app: FastAPI) -> None:
 
 def facts_page(request: Request) -> HTMLResponse:
     tab = request.query_params.get("tab", LIBRARY)
-    return _page(request, tab if tab in (DRAFTS, CAPTURE) else LIBRARY)
+    return _page(request, tab if tab in (DRAFTS, CAPTURE, COVERAGE) else LIBRARY)
 
 
 def library_results(request: Request) -> HTMLResponse:
@@ -209,6 +211,7 @@ def _page(
         "cv_import": import_context(request) if tab == DRAFTS else None,
         "duplicates": None,  # the Drafts tab's region stays empty until it is asked (M3.7)
         "capture": (capture or capture_context(request)) if tab == CAPTURE else None,
+        "coverage": coverage_context(request) if tab == COVERAGE else None,
     }
     response = render(request, page=FACTS_PAGE, fragment=FACTS_FRAGMENT, ctx=ctx)
     response.status_code = status_code

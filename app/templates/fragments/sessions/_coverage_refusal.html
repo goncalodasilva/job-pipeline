@@ -1,0 +1,13 @@
+{# Why a Start session from the Coverage tab did not start (M7.7): the answer to the row form
+   (app/api/sessions.py, _coverage_refused). It replaces #coverage-start, so it is that element
+   itself; the next refusal finds its target again. Only the reason: no heading and no focus or
+   length form (the new-session screen's "Most useful" fallback would drop the row's cluster).
+   Needs `error` (text or None), `open_id` (a safe session id or ""), `dialog` and
+   `budget_reason` (app/api/budget_gate.py). The reason takes focus (data-autofocus); the budget
+   dialog posts the row's own fields again, `focus=cluster:<id>` included, to the same slot. #}
+<div id="coverage-start" class="coverage-start">
+  {% if error %}<p class="field-error" role="alert" tabindex="-1" data-autofocus>{{ error }}</p>{% endif %}
+  {% if open_id %}<p><a class="button" href="/sessions/{{ open_id }}">Continue your session</a></p>{% endif %}
+  {% if dialog %}{% with budget_dialog = dialog %}{% include "fragments/budget/_dialog.html" %}{% endwith %}{% endif %}
+  {% if budget_reason %}{% with budget_blocked = budget_reason %}{% include "fragments/budget/_blocked.html" %}{% endwith %}{% endif %}
+</div>

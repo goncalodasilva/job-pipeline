@@ -1,0 +1,21 @@
+{# The facts behind one cluster (M7.7): the confirmed facts that make its evidence, each with a
+   link to its editor's "Refine with AI" panel. Needs `detail` (a CoverageDetail). The heading
+   takes focus after the swap; Close (app.js, data-dismiss-into) empties the slot and gives
+   focus back to the row's Strengthen button. Fact wording is the user's own: escaped. #}
+<section id="coverage-detail" class="coverage-detail" aria-labelledby="coverage-detail-heading">
+  <h3 id="coverage-detail-heading" tabindex="-1" data-autofocus>{{ detail.label }}</h3>
+  {% if detail.facts %}
+  <p class="field-hint">These confirmed facts are tied to this requirement. Strengthen them with a story that has a situation, an action and a result.</p>
+  <ul class="fact-list coverage-facts" role="list">
+    {% for item in detail.facts %}
+    <li class="fact-card" data-fact-id="{{ item.id }}">
+      {% include "fragments/facts/_fact_body.html" %}
+      <p class="fact-links"><a href="/facts/{{ item.id }}/edit#fact-refine" aria-describedby="wording-{{ item.id }}">Refine with AI</a></p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>{{ detail.no_related_text }}</p>
+  {% endif %}
+  <p class="coverage-detail-close"><button type="button" class="button" data-dismiss-into="#coverage-detail-slot" data-return-focus="#coverage-strengthen-{{ detail.id }}">Close</button></p>
+</section>

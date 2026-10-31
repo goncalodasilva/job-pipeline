@@ -1196,10 +1196,135 @@ a.button {
   margin-top: var(--space-4);
 }
 
+/* Coverage (M7.7): a table that scrolls inside its own region on a phone, never the page.
+   The strength is a word and a symbol; the actions wrap and keep large targets. */
+#coverage,
+#coverage-detail {
+  max-width: 60rem;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.coverage-table th,
+.coverage-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.coverage-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.coverage-table [data-cell="strength"] {
+  white-space: nowrap;
+}
+
+.coverage-symbol {
+  display: inline-block;
+  min-width: 1.25em;
+  text-align: center;
+}
+
+.coverage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.coverage-actions form {
+  margin: 0;
+}
+
+.coverage-actions .button {
+  white-space: nowrap;
+}
+
+.coverage-pages,
+.coverage-detail {
+  margin-top: var(--space-4);
+}
+
+/* Phone: each row is a card (label, who asks, the strength, then the buttons), so the label
+   keeps the full width instead of sharing a line with three other columns. The table scrolls
+   sideways only above this width, where its region can need it; the region wrapper is not
+   rendered here (it would be a tab stop with nothing to scroll). The roles in the markup keep
+   the table semantics. */
+@media (max-width: 767.98px) {
+  .coverage-scroll {
+    display: contents;
+  }
+
+  .coverage-table,
+  .coverage-table tbody,
+  .coverage-table tr,
+  .coverage-table td {
+    display: block;
+  }
+
+  .coverage-table {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+  }
+
+  .coverage-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .coverage-table tbody tr {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .coverage-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .coverage-table td {
+    padding: var(--space-1) 0;
+    border-bottom: 0;
+  }
+
+  .coverage-table [data-cell="label"] {
+    font-weight: 600;
+  }
+}
+
+.coverage-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.coverage-pages .button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .fact-list {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
+}
+
+.coverage-facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .fact-card {

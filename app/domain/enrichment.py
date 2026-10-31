@@ -85,7 +85,8 @@ def expired(item: BacklogItem, signals: ItemSignals) -> bool:
     )
 
 
-def _demand(signals: ItemSignals, now: datetime) -> int:
+def weighted_demand(signals: ItemSignals, now: datetime) -> int:
+    """The summed per-job demand of an item (ADR-119), before the floor and weakness."""
     # Repeated requirements in one job use its strongest requirement, not extra votes.
     weights: dict[str, int] = {}
     for job in signals.jobs:
@@ -123,7 +124,7 @@ def score(
     ):
         return None
     weakness = _WEAKNESS[item.strength] if item.kind == "cluster" else 1
-    return max(1, _demand(signals, instant)) * weakness + (
+    return max(1, weighted_demand(signals, instant)) * weakness + (
         CAPTURE_NOTE_RAISE if item.kind == "capture_note" else 0
     )
 

@@ -31,10 +31,12 @@ from app.services.task_views import TaskView
 LIBRARY: Final = "library"
 DRAFTS: Final = "drafts"
 CAPTURE: Final = "capture"
+COVERAGE: Final = "coverage"
 _TAB_LABELS: Final = (
     (LIBRARY, "Library"),
     (DRAFTS, "Drafts to review"),
     (CAPTURE, "Capture inbox"),
+    (COVERAGE, "Coverage"),
 )
 
 # ADR-089 item 8: what the fake provider made says so, by provider name (ADR-092 item 10).
@@ -399,7 +401,7 @@ class FactViews:
             return facts_repo.count_by_status(conn).get(FactStatus.DRAFT.value, 0)
 
     def tabs(self, current: str) -> tuple[TabView, ...]:
-        """The three tabs; "Drafts to review" carries how many drafts wait."""
+        """The four tabs; "Drafts to review" carries how many drafts wait."""
         count = self.draft_count()
         return tuple(
             TabView(tab, f"{label} ({count})", tab == current, count)
