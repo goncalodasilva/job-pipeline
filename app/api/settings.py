@@ -55,6 +55,7 @@ from app.api.budget_gate import dialog_context, reason_context, refusal_message
 from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
+from app.api.session_settings_forms import SessionSettingsState, sessions_context
 from app.api.settings_templates import section_context
 from app.api.setup_redirect import setup_step_path
 from app.api.templating import render, renders_fragment, templates
@@ -85,6 +86,7 @@ PROVIDERS_TARGET = "#providers"
 PROVIDERS_SAVED_FRAGMENT = "fragments/settings/_providers_saved.html"
 TESTING_TOOLS_FRAGMENT = "fragments/settings/_testing_tools.html"
 BOARD_FRAGMENT = "fragments/settings/_board.html"
+SESSIONS_FRAGMENT = "fragments/settings/_sessions.html"
 TESTING_TOOLS_ID = "testing-tools"
 TESTING_TOOLS_PATH = f"{SETTINGS_PATH}/testing-tools"  # the section alone (M2.24)
 # The section shows a blocked action: it fetches itself again when a budget changes.
@@ -257,6 +259,12 @@ def render_board_settings(request: Request, state: BoardSettingsState) -> HTMLRe
     return _render(request, fragment=BOARD_FRAGMENT, board=state)
 
 
+def render_session_settings(request: Request, state: SessionSettingsState) -> HTMLResponse:
+    """The answer to the Settings > Sessions form: the section for htmx, the full Settings
+    page otherwise, with ``state`` saying what happened. Blocking."""
+    return _render(request, fragment=SESSIONS_FRAGMENT, sessions=state)
+
+
 # --- helpers ---------------------------------------------------------------------------------
 
 
@@ -289,6 +297,7 @@ def _render(
     practice_refusal: Refusal | None = None,
     usage: UsageFormState | None = None,
     board: BoardSettingsState | None = None,
+    sessions: SessionSettingsState | None = None,
 ) -> HTMLResponse:
     """The full Settings page, or for htmx the Providers section (after a POST), the main
     content (a page GET) or ``fragment``. Blocking."""
@@ -307,6 +316,10 @@ def _render(
     # Settings > Board (M5.7): read only when this answer shows the section.
     shows_board = (
         board is not None or fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
+    )
+    # Settings > Sessions (M7.8): read only when this answer shows the section.
+    shows_sessions = (
+        sessions is not None or fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
     )
     form: dict[str, Any] = dict(handler.context())
     if submitted:
@@ -334,6 +347,7 @@ def _render(
             "usage": usage_context(request, usage) if shows_usage else None,
             "usage_panel": panel_context(request) if shows_panel else None,
             "board": board_context(request, board) if shows_board else None,
+            "sessions": sessions_context(request, sessions) if shows_sessions else None,
             # Settings > CV templates (M6.6): read only; holds no personal data.
             "cv_templates": section_context(request) if shows_panel else None,
             # Keyboard shortcuts (M4.7): its own block, saved by app/api/inbox.py.

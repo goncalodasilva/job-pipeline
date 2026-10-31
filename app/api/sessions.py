@@ -74,11 +74,19 @@ def new_session(request: Request) -> Response:
 # sends its id as ``HX-Target``). A refusal for such a request is the reason alone, not the whole
 # new-session screen. The header only picks how the answer looks; every check is the same.
 COVERAGE_SLOT = "coverage-start"
+# Today's Suggested session block (M7.8) does the same with its Start form: a refusal for a
+# request aimed at this element is the reason alone, with the form's own focus and length kept.
+TODAY_SLOT = "today-session-refusal"
+_TODAY_START = "#today-session-start button"  # gets focus back from the budget dialog
 _CLUSTER_ID = re.compile(r"[0-9a-f]{12}")
 
 
 def _from_coverage(request: Request) -> bool:
     return is_htmx(request) and request.headers.get("HX-Target") == COVERAGE_SLOT
+
+
+def _from_today(request: Request) -> bool:
+    return is_htmx(request) and request.headers.get("HX-Target") == TODAY_SLOT
 
 
 def _coverage_button(form: Form) -> str:
@@ -105,9 +113,28 @@ def _coverage_refused(
     return response
 
 
+def _today_refused(
+    request: Request, *, status: int, error: str | None = None, open_id: str = "", **extra: Any
+) -> Response:
+    """Only why Today's Start did not start, in the block's own slot (the same parts as the
+    Coverage answer): no heading and no focus or length form."""
+    ctx = {
+        "error": error,
+        "open_id": open_id if is_safe_id(open_id) else "",
+        "dialog": None,
+        "budget_reason": None,
+        **extra,
+    }
+    response = templates.TemplateResponse(request, "fragments/sessions/_today_refusal.html", ctx)
+    response.status_code = status
+    return response
+
+
 def _start_screen(request: Request, form: Form, status: int, **extra: Any) -> Response:
     if _from_coverage(request):
         return _coverage_refused(request, status=status, **extra)
+    if _from_today(request):
+        return _today_refused(request, status=status, **extra)
     return _new(request, form=form, status=status, **extra)
 
 
@@ -228,14 +255,23 @@ def _refusal(request: Request, sid: str | None, form: Form, action: str, answer:
         return PlainTextResponse(refusal_message(answer), status_code=409)
     fields = {k: v[0].replace("\x00", "") for k, v in form.items() if len(v) == 1}
     coverage = sid is None and _from_coverage(request)
+    today = sid is None and _from_today(request)
     dialog = dialog_context(
         answer,
         dialog_id="session-budget",
         action=action,
-        target=f"#{COVERAGE_SLOT}" if coverage else "#session-panel" if sid else "#session-new",
+        target=f"#{COVERAGE_SLOT}"
+        if coverage
+        else f"#{TODAY_SLOT}"
+        if today
+        else "#session-panel"
+        if sid
+        else "#session-new",
         fields=fields,
         return_focus=_coverage_button(form)
         if coverage
+        else _TODAY_START
+        if today
         else "#session-status"
         if sid
         else "#session-start",

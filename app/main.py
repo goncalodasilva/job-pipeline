@@ -60,6 +60,7 @@ from app.api.sessions import register_session_routes
 from app.api.settings import register_settings_pages
 from app.api.settings_board import register_board_settings_routes
 from app.api.settings_details import register_details_routes
+from app.api.settings_sessions import register_session_settings_routes
 from app.api.settings_templates import register_template_routes
 from app.api.settings_usage import register_usage_settings
 from app.api.setup import register_setup_pages
@@ -161,7 +162,9 @@ from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.provider_setup import ProviderSetupService
 from app.services.reminders import ReminderRules, ReminderService
 from app.services.roles import RoleService
+from app.services.session_preferences import SessionPreferences
 from app.services.session_screen import SessionScreens
+from app.services.session_suggestion import SessionSuggestions
 from app.services.sessions import (
     ANSWER_LABEL,
     ENRICHMENT_QUESTION,
@@ -1313,6 +1316,10 @@ def create_app(
     _publish_fact_screens(app, tz=app_tz, clock=app_clock, ids=app_ids)
     app.state.session_screens = SessionScreens(app.state.sessions, _fact_bank(app), app_clock)
     app.state.coverage_views = CoverageViews(bank=_fact_bank(app), clock=app_clock)
+    app.state.session_preferences = SessionPreferences(lambda: _current_db(app), app_clock)
+    app.state.session_suggestions = SessionSuggestions(
+        lambda: _current_db(app), app_clock, app.state.sessions
+    )
     app.state.session_zone = app_tz
     fact_refine = _fact_refine(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.fact_refine = fact_refine
@@ -1350,6 +1357,7 @@ def create_app(
     register_settings_pages(app)
     register_usage_settings(app)
     register_board_settings_routes(app)
+    register_session_settings_routes(app)
     register_details_routes(app)
     register_template_routes(app)
     register_task_routes(app)

@@ -1,0 +1,66 @@
+{# Settings > Sessions (M7.8; AC-M7.6): how often Today suggests an enrichment session, the
+   default length, the default for "Ask me later" and a switch that pauses every suggestion. One
+   versioned setting, saved by POST /settings/sessions, which swaps this whole section
+   (outerHTML). After a save the heading takes focus and a line says so; after a refused value the
+   first refused field takes focus and each error is tied to its field (a refused value is never
+   shown back: its select shows the saved value); after a stale version the reload prompt takes
+   focus and the form is left out, so a second Save can't overwrite what changed elsewhere.
+   Exactly one element of an answer is marked data-autofocus. The form sits in one native
+   disclosure, as Your details does (a collapsed one is a single tab stop, so the Settings Tab
+   count stays within MAX_TABS): closed on a plain load, open in every answer to the form. The
+   heading and the hint stay outside it. #}
+<section id="sessions-settings" class="settings-section" aria-labelledby="sessions-settings-heading">
+  <h2 id="sessions-settings-heading" tabindex="-1"{% if sessions.saved %} data-autofocus{% endif %}>Sessions</h2>
+  <p class="field-hint">A session is a few questions that help you add facts about your experience. Today suggests one at the pace you choose, and you can always start one yourself.</p>
+  {# The current choices stay visible while the form is collapsed, so it is clear why Today suggests
+     nothing (paused or "Never"). #}
+  <p id="sessions-settings-now" class="field-hint">Now: {% for value, text in sessions.frequencies %}{% if sessions.shown.frequency == value %}{{ text }}{% endif %}{% endfor %}, {% for value, text in sessions.lengths %}{% if sessions.shown.length == value %}{{ text }}{% endif %}{% endfor %}.{% if sessions.shown.paused %} Suggestions are paused.{% endif %}</p>
+  <details id="sessions-disclosure" class="settings-disclosure"{% if sessions.attention %} open{% endif %}>
+  <summary id="sessions-summary">Change session settings</summary>
+  {% if sessions.conflict %}
+  {% set reload_id = "sessions-settings-conflict" %}
+  {% set reload_message = sessions.conflict_message %}
+  {% set reload_detail = "Your change was not saved. These settings changed in another tab. Reload to see the latest and try again." %}
+  {% set reload_url = "/settings" %}
+  {% set reload_link = "Reload" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% else %}
+  {% if sessions.saved %}<p id="sessions-settings-done" class="budget-done">{{ sessions.saved }}</p>{% endif %}
+  <form id="sessions-settings-form" class="step-form" method="post" action="{{ sessions.save_url }}"
+        hx-post="{{ sessions.save_url }}" hx-target="#sessions-settings" hx-swap="outerHTML"
+        hx-disabled-elt="find button" novalidate>
+    <input type="hidden" name="version" value="{{ sessions.version }}">
+    {% set frequency_error = sessions.errors.get('frequency') %}
+    <div class="field">
+      <label for="sessions-frequency">How often to suggest a session</label>
+      <select id="sessions-frequency" name="frequency"{% if frequency_error %} aria-invalid="true" aria-describedby="sessions-frequency-error"{% if sessions.first_invalid == 'frequency' %} data-autofocus{% endif %}{% endif %}>
+        {% for value, text in sessions.frequencies %}<option value="{{ value }}"{% if sessions.shown.frequency == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+      </select>
+      {% if frequency_error %}<p id="sessions-frequency-error" class="field-error">{{ frequency_error }}</p>{% endif %}
+    </div>
+    {% set length_error = sessions.errors.get('length') %}
+    <div class="field">
+      <label for="sessions-length">Default session length</label>
+      <select id="sessions-length" name="length"{% if length_error %} aria-invalid="true" aria-describedby="sessions-length-error"{% if sessions.first_invalid == 'length' %} data-autofocus{% endif %}{% endif %}>
+        {% for value, text in sessions.lengths %}<option value="{{ value }}"{% if sessions.shown.length == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+      </select>
+      {% if length_error %}<p id="sessions-length-error" class="field-error">{{ length_error }}</p>{% endif %}
+    </div>
+    {% set ask_error = sessions.errors.get('ask_later_default') %}
+    <div class="field">
+      <label for="sessions-ask-later">Default for Ask me later</label>
+      <select id="sessions-ask-later" name="ask_later_default"{% if ask_error %} aria-invalid="true" aria-describedby="sessions-ask-later-error"{% if sessions.first_invalid == 'ask_later_default' %} data-autofocus{% endif %}{% endif %}>
+        {% for value, text in sessions.ask_later %}<option value="{{ value }}"{% if sessions.shown.ask_later_default == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+      </select>
+      {% if ask_error %}<p id="sessions-ask-later-error" class="field-error">{{ ask_error }}</p>{% endif %}
+    </div>
+    <div class="field field-check">
+      <input id="sessions-paused" type="checkbox" name="paused" value="1"{% if sessions.shown.paused %} checked{% endif %} aria-describedby="sessions-paused-hint">
+      <label for="sessions-paused">Pause all suggestions</label>
+    </div>
+    <p id="sessions-paused-hint" class="field-hint">While paused, Today suggests nothing. A session you start yourself still works.</p>
+    <div class="form-actions"><button type="submit" class="button button-primary">Save</button></div>
+  </form>
+  {% endif %}
+  </details>
+</section>

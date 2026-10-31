@@ -588,6 +588,11 @@ body.layout-guide {
   font-size: 1.25rem;
 }
 
+/* Settings > Sessions (M7.8): the Save button keeps clear of the pause hint above it. */
+#sessions-settings .form-actions {
+  margin-top: var(--space-3);
+}
+
 /* Settings > Usage budgets (M2.22): one block per service; the number fields sit side by
    side where there is room and stack on phones. */
 .budget {

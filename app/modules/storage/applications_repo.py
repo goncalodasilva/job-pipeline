@@ -408,3 +408,16 @@ def table_page(
         raise ValueError("unknown table sort")
     rows = conn.execute(statement, (limit, offset)).fetchall()
     return [TableRow(row[0], row[1] or "", row[2], row[3], row[4], row[5]) for row in rows]
+
+
+def latest_applied_at(conn: sqlite3.Connection, *, until: str) -> str | None:
+    """The newest ``applied_at`` not after ``until`` (an ISO instant), else None.
+
+    Compared and ordered as text, which is only right while every writer stores
+    ``astimezone(UTC).isoformat()`` (and ``until`` is given the same way); an instant with another
+    offset would sort wrongly. Whole-second and microsecond instants mix correctly.
+    """
+    row = conn.execute(
+        "SELECT max(applied_at) FROM applications WHERE applied_at <= ?", (until,)
+    ).fetchone()
+    return None if row is None else row[0]

@@ -282,7 +282,7 @@ class SessionService:
                 length=length,
                 now=now,
             )
-            self._reset_suggestion(conn, now)
+            self.reset_suggestion(conn, now)
             return True
 
         task = tasks.enqueue_if(
@@ -294,7 +294,7 @@ class SessionService:
         return SessionStart(sid, task)
 
     @staticmethod
-    def _reset_suggestion(conn: sqlite3.Connection, now: str) -> None:
+    def reset_suggestion(conn: sqlite3.Connection, now: str) -> None:
         value = json.dumps({"last_reset": now})
         current = settings_repo.get_setting(conn, "session_suggestion")
         if current:
