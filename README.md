@@ -88,7 +88,7 @@ AI work runs as background tasks. The **Tasks** button in the top bar shows how 
 - **Retry** runs a failed, cancelled or interrupted task again.
 - If the app stopped while a task ran, for example after a crash, that task shows as **interrupted** when the app starts again. It runs again only when you press Retry. Queued tasks run after a restart.
 
-Failed and interrupted tasks retry only when you ask. CV import, Refine with AI, job summaries and fit assessments use the runner (fetching a job page does not: it happens while you wait); invalid AI output gets one automatic correction attempt. The practice task is offered only on the demo's own folder, or when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` is set. With `--data-dir` or `JOBPIPELINE_DATA_DIR`, even `--demo` needs that variable.
+Failed and interrupted tasks retry only when you ask. CV import, Refine with AI, job summaries, fit assessments, session questions and session answers use the runner (fetching a job page does not: it happens while you wait); invalid AI output gets one automatic correction attempt. The practice task is offered only on the demo's own folder, or when `JOBPIPELINE_ALLOW_FAKE_PROVIDERS=1` is set. With `--data-dir` or `JOBPIPELINE_DATA_DIR`, even `--demo` needs that variable.
 
 ## PDF and Word export
 
@@ -134,6 +134,18 @@ In a fact's editor, **Refine with AI** asks questions and offers a diff. Nothing
 
 The fake provider makes fixed fictional suggestions and labels them **Practice data (fake provider)**. It does not understand the CV or fact you give it. Use fictional text when practicing. Fact versions and closed conversations remain in the local database; discard and archive do not erase their history.
 
+## Enrichment sessions and coverage
+
+A **session** is a short run of 3 or 5 questions, one at a time, that helps you remember your experience and turn it into draft facts. You can start one from **Today** (the **Suggested session** block), from **Fact bank > Coverage**, from a job's gap check ("Answer a few questions about these gaps"), from an interview on an application ("Talk through this interview in a session"), from a rejected application ("Start a session about this role's requirements"), from a capture note ("Expand in a session") or from a quality hint such as "Add a result?" ("Answer in a session"). Sessions need an AI provider. Each question and answer counts toward your usage budget, like other AI work, and a budget limit stops a start before anything is queued. Only one session can be open at a time; **Continue your session** returns to it.
+
+Each question comes with a short "Why this question" line. You can answer in your own words, or press **Skip**, **I don't remember** (it returns later from a different angle), **Ask me later** (next session, in a week, in a month or on a date) or **End session**. After an answer, the app turns it into a draft fact or story. Any detail that your answer does not state is shown as "This isn't in your answer", and the draft needs your check. When the session ends, **Confirm**, **Edit**, **Discard** or **Leave in Drafts to review** each draft. Nothing becomes a confirmed fact until you confirm it.
+
+The app checks each question before you see it. A question that asks for a number, employer or skill your facts do not state, opens with a yes/no word or ends with a tag such as "right?" is replaced by a fixed open question. This check reads English only. Your answers, questions and drafts stay in your local database. Discarding a draft does not delete the answer you typed, and the app has no way to purge stored answers yet.
+
+**Coverage** (**Fact bank > Coverage**) lists the requirements that your saved and active jobs ask for, grouped by similar wording, with the biggest gap first. Each row shows how many saved jobs ask for it and how strong your evidence is: **Strong** (two or more confirmed stories), **Thin** (facts, or one story) or **None**. **Start session** on a row starts a session about that requirement. **Strengthen** lists the facts behind a Thin row, each with a link to **Refine with AI**. Grouping uses English wording only, so the same requirement written in different words can appear as two rows.
+
+**Settings > Sessions** sets how often a session is suggested (never, weekly, twice a week or after each application), the default length, the default for "Ask me later", and **Pause all suggestions**. The section is a collapsed disclosure: open it to see the controls. A suggestion shows on Today only when one is due and you have questions to answer; **Dismiss** hides it until the next due time.
+
 ## Job inbox
 
 **Add a job.** In the Job inbox, choose **+ Add job** and paste a link to the posting, or paste the job text (with the link to the original, if you like). A link is fetched once, when you press the button, with "Fetching the page…" shown while it works. If the page can't be fetched or has no readable job text, for example a page that needs JavaScript or a sign-in, or an address the app refuses, the form says so and opens the text box: paste the ad there and the link is kept as the link to the original. The app fetches only the one address you give it, never follows links on the page, and refuses addresses that point at your own computer or network. A pasted link is stored and never fetched. Job text over 50,000 characters is refused rather than cut. The same link again adds a source, not a second job, and a near-identical posting on another site is merged into the existing card ("also posted on N sites"); **Not a duplicate** in the job's Sources list splits it back and remembers the choice. The job is saved first, so you can triage it even when no AI provider is connected.
@@ -162,7 +174,7 @@ Open an application from a card or table row to see its drawer: status, timeline
 
 **Calendar files.** Add an interview, follow-up, deadline or offer deadline, with a date and IANA time zone such as `Europe/Paris`. Timed events also take a time and duration; deadlines can be all day. **Download calendar file** saves a `.ics` file for you to import into your calendar app. Check its time and zone there. This is a file export; there is no calendar sync. A time in a spring clock-change gap is refused; an ambiguous autumn time uses the first occurrence with a notice. The file preserves the stored instant, including an event that ends in the repeated hour.
 
-**Today** shows upcoming interviews in the next seven days, due reminders, unseen jobs (with up to three Strong matches), fact drafts to review and document drafts awaiting approval, and optional setup steps still to finish, in that order. Empty blocks are hidden; when none needs attention it says so. Application counts appear in words.
+**Today** shows upcoming interviews in the next seven days, due reminders, unseen jobs (with up to three Strong matches), fact drafts to review and document drafts awaiting approval, a suggested session (or, while a session is open, **Continue your session**) and optional setup steps still to finish, in that order. Empty blocks are hidden; when none needs attention it says so. Application counts appear in words.
 
 **Notifications** contains due reminders and a link to tasks needing attention. Opening it marks only the reminders shown as seen. Done, Dismiss and Snooze are separate actions, shared with Today. Cards show "Follow-up due" in words. Reminders are computed when you read them: they work only inside the running app, with no background scheduler, email, push notification or work while the app is closed. A thank-you reminder does not draft a message. A completed event reminder does not become new when that same event is rescheduled; create a new event if you need a new reminder.
 
@@ -180,7 +192,7 @@ Settings > Usage budgets sets a monthly limit for each service: Claude subscript
 
 Each warning appears once per cycle, in a dialog that asks you to continue. At the blocking point the action is disabled and says when the count resets. The usage panel above the forms shows each service's count, its reset date and any calls still running. Claude's own plan usage is shown for information only and never blocks an action. A connection test counts as one request and is never blocked.
 
-Connection tests, CV import, Refine with AI, job summaries, fit assessments and practice calls count toward usage, including failed calls and AI correction attempts. Web search budgets take effect once web search is used. "Background tasks at once" sets how many tasks run together; a change applies the next time you start the app.
+Connection tests, CV import, Refine with AI, job summaries, fit assessments, session questions and answers, and practice calls count toward usage, including failed calls and AI correction attempts. Web search budgets take effect once web search is used. "Background tasks at once" sets how many tasks run together; a change applies the next time you start the app.
 
 ## Credentials and the keychain
 

@@ -174,6 +174,12 @@ def test_details_photo_and_template_review_by_keyboard(
         heading = panel.get_by_role("heading", name=HEADING)
         expect(heading).to_be_visible()
         expect(panel).to_have_attribute("data-state", "none")
+        # htmx binds the swapped-in form in its settle step (a short timer). Enter pressed before
+        # that submits the form natively, without the launch token, and the server refuses it.
+        page.wait_for_function(
+            "() => !document.querySelector('#tailoring').classList.contains('htmx-settling') "
+            "&& !document.querySelector('#tailoring .htmx-added')"
+        )
 
         # Draft with a note, by keyboard: announced, focus on the unit's heading, then it arrives.
         tab_until(page, panel.get_by_label("Note (optional)", exact=True))

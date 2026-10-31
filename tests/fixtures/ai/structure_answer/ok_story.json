@@ -1,0 +1,13 @@
+{
+  "data": {
+    "type": "story",
+    "text": null,
+    "situation": "The team had no routes.",
+    "action": "Planned 12 routes.",
+    "result": "Everyone used the routes.",
+    "role_key": null,
+    "skills": [],
+    "missing": [],
+    "added_details": []
+  }
+}

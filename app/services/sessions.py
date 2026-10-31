@@ -256,6 +256,9 @@ class SessionService:
             if not entries:
                 raise SessionEmpty()
             entry = entries[0]
+            # Every write goes through this one connection (the data folder is locked to one
+            # app), so an unchanged count means the snapshot read above is still current.
+            seen_changes = conn.total_changes
         _, service = self._provider()
         checked = self._gate().check(service, tier=tier, confirmation=confirmation)
         if not isinstance(checked, Start):
@@ -270,9 +273,10 @@ class SessionService:
             existing = sessions_repo.open_session(conn)
             if existing:
                 raise SessionAlreadyOpen(existing.id)
-            entries = backlog(conn, focus, self._clock.now())
-            if not entries or entries[0] != entry:
-                raise VersionConflict()
+            if conn.total_changes != seen_changes:  # something was written since: look again
+                entries = backlog(conn, focus, self._clock.now())
+                if not entries or entries[0] != entry:
+                    raise VersionConflict()
             sessions_repo.insert_session(
                 conn,
                 id=sid,

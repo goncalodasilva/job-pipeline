@@ -78,6 +78,8 @@ Blocks, in priority order (empty blocks are hidden):
 4. **Drafts to review:** facts and generated documents awaiting approval.
 5. **Suggested session** (optional): "3 questions, about 5 minutes", shown no more often than the user's chosen frequency, and dismissible.
 
+*Built in M7 (ADR-125):* while a session is open, this block reads "Session in progress" with "Continue your session" instead of the suggestion. That is an addition to the design. The block appears only when the suggestion is due, and the "nothing needs your attention" line is hidden while a session is open.
+
 A small neutral summary shows applications per status. When nothing is due, the screen says so plainly rather than inventing tasks.
 
 **The setup guide** is a separate module (`app/onboarding/`) that walks a new user through everything the app needs, one step at a time. It opens automatically on first use and can be re-run from Settings at any time.
@@ -267,6 +269,8 @@ The fact bank is where the user sees, edits and grows everything the app knows a
 
 **Coverage view.** A sorted table of requirement clusters, showing how many saved jobs ask for each and the evidence strength: Strong (two or more confirmed stories), Thin (facts but no story), or None. Selecting a row starts a session focused on it.
 
+*Built in M7 (ADR-117 item 3):* one confirmed story counts as Thin, not Strong. Strong needs two confirmed stories, so Thin covers both "facts but no story" and "one story".
+
 &#91;embedded content: Coverage view wireframe · requirements sorted by biggest gap\]
 
 Rows with no evidence offer "Start session"; thin rows offer "Strengthen", which opens the related facts with "Refine with AI".
@@ -304,6 +308,8 @@ Sessions are short, focused conversations that turn the user's memories into dra
 | Related jobs removed or closed | Question expires |
 
 **Frequency controls** (in settings): how often sessions are suggested (never, weekly, twice a week, after each application), default session length, and a "pause all suggestions" switch.
+
+*Built in M7:* the starting points are the Today suggestion, "Start session" on the Fact bank and the Coverage rows, the application's gap check, interview events, rejected follow-ups, capture notes and quality hints. The post-interview debrief is not part of M7; it arrives in M8 with the interview preparation work.
 
 ## Interview prep
 
@@ -361,6 +367,8 @@ Settings hold everything that makes the app personal; a new user can start with 
 | Sessions | Suggestion frequency, session length, pause switch |
 | Appearance | Theme and density |
 | Data and privacy | Data folder, export and import, demo mode, delete all data |
+
+*Built in M7 (ADR-125):* Sessions is a collapsed disclosure in Settings, closed on a plain load and open in the answer to its own form. Settings is at its tab-stop ceiling (TD-308), so the five new controls sit behind one disclosure. The current choices are shown outside it.
 
 **Model per task tier.** Users can assign a faster, lighter model to routine tasks (summaries, field extraction) and a more capable one to tailoring and feedback. This stretches plan limits or API spend.
 

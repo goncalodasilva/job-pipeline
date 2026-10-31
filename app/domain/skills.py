@@ -28,6 +28,10 @@ def normalize_skill(name: str) -> str:
     ends trimmed. Punctuation counts ("C", "C++" and "C#" are three skills). A blank name
     gives "". Folding repeats until nothing changes, because case folding and dropping a
     character can leave text that NFKC folds again."""
+    if name.isascii() and name.isprintable():
+        # Plain printable ASCII: NFKC and the dropped categories change nothing, and one
+        # case fold is already stable, so this is the same result without the per-character work.
+        return " ".join(name.casefold().split())
     folded = _fold(name)
     while (again := _fold(folded)) != folded:
         folded = again

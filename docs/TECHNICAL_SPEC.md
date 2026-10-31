@@ -366,6 +366,8 @@ The table list in `detailed-design.md` (State machines and database schema) is t
 
 M6 storage (ADR-110, ADR-116). Migration `0006_tailoring.sql` adds 13 tables, all `WITHOUT ROWID`. `angles`, `workspaces`, `cv_templates`, `documents` and `document_versions` are mutable and carry `created_at`, `updated_at` and `version`. `gap_checks`, `gap_check_facts`, `angle_proposals`, `document_units`, `document_unit_facts`, `document_sent_facts`, `document_exports` and `application_submissions` are append-only: triggers refuse their UPDATE, DELETE and replacement. A document version is inserted only as a draft. Units, citations and sent-fact rows can be added only to a draft, its content never changes, and its status moves only draft → approved → sent. `applications_delete_only_untouched` refuses any application that has a tailoring row, so a tailoring row makes the application "touched". Personal details have no table. They are the versioned setting `personal_details` (name, email, phone, location, up to three http or https links, and the photo's stored name). Date of birth, nationality and marital status are never stored. Export files live in `documents/<application id>/` under code-built names, `cv-v<n>-<24 hex>.pdf` or `.docx` and `cover-letter-v<n>-<24 hex>.pdf` or `.docx`, where the hex is the start of the version id's SHA-256. Each export row keeps its format, stored name, size, SHA-256 and page count. An exported file embeds the contact details as they stood at its first export; later edits do not rewrite it.
 
+M7 storage (ADR-120, ADR-122). Migration `0007_sessions.sql` adds three `WITHOUT ROWID` tables with explicit keys, created/updated/version columns and replacement guards. `enrichment_questions` holds only per-item backlog state: exactly one target (a cluster key, a fact id or a capture-note id), cooldown, "ask me later" and not-sure state, the asked count, the last outcome and at most five earlier wordings. `sessions` holds the focus (`most_useful`, `cluster`, `job`, `role`, `skill`, `fact` or `capture_note`), the length (3 or 5) and `open|ended`; a partial unique index allows one open session. `session_answers` holds the answer text as the person wrote it (at most 4,000 characters), the outcome, the question and its why with their provider, model and prompt provenance and a `fallback` flag, the draft-fact link, the missing parts and flagged claims, and the structure provenance. Task links clear when a task is deleted; the wording stays. Sessions refer to jobs, never applications, so `applications_delete_only_untouched` is unchanged. Session drafts are ordinary facts with source `session`, stored in the existing fact tables. Two versioned settings hold the session choices with no table change: `sessions` (frequency `never`, `weekly`, `twice_weekly` or `after_application`, default weekly; length; the ask-later default; pause) and `session_suggestion` (the last reset, written by a dismissal or a start). Answers and generated questions stay after their draft is discarded; no purge exists yet (TD-300).
+
 ### 2.8 Configuration
 
 - **Bootstrap config:** `config.toml` in the platform config folder (`platformdirs.user_config_dir("jobpipeline")`), holding `data_dir` (absolute path; `~` is expanded) and the app version that created it. Its absence means first run (see M1). The file is always parsed, so malformed TOML is reported even with `--demo` or `--data-dir`.
@@ -402,7 +404,16 @@ The export download `GET /applications/{id}/exports/{export_id}` is the approved
 
 Assets and export folders (rule 12; ADR-112 items 9 and 11, ADR-116 item 4). `assets/` must be a real folder, created 0700, and links are refused. A photo is written exclusively with mode 0600, flushed to disk, and only then named in the `personal_details` setting. The old file is deleted after the setting changes, and a failed write removes the new file. Workspace open removes orphan files with generated photo names, and only regular files, never links, folders or other names. Export folders follow the same rules: directory-relative opens refuse links at every component, and a generated export file with no row is removed at workspace open.
 
-M7.6 sessions (ADR-123): `GET`/`HEAD /sessions/new` and `/sessions/{sid}` are token-free read-only pages; the latter validates a safe id and uses a fixed, non-reflecting 404. Htmx reads still require the launch token, as does `/sessions/{sid}/panel`. Starting, answering, skipping, not-sure, later, Next, End and per-draft confirmation/discard use protected POSTs with origin and version checks. As in rule 13, session questions, why lines, retained answers and draft summaries on these pages are readable locally. None enters a query string, task/usage row, event or diagnostic message. Personal-details settings remain behind their existing protected fragments and are never read by the session screens.
+M7 sessions and coverage routes (ADR-123, ADR-125, ADR-126, ADR-127). Token-free, read-only pages: `GET` and `HEAD /sessions/new` (the start form, with its defaults from Settings), `GET` and `HEAD /sessions/{sid}` (the session screen and its end summary; the id is checked for its safe shape before lookup, and an unknown or unsafe id gets the fixed, non-reflecting session 404), and `GET /facts?tab=coverage` (the Coverage tab, the fourth tab of the Fact bank; a plain page that needs no token). Protected GET fragments, which need the launch token and write nothing: `GET /sessions/{sid}/panel`, `GET /facts/coverage` (the Coverage table; the query value `page` picks a page of 50) and `GET /facts/coverage/{cluster_id}` (the confirmed facts behind one existing cluster, each with a link to its editor's Refine with AI; the Strengthen link that opens it is offered on Thin rows). A cluster id must have the exact twelve-hex-digit shape; any other id, or one that names no cluster now, gets one fixed plain-text 404 ("This requirement wasn't found. Reload the Coverage tab.") that repeats nothing from the request. The detail response's `HX-Trigger` announce header carries the cluster label; this is by design, and the label is escaped JSON (TD-312). Protected POSTs, which need the token and the origin (rule 3):
+- `POST /sessions` starts a session with `focus`, `length` and, for the budget dialog, its confirmation fields. Every entry point posts here (the gap check, interview events, rejected follow-ups, capture notes and quality hints, ADR-126 item 1); M7.9 added no route. A start refused by the budget gate or the open-session check answers in the slot named by `HX-Target`, when it is one of `coverage-start` (a Coverage row), `today-session-refusal` (the Today block) or `session-refusal-<key>` (an entry point; the key matches `[A-Za-z0-9_-]{1,100}`). The slot shows only the reason, a Continue link or the budget dialog. A request without one of these slots gets the whole session screen.
+- `POST /sessions/{sid}/answers`, `.../skip`, `.../not-sure`, `.../later`, `.../next` and `.../end`. Answers, skips, not-sure and later check the answer's version and the session's version; Next and End check the session's version. Any other action name answers the fixed 404.
+- `POST /sessions/{sid}/drafts/{fid}/confirm` and `.../discard`, one draft at a time, only for drafts of this ended session.
+- `POST /settings/sessions` saves the versioned `sessions` setting (Settings > Sessions). The version is checked before the values, so a stale version always gets the 409 reload prompt, and field errors are 422s that name their field.
+- `POST /today/suggestion/dismiss` stores the reset in `session_suggestion`. It is not under `/sessions`, which the action route above owns.
+
+Personal-details settings remain behind their existing protected fragments and are never read by the session screens.
+
+M7 session text (rule 13 extended; ADR-121 item 5, ADR-122, ADR-123). Session questions, their why lines, the answers the person typed, the drafts made from them, and coverage cluster labels (the wording of a job's requirements) are readable locally on the session, Coverage and fact pages, like the other local content. They may be stored only where the leak test's allow-list says: answers in `session_answers` and `fact_versions`; questions in `session_answers` and `enrichment_questions`; why lines in `session_answers`; draft text in `fact_versions` and the fact search tables; labels in `job_requirements`, and in `enrichment_questions` through the cluster key of a cluster-targeted item, whose text key (`text:<signature>`, ADR-118) is built from the same requirement words. They never enter a query string, a task or usage row, an event, a diagnostic or an error message. AI requests receive them only as untrusted, delimited inputs of the task that needs them (3.3, 3.6), and never a fact marked never-use.
 
 ### 2.10 Logging and diagnostics
 
@@ -417,6 +428,8 @@ AC-M1.4 also covers CV text, fact wording and refine answers: these stay out of 
 M4 extends the same rule to job data: job text and snapshots, summaries, notes, removal reasons and company notes stay out of logs, `tasks` rows, usage rows, events and error copy (AC-M4.11 leak scans). The fetched URL is never logged, in a message, an error detail or a chained cause; the fetcher's errors name no address, and the `httpx` and `httpcore` loggers are dropped below WARNING and reduced to level, logger and exception type from there (`ClientRecordFilter`; the fetcher also holds those loggers at WARNING). The query string is removed from access records, so the inbox search and filters (`/inbox?search=`, `/inbox/queue?...`) and the company list values never reach a log. A uvicorn record that carries an exception (an unexpected error in a route) and the records of the uncaught-exception hooks are reduced to level, logger name and exception type (`ErrorRecordFilter`), because the exception text and traceback can quote the text being processed; the log still shows that an error happened and which kind. The CLI's start-up failure keeps its traceback in the log file, since no job text exists yet.
 
 M6 extends the same rule to document text (CV and letter lines and paragraphs, angles, gap-check wording and notes), personal details and the photo. They stay out of logs, `tasks` and usage rows, events, error copy and access records. M6.12 adds the leak scans for them. One exception is stored, where other tasks store only ids: the free-text note of a CV start (up to 500 characters), a letter start (up to 500 characters) or a template draft (up to 300 characters) is kept in `tasks.input_ref` (TD-283; the template note is also recorded in the Consequences of ADR-112).
+
+M7 extends AC-M1.4 to session answers, generated questions, why lines, session drafts and coverage labels. None of them may appear in logs, `tasks` or usage rows, live-update events, error copy or access-record query strings. The M7 leak checks (`tests/integration/test_m7_cross_cutting.py`) plant one marker of each kind, then scan the stored tables against an explicit allow-list of where that kind may live (rule 13), the logs, the task and usage rows, the event frames, error copy and access records. The named checks are `test_session_text_never_in_logs_task_rows_usage_or_events`, `test_session_query_strings_not_in_access_log` and `test_session_errors_carry_no_answer_text`. Session refusals name the state, never the text: `SessionAlreadyOpen` carries only the open session's safe id. A task's input row holds ids, a tier and an opaque snapshot fingerprint, never the wording (ADR-121 item 1, ADR-122 item 1).
 
 ### 2.11 Errors
 
@@ -525,6 +538,21 @@ M6 errors and refusals (ADR-106 to ADR-116):
 
 Form refusals are `ValueError`s, not `AppError`s: `DetailsInvalid`, `PhotoInvalid`, `StyleInvalid`, `ReviewInvalid`, `AngleInvalid` and `CountryInvalid` answer 422 with a fixed message tied to the field, and never echo the entered value. Photo messages: "Choose a JPEG or PNG picture."; "The picture is too big. Choose one of 5 MB or less."; "The picture must be between 100 and 4000 pixels on each side." Detail fields name their rule, for example "Write the email as name@example.com." A download of a missing or unsafe export answers the fixed 404 "That file wasn't found."
 
+M7 sessions and coverage errors and refusals (ADR-120 to ADR-127):
+
+| Error | Raised by | User-facing message pattern |
+| --- | --- | --- |
+| `SessionNotFound` | Session services and routes | "This session wasn't found. Open Sessions to start another." (fixed 404 for a page, fragment or POST with an unknown or unsafe id) |
+| `SessionEmpty` | Session start, answers and Next | "Nothing to ask right now. Add a capture note or save jobs to explore more experience." (no item is left to ask, or the session has its full length) |
+| `SessionBusy` | Answers and Next | "Finish this question first, or end the session." (Next is asked while an answer of this session is still being structured) |
+| `SessionAlreadyOpen` | Session start | "You already have an open session. Continue that session or end it first." (409, with a Continue link to the open session; carries only its safe id) |
+| `VersionConflict` | Every session write | The shared reload prompt (409). For an answer, the typed text stays in its editor with its original versions (ADR-123 item 3) |
+| Budget gate refusals (`BudgetBlocked`, `TierCapReached`, `UsageLimitsUnreadable`) | Start, answers, Next and follow-ups | The gate's usual dialog or blocked reason, unchanged (2.11 above; ADR-086). A refused start in an entry point or Today shows only the reason, not the whole screen (ADR-126 item 2) |
+| `ProviderNotConfigured` | Start and answers | "No AI provider is connected. Connect one in Settings > Providers, then try again." |
+| Form refusals (`ValueError`, 422) | Start, answers, later and drafts | "Choose a focus and 3 or 5 questions."; "Write an answer of up to 4,000 characters."; "Choose a date after today." Each keeps the typed text and names its field |
+| Settings refusals | Settings > Sessions | "Session settings not saved." with a field-tied 422 per field; a stale version answers 409 with the reload prompt |
+| Coverage cluster not found (fixed 404) | `GET /facts/coverage/{cluster_id}` | "This requirement wasn't found. Reload the Coverage tab." |
+
 Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
 Refusals of a start answer 409, for htmx and for a plain request, with the reason: a blocking point, a tier cap without a free Fast tier, or unreadable budgets (ADR-086). A warning that isn't confirmed answers 200 with the warning dialog for htmx, and 409 as text for a plain request (ADR-086). A stale version of a budget form, or of the guide's budget step, answers 409 with the reload prompt (`fragments/shell/_reload_prompt.html`, `role="alert"`): the form's own explanation, then a "Reload the page" link. In the usage budget forms the message is `VersionConflict`'s copy (ADR-081, ADR-087).
@@ -585,20 +613,23 @@ job-pipeline/
     onboarding/     setup guide: detection, step registry, steps/
     services/       jobs, companies, applications, facts, sessions, tailoring
                     (steps 1 to 5), documents, letters, exports, CV templates, personal details (M6),
-                    prep, usage, settings, reminders, provider setup
+                    prep, usage, settings, reminders, provider setup; M7: session answers, the backlog
+                    (session_backlog), suggestions and preferences, the session screen, coverage views
     domain/         models, enums, state machines, honesty checker, budget math,
                     normalization, clock, ids, locales; M6: documents, master CV and diff, CV templates,
-                    tailored CV, gap check, angles, cover letter, images, rendering, template draft
+                    tailored CV, gap check, angles, cover letter, images, rendering, template draft;
+                    M7: enrichment (backlog scores), coverage (clusters and strength), questions (the
+                    question check), quality_hints, structured_answer, and the SESSIONS setting in settings
     modules/
       ai/           interface, prompt library, executor.py, schemas, tasks.py,
-                    providers/ (claude_sdk.py, fake.py)
+                    providers/ (claude_sdk.py, fake.py, session_scripts.py for the M7 fake output)
       search/       interface, providers/
       calendar/     frozen EventData/CalendarFile, provider protocol; providers/ics.py
       storage/      database.py, runner.py, migrations/ (0001 to 0006; 0004_jobs.sql adds companies,
                     jobs, sources, summaries, assessments, requirements, controlled values,
                     the unknown-value queue, saved views and jobs_fts; 0005_applications.sql adds
                     statuses/history, applications, contacts/links/interactions, notes, events,
-                    reminder rules/states; 0006_tailoring.sql adds the 13 M6 tailoring tables), repositories including board, detail, reminders, Today, tailoring, documents and exports
+                    reminder rules/states; 0006_tailoring.sql adds the 13 M6 tailoring tables; 0007_sessions.sql adds the three M7 session tables), repositories including board, detail, reminders, Today, tailoring, documents and exports, and M7 sessions, enrichment, session sources and coverage
       secrets/      interface, providers/ (keyring_store.py, env.py, chained.py,
                     redacting.py, memory.py)
       fetch/        guard.py (SSRF checks), text.py (page_text), content and codings helpers,
@@ -608,7 +639,8 @@ job-pipeline/
     render/         DocumentRenderer interface and RenderedFile (__init__.py); providers/pdf.py (typst)
                     and providers/word.py (python-docx) (M6; ADR-106, ADR-108)
     tasks/          runner, handler registry, practice, cv_import, fact_refine, job_summary and
-                    job_fit handlers, and the M6 tailoring, documents and cv_templates handlers (the event publisher is api/events.py; ADR-077)
+                    job_fit handlers, the M6 tailoring, documents and cv_templates handlers, and the M7
+                    sessions handlers for enrichment_question and structure_answer (the event publisher is api/events.py; ADR-077)
     templates/      Jinja2 pages and fragments
     static/         vendor/ (htmx, SortableJS and licenses), js/ (app.js; shortcuts.js and
                     job-detail.js; board.js, status-menu.js, application-detail.js,
@@ -619,8 +651,9 @@ job-pipeline/
     cli.py          jobpipeline command
     main.py         app factory and lifespan
   prompts/          default prompt templates and output schemas per task (3.6): extract_cv,
-                    refine_fact, summarize_job, assess_fit, and the M6 tasks gap_check, propose_angles,
-                    draft_cv_template, tailor_cv, draft_cover_letter
+                    refine_fact, summarize_job, assess_fit, the M6 tasks gap_check, propose_angles,
+                    draft_cv_template, tailor_cv, draft_cover_letter, and the M7 tasks enrichment_question
+                    and structure_answer
   demo/             fictional persona, facts and jobs (planned, M9)
   docs/
     PROGRESS.md     milestone tracking and session log
@@ -684,6 +717,10 @@ The AI draws facts out of the user and rephrases them; it never invents experien
 6. Tests MUST include adversarial fake outputs (invented employer, wrong id, inflated number, uncited paragraph) and prove each is flagged.
 
 As built in M6 (ADR-106 item 8, ADR-109, ADR-113, ADR-115). `check_units` in `app/domain/honesty.py` compares each generated unit only with the facts it cites, and only facts sent in that request count as sent. It returns `unsupported` for a citation to a fact that was not sent, for a content unit with no ids, and for a structure unit whose text is not exactly a template heading (any other text is uncited content). It returns `needs_check` for a number, percentage, year, money amount or number word that none of the cited facts states; for a capitalised name or a controlled skill that none states (a fact marked "generalize names" never supports a name); for each `added_details` entry; for a citation to another role's fact, or a role header over a fact with no role; and for a word that mixes Latin letters with others. For letters only, the job's company and title may support a capitalised name (`name_sources`). `approval_blockers` checks the citations again at approval. A fact that is now never-use, archived, discarded, still a draft, missing, or at a version that doesn't exist is `unsupported`. A superseded version is `needs_check`. Approval is refused while any blocker stands (`ApprovalBlocked`, and nothing changes), and the flags are recomputed on every edit. The honesty notice is code-owned. The executor appends `HONESTY_NOTICE` as the last part of the system text of `generation` and `feedback` tasks, once, including on the retry; it is a suffix, not a prefix. Known limits, all recorded in `docs/TECH_DEBT.md` or the module docstring: number words are English only; a single capitalised word at a sentence start can escape the name check; a privacy change after generation is not caught (TD-277); model text is not checked for URLs or e-mail addresses (TD-294). The check helps, and the person still reads every word.
+
+As built in M7 (ADR-117 items 6 and 7, ADR-121, ADR-122). Session drafts are checked against fewer sources than generated CV and letter units. Only three may support a claim: the person's own answers to this item in this session, the capture note or the quality hint's target fact, and the one existing role the person chose. The generated question is never a source, and neither is another item's answer. `resolve_structured_answer` flags any claim, number or added detail that these sources do not state. A flagged draft is `needs_check` and shows "This isn't in your answer", and each draft is confirmed or discarded one at a time; a flagged draft is confirmed only individually. Skills are kept only when the answer names them, and an unknown role key is cleared and flagged. A follow-up answer adds a version to the same draft and never confirms it.
+
+Generated questions pass the code check `question_problems` (`app/domain/questions.py`) before they are kept. It flags a claim (a number, employer or skill that the item's sources do not state), a yes/no opener (did, were, was, have, has, is, are, do, does, can, could, would), a tag ending ("right?", "correct?", "didn't you?", "isn't it?"), and a question that is neither a question mark ending nor an invitation beginning "Tell me about" or "Walk me through". A question with a problem is replaced, with no extra request, by a code-owned open question and its why. The fallback text is fixed for each kind (a capture note, a quality hint, or a requirement cluster) and never contains a cluster label, so no label from a job text can reach it (ADR-121 item 3). The check is lexical and English only (TD-301), and it can miss a leading question. The person reads each question before answering it.
 
 ### 3.2 Drafts, approval and versions
 
@@ -766,6 +803,13 @@ M6 registers five tasks, all in `TASK_SPECS` and all started by a user action th
 - Schema conventions shared by the generation tasks: each unit or paragraph has `fact_ids` (pattern `F<number>@<version>`, at most 20, unique) and `added_details` (at most 10 items of 200 characters). Text may not contain control or bidi characters. No output has a status or approval field, and the `tailor_cv` schema refuses one. The honesty checker reads `added_details` by that exact name.
 - Fake output is labelled "Practice data." (CV) or with the letter's practice notice, and its citations are checked like any other.
 
+M7 registers two tasks, `enrichment_question` and `structure_answer`, both `TaskSpec(..., kind="feedback")` in `TASK_SPECS`, so the code-owned honesty notice is appended (ADR-109). Both default to Fast. Each is started by the user through the budget gate, through `SessionService`, and never chained; each question costs two requests (ADR-117 item 5, ADR-121, ADR-122). Both prompts are at version 2.
+
+- `enrichment_question` (dedupe `enrichment_question:session:<id>`). Its input row holds the session id, the tier and an opaque snapshot fingerprint, never the wording. Untrusted blocks: the item (for a cluster, its label and up to five requirement wordings; for a quality hint, the hint and its fact; for a capture note, its text), related facts through `facts_for_ai` and `prompt_fact_block`, the session so far, and the earlier wordings when the person was not sure. The output has `question` (at most 300 characters) and `why` (at most 200), and no status or approval field. Its result is checked by `question_problems` (3.1). A follow-up for missing parts is another `enrichment_question` for the same item, at most one per item.
+- `structure_answer` (dedupe `session:<id>`). Untrusted blocks: the question, this item's answers, the note or target fact, and the existing role labels and controlled skills. The output has `type` (`fact` or `story`), the text or the situation, action and result, an optional role key chosen from those given, skills, `missing` (from the closed list result, number, scale, own_part and context) and `added_details`. The draft's honesty check is `resolve_structured_answer` (3.1).
+- Clusters are not an AI task. `cluster_requirements` in `app/domain/coverage.py` groups requirements in code, on read, with no request: a requirement that names a controlled skill or alias joins that skill's cluster; the others group by Dice similarity of their content words at 0.6 (ADR-118). Strength comes from the person's confirmed evidence, not from the model.
+- Fake output for both tasks is labelled as practice data: the fake question's why line says so, and the fake draft's provenance uses the existing practice label (ADR-121, ADR-122).
+
 ### 3.7 Tiers and usage
 
 Settings map two tiers, Fast and Thorough, to models offered by the active AI provider. Each task has a default tier; users can move tasks between tiers. Usage budgets are optional, per service and in requests (ADR-076 items 4 and 5). Token counts are recorded and shown; token budgets are deferred. Each budget has an allowance, a first and a second warning, a blocking point (at most the allowance), a reset day and optional per-tier caps. When a cap blocks a Thorough task, the app offers to run it once on Fast; it never switches silently. As built in M2:
@@ -782,7 +826,7 @@ Settings map two tiers, Fast and Thorough, to models offered by the active AI pr
 
 ### 3.8 Performance
 
-Lists paginate (50 items). Indexes cover every list filter and sort. The inbox prefetches the next card. Fragment endpoints target under 150 ms server time.
+Lists paginate (50 items). Indexes cover every list filter and sort. The inbox prefetches the next card. Fragment endpoints target under 150 ms server time. M7 adds the Coverage tab, the session panel, Today with a session suggestion and the session start. They are checked at 1,000 fictional jobs and 300 facts (`test_ac_m7_fragments_under_150ms_with_1000_jobs_300_facts`, median of five). The clustering and backlog reads are measured on this host and recorded in ADR-127, with the limits of the clustering in TD-302 and TD-303. The clustering is computed on each read without a cache; a cache keyed by a data stamp is the next step only if a measurement needs it (ADR-117 Consequences, ADR-118).
 
 ### 3.9 Accessibility and responsiveness
 
@@ -1133,6 +1177,8 @@ Limits (TECH_DEBT): TD-043 is closed (M6.3). TD-277 and TD-279 to TD-295 record 
 
 ### M7 — Enrichment sessions and coverage
 
+**Acceptance carry-over:** on 2026-10-29 the user approved continuing M7 and deferred the manual checks to the end of M7 or possibly M8. The unperformed M5 and M6 manual checks and the M6 live test are carried, unchecked, into `docs/acceptance/M7.md` alongside M7's own checks. This is not evidence that any check passed.
+
 **Goal:** short, optional, recurring sessions grow the fact bank.
 
 **Scope:** question backlog with the priority signals from the detailed design; session screen; `enrichment_question` and `structure_answer`; outcomes (answer, skip, not sure, ask me later with its menu); cooldowns; end-of-session summary; coverage view; capture inbox expansion; frequency settings and pause; entry points from applications, interviews and rejections.
@@ -1149,6 +1195,12 @@ Limits (TECH_DEBT): TD-043 is closed (M6.3). TD-277 and TD-279 to TD-295 record 
 **Test plan:** unit tests for priority scoring and scheduling; integration tests for sessions with fixtures; e2e for a full session and the coverage view.
 
 **Exit checks:** full verification; the user runs one real session.
+
+**As built (M7.1 to M7.9; ADR-117 to ADR-126; M7.10 in ADR-127):** the enrichment backlog, the session screen and its end summary, the Coverage tab, Settings > Sessions, the Today suggestion and the five entry points (gap check, interview events, rejected follow-ups, capture notes and quality hints) are built. Coverage is computed on each read with no AI task. `enrichment_questions` keeps only per-item state, and migration 0007 adds three tables (ADR-120). A session asks 3 or 5 questions and only one can be open at a time. Each question costs two Fast requests, both started by the user, and an item gets at most one follow-up for missing parts. Session drafts are checked against the person's own answers and their chosen role only (ADR-122).
+
+Deviations from the plan above: (1) Settings > Sessions is a collapsed disclosure, because Settings is at its 120-stop tab ceiling (ADR-125 item 1, TD-308); (2) a rejected or otherwise closed job's session focuses on the live clusters that share its requirements, not on the closed job's text (ADR-126 item 4); (3) every entry point and the Coverage and Today refusals share one slot helper keyed by `HX-Target` (ADR-126 item 2); (4) `SettingsService.load` reads through `db.read()` and never writes, so an offer does not open a write transaction (ADR-126 item 5); (5) the Today block reads "Session in progress" while a session is open, a deliberate addition to the design (ADR-125 item 2); (6) the fallback question is fixed text per kind, with no cluster label (ADR-121 item 3); (7) the Coverage detail's announce header carries the cluster label by design (TD-312); (8) the start recheck reads the backlog a second time only when the connection's change count moved (ADR-127, TD-311).
+
+Limits (TECH_DEBT section 12): the question check and the fallback are English only (TD-301); requirement clusters are lexical English with a fixed threshold (TD-302, TD-303); kept answers have no purge (TD-300); the prompt and fixture follow-ups for the two tasks are deferred (TD-304 to TD-307); the Settings tab ceiling (TD-308); unreproduced e2e flakes under load and keyboard-start paths not walked in a browser (TD-309, TD-310); the closed-job corpus stamp and the critical-coverage registry (TD-313, TD-314). TD-055 and TD-171 are unchanged. The manual acceptance checks and the live test are in `docs/acceptance/M7.md`; none has been run. The user reviews cluster quality on real saved jobs, and the rejection scope on live clusters (ADR-126 item 4), at acceptance.
 
 ### M8 — Interview preparation
 

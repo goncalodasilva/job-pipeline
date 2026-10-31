@@ -110,7 +110,9 @@ def strength(evidence: Iterable[CoverageEvidence]) -> Strength:
     return "thin" if usable else "none"
 
 
-def _skill_patterns(skills: Iterable[CoverageSkill]) -> tuple[tuple[str, re.Pattern[str]], ...]:
+def _skill_patterns(
+    skills: Iterable[CoverageSkill],
+) -> tuple[tuple[str, str, re.Pattern[str]], ...]:
     phrases = {
         (normalize_skill(phrase), normalize_skill(skill.name))
         for skill in skills
@@ -119,13 +121,21 @@ def _skill_patterns(skills: Iterable[CoverageSkill]) -> tuple[tuple[str, re.Patt
     }
     # Prefer the longest named phrase; the normalized canonical name resolves ties.
     return tuple(
-        (key, re.compile(r"(?<![\w+#])" + re.escape(phrase) + r"(?![\w+#])"))
+        (key, phrase, re.compile(r"(?<![\w+#])" + re.escape(phrase) + r"(?![\w+#])"))
         for phrase, key in sorted(phrases, key=lambda pair: (-len(pair[0]), pair[1], pair[0]))
     )
 
 
-def _skill_key(text: str, patterns: Sequence[tuple[str, re.Pattern[str]]]) -> str | None:
-    return next(("skill:" + key for key, pattern in patterns if pattern.search(text)), None)
+def _skill_key(text: str, patterns: Sequence[tuple[str, str, re.Pattern[str]]]) -> str | None:
+    # The plain substring test is a cheap necessary condition for the whole-phrase match.
+    return next(
+        (
+            "skill:" + key
+            for key, phrase, pattern in patterns
+            if phrase in text and pattern.search(text)
+        ),
+        None,
+    )
 
 
 def _tokens(text: str) -> frozenset[str]:
@@ -162,10 +172,11 @@ def cluster_requirements(
     representatives: dict[str, frozenset[str]] = {}
     word_index: dict[str, set[str]] = defaultdict(set)
     for signature, (words, rows) in sorted(signatures.items()):
-        candidates = {key for word in words for key in word_index[word]}
+        # Each representative appears once per shared word, so its count is the overlap size.
+        shared = Counter(key for word in words for key in word_index[word])
         scored = [
-            (2 * len(words & representatives[key]) / (len(words) + len(representatives[key])), key)
-            for key in candidates
+            (2 * overlap / (len(words) + len(representatives[key])), key)
+            for key, overlap in shared.items()
         ]
         matches = [(similarity, key) for similarity, key in scored if similarity >= DICE_THRESHOLD]
         if matches:
