@@ -26,6 +26,7 @@ DRAFT_NOTE = "Keep it plain."
 def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, task: str) -> None:
     # Explicit cases make a newly registered task fail until its real calling path is covered.
     assert set(TASK_SPECS) == {
+        "answer_feedback",
         "extract_cv",
         "refine_fact",
         "summarize_job",
@@ -75,6 +76,18 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
             )
             ref = begin(application.id, version=service.view(application.id).version)
             assert ref is not None and r.run.wait_terminal(ref.id).status.value == "succeeded"
+        elif task == "answer_feedback":
+            # M8.2: the calling service over the real prompt and the app's provider. This task
+            # sends confirmed facts, so the hidden-fact assertions below apply in full.
+            application = Tailoring(r).ready("never-use-practice", facts=False)
+            question = r.run.app.state.prep.add_bank_question(
+                "Tell me about a time you planned under pressure.", "behavioral"
+            )
+            practice = r.run.app.state.answer_practice
+            made = practice.submit(
+                application.id, question.id, "I planned delivery routes.", version=0
+            )
+            assert r.run.wait_terminal(made.task.id).status.value == "succeeded"
         elif task == "draft_cv_template":
             # M6.6: the calling service and its task over the real prompt and the app's
             # provider. The request carries no fact text at all (ADR-106 item 12).

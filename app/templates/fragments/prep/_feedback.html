@@ -1,0 +1,88 @@
+{# One practice try with its feedback (M8.2 part A; AC-M8.4). Needs `attempt` (an AttemptView) and
+   `practice` from app/api/prep_practice.py. Every word the model wrote is escaped text. The
+   length and CV checks, the speaking time and the flagged claims are decided by code. Nothing
+   here applies wording or adds a fact by itself; the claims form adds only what is ticked, as
+   needs-check drafts. #}
+{% set fb = attempt.feedback %}
+{% set verdict_words = {"yes": "Yes", "partly": "Partly", "no": "No", "unclear": "Unclear", "too_short": "Too short", "good": "Good", "too_long": "Too long", "not_checked": "Not checked"} %}
+{% set check_labels = {"answers": "Answers the question", "structure": "Structure", "evidence": "Evidence", "length": "Length", "consistent_with_cv_sent": "Matches the CV you sent"} %}
+<article class="card practice-attempt" data-attempt="{{ attempt.id }}">
+  {% if attempt.practice %}<p class="badge">Practice data</p>{% endif %}
+  <h5>{{ 'Latest try' if latest else 'Earlier try' }}</h5>
+  <p class="practice-answer">{{ attempt.answer }}</p>
+  {% if fb is none %}
+    {% if attempt.active %}
+      <p>Waiting for the feedback on this try…</p>
+    {% else %}
+      <p class="field-error" role="alert">{{ practice.errors.get(attempt.id, 'Something went wrong.') }} Your answer is kept.{% if not (latest and practice.retry) %} Ask for feedback again with a new try.{% endif %}</p>
+      {% if latest and practice.retry %}
+      <p><button type="submit" form="practice-form" class="button"{% if practice.reason %} aria-disabled="true" aria-describedby="practice-reason"{% endif %}>Try again</button></p>
+      {% endif %}
+    {% endif %}
+  {% else %}
+    <p>Speaking time: about {{ fb.spoken }}.</p>
+    <ul class="practice-checks" role="list">
+      {% for key, item in fb.checklist.items() %}
+      <li data-check="{{ key }}" data-verdict="{{ item.verdict }}"><strong>{{ check_labels[key] }}: {{ verdict_words.get(item.verdict, 'Unclear') }}.</strong> {{ item.comment }}</li>
+      {% endfor %}
+    </ul>
+    {% if fb.not_in_cv %}
+    <h6>Not in the CV you sent</h6>
+    <p class="field-hint">Your answer says these, but the CV you sent does not.</p>
+    <ul>{% for claim in fb.not_in_cv %}<li>{{ claim.text }}</li>{% endfor %}</ul>
+    {% if fb.not_in_cv_more %}<p class="field-hint">{{ fb.not_in_cv_more }} more not shown.</p>{% endif %}
+    {% endif %}
+    {% if fb.suggestions %}
+    <h6>Ideas</h6>
+    <ul>
+      {% for suggestion in fb.suggestions %}
+      <li data-suggestion data-flagged="{{ 'true' if suggestion.flagged else 'false' }}">{{ suggestion.text }}
+        {%- if suggestion.fact_ids %} <span class="field-hint">Draws on {% for ref in suggestion.fact_ids %}<a href="/facts" data-fact-ref="{{ ref }}">{% if practice.view.fact_words.get(ref) %}“{{ practice.view.fact_words.get(ref) }}”{% else %}a fact that has changed or is no longer used{% endif %}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</span>{% endif %}
+        {%- if suggestion.flagged %}
+        <p class="notice">This idea says things your confirmed facts do not state: {{ suggestion.claims | map(attribute='text') | join(', ') }}. Do not use them unless they are true.</p>
+        {%- endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if fb.wording.text %}
+    <h6>Suggested wording</h6>
+    <blockquote class="practice-answer">{{ fb.wording.text }}</blockquote>
+    {% if fb.wording.flagged %}
+    <p class="notice">This wording says things your confirmed facts do not state. Do not use them unless they are true:</p>
+    <ul>{% for claim in fb.wording.claims %}<li>{{ claim.text }}</li>{% endfor %}</ul>
+    {% else %}
+    <p class="field-hint">No new numbers, names or skills were found. Check the rest yourself. It is a suggestion; nothing is changed for you.</p>
+    {% endif %}
+    {% endif %}
+    {% if fb.unsupported %}
+    <form method="post" action="{{ practice.base }}/claims/{{ attempt.id }}" hx-post="{{ practice.base }}/claims/{{ attempt.id }}" hx-target="#prep" hx-swap="outerHTML" hx-disabled-elt="find button" data-claims-form>
+      <input type="hidden" name="version" value="{{ attempt.version }}">
+      <fieldset class="choices">
+        <legend>Claims to check</legend>
+        <ul class="practice-claims" role="list">
+          {% for claim in fb.unsupported %}
+          <li data-claim="{{ loop.index0 }}">
+            <p><strong>{{ claim.text }}</strong></p>
+            {% if loop.index0 in attempt.resolved %}
+            <p>Added as a draft. Review it in your <a href="/facts">fact bank</a>.</p>
+            {% else %}
+            <p class="field-hint">This isn't in your fact bank.</p>
+            <p class="field-hint" id="claim-{{ attempt.id }}-{{ loop.index0 }}-sentence" data-draft-sentence>If you tick it, this sentence is saved as a draft: “{{ attempt.sentences.get(loop.index0, claim.text) }}”</p>
+            <div class="choice">
+              <input type="checkbox" id="claim-{{ attempt.id }}-{{ loop.index0 }}" name="claim" value="{{ loop.index0 }}" aria-describedby="claim-{{ attempt.id }}-{{ loop.index0 }}-sentence">
+              <label for="claim-{{ attempt.id }}-{{ loop.index0 }}">This is true; add it<span class="visually-hidden">: {{ claim.text }}</span></label>
+            </div>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% if fb.unsupported_more %}<p class="field-hint">{{ fb.unsupported_more }} more not shown.</p>{% endif %}
+      </fieldset>
+      {% if attempt.resolved|length < fb.unsupported|length %}
+      <div class="form-actions"><button type="submit" class="button">Add to my facts</button></div>
+      <p class="field-hint">Ticked claims become drafts that need your check. They are not confirmed.</p>
+      {% endif %}
+    </form>
+    {% endif %}
+  {% endif %}
+</article>

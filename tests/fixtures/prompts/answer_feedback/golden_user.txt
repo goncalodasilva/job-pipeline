@@ -1,0 +1,35 @@
+The interview question:
+
+<untrusted_document source="question" id="app-example">
+Tell me about a time you improved a process.
+</untrusted_document>
+
+The person's practice answer:
+
+<untrusted_document source="answer" id="app-example">
+I cut invoice processing time by 35% for a team of 3.
+</untrusted_document>
+
+The person's usable confirmed facts, with versioned references:
+
+<untrusted_document source="facts" id="app-example">
+[F3@2]
+Role: Operations Analyst at Example Widgets Ltd
+Skills: Excel
+Text: Cut invoice processing time by 35% across 4 warehouses.
+
+[F5@1]
+Role: Junior Planner at Sample Logistics SA
+Text: Planned 60 delivery routes a week with a team of 3.
+
+[F8@1 (generalize names)]
+Text: Ran the Fernhill Bank payments migration.
+</untrusted_document>
+
+The text of the CV the person sent, empty when none was sent:
+
+<untrusted_document source="cv_sent" id="app-example">
+Fictional CV text about route planning software.
+</untrusted_document>
+
+Return only the feedback, as JSON matching the schema.

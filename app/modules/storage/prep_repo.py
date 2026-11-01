@@ -104,11 +104,13 @@ def source(conn: sqlite3.Connection, aid: str) -> PrepSource | None:
 
 
 def questions(
-    conn: sqlite3.Connection, *, query: str = "", question_type: str = ""
+    conn: sqlite3.Connection, *, query: str = "", question_type: str = "", question_id: str = ""
 ) -> tuple[BankQuestion, ...]:
     tags: dict[str, list[str]] = defaultdict(list)
     for qid, text in conn.execute(
-        "SELECT question_id,text FROM bank_question_requirements ORDER BY question_id,text"
+        "SELECT question_id,text FROM bank_question_requirements WHERE (?='' OR question_id=?) "
+        "ORDER BY question_id,text",
+        (question_id, question_id),
     ):
         tags[qid].append(text)
     phrase = '"' + query.replace('"', '""') + '"'
@@ -116,10 +118,10 @@ def questions(
         "SELECT q.id,q.text,q.type,q.company_id,q.role_family,q.seniority,q.asked_count,q.origin,"
         "q.source_url,q.found_at,q.source_date,q.provider,q.model,"
         "q.prompt_id,q.prompt_version,q.version "
-        "FROM bank_questions q WHERE (?='' OR q.type=?) AND (?='' OR q.id IN "
+        "FROM bank_questions q WHERE (?='' OR q.type=?) AND (?='' OR q.id=?) AND (?='' OR q.id IN "
         "(SELECT id FROM bank_questions_fts WHERE bank_questions_fts MATCH ?)) "
         "ORDER BY q.created_at DESC, q.id",
-        (question_type, question_type, query, phrase),
+        (question_type, question_type, question_id, question_id, query, phrase),
     )
     return tuple(BankQuestion(r[0], r[1], r[2], tuple(tags[r[0]]), *r[3:]) for r in rows)
 

@@ -1,0 +1,51 @@
+{# Practice one question inside the Prep tab (M8.2 part A; AC-M8.4). Needs `practice` from
+   app/api/prep_practice.py. It is the whole #prep region, so every answer swaps it in place.
+   The answer is typed here and kept as an attempt; the feedback arrives when the task ends
+   (the region refreshes itself while one runs; prep.js keeps what is typed in the box across
+   such a refresh). A claim the code finds that no confirmed fact states is only a tick box:
+   nothing is added until the person ticks it and presses the button. #}
+{% set v = practice.view %}
+{% set limit = '{:,}'.format(practice.max_chars) %}
+<section id="prep" aria-labelledby="practice-heading" data-keep-edits
+         hx-get="{{ practice.base }}?refresh=1" hx-trigger="{% if v.active %}every 2s, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML">
+  <p><a id="practice-back" href="{{ practice.page_url }}" hx-get="/applications/{{ v.application_id }}/prep?focus=1" hx-target="#prep" hx-swap="outerHTML">Back to questions</a></p>
+  <h3 id="practice-heading" tabindex="-1" data-refresh-safe-focus{% if practice.focus == 'practice-heading' %} data-autofocus{% endif %}>Practice</h3>
+  <p class="practice-question"><strong>{{ v.question.text }}</strong></p>
+  {% if practice.message %}<p class="notice">{{ practice.message }}</p>{% endif %}
+  <p data-stale-note hidden>Updates are ready. <button type="button" class="button" hx-get="{{ practice.base }}?refresh=1" hx-target="#prep" hx-swap="outerHTML">Refresh practice</button></p>
+  {% if practice.conflict %}
+    {% set reload_id = 'practice-conflict' %}{% set reload_message = 'This question changed in another window.' %}{% set reload_detail = 'Your answer was not saved. It is still in the box below.' %}{% set reload_url = practice.page_url %}
+    {% include 'fragments/shell/_reload_prompt.html' %}
+  {% endif %}
+  {% if practice.claim_error %}<p class="field-error" role="alert">{{ practice.claim_error }}</p>{% endif %}
+  <form id="practice-form" method="post" action="{{ practice.base }}/answer" hx-post="{{ practice.base }}/answer" hx-target="#prep" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="version" value="{{ v.version }}">
+    <div class="field">
+      <label for="practice-answer">Your answer</label>
+      <p id="practice-answer-hint" class="field-hint">Type it as you would say it. Up to {{ limit }} characters. Each try is kept, so you can compare them.</p>
+      {% if practice.answer_error %}<p id="practice-answer-error" class="field-error" role="alert">{{ practice.answer_error }}</p>{% endif %}
+      <textarea id="practice-answer" name="answer" rows="8" maxlength="{{ practice.max_chars }}"{% if practice.focus == 'practice-answer' %} data-autofocus{% endif %}
+                aria-describedby="practice-answer-hint practice-count{% if practice.answer_error %} practice-answer-error{% endif %}"{% if practice.answer_error %} aria-invalid="true"{% endif %}>{{ practice.answer }}</textarea>
+      <p id="practice-count" class="field-hint" data-char-count>{{ '{:,}'.format(practice.count) }} of {{ limit }} characters</p>
+      <p id="practice-count-note" class="visually-hidden" aria-live="polite" data-char-note></p>
+    </div>
+    {% if practice.reason %}{% set budget_blocked = practice.reason %}{% include 'fragments/budget/_blocked.html' %}{% endif %}
+    <div class="form-actions">
+      <button type="submit" id="practice-submit" class="button button-primary"{% if practice.reason %} aria-disabled="true" aria-describedby="practice-reason practice-use"{% elif v.active %} aria-disabled="true" aria-describedby="practice-working practice-use"{% else %} aria-describedby="practice-use"{% endif %}>Get feedback</button>
+    </div>
+    <p id="practice-use" class="field-hint">Feedback uses one AI request. If an answer comes back unusable, the app tries once more. The AI only reads your answer, your confirmed facts and the CV you sent{% if v.cv_source == 'none' %} (no CV is recorded for this application){% endif %}.</p>
+  </form>
+  {% if v.active %}<p id="practice-working" role="status">Getting feedback… Progress is also in Tasks.</p>{% endif %}
+  <form method="post" action="/applications/{{ v.application_id }}/prep/questions/{{ v.question.id }}/ready"
+        hx-post="/applications/{{ v.application_id }}/prep/questions/{{ v.question.id }}/ready" hx-target="#prep" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="version" value="{{ v.version }}">
+    <input type="hidden" name="ready" value="{{ 0 if v.ready else 1 }}">
+    <button type="submit" class="button">{{ 'Mark not ready' if v.ready else 'Mark ready' }}</button>
+  </form>
+  <section aria-labelledby="practice-attempts-heading">
+    <h4 id="practice-attempts-heading">Your tries</h4>
+    {% for attempt in v.attempts %}{% set latest = loop.first %}{% include 'fragments/prep/_feedback.html' %}{% else %}<p>No tries yet. Type an answer above and ask for feedback.</p>{% endfor %}
+    {% if v.truncated %}<p class="field-hint" data-history-capped>Showing the latest {{ v.attempts | length }} tries. Older tries are kept.</p>{% endif %}
+  </section>
+  {% if practice.dialog %}{% set budget_dialog = practice.dialog %}{% include 'fragments/budget/_dialog.html' %}{% endif %}
+</section>

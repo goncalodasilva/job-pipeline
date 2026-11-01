@@ -2939,3 +2939,11 @@ kbd,
 }
 #letter-frame { border: 1px dashed var(--color-border); border-radius: var(--radius); padding: 0.75rem 1rem; margin-block: 1rem; }
 #letter-frame p { margin-block: 0.4rem; }
+
+.practice-attempt { margin-block: 1rem; overflow-wrap: anywhere; }
+.practice-attempt h5, .practice-attempt h6 { font-size: 1rem; margin-block: var(--space-3) var(--space-1); }
+.practice-answer { white-space: pre-wrap; overflow-wrap: anywhere; }
+blockquote.practice-answer { margin: var(--space-2) 0; }
+.practice-attempt .choices { margin-block: var(--space-3) 0; min-width: 0; }
+.practice-checks, .practice-claims { list-style: none; padding: 0; display: grid; gap: .5rem; }
+#practice-form textarea { width: 100%; box-sizing: border-box; min-width: 0; min-height: 8rem; }

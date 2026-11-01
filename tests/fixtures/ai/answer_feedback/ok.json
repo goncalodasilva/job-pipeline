@@ -1,0 +1,18 @@
+{
+  "data": {
+    "checklist": {
+      "answers": {"verdict": "yes", "comment": "You answer the question directly in your first sentence."},
+      "structure": {"verdict": "partly", "comment": "The situation and your action are clear; add the result."},
+      "evidence": {"verdict": "yes", "comment": "You give concrete figures from your own work."}
+    },
+    "suggestions": [
+      {"text": "Open with the weekly routes you planned, then name the result.", "fact_ids": ["F1@1"]},
+      {"text": "Close with the invoice time you cut.", "fact_ids": ["F2@1"]}
+    ],
+    "suggested_wording": {
+      "text": "I planned 60 delivery routes a week with a team of 3, and I cut invoice processing time by 35% across 4 warehouses.",
+      "added_details": []
+    },
+    "unsupported_claims": []
+  }
+}

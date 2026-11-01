@@ -1,0 +1,17 @@
+{
+  "data": {
+    "checklist": {
+      "answers": {"verdict": "partly", "comment": "You answer part of the question."},
+      "structure": {"verdict": "no", "comment": "There is no clear situation, action or result."},
+      "evidence": {"verdict": "no", "comment": "Add something concrete."}
+    },
+    "suggestions": [
+      {"text": "Name the routes you planned.", "fact_ids": ["F1@1", "F4@1", "F99@1"]}
+    ],
+    "suggested_wording": {
+      "text": "I planned 60 delivery routes a week and trained 12 new colleagues at Fernhill Bank.",
+      "added_details": ["trained 12 new colleagues"]
+    },
+    "unsupported_claims": ["saved the team a week every month", "Fernhill Bank"]
+  }
+}

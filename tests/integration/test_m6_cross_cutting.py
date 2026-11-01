@@ -339,7 +339,18 @@ def drive_interview(web: bool) -> Callable[[Exporting], None]:
     return drive
 
 
+def drive_answer_feedback(desk: Exporting) -> None:
+    aid = desk.cv_ready("practice-job", template=False).id
+    question = desk.r.run.app.state.prep.add_bank_question(
+        "Tell me about a time you planned under pressure.", "behavioral"
+    )
+    practice = desk.r.run.app.state.answer_practice
+    made = practice.submit(aid, question.id, "I planned delivery routes for a depot.", version=0)
+    assert desk.r.run.wait_terminal(made.task.id).status.value == "succeeded"
+
+
 DRIVERS: dict[str, Callable[[Exporting], None]] = {
+    "answer_feedback": drive_answer_feedback,
     "extract_cv": drive_extract_cv,
     "refine_fact": drive_refine_fact,
     "summarize_job": drive_intake("summarize_job"),

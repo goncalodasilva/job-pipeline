@@ -1,11 +1,12 @@
 <li class="card prep-question">
   <h5>{{ q.text }}</h5>
   {% if q.provider == 'fake' %}<p class="badge">Practice data</p>{% endif %}
-  <p class="field-hint">{{ {"behavioral":"Behavioral", "technical":"Technical", "cv":"About your CV", "ask_them":"Questions to ask them"}.get(q.type, "Question") }} · {% if q.source_url %}{{ prep.view.source_labels.get(q.id, 'Reported online') }}{% else %}{{ {"generated":"Generated", "user":"Added by you", "asked":"Asked in an interview", "reported_online":"Reported online"}.get(q.origin, "Saved") }}{% endif %}{% if row and row.practiced %} · Practiced{% endif %}{% if row and row.ready %} · Ready{% endif %}</p>
+  <p class="field-hint">{{ {"behavioral":"Behavioral", "technical":"Technical", "cv":"About your CV", "ask_them":"Questions to ask them"}.get(q.type, "Question") }} · {% if q.source_url %}{{ prep.view.source_labels.get(q.id, 'Reported online') }}{% else %}{{ {"generated":"Generated", "user":"Added by you", "asked":"Asked in an interview", "reported_online":"Reported online"}.get(q.origin, "Saved") }}{% endif %}{% if row and row.practiced %} · Practiced{% endif %}{% if row and row.ready %} · {{ 'Marked ready' if location == 'bank' else 'Ready' }}{% endif %}</p>
   {% if q.source_url %}
   <p><a href="{{ q.source_url }}" rel="noopener noreferrer nofollow" target="_blank">Open source <span class="visually-hidden">for {{ q.text }} (opens in a new tab)</span></a>{% if q.source_date %} · {{ q.source_date }} (as stated by the source){% endif %}</p>
   {% endif %}
   {% if location != 'transient' %}
+  <p><a class="button" href="/applications/{{ prep.view.application_id }}?tab=prep" hx-get="/applications/{{ prep.view.application_id }}/prep/practice/{{ q.id }}" hx-target="#prep" hx-swap="outerHTML"{% if location != 'bank' %} id="prep-practice-{{ q.id }}"{% endif %}>Practice<span class="visually-hidden">: {{ q.text }}</span></a></p>
   <form method="post" action="/applications/{{ prep.view.application_id }}/prep/questions/{{ q.id }}/ready{{ prep.suffix }}"
         hx-post="/applications/{{ prep.view.application_id }}/prep/questions/{{ q.id }}/ready{{ prep.suffix }}" hx-target="#prep" hx-swap="outerHTML" hx-disabled-elt="find button">
     <input type="hidden" name="version" value="{{ row.version if row else 0 }}">

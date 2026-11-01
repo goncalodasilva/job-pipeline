@@ -36,6 +36,11 @@ def inputs(conn: sqlite3.Connection, job_id: str) -> FitInputs:
         if summary_id
         else ()
     )
+    return FitInputs(job, summary_id, requirements, fact_records(conn))
+
+
+def fact_records(conn: sqlite3.Connection) -> tuple[FactRecord, ...]:
+    """Every fact's current version as a record; ``facts_for_ai`` chooses what a request holds."""
     roles = {
         role.id: " at ".join(part for part in (role.title, role.employer) if part)
         for role in roles_repo.list_roles(conn)
@@ -46,7 +51,7 @@ def inputs(conn: sqlite3.Connection, job_id: str) -> FitInputs:
         "ORDER BY s.name"
     ):
         skills[fact_id].append(name)
-    records = tuple(
+    return tuple(
         FactRecord(
             row.number,
             row.current.version,
@@ -61,7 +66,6 @@ def inputs(conn: sqlite3.Connection, job_id: str) -> FitInputs:
         )
         for row in facts_repo.list_facts(conn)
     )
-    return FitInputs(job, summary_id, requirements, records)
 
 
 def current_summary(conn: sqlite3.Connection, job_id: str) -> str | None:

@@ -55,6 +55,7 @@ from app.api.letter_step import register_letter_routes
 from app.api.notifications import register_notification_routes
 from app.api.pages import register_pages
 from app.api.prep import register_prep_routes
+from app.api.prep_practice import register_practice_routes
 from app.api.reminders import register_reminder_routes
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.api.sessions import register_session_routes
@@ -118,6 +119,8 @@ from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
+from app.services.answer_ai import ANSWER_FEEDBACK
+from app.services.answer_practice import AnswerPracticeService
 from app.services.application_detail import ApplicationDetail
 from app.services.applications import ApplicationService, ApplicationStatuses
 from app.services.board import BoardQuery
@@ -196,6 +199,7 @@ from app.services.usage import UsageService
 from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
+from app.tasks.answer_feedback import answer_feedback_handler
 from app.tasks.cv_import import cv_import_handler
 from app.tasks.cv_templates import draft_cv_template_handler
 from app.tasks.documents import draft_cover_letter_handler, tailor_cv_handler
@@ -775,6 +779,25 @@ def _prep(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory, tz: tzi
     )
 
 
+def _answer_practice(
+    app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory
+) -> AnswerPracticeService:
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
+
+    return AnswerPracticeService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=lambda: getattr(app.state, "workspace", None),
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None),
+        usage=_open_usage(app),
+        prep=app.state.prep,
+    )
+
+
 def _sessions(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> SessionService:
     def settings() -> AIProviderSettings | None:
         db = _current_db(app)
@@ -1241,6 +1264,9 @@ def create_app(
     app.state.tailoring = _tailoring(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.sessions = _sessions(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.prep = _prep(app, wiring=app_wiring, clock=app_clock, ids=app_ids, tz=app_tz)
+    app.state.answer_practice = _answer_practice(
+        app, wiring=app_wiring, clock=app_clock, ids=app_ids
+    )
     if task_registry is None:
         handlers.register(
             QUESTIONS,
@@ -1251,6 +1277,11 @@ def create_app(
             WEB_QUESTIONS,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(minutes=3), "Reported online questions"),
             prep_handler(app.state.prep, web=True),
+        )
+        handlers.register(
+            ANSWER_FEEDBACK,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), "Answer feedback"),
+            answer_feedback_handler(app.state.answer_practice),
         )
         handlers.register(
             STRUCTURE_ANSWER,
@@ -1417,6 +1448,7 @@ def create_app(
     register_board_routes(app)
     register_application_detail_routes(app)
     register_prep_routes(app)
+    register_practice_routes(app)
     register_application_contact_routes(app)
     register_reminder_routes(app)
     register_notification_routes(app)

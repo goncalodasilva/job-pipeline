@@ -391,36 +391,45 @@ class PrepService:
                 conn, question, sighting_id=self._ids.new(), now=self._clock.now().isoformat()
             )
 
+    def ensure_item(
+        self, conn: sqlite3.Connection, aid: str, qid: str, *, version: int
+    ) -> tuple[prep_repo.PrepSource, prep_repo.PrepItem]:
+        """The prep item of a question in this application's scope, made when there is none
+        (``version`` 0 then). The first item turns the shown reuse candidates into items, so
+        marking one ready or practicing it doesn't hide the others. The caller owns the
+        transaction and bumps the application's version."""
+        loaded = self._load_in(conn, aid)
+        question = next(
+            (
+                q
+                for q in loaded.bank
+                if q.id == qid
+                and (q.company_id is None or q.company_id == loaded.source.company_id)
+            ),
+            None,
+        )
+        if question is None:
+            raise ApplicationNotFound()
+        item = next((i for i in loaded.items if i.question_id == qid), None)
+        if (item.version if item else 0) != version:
+            raise VersionConflict()
+        if item is None:
+            now = self._clock.now().isoformat()
+            if not loaded.items:
+                self._reuse(conn, loaded)
+            prep_repo.add_item(conn, aid, qid, item_id=self._ids.new(), now=now)
+            item = next(i for i in prep_repo.items(conn, aid) if i.question_id == qid)
+        return loaded.source, item
+
     def mark_ready(self, aid: str, qid: str, *, ready: bool, version: int) -> None:
         self._load(aid)
         with self._open().db.transaction() as conn:
-            loaded = self._load_in(conn, aid)
-            question = next(
-                (
-                    q
-                    for q in loaded.bank
-                    if q.id == qid
-                    and (q.company_id is None or q.company_id == loaded.source.company_id)
-                ),
-                None,
-            )
-            if question is None:
-                raise ApplicationNotFound()
-            item = next((i for i in loaded.items if i.question_id == qid), None)
-            if (item.version if item else 0) != version:
-                raise VersionConflict()
+            source, item = self.ensure_item(conn, aid, qid, version=version)
             now = self._clock.now().isoformat()
-            if item is None:
-                if not loaded.items:
-                    # The first item turns the shown reuse candidates into items, so marking
-                    # one ready doesn't hide the others.
-                    self._reuse(conn, loaded)
-                prep_repo.add_item(conn, aid, qid, item_id=self._ids.new(), now=now)
-                item = next(i for i in prep_repo.items(conn, aid) if i.question_id == qid)
             prep_repo.mark_ready(
                 conn, item.id, aid, ready=ready, now=now, expected_version=item.version
             )
-            prep_repo.changed(conn, aid, now, expected_version=loaded.source.version)
+            prep_repo.changed(conn, aid, now, expected_version=source.version)
 
     @staticmethod
     def _candidate(

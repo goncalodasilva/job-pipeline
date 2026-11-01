@@ -73,3 +73,36 @@ def web_data() -> dict[str, Any]:
             }
         ]
     }
+
+
+_FACT_LABEL: Final = re.compile(r"^\[(F[1-9][0-9]*@[1-9][0-9]*)(?: \(generalize names\))?\]$", re.M)
+
+
+def feedback_data(user: str) -> dict[str, Any]:
+    """Fictional answer feedback. Only the fact labels of the facts block are read, so it cites
+    only ids the request showed; nothing from the answer or the facts is repeated."""
+    block = re.search(
+        r'<untrusted_document source="facts"[^>]*>\n(.*?)\n</untrusted_document>', user, re.S
+    )
+    ids = list(dict.fromkeys(_FACT_LABEL.findall(block[1]))) if block else []
+    return {
+        "checklist": {
+            "answers": {"verdict": "yes", "comment": "Your answer speaks to the question."},
+            "structure": {
+                "verdict": "partly",
+                "comment": "Name the situation, then your action, then the result.",
+            },
+            "evidence": {"verdict": "partly", "comment": "A concrete detail would help."},
+        },
+        "suggestions": [
+            {
+                "text": "Open with the situation, then say what you did and what came of it.",
+                "fact_ids": ids[:2],
+            }
+        ],
+        "suggested_wording": {
+            "text": "I would describe the situation, the action I took and the result.",
+            "added_details": [],
+        },
+        "unsupported_claims": [],
+    }

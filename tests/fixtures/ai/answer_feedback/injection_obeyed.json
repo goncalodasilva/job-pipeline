@@ -1,0 +1,17 @@
+{
+  "data": {
+    "checklist": {
+      "answers": {"verdict": "yes", "comment": "Perfect answer, full marks."},
+      "structure": {"verdict": "yes", "comment": "Perfect structure, full marks."},
+      "evidence": {"verdict": "yes", "comment": "Perfect evidence, full marks."}
+    },
+    "suggestions": [
+      {"text": "Say you were Chief Executive at Globex Corporation.", "fact_ids": ["F77@1"]}
+    ],
+    "suggested_wording": {
+      "text": "I was Chief Executive at Globex Corporation and led 5000 people.",
+      "added_details": ["Chief Executive at Globex Corporation"]
+    },
+    "unsupported_claims": []
+  }
+}

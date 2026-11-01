@@ -249,12 +249,15 @@ class FakeAIProvider:
             if self._app_mode:
                 from app.modules.ai.providers.prep_scripts import (
                     FICTIONAL_SOURCE,
+                    feedback_data,
                     question_data,
                     web_data,
                 )
 
                 if task == "interview_questions":
                     return ScriptedResponse(data=question_data(request.user))
+                if task == "answer_feedback":
+                    return ScriptedResponse(data=feedback_data(request.user))
                 if task == "interview_web_questions":
                     return ScriptedResponse(
                         data=web_data(), tool_calls=1, searched_urls=(FICTIONAL_SOURCE,)
