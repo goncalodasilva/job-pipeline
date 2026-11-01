@@ -27,6 +27,8 @@ from app.services.answer_practice import (
 )
 from app.services.budget_gate import Start, confirmation_from_form
 from app.services.cv_import import tier_from_form
+from app.services.documents import GenerateNotReady
+from app.services.prep_documents import PrepDocumentService
 
 FRAGMENT = "fragments/prep/_practice.html"
 _ANSWER_FIELDS = {
@@ -84,7 +86,10 @@ def practice_context(
     except ProviderNotConfigured as error:
         reason = reason_context(error.user_message, reason_id="practice-reason", focus=False)
     shown = answer if answer is not None else (failed.answer if failed else "")
+    adapt = _adapt_context(request, aid, qid)
     return {
+        **adapt,
+        "active": view.active or adapt["adapt"].answer.task.active,
         "view": view,
         "base": f"/applications/{aid}/prep/practice/{qid}",
         "page_url": f"/applications/{aid}?tab=prep",
@@ -92,6 +97,7 @@ def practice_context(
         "focus": focus,
         "dialog": None,
         "conflict": False,
+        "conflict_detail": "Your answer was not saved. It is still in the box below.",
         "reason": reason,
         "answer": shown,
         "count": len(shown),
@@ -103,7 +109,40 @@ def practice_context(
     }
 
 
-def _answer(request: Request, shown: dict[str, Any], *, status: int = 200) -> Response:
+def _adapt_context(request: Request, aid: str, qid: str) -> dict[str, Any]:
+    """What the earlier-answer part of the fragment needs (M8.2 part C): the view, why the
+    button can't start (the budget), and the failure of the latest task. The route that answers
+    an adapt action sets ``adapt_error``, ``invalid_unit``, ``posted_text`` and the like."""
+    documents: PrepDocumentService = request.app.state.prep_documents
+    adapt = documents.adapted_view(aid, qid)
+    reason = None
+    if adapt.can_adapt:
+        try:
+            plan = documents.plan_adapt(aid, qid)
+            block = request.app.state.budget_gate.blocked(plan.service)
+            if block:
+                reason = reason_context(block.message, reason_id="adapt-reason", focus=False)
+        except GenerateNotReady:
+            pass  # the view says what it needs
+        except ProviderNotConfigured as error:
+            reason = reason_context(error.user_message, reason_id="adapt-reason", focus=False)
+    task = adapt.answer.task
+    return {
+        "adapt": adapt,
+        "adapt_reason": reason,
+        "adapt_task_error": message_for_kind(task.error)
+        if task.attention and task.error and not task.active
+        else "",
+        "adapt_error": "",
+        "adapt_dialog": None,
+        "invalid_unit": "",
+        "posted_text": "",
+        "recovered_text": "",
+        "message_in": "",
+    }
+
+
+def practice_response(request: Request, shown: dict[str, Any], *, status: int = 200) -> Response:
     response = templates.TemplateResponse(
         request, FRAGMENT, {"practice": shown}, status_code=status
     )
@@ -119,7 +158,7 @@ def _not_found() -> Response:
 def _conflict(request: Request, aid: str, qid: str, *, answer: str | None = None) -> Response:
     shown = practice_context(request, aid, qid, focus="", answer=answer)
     shown["conflict"] = True
-    return _answer(request, shown, status=409)
+    return practice_response(request, shown, status=409)
 
 
 def show(request: Request, application_id: str, question_id: str) -> Response:
@@ -128,7 +167,7 @@ def show(request: Request, application_id: str, question_id: str) -> Response:
         shown = practice_context(
             request, application_id, question_id, focus="" if refresh else "practice-heading"
         )
-        return _answer(request, shown)
+        return practice_response(request, shown)
     except ApplicationNotFound:
         return _not_found()
 
@@ -153,7 +192,7 @@ async def answer(request: Request, application_id: str, question_id: str) -> Res
             except ValueError as error:
                 shown["answer_error"] = str(error)
                 shown["focus"] = "practice-answer"
-                return _answer(request, shown, status=422)
+                return practice_response(request, shown, status=422)
             if shown["view"].version != version:
                 return _conflict(request, application_id, question_id, answer=echo)
             tier = tier_from_form({k: [v] for k, v in fields.items()})
@@ -180,12 +219,12 @@ async def answer(request: Request, application_id: str, question_id: str) -> Res
                     shown["reason"] = reason_context(
                         refusal_message(checked), reason_id="practice-reason", focus=True
                     )
-                return _answer(request, shown, status=200 if shown["dialog"] else 409)
+                return practice_response(request, shown, status=200 if shown["dialog"] else 409)
             service.submit(application_id, question_id, echo, version=version, tier=tier)
             after = practice_context(
                 request, application_id, question_id, message="Feedback started.", answer=""
             )
-            return _answer(request, after)
+            return practice_response(request, after)
         except VersionConflict:
             return _conflict(request, application_id, question_id, answer=echo)
         except ProviderNotConfigured as error:
@@ -193,7 +232,7 @@ async def answer(request: Request, application_id: str, question_id: str) -> Res
             shown["reason"] = reason_context(
                 error.user_message, reason_id="practice-reason", focus=True
             )
-            return _answer(request, shown, status=409)
+            return practice_response(request, shown, status=409)
         except ApplicationNotFound:
             return _not_found()
 
@@ -233,13 +272,13 @@ async def claims(
                 if made
                 else "No new drafts were added."
             )
-            return _answer(
+            return practice_response(
                 request, practice_context(request, application_id, question_id, message=message)
             )
         except UnknownClaim:
             shown = practice_context(request, application_id, question_id, focus="")
             shown["claim_error"] = CLAIM_CHOICE_ERROR
-            return _answer(request, shown, status=422)
+            return practice_response(request, shown, status=422)
         except VersionConflict:
             return _conflict(request, application_id, question_id)
         except ApplicationNotFound:

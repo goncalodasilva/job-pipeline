@@ -59,5 +59,9 @@ _SPECS: Final = (
     # from the confirmed facts, each citing fact ids. Kind generation, as tailor_cv; the salary
     # card is built in code and has no task.
     TaskSpec("draft_narrative", kind="generation"),
+    # M8.2 part C: a practice answer from another application rewritten from the confirmed facts
+    # for this job, each paragraph citing fact ids. Kind generation, as draft_narrative; the old
+    # answer is untrusted data and proves nothing.
+    TaskSpec("adapt_answer", kind="generation"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

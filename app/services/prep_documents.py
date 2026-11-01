@@ -1,5 +1,5 @@
-"""Narrative cards (M8.2 part B; AC-M8.4 honesty rule for generated prep text; spec 3.1, 3.2, 3.6;
-ADR-113 item 8; ADR-124 items 5, 7 and 8).
+"""Narrative cards and adapted answers (M8.2 parts B and C; AC-M8.4 honesty rule for generated
+prep text; spec 3.1, 3.2, 3.6; ADR-113 item 8; ADR-124 items 5, 7 and 8).
 
 A card is a short answer the person gives in an interview. Six are written by ``draft_narrative``
 from the confirmed facts (tell me about yourself, why this role, why this company, why you are
@@ -16,6 +16,14 @@ is written by the writer ``ctx.complete`` runs in the transaction that marks the
 or not at all. Narrative text never reaches logs, task or usage rows, events or error text.
 Reuse copies another application's approved card as a new draft, only for the four kinds that
 are not about one role or company and only with the same chosen angle; approval checks it again.
+
+An adapted answer (part C, ``adapt_answer:<application id>/<question id>``) is the same kind of
+document with kind ``adapted_answer`` and a ``question_id``: the person's best earlier practice
+answer to a bank question, from ANOTHER application, rewritten from the confirmed facts for this
+job. It is stored, edited, checked and approved exactly as a card is. The old answer is data: it
+is never a source of names, and what the model copies from it that no sent fact states is
+flagged and blocks approval. Neither the old nor the adapted text reaches logs, task or usage
+rows, events or error text.
 """
 
 import asyncio
@@ -32,6 +40,7 @@ from app.domain.documents import DocumentStatus, DocumentUnit, UnitOrigin
 from app.domain.errors import (
     ApplicationNotFound,
     FitNotAvailable,
+    InvalidModelOutput,
     ProviderNotConfigured,
     VersionConflict,
 )
@@ -60,11 +69,14 @@ from app.modules.storage import (
     documents_repo,
     facts_repo,
     job_fit_repo,
+    practice_repo,
     prep_documents_repo,
+    prep_repo,
     roles_repo,
     skills_repo,
     tailoring_repo,
 )
+from app.services.adapt_ai import ADAPT_ANSWER, run_adapt_answer
 from app.services.document_views import Blocker, FlagView, blockers_of, role_label
 from app.services.documents import (
     BAD_TIER,
@@ -87,7 +99,7 @@ from app.services.documents import (
 )
 from app.services.facts import SOURCE_DOCUMENT, FactInput, FactService
 from app.services.job_summary import ResultWriter, SummaryContext, SummaryPlan, SummaryWorkspace
-from app.services.narrative_ai import DRAFT_NARRATIVE, run_draft_narrative
+from app.services.narrative_ai import DRAFT_NARRATIVE, NarrativeOutput, run_draft_narrative
 from app.services.settings import SettingsService
 from app.services.tailoring import NO_FACTS, FactWording, TaskState
 from app.services.tailoring_ai import ChosenAngle, TailoringJob
@@ -107,6 +119,12 @@ LABELS: Final = {
     SALARY: "Salary",
 }
 DRAFT_NARRATIVE_LABEL: Final = "Draft narrative card"
+ADAPTED: Final = "adapted_answer"
+ADAPTED_LABEL: Final = "Adapted answer"
+ADAPT_ANSWER_LABEL: Final = "Adapt answer"
+NO_EARLIER_ANSWER: Final = (
+    "There is no earlier answer to adapt. Practice this question in another application first."
+)
 CARD_PRACTICE_NOTICE: Final = (
     "Practice data (fake provider). This card is a fictional example, not a real answer."
 )
@@ -222,6 +240,19 @@ class CardsView:
     approved_kinds: tuple[str, ...]
     angle_id: str | None
     angle_name: str | None
+
+
+@dataclass(frozen=True)
+class AdaptedView:
+    """The practice screen's part about an earlier answer: the best earlier answer (None when
+    there is none), whether it can be adapted now, and the adapted answer as a card."""
+
+    application_id: str
+    question_id: str
+    earlier: practice_repo.EarlierAnswer | None
+    can_adapt: bool
+    answer: CardView
+    has_facts: bool = True  # a usable confirmed fact exists
 
 
 @dataclass(frozen=True)
@@ -378,15 +409,28 @@ class PrepDocumentService:
         records: Sequence[FactRecord],
         angle_id: str | None,
     ) -> CardView:
-        has_facts = bool(facts_for_ai(records))
         latest = (
             tailoring_repo.latest_task(conn, f"{DRAFT_NARRATIVE}:{aid}/{kind}")
             if kind != SALARY
             else None
         )
-        task = task_state_of(latest)
         reusable = self._reusable(conn, aid, kind, records, angle_id)
         document = prep_documents_repo.document(conn, aid, kind)
+        return self._build_card(conn, kind, LABELS[kind], document, latest, records, reusable)
+
+    @staticmethod
+    def _build_card(
+        conn: sqlite3.Connection,
+        kind: str,
+        label: str,
+        document: prep_documents_repo.StoredDocument | None,
+        latest: tuple[str, str, str | None, int] | None,
+        records: Sequence[FactRecord],
+        reusable: tuple[CardReuse, ...],
+    ) -> CardView:
+        """The view of one document (a card or an adapted answer) and its latest task."""
+        has_facts = bool(facts_for_ai(records))
+        task = task_state_of(latest)
         chosen = (
             prep_documents_repo.get_version(conn, document.id, document.current_version_id)
             if document
@@ -400,7 +444,7 @@ class PrepDocumentService:
             else:
                 state = "none"
             return CardView(
-                kind, LABELS[kind], state, None, (), (), kind != SALARY and not has_facts,
+                kind, label, state, None, (), (), kind != SALARY and not has_facts,
                 False, False, task, reusable, False,
             )  # fmt: skip
         versions = prep_documents_repo.list_versions(conn, document.id)
@@ -437,7 +481,7 @@ class PrepDocumentService:
         )
         return CardView(
             kind,
-            LABELS[kind],
+            label,
             state,
             CardVersion(
                 chosen.id, chosen.number, chosen.status, chosen.origin, provider,
@@ -483,12 +527,12 @@ class PrepDocumentService:
 
     # --- starting ---------------------------------------------------------------------------
 
-    def _plan(self, tier: Tier | None) -> SummaryPlan:
+    def _plan(self, tier: Tier | None, task: str = DRAFT_NARRATIVE) -> SummaryPlan:
         settings = self._settings()
         service = SERVICE_BY_PROVIDER_KIND.get(settings.kind or "") if settings else None
         if settings is None or service is None:
             raise ProviderNotConfigured()
-        return SummaryPlan(service, tier or settings.task_tiers.get(DRAFT_NARRATIVE, "thorough"))
+        return SummaryPlan(service, tier or settings.task_tiers.get(task, "thorough"))
 
     def plan_start(
         self, application_id: str, kind: str, *, tier: Tier | None = None
@@ -532,6 +576,79 @@ class PrepDocumentService:
         asked = json.dumps({"application": application_id, "kind": kind, "tier": tier})
         return tasks.enqueue(DRAFT_NARRATIVE, f"{application_id}/{kind}", input_ref=asked)
 
+    # --- adapting an earlier answer (part C) ------------------------------------------------
+
+    @staticmethod
+    def _scope(conn: sqlite3.Connection, aid: str, qid: str) -> str:
+        """The text of the question when the application exists and the question is in its
+        prep scope (global, or of its company); else ``ApplicationNotFound``."""
+        if not is_safe_id(aid) or not is_safe_id(qid):
+            raise ApplicationNotFound()
+        source = prep_repo.source(conn, aid)
+        found = prep_repo.questions(conn, question_id=qid)
+        if source is None or not found or found[0].company_id not in (None, source.company_id):
+            raise ApplicationNotFound()
+        return found[0].text
+
+    def adapted_view(self, application_id: str, question_id: str) -> AdaptedView:
+        """The best earlier answer to the question (from another application), whether it can
+        be adapted now, and the adapted answer as a card. Reads only: nothing is written,
+        started or created."""
+        with self._open().db.read() as conn:
+            self._scope(conn, application_id, question_id)
+            records = job_fit_repo.fact_records(conn)
+            earlier = practice_repo.best_answer(conn, question_id, application_id)
+            latest = tailoring_repo.latest_task(
+                conn, f"{ADAPT_ANSWER}:{application_id}/{question_id}"
+            )
+            document = prep_documents_repo.document(conn, application_id, ADAPTED, question_id)
+            answer = self._build_card(conn, ADAPTED, ADAPTED_LABEL, document, latest, records, ())
+        has_facts = bool(facts_for_ai(records))
+        can_adapt = earlier is not None and has_facts and not answer.approved
+        return AdaptedView(application_id, question_id, earlier, can_adapt, answer, has_facts)
+
+    def plan_adapt(
+        self, application_id: str, question_id: str, *, tier: Tier | None = None
+    ) -> SummaryPlan:
+        """What an adaptation would use. ``ValueError`` for a tier that is not fast or thorough,
+        ``GenerateNotReady`` (reason ``answer``) without an earlier answer in another
+        application, (reason ``facts``) without a usable confirmed fact, ``ProviderNotConfigured``
+        without a usable provider, ``ApplicationNotFound`` outside the application's scope."""
+        if tier not in TIERS:
+            raise ValueError(BAD_TIER)
+        with self._open().db.read() as conn:
+            self._scope(conn, application_id, question_id)
+            earlier = practice_repo.best_answer(conn, question_id, application_id)
+            records = job_fit_repo.fact_records(conn)
+        if earlier is None:
+            raise GenerateNotReady("answer", NO_EARLIER_ANSWER)
+        if not facts_for_ai(records):
+            raise GenerateNotReady("facts", NO_FACTS)
+        return self._plan(tier, ADAPT_ANSWER)
+
+    def start_adapt(
+        self,
+        application_id: str,
+        question_id: str,
+        *,
+        version: str | None = None,
+        tier: Tier | None = None,
+    ) -> TaskRef:
+        """Queue the adaptation of the earlier answer. ``version`` is the adapted answer's
+        current version as last seen (None while it has none), else ``VersionConflict`` (nothing
+        queued). A task already queued or running for the question is returned. The budget gate
+        is the caller's, before this. The task holds ids and the tier, never any text."""
+        self.plan_adapt(application_id, question_id, tier=tier)
+        tasks = self._tasks()
+        if tasks is None:
+            raise ApplicationNotFound()
+        with self._open().db.read() as conn:
+            document = prep_documents_repo.document(conn, application_id, ADAPTED, question_id)
+        if (document.current_version_id if document else None) != (version or None):
+            raise VersionConflict()
+        asked = json.dumps({"application": application_id, "question": question_id, "tier": tier})
+        return tasks.enqueue(ADAPT_ANSWER, f"{application_id}/{question_id}", input_ref=asked)
+
     # --- running (inside a task) ------------------------------------------------------------
 
     @staticmethod
@@ -545,7 +662,7 @@ class PrepDocumentService:
             raise ApplicationNotFound() from None
         return aid, kind, tier
 
-    def _source(self, aid: str, kind: str) -> CardSource:
+    def _source(self, aid: str, kind: str, question_id: str | None = None) -> CardSource:
         with self._open().db.read() as conn:
             inputs_job = tailoring_repo.application_header(conn, aid)
             if inputs_job is None:
@@ -553,7 +670,7 @@ class PrepDocumentService:
             job_id, title, company = inputs_job
             inputs = job_fit_repo.inputs(conn, job_id)
             workspace = tailoring_repo.workspace(conn, aid)
-            document = prep_documents_repo.document(conn, aid, kind)
+            document = prep_documents_repo.document(conn, aid, kind, question_id)
             notes = prep_documents_repo.company_notes(conn, aid)
             skills = tuple(skill.name for skill in skills_repo.list_skills(conn))
         angle = (
@@ -614,12 +731,87 @@ class PrepDocumentService:
             new_id=self._ids.new,
         )
         ctx.check_cancelled()
+        version = self._generated_version(runtime, output, source)
+        dropped: Counter[str] = Counter(str(item.reason) for item in output.result.dropped)
+        return self._writer(
+            aid,
+            kind,
+            version,
+            self._lines_of(output),
+            output.fact_refs,
+            source.current_version_id,
+            dropped,
+        )
+
+    @staticmethod
+    def _adapt_request_from(text: str | None) -> tuple[str, str, Tier | None]:
+        try:
+            loaded: Any = json.loads(text or "")
+            aid, qid, tier = loaded["application"], loaded["question"], loaded["tier"]
+            if not is_safe_id(aid) or not is_safe_id(qid) or tier not in TIERS:
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise ApplicationNotFound() from None
+        return aid, qid, tier
+
+    def _adapt_source(self, aid: str, qid: str) -> tuple[CardSource, str, str]:
+        """What an adaptation reads: the target application's source, the question's text and
+        the best earlier answer as it is now."""
+        source = self._source(aid, ADAPTED, qid)
+        with self._open().db.read() as conn:
+            question = self._scope(conn, aid, qid)
+            earlier = practice_repo.best_answer(conn, qid, aid)
+        if earlier is None:
+            raise ApplicationNotFound()
+        return source, question, earlier.text
+
+    async def run_adapt(self, ctx: SummaryContext) -> ResultWriter:
+        aid, qid, tier = self._adapt_request_from(ctx.input_ref)
+        await ctx.heartbeat(0)
+        source, question, old_answer = await asyncio.to_thread(self._adapt_source, aid, qid)
+        if not facts_for_ai(source.records):
+            raise FitNotAvailable()
+        runtime = await self._runtime()
+        await ctx.heartbeat(10)
+        output = await run_adapt_answer(
+            runtime.runner,
+            aid,
+            old_answer,
+            question,
+            source.job,
+            source.records,
+            source.angle,
+            ctx.cancel_flag,
+            meter=runtime.meter,
+            tier=tier,
+            task_id=ctx.task_id,
+            known_skills=source.skills,
+            new_id=self._ids.new,
+        )
+        ctx.check_cancelled()
+        if not output.result.units:
+            raise InvalidModelOutput()  # nothing usable came back: no empty answer is stored
+        version = self._generated_version(runtime, output, source)
+        dropped: Counter[str] = Counter(str(item.reason) for item in output.result.dropped)
+        return self._writer(
+            aid,
+            ADAPTED,
+            version,
+            self._lines_of(output),
+            output.fact_refs,
+            source.current_version_id,
+            dropped,
+            question_id=qid,
+        )
+
+    @staticmethod
+    def _lines_of(output: NarrativeOutput) -> list[documents_repo.StoredUnit]:
         flags: dict[str, list[documents_repo.StoredFlag]] = {}
         for flag in output.result.flags:
             flags.setdefault(flag.unit_id, []).append(
                 documents_repo.StoredFlag(flag.kind, flag.claim)
             )
-        lines = [
+        return [
             documents_repo.StoredUnit(
                 id=unit.unit_id,
                 position=position,
@@ -635,7 +827,11 @@ class PrepDocumentService:
             )
             for position, unit in enumerate(output.result.units)
         ]
-        version = prep_documents_repo.NewVersion(
+
+    def _generated_version(
+        self, runtime: DocumentRuntime, output: NarrativeOutput, source: CardSource
+    ) -> prep_documents_repo.NewVersion:
+        return prep_documents_repo.NewVersion(
             id=self._ids.new(),
             document_id=self._ids.new(),
             number=0,
@@ -650,10 +846,6 @@ class PrepDocumentService:
             prompt_version=output.prompt_version,
             now="",
         )
-        dropped: Counter[str] = Counter(str(item.reason) for item in output.result.dropped)
-        return self._writer(
-            aid, kind, version, lines, output.fact_refs, source.current_version_id, dropped
-        )
 
     def _writer(
         self,
@@ -664,12 +856,14 @@ class PrepDocumentService:
         fact_refs: Sequence[str],
         expected: str | None,
         dropped: Mapping[str, int],
+        *,
+        question_id: str | None = None,
     ) -> ResultWriter:
         sent = ref_pairs(fact_refs)
 
         def write(conn: sqlite3.Connection) -> str:
             now = self._now()
-            document = prep_documents_repo.document(conn, aid, kind)
+            document = prep_documents_repo.document(conn, aid, kind, question_id)
             if (document.current_version_id if document else None) != expected:
                 raise VersionConflict()  # the card changed while the model was answering
             document_id = document.id if document else version.document_id
@@ -687,6 +881,7 @@ class PrepDocumentService:
                     kind=kind,
                     first_version_id=version.id,
                     now=now,
+                    question_id=question_id,
                 )
             prep_documents_repo.insert_version(conn, new)
             prep_documents_repo.insert_sent_facts(conn, version.id, sent, now=now)
@@ -703,15 +898,25 @@ class PrepDocumentService:
 
     # --- editing: every change is a new draft version ---------------------------------------
 
-    def _begin(self, conn: sqlite3.Connection, aid: str, kind: str, version_id: str) -> CardDraft:
+    def _begin(
+        self,
+        conn: sqlite3.Connection,
+        aid: str,
+        kind: str,
+        version_id: str,
+        question_id: str | None = None,
+    ) -> CardDraft:
         """The card's current version, for a change made from ``version_id``
-        (``VersionConflict`` when that is not the current one)."""
+        (``VersionConflict`` when that is not the current one). An adapted answer names its
+        question, which must be in the application's scope."""
         if not is_safe_id(aid):
             raise ApplicationNotFound()
         header = tailoring_repo.application_header(conn, aid)
         if header is None:
             raise ApplicationNotFound()
-        document = prep_documents_repo.document(conn, aid, kind)
+        if question_id is not None:
+            self._scope(conn, aid, question_id)
+        document = prep_documents_repo.document(conn, aid, kind, question_id)
         if document is None or document.current_version_id != version_id:
             raise VersionConflict()
         parent = prep_documents_repo.get_version(conn, document.id, version_id)
@@ -886,11 +1091,26 @@ class PrepDocumentService:
         the person saved from documents. ``UnitInvalid``, ``UnitNotFound``,
         ``VersionConflict``."""
         _kind(kind)
+        return self._edit(
+            application_id, kind, None, version_id, unit_id, text, fact_ids, added_details
+        )
+
+    def _edit(
+        self,
+        application_id: str,
+        kind: str,
+        question_id: str | None,
+        version_id: str,
+        unit_id: str,
+        text: str,
+        fact_ids: Sequence[str] | None,
+        added_details: Sequence[str] | None,
+    ) -> CardEdit:
         text = _text(text)
         wanted_ids = None if fact_ids is None else checked_ids(fact_ids)
         wanted_details = None if added_details is None else checked_details(added_details)
         with self._open().db.transaction() as conn:
-            draft = self._begin(conn, application_id, kind, version_id)
+            draft = self._begin(conn, application_id, kind, version_id, question_id)
             was_approved = draft.parent.status == DocumentStatus.APPROVED.value
             index = self._index(draft, unit_id)
             line = draft.lines[index]
@@ -920,8 +1140,13 @@ class PrepDocumentService:
         version is written by code and approved in the same transaction (the card stays
         approved); on every other card it is a draft."""
         _kind(kind, salary=True)
+        return self._remove(application_id, kind, None, version_id, unit_id)
+
+    def _remove(
+        self, application_id: str, kind: str, question_id: str | None, version_id: str, unit_id: str
+    ) -> CardEdit:
         with self._open().db.transaction() as conn:
-            draft = self._begin(conn, application_id, kind, version_id)
+            draft = self._begin(conn, application_id, kind, version_id, question_id)
             was_approved = draft.parent.status == DocumentStatus.APPROVED.value
             index = self._index(draft, unit_id)
             draft.lines[index] = replace(draft.lines[index], removed=True)
@@ -936,11 +1161,16 @@ class PrepDocumentService:
         only that fact and has no flags. If the version cannot be written, no fact exists
         afterwards."""
         _kind(kind)
+        return self._confirm(application_id, kind, None, version_id, unit_id)
+
+    def _confirm(
+        self, application_id: str, kind: str, question_id: str | None, version_id: str, unit_id: str
+    ) -> CardEdit:
         facts = self._facts()
         if facts is None:
             raise ApplicationNotFound()
         with self._open().db.transaction() as conn:
-            draft = self._begin(conn, application_id, kind, version_id)
+            draft = self._begin(conn, application_id, kind, version_id, question_id)
             was_approved = draft.parent.status == DocumentStatus.APPROVED.value
             index = self._index(draft, unit_id)
             line = draft.lines[index]
@@ -963,8 +1193,13 @@ class PrepDocumentService:
         ``NothingToApprove`` without a visible paragraph, ``ApprovalBlocked`` while paragraphs
         need a check (nothing changes)."""
         _kind(kind)
+        self._approve(application_id, kind, None, version_id)
+
+    def _approve(
+        self, application_id: str, kind: str, question_id: str | None, version_id: str
+    ) -> None:
         with self._open().db.transaction() as conn:
-            draft = self._begin(conn, application_id, kind, version_id)
+            draft = self._begin(conn, application_id, kind, version_id, question_id)
             if draft.parent.status != DocumentStatus.DRAFT.value:
                 raise VersionConflict()
             if all(line.removed for line in draft.lines):
@@ -977,6 +1212,40 @@ class PrepDocumentService:
             prep_documents_repo.set_version_status(
                 conn, draft.parent, DocumentStatus.APPROVED.value, now=self._now()
             )
+
+    # --- the adapted answer: the same changes, for one question -----------------------------
+
+    def edit_adapted(
+        self,
+        application_id: str,
+        question_id: str,
+        version_id: str,
+        unit_id: str,
+        text: str,
+        *,
+        fact_ids: Sequence[str] | None = None,
+        added_details: Sequence[str] | None = None,
+    ) -> CardEdit:
+        """``edit_unit`` for the adapted answer of a question."""
+        return self._edit(
+            application_id, ADAPTED, question_id, version_id, unit_id, text, fact_ids, added_details
+        )
+
+    def remove_adapted(
+        self, application_id: str, question_id: str, version_id: str, unit_id: str
+    ) -> CardEdit:
+        """``remove_unit_outcome`` for the adapted answer of a question."""
+        return self._remove(application_id, ADAPTED, question_id, version_id, unit_id)
+
+    def confirm_adapted(
+        self, application_id: str, question_id: str, version_id: str, unit_id: str
+    ) -> CardEdit:
+        """``resolve_flag_confirm`` for the adapted answer of a question."""
+        return self._confirm(application_id, ADAPTED, question_id, version_id, unit_id)
+
+    def approve_adapted(self, application_id: str, question_id: str, version_id: str) -> None:
+        """``approve`` for the adapted answer of a question."""
+        self._approve(application_id, ADAPTED, question_id, version_id)
 
     # --- the salary card: built in code -----------------------------------------------------
 
@@ -1192,10 +1461,13 @@ class PrepDocumentService:
 
 
 __all__ = [
+    "ADAPTED",
+    "ADAPT_ANSWER_LABEL",
     "ALL_KINDS",
     "DRAFT_NARRATIVE_LABEL",
     "LABELS",
     "SALARY",
+    "AdaptedView",
     "CardEdit",
     "CardReuse",
     "CardUnit",

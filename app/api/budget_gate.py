@@ -35,6 +35,7 @@ def dialog_context(
     target: str,
     fields: Mapping[str, str],
     return_focus: str,
+    select: str = "",
 ) -> dict[str, Any] | None:
     """The dialog for ``answer``, or None when it asks nothing (a block, unreadable budgets,
     a tier cap without a free Fast tier).
@@ -42,7 +43,8 @@ def dialog_context(
     ``action`` is where the confirmed start posts and ``target`` the element its answer
     replaces; ``fields`` are the action's own accepted values, posted again as hidden fields
     (a tier field is ``tier``); ``return_focus`` selects the control that gets focus back
-    when the dialog is closed without a start.
+    when the dialog is closed without a start. ``select`` (optional) is the part of the answer
+    to swap in (``hx-select``) when ``target`` is only a part of the page that answers.
     """
     if isinstance(answer, ShowWarning):
         heading, description, label = answer.heading, answer.description, CONTINUE
@@ -60,6 +62,7 @@ def dialog_context(
         "description": description,
         "action": action,
         "target": target,
+        "select": select,
         "fields": posted,
         "confirm_label": label,
         "limits_url": LIMITS_URL,

@@ -128,3 +128,25 @@ def narrative_data(user: str) -> dict[str, Any]:
             for text, fact_id in zip(_PRACTICE_CARD, ids, strict=False)
         ]
     }
+
+
+_PRACTICE_ANSWER: Final = (
+    "Practice data. This answer is a fictional example, not your own wording.",
+    "Practice data. Replace it with your own words before you rely on it.",
+)
+
+
+def adapt_data(user: str) -> dict[str, Any]:
+    """Fictional adapted answer. Only the fact labels of the facts block are read, so it cites
+    only ids the request showed (one per paragraph, at most two paragraphs) and repeats nothing
+    from the old answer, the question, the angle, the job context or the facts."""
+    block = re.search(
+        r'<untrusted_document source="facts"[^>]*>\n(.*?)\n</untrusted_document>', user, re.S
+    )
+    ids = list(dict.fromkeys(_FACT_LABEL.findall(block[1]))) if block else []
+    return {
+        "units": [
+            {"text": text, "fact_ids": [fact_id], "added_details": []}
+            for text, fact_id in zip(_PRACTICE_ANSWER, ids, strict=False)
+        ]
+    }

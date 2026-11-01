@@ -16,7 +16,7 @@
   <p id="{{ budget_dialog.id }}-description">{{ budget_dialog.description }}</p>
   <div class="modal-actions">
     <form method="post" action="{{ budget_dialog.action }}" hx-post="{{ budget_dialog.action }}"
-          hx-target="{{ budget_dialog.target }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+          hx-target="{{ budget_dialog.target }}"{% if budget_dialog.select is defined and budget_dialog.select %} hx-select="{{ budget_dialog.select }}"{% endif %} hx-swap="outerHTML" hx-disabled-elt="find button">
       {% for name, value in budget_dialog.fields.items() %}
       <input type="hidden" name="{{ name }}" value="{{ value }}">
       {% endfor %}

@@ -2948,21 +2948,22 @@ blockquote.practice-answer { margin: var(--space-2) 0; }
 .practice-checks, .practice-claims { list-style: none; padding: 0; display: grid; gap: .5rem; }
 #practice-form textarea { width: 100%; box-sizing: border-box; min-width: 0; min-height: 8rem; }
 
-/* Narrative cards in the Prep tab (M8.2 part B): the words and symbols carry meaning in both
-   themes; nothing relies on colour alone. */
-#prep [data-card] { margin-block: var(--space-4, 1.5rem); overflow-wrap: anywhere; }
-#prep [data-card] h4 { font-size: 1.15rem; margin-block: 0 0.5rem; }
-#prep [data-card] > ol { list-style: none; padding: 0; }
-#prep [data-card] > ol > li { border: 1px solid var(--color-border); border-inline-start: 4px solid var(--color-accent); border-radius: var(--radius); padding: 1rem; margin-block: 0.75rem; background: var(--color-surface); }
-#prep [data-card] > ol > li[data-flagged] { border-inline-start-color: var(--color-warning-border); }
-#prep [data-card] [data-flags] { background: var(--color-warning-bg); padding: 0.75rem 0.75rem 0.75rem 2rem; }
-#prep [data-card] [data-origin-label] { color: var(--color-text-muted); font-size: 0.9rem; }
-#prep [data-card] form { margin-block: 0.75rem; }
-#prep [data-card] textarea, #prep [data-card] select { box-sizing: border-box; width: 100%; max-width: 100%; }
-#prep [data-card] textarea { min-height: 5rem; }
-#prep [data-card] summary { cursor: pointer; min-height: var(--target-min); padding-block: 0.5rem; }
-#prep [data-card] [data-fact-list] { margin-block: 0.5rem; }
-#prep [data-card] [data-fact-list] a { display: inline-block; min-height: 24px; padding-block: 0.25rem; }
+/* Narrative cards (M8.2 part B) and the adapted answer (part C) in the Prep tab: the words and
+   symbols carry meaning in both themes; nothing relies on colour alone. */
+#prep :is([data-card], [data-adapt]) { margin-block: var(--space-4, 1.5rem); overflow-wrap: anywhere; }
+#prep :is([data-card], [data-adapt]) h4 { font-size: 1.15rem; margin-block: 0 0.5rem; }
+#prep [data-adapt] h5 { font-size: 1rem; margin-block: 0.75rem 0.25rem; }
+#prep :is([data-card], [data-adapt]) > ol { list-style: none; padding: 0; }
+#prep :is([data-card], [data-adapt]) > ol > li { border: 1px solid var(--color-border); border-inline-start: 4px solid var(--color-accent); border-radius: var(--radius); padding: 1rem; margin-block: 0.75rem; background: var(--color-surface); }
+#prep :is([data-card], [data-adapt]) > ol > li[data-flagged] { border-inline-start-color: var(--color-warning-border); }
+#prep :is([data-card], [data-adapt]) [data-flags] { background: var(--color-warning-bg); padding: 0.75rem 0.75rem 0.75rem 2rem; }
+#prep :is([data-card], [data-adapt]) [data-origin-label] { color: var(--color-text-muted); font-size: 0.9rem; }
+#prep :is([data-card], [data-adapt]) form { margin-block: 0.75rem; }
+#prep :is([data-card], [data-adapt]) textarea, #prep :is([data-card], [data-adapt]) select { box-sizing: border-box; width: 100%; max-width: 100%; }
+#prep :is([data-card], [data-adapt]) textarea { min-height: 5rem; }
+#prep :is([data-card], [data-adapt]) summary { cursor: pointer; min-height: var(--target-min); padding-block: 0.5rem; }
+#prep :is([data-card], [data-adapt]) [data-fact-list] { margin-block: 0.5rem; }
+#prep :is([data-card], [data-adapt]) [data-fact-list] a { display: inline-block; min-height: 24px; padding-block: 0.25rem; }
 #prep .cards-index { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; list-style: none; padding: 0; margin-block: 0.5rem; }
 #prep .cards-index a { display: inline-block; min-height: 24px; padding-block: 0.25rem; }
-#prep [data-card] [id$="-recovered"] { background: var(--color-surface); }
+#prep :is([data-card], [data-adapt]) [id$="-recovered"] { background: var(--color-surface); }

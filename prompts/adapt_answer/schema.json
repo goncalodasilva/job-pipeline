@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["units"],
+  "properties": {
+    "units": {
+      "type": "array", "minItems": 1, "maxItems": 6,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["text", "fact_ids", "added_details"],
+        "properties": {
+          "text": {
+            "type": "string", "minLength": 1, "maxLength": 1200,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+(?![\\s\\S])"
+          },
+          "fact_ids": {
+            "type": "array", "maxItems": 20, "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^F[0-9]+@[0-9]+$"}
+          },
+          "added_details": {
+            "type": "array", "maxItems": 10,
+            "items": {
+              "type": "string", "minLength": 1, "maxLength": 200,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+(?![\\s\\S])"
+            }
+          }
+        }
+      }
+    }
+  }
+}

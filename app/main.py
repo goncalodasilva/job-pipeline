@@ -55,6 +55,7 @@ from app.api.letter_step import register_letter_routes
 from app.api.notifications import register_notification_routes
 from app.api.pages import register_pages
 from app.api.prep import register_prep_routes
+from app.api.prep_adapt import register_adapt_routes
 from app.api.prep_cards import register_card_routes
 from app.api.prep_practice import register_practice_routes
 from app.api.reminders import register_reminder_routes
@@ -120,6 +121,7 @@ from app.onboarding.steps.preferences import PreferencesStep
 from app.onboarding.steps.provider import ProviderStep
 from app.onboarding.steps.web_search import WebSearchStep
 from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
+from app.services.adapt_ai import ADAPT_ANSWER
 from app.services.answer_ai import ANSWER_FEEDBACK
 from app.services.answer_practice import AnswerPracticeService
 from app.services.application_detail import ApplicationDetail
@@ -166,7 +168,11 @@ from app.services.narrative_ai import DRAFT_NARRATIVE
 from app.services.personal_details import PersonalDetailsService, sweep_orphan_photos
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.prep import QUESTIONS, WEB_QUESTIONS, PrepService
-from app.services.prep_documents import DRAFT_NARRATIVE_LABEL, PrepDocumentService
+from app.services.prep_documents import (
+    ADAPT_ANSWER_LABEL,
+    DRAFT_NARRATIVE_LABEL,
+    PrepDocumentService,
+)
 from app.services.provider_setup import ProviderSetupService
 from app.services.reminders import ReminderRules, ReminderService
 from app.services.roles import RoleService
@@ -211,7 +217,7 @@ from app.tasks.job_fit import job_fit_handler
 from app.tasks.job_summary import job_summary_handler
 from app.tasks.practice import practice_handler
 from app.tasks.prep import prep_handler
-from app.tasks.prep_documents import draft_narrative_handler
+from app.tasks.prep_documents import adapt_answer_handler, draft_narrative_handler
 from app.tasks.sessions import enrichment_question_handler, structure_answer_handler
 from app.tasks.tailoring import gap_check_handler, propose_angles_handler
 from app.wiring import (
@@ -1355,6 +1361,11 @@ def create_app(
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), DRAFT_NARRATIVE_LABEL),
             draft_narrative_handler(app.state.prep_documents),
         )
+        handlers.register(
+            ADAPT_ANSWER,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), ADAPT_ANSWER_LABEL),
+            adapt_answer_handler(app.state.prep_documents),
+        )
     app.state.job_intake = JobIntakeService(
         lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()
     )
@@ -1465,6 +1476,7 @@ def create_app(
     register_application_detail_routes(app)
     register_prep_routes(app)
     register_practice_routes(app)
+    register_adapt_routes(app)
     register_card_routes(app)
     register_application_contact_routes(app)
     register_reminder_routes(app)

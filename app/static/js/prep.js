@@ -1,10 +1,13 @@
 /* The Prep tab. A passive refresh preserves a safe heading's focus without moving it from
    elsewhere; the practice box keeps what is typed in it across a background refresh and shows
-   how many characters are left. */
+   how many characters are left. The adapt section (#adapt) swaps alone, so the practice box is
+   never touched by it; an Edit left open in one paragraph is put back after an action on
+   another one (the new version has new paragraph ids, so a paragraph is found by its text). */
 (function () {
   "use strict";
   var restore = "";
   var draft = null;
+  var edits = [];
   var REFRESH = /\/practice\/[^/?]+\?refresh=1/;
 
   function format(n) {
@@ -33,13 +36,47 @@
     if (box && box.id === "practice-answer") count(box, true);
   });
 
+  // The Edit forms the person has open in the adapt section, except the one being answered.
+  function openEdits(section, requester) {
+    var answered = requester && requester.closest ? requester.closest("li[data-unit]") : null;
+    var found = [];
+    section.querySelectorAll("li[data-unit]").forEach(function (unit) {
+      var details = unit.querySelector("details[data-unit-edit]");
+      var box = details ? details.querySelector("textarea") : null;
+      var text = unit.querySelector("[data-unit-text]");
+      if (unit === answered || !details || !details.open || !box || !text) return;
+      found.push({ saved: text.textContent, value: box.value });
+    });
+    return found;
+  }
+
+  function putBackEdits() {
+    var used = [];
+    var units = Array.prototype.slice.call(document.querySelectorAll("#adapt li[data-unit]"));
+    edits.forEach(function (edit) {
+      var unit = units.filter(function (item) {
+        var text = item.querySelector("[data-unit-text]");
+        return used.indexOf(item) < 0 && text && text.textContent === edit.saved;
+      })[0];
+      var details = unit ? unit.querySelector("details[data-unit-edit]") : null;
+      var box = details ? details.querySelector("textarea") : null;
+      if (!unit || !details || !box || box.hasAttribute("data-autofocus")) return;
+      used.push(unit);
+      details.open = true;
+      box.value = edit.value;
+    });
+    edits = [];
+  }
+
   document.body.addEventListener("htmx:beforeSwap", function (event) {
     var d = event.detail || {};
     var requester = d.requestConfig && d.requestConfig.elt;
     var active = document.activeElement;
     restore = "";
     draft = null;
-    if (d.shouldSwap && d.target && d.target.id === "prep" && requester === d.target &&
+    edits = d.shouldSwap && d.target && d.target.id === "adapt" ? openEdits(d.target, requester) : [];
+    if (d.shouldSwap && d.target && (d.target.id === "prep" || d.target.id === "adapt") &&
+        requester === d.target &&
         active && d.target.contains(active) && active.hasAttribute("data-refresh-safe-focus")) {
       restore = active.id;
     }
@@ -53,6 +90,7 @@
   });
 
   document.body.addEventListener("htmx:afterSettle", function () {
+    if (edits.length) putBackEdits();
     var box = document.getElementById("practice-answer");
     if (draft !== null && box && box.value !== draft) {
       box.value = draft;

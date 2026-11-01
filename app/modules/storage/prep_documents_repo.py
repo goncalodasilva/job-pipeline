@@ -78,11 +78,15 @@ _VERSION_SELECT = (
 )
 
 
-def document(conn: sqlite3.Connection, application_id: str, kind: str) -> StoredDocument | None:
+def document(
+    conn: sqlite3.Connection, application_id: str, kind: str, question_id: str | None = None
+) -> StoredDocument | None:
+    """The application's document of ``kind``; an adapted answer is one per question, so it is
+    found by ``question_id`` too."""
     row = conn.execute(
         "SELECT id, current_version_id, version FROM prep_documents "
-        "WHERE application_id = ? AND kind = ?",
-        (application_id, kind),
+        "WHERE application_id = ? AND kind = ? AND question_id IS ?",
+        (application_id, kind, question_id),
     ).fetchone()
     return StoredDocument(row[0], row[1], row[2]) if row else None
 
@@ -95,13 +99,15 @@ def insert_document(
     kind: str,
     first_version_id: str,
     now: str,
+    question_id: str | None = None,
 ) -> None:
     """The document, pointing at its first version. Insert the version in the same
-    transaction: the schema checks the pointer at commit."""
+    transaction: the schema checks the pointer at commit. An adapted answer names its
+    question."""
     conn.execute(
-        "INSERT INTO prep_documents (id, application_id, kind, current_version_id, created_at, "
-        "updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (id, application_id, kind, first_version_id, now, now),
+        "INSERT INTO prep_documents (id, application_id, kind, question_id, current_version_id, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (id, application_id, kind, question_id, first_version_id, now, now),
     )
 
 

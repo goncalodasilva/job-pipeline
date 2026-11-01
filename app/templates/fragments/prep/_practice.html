@@ -3,18 +3,22 @@
    The answer is typed here and kept as an attempt; the feedback arrives when the task ends
    (the region refreshes itself while one runs; prep.js keeps what is typed in the box across
    such a refresh). A claim the code finds that no confirmed fact states is only a tick box:
-   nothing is added until the person ticks it and presses the button. #}
+   nothing is added until the person ticks it and presses the button. The adapt section
+   (_adapt.html) follows the practice form and swaps alone, so what is typed here is never
+   lost by an adapt action. #}
 {% set v = practice.view %}
 {% set limit = '{:,}'.format(practice.max_chars) %}
+{% set adapt_shown = practice.adapt.earlier or practice.adapt.answer.version %}
 <section id="prep" aria-labelledby="practice-heading" data-keep-edits
-         hx-get="{{ practice.base }}?refresh=1" hx-trigger="{% if v.active %}every 2s, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML">
+         hx-get="{{ practice.base }}?refresh=1" hx-trigger="{% if practice.active %}every 2s, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML">
   <p><a id="practice-back" href="{{ practice.page_url }}" hx-get="/applications/{{ v.application_id }}/prep?focus=1" hx-target="#prep" hx-swap="outerHTML">Back to questions</a></p>
   <h3 id="practice-heading" tabindex="-1" data-refresh-safe-focus{% if practice.focus == 'practice-heading' %} data-autofocus{% endif %}>Practice</h3>
   <p class="practice-question"><strong>{{ v.question.text }}</strong></p>
-  {% if practice.message %}<p class="notice">{{ practice.message }}</p>{% endif %}
+  {% if practice.message and not (adapt_shown and practice.message_in == 'adapt') %}<p class="notice">{{ practice.message }}</p>{% endif %}
+  {% if practice.adapt_error and not practice.invalid_unit and not adapt_shown %}<p id="adapt-alert" class="field-error" role="alert">{{ practice.adapt_error }}</p>{% endif %}
   <p data-stale-note hidden>Updates are ready. <button type="button" class="button" hx-get="{{ practice.base }}?refresh=1" hx-target="#prep" hx-swap="outerHTML">Refresh practice</button></p>
-  {% if practice.conflict %}
-    {% set reload_id = 'practice-conflict' %}{% set reload_message = 'This question changed in another window.' %}{% set reload_detail = 'Your answer was not saved. It is still in the box below.' %}{% set reload_url = practice.page_url %}
+  {% if practice.conflict and not (adapt_shown and practice.message_in == 'adapt') %}
+    {% set reload_id = 'practice-conflict' %}{% set reload_message = 'This question changed in another window.' %}{% set reload_detail = practice.conflict_detail %}{% set reload_url = practice.page_url %}
     {% include 'fragments/shell/_reload_prompt.html' %}
   {% endif %}
   {% if practice.claim_error %}<p class="field-error" role="alert">{{ practice.claim_error }}</p>{% endif %}
@@ -42,6 +46,7 @@
     <input type="hidden" name="ready" value="{{ 0 if v.ready else 1 }}">
     <button type="submit" class="button">{{ 'Mark not ready' if v.ready else 'Mark ready' }}</button>
   </form>
+  {% if adapt_shown %}{% include 'fragments/prep/_adapt.html' %}{% endif %}
   <section aria-labelledby="practice-attempts-heading">
     <h4 id="practice-attempts-heading">Your tries</h4>
     {% for attempt in v.attempts %}{% set latest = loop.first %}{% include 'fragments/prep/_feedback.html' %}{% else %}<p>No tries yet. Type an answer above and ask for feedback.</p>{% endfor %}

@@ -1,0 +1,20 @@
+{
+  "data": {
+    "units": [
+      {
+        "text": "I planned 60 delivery routes a week with a team of 3.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": []
+      },
+      {
+        "text": "Led route planning at Globex Corporation.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

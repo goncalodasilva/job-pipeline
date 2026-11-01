@@ -355,7 +355,21 @@ def drive_draft_narrative(desk: Exporting) -> None:
     assert desk.r.run.wait_terminal(ref.id).status.value == "succeeded"
 
 
+def drive_adapt_answer(desk: Exporting) -> None:
+    source = desk.cv_ready("adapt-source-job", template=False).id
+    question = desk.r.run.app.state.prep.add_bank_question(
+        "Tell me about a time you planned under pressure.", "behavioral"
+    )
+    practice = desk.r.run.app.state.answer_practice
+    made = practice.submit(source, question.id, "I planned delivery routes for a depot.", version=0)
+    assert desk.r.run.wait_terminal(made.task.id).status.value == "succeeded"
+    target = desk.another_application("adapt-target-job").id
+    ref = desk.r.run.app.state.prep_documents.start_adapt(target, question.id)
+    assert desk.r.run.wait_terminal(ref.id).status.value == "succeeded"
+
+
 DRIVERS: dict[str, Callable[[Exporting], None]] = {
+    "adapt_answer": drive_adapt_answer,
     "answer_feedback": drive_answer_feedback,
     "draft_narrative": drive_draft_narrative,
     "extract_cv": drive_extract_cv,

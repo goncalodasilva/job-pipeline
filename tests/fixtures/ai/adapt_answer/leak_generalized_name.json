@@ -1,0 +1,13 @@
+{
+  "data": {
+    "units": [
+      {
+        "text": "I ran the Fernhill Bank payments migration.",
+        "fact_ids": [
+          "F6@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

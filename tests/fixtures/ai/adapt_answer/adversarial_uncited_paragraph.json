@@ -1,0 +1,18 @@
+{
+  "data": {
+    "units": [
+      {
+        "text": "I planned 60 delivery routes a week with a team of 3.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": []
+      },
+      {
+        "text": "I stay calm when a deadline moves and I keep everyone informed.",
+        "fact_ids": [],
+        "added_details": []
+      }
+    ]
+  }
+}

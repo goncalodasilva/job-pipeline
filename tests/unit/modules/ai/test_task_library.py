@@ -54,6 +54,10 @@ FACT_ID_PATTERN = "^F[0-9]+@[0-9]+$"
 # added_details) that may be empty: a card no confirmed fact supports has no unit to write.
 # Every other generation schema keeps both rules.
 KINDLESS_EMPTY_OK = frozenset({"draft_narrative"})
+# M8.2 part C: ``adapt_answer`` has the same kind-less units (text, fact_ids, added_details) but
+# is NEVER empty: with no usable fact nothing is asked, so a model answer with no unit is invalid
+# and retried (minItems stays at 1 for it, as for every task outside KINDLESS_EMPTY_OK).
+KINDLESS_UNITS = KINDLESS_EMPTY_OK | frozenset({"adapt_answer"})
 
 # Keywords whose value is one schema, a list of schemas, or a map of name -> schema.
 _ONE = ("items", "contains", "not", "if", "then", "else", "propertyNames", "unevaluatedItems")
@@ -121,7 +125,7 @@ def units_without_fact_ids(schema: dict[str, Any], task: str | None = None) -> l
     # A cover letter's schema is a list of paragraphs (no kind); every other generation
     # task returns units with a kind.
     key = "paragraphs" if "paragraphs" in schema.get("properties", {}) else "units"
-    kindless = key == "paragraphs" or task in KINDLESS_EMPTY_OK
+    kindless = key == "paragraphs" or task in KINDLESS_UNITS
     if key not in schema.get("required", []):
         return [f"'{key}' is not required"]
     units = schema.get("properties", {}).get(key, {})
@@ -330,6 +334,37 @@ def test_narrative_schema_may_be_empty_but_never_drops_fact_ids() -> None:
     # The same schema is not enough for any other generation task.
     assert generation_rule_problems(TaskSpec("tailor_cv", kind="generation"), good) != []
     for weaken in (
+        lambda s: s["properties"]["units"]["items"]["required"].remove("fact_ids"),
+        lambda s: s["properties"]["units"]["items"]["properties"].pop("fact_ids"),
+        lambda s: s["properties"]["units"]["items"]["properties"]["fact_ids"].pop("uniqueItems"),
+        lambda s: s["properties"]["units"]["items"]["properties"]["fact_ids"]["items"].pop(
+            "pattern"
+        ),
+        lambda s: s["required"].remove("units"),
+    ):
+        broken = copy.deepcopy(good)
+        weaken(broken)
+        assert generation_rule_problems(spec, broken), weaken
+
+
+def test_adapt_answer_schema_has_kindless_units_but_is_never_empty_and_keeps_fact_ids() -> None:
+    """M8.2 part C: ``adapt_answer`` has the units of a narrative card but no exemption for an
+    empty list; every weakening that matters for honesty is still caught for it."""
+    spec = TaskSpec("adapt_answer", kind="generation")
+    good = _generation_schema()
+    item = good["properties"]["units"]["items"]
+    item["required"] = ["text", "fact_ids", "added_details"]
+    item["properties"].pop("kind")
+    item["properties"].pop("section")
+    item["properties"]["added_details"] = {"type": "array", "items": {"type": "string"}}
+
+    assert generation_rule_problems(spec, good) == []
+    assert "adapt_answer" not in KINDLESS_EMPTY_OK, "an answer with no unit is invalid"
+    # The same schema is not enough for any other generation task.
+    assert generation_rule_problems(TaskSpec("tailor_cv", kind="generation"), good) != []
+    for weaken in (
+        lambda s: s["properties"]["units"].pop("minItems"),
+        lambda s: s["properties"]["units"].update(minItems=0),
         lambda s: s["properties"]["units"]["items"]["required"].remove("fact_ids"),
         lambda s: s["properties"]["units"]["items"]["properties"].pop("fact_ids"),
         lambda s: s["properties"]["units"]["items"]["properties"]["fact_ids"].pop("uniqueItems"),

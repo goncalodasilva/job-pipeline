@@ -26,6 +26,7 @@ DRAFT_NOTE = "Keep it plain."
 def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, task: str) -> None:
     # Explicit cases make a newly registered task fail until its real calling path is covered.
     assert set(TASK_SPECS) == {
+        "adapt_answer",
         "answer_feedback",
         "draft_narrative",
         "extract_cv",
@@ -89,6 +90,21 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
                 application.id, question.id, "I planned delivery routes.", version=0
             )
             assert r.run.wait_terminal(made.task.id).status.value == "succeeded"
+        elif task == "adapt_answer":
+            # M8.2 part C: the calling service over the real prompt and the app's provider. An
+            # answer practiced in one application is adapted to another; this task sends
+            # confirmed facts, so the hidden-fact assertions below apply in full.
+            desk = Tailoring(r)
+            source = desk.ready("never-use-adapt-source", facts=False)
+            question = r.run.app.state.prep.add_bank_question(
+                "Tell me about a time you planned under pressure.", "behavioral"
+            )
+            practice = r.run.app.state.answer_practice
+            made = practice.submit(source.id, question.id, "I planned delivery routes.", version=0)
+            assert r.run.wait_terminal(made.task.id).status.value == "succeeded"
+            target_application = desk.another_application("never-use-adapt-target")
+            ref = r.run.app.state.prep_documents.start_adapt(target_application.id, question.id)
+            assert r.run.wait_terminal(ref.id).status.value == "succeeded"
         elif task == "draft_narrative":
             # M8.2 part B: the calling service over the real prompt and the app's provider. This
             # task sends confirmed facts, so the hidden-fact assertions below apply in full.

@@ -1,0 +1,105 @@
+{# The earlier answer to this question and its adaptation to this job (M8.2 part C; AC-M8.1,
+   AC-M8.4). Needs `practice` from app/api/prep_practice.py (`practice.adapt` is the AdaptedView),
+   and is included by _practice.html after the practice form. Every answer of an adapt action is
+   the whole #prep fragment, but this section's own forms swap only `#adapt` (hx-target and
+   hx-select, as the narrative cards do), so a half-typed practice answer and an open edit in
+   another paragraph are kept. Everything such an action can show lives INSIDE the section: its
+   message, its alert, the reload prompt, the budget reason and the budget question. While a task
+   runs the section polls itself (the region's own poll may have stopped being rendered). The old
+   answer, the adapted paragraphs, flags, claims and fact wording are escaped text, never marked
+   safe. The old answer is the person's own words from another application: it is shown whole and
+   proves nothing; what the AI keeps from it that no confirmed fact states is flagged and blocks
+   approval. Nothing here names the application it was practiced in. #}
+{% set ad = practice.adapt %}
+{% set answer = ad.answer %}
+{% set base = practice.base %}
+{% set version_id = answer.version.id if answer.version else '' %}
+{% set busy = answer.task.active %}
+{% set blocked_ids = answer.blockers | map(attribute='unit_id') | unique | list %}
+{% set alert = practice.adapt_error and not practice.invalid_unit %}
+<section id="adapt" data-adapt data-state="{{ answer.state }}" aria-labelledby="adapt-heading" class="card"{% if busy %} hx-get="{{ base }}?refresh=1" hx-trigger="every 2s" hx-target="this" hx-select="#adapt" hx-swap="outerHTML"{% endif %}>
+  <h4 id="adapt-heading" tabindex="-1" data-refresh-safe-focus{% if practice.focus == 'adapt-heading' %} data-autofocus{% endif %}>From your earlier answer</h4>
+  {% if practice.message and practice.message_in == 'adapt' %}<p id="adapt-message" class="notice">{{ practice.message }}</p>{% endif %}
+  {% if alert %}<p id="adapt-alert" class="field-error" role="alert">{{ practice.adapt_error }}</p>{% endif %}
+  {% if practice.conflict and practice.message_in == 'adapt' %}
+    {% set reload_id = 'adapt-conflict' %}{% set reload_message = 'This answer changed in another window.' %}{% set reload_detail = practice.conflict_detail %}{% set reload_url = practice.page_url %}
+    {% include 'fragments/shell/_reload_prompt.html' %}
+  {% endif %}
+  {% if practice.recovered_text %}
+    <div id="adapt-recovery">
+      <label for="adapt-recovered">What you typed, not saved. Copy it before you reload.</label>
+      <textarea id="adapt-recovered" rows="5" readonly>{{ practice.recovered_text }}</textarea>
+    </div>
+  {% endif %}
+  {% if ad.earlier %}
+    <h5 id="adapt-earlier-label">Your earlier answer</h5>
+    <p id="adapt-earlier" data-earlier-answer class="practice-answer">{{ ad.earlier.text }}</p>
+    <p id="adapt-earlier-meta" class="field-hint">Practiced on <time datetime="{{ ad.earlier.practiced_at }}">{{ ad.earlier.practiced_at[:10] }}</time>.{% if ad.earlier.ready %} Marked ready when you practiced it.{% endif %}</p>
+  {% endif %}
+  {% if answer.version %}
+    <p id="adapt-status">{% if answer.needs_recheck %}Needs re-check, version {{ answer.version.number }}.{% elif answer.version.status == 'approved' %}Approved, version {{ answer.version.number }}.{% else %}Draft, version {{ answer.version.number }}. Not approved yet.{% endif %}</p>
+  {% endif %}
+  {% if answer.left_out %}<p id="adapt-left-out" class="field-hint">{{ answer.left_out }}</p>{% endif %}
+  {% if answer.practice %}<p id="adapt-practice" class="badge">Practice data (fake provider). This answer is a fictional example, not a real answer.</p>{% endif %}
+  {% if busy %}<p id="adapt-running" role="status">Adapting your earlier answer… Editing is paused until it finishes. Progress is also in Tasks.</p>{% endif %}
+  {% if practice.adapt_task_error and not busy %}<p id="adapt-error" class="field-error" role="alert">{{ practice.adapt_task_error }} Try adapting again.</p>{% endif %}
+  {% if answer.removed_all %}<p id="adapt-removed">You removed every paragraph. Adapt again to get a new one.</p>{% endif %}
+
+  {% if answer.units %}
+  <h5 id="adapt-units-heading">Adapted for this role</h5>
+  <ol id="adapt-units" class="adapt-units" aria-labelledby="adapt-units-heading">
+    {% for unit in answer.units %}
+    {% set uid = unit.id %}
+    {% set unit_blockers = answer.blockers | selectattr('unit_id', 'equalto', uid) | list %}
+    <li id="unit-{{ uid }}" data-unit data-unit-id="{{ uid }}" data-origin="{{ unit.origin }}" tabindex="-1"{% if unit_blockers %} data-flagged="true"{% endif %}>
+      <p data-unit-text id="unit-text-{{ uid }}">{{ unit.text }}</p>
+      {% if unit.origin == 'user' %}<p data-origin-label>Edited by you</p>{% endif %}
+      {% if unit_blockers %}<ul data-flags>{% for b in unit_blockers %}<li data-flag="{{ b.kind }}"><strong data-flag-label>{{ 'No fact supports this' if b.kind == 'unsupported' else 'Check this' }}</strong> <span data-flag-claim>{{ b.claim }}</span></li>{% endfor %}</ul>{% endif %}
+      {% if unit.cited %}<details data-unit-facts><summary>Facts used ({{ unit.cited | length }})</summary>
+        <ul data-fact-list>{% for fact in unit.cited %}<li>{% if is_safe_id(fact.id) %}<a href="/facts/{{ fact.id }}/edit">{{ fact.text }}</a>{% else %}{{ fact.text }}{% endif %}</li>{% endfor %}</ul>
+      </details>{% else %}<p data-no-facts>No facts cited.</p>{% endif %}
+      {% if not busy %}
+      {% set unit_base = base ~ '/adapted/' ~ version_id ~ '/units/' ~ uid %}
+      <details data-unit-edit{% if practice.invalid_unit == uid %} open{% endif %}><summary>Edit</summary>
+        <form data-unit-form="edit" method="post" action="{{ unit_base }}/edit" hx-post="{{ unit_base }}/edit" hx-target="#adapt" hx-select="#adapt" hx-swap="outerHTML" hx-disabled-elt="find button">
+          <label for="edit-{{ uid }}">Edit this paragraph</label>
+          {% if practice.invalid_unit == uid %}<p id="edit-error-{{ uid }}" class="field-error" role="alert">{{ practice.adapt_error }}</p>{% endif %}
+          <textarea id="edit-{{ uid }}" name="text" rows="5"{% if practice.invalid_unit == uid %} aria-invalid="true" aria-describedby="edit-error-{{ uid }}" data-autofocus{% endif %}>{{ practice.posted_text if practice.invalid_unit == uid else unit.text }}</textarea>
+          <button type="submit" class="button" aria-describedby="unit-text-{{ uid }}">Save paragraph</button>
+        </form>
+      </details>
+      {% for action, label in [('remove', 'Remove'), ('confirm', 'This is true — save it as a fact')] %}{% if action == 'remove' or unit_blockers %}
+      <form data-unit-form="{{ action }}" method="post" action="{{ unit_base }}/{{ action }}" hx-post="{{ unit_base }}/{{ action }}" hx-target="#adapt" hx-select="#adapt" hx-swap="outerHTML" hx-disabled-elt="find button">
+        <button type="submit" class="button" aria-describedby="unit-text-{{ uid }}">{{ label }}</button>
+      </form>{% endif %}{% endfor %}
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+
+  {% if answer.needs_recheck %}
+    <p id="adapt-recheck">A fact this answer cites changed. Edit, remove or confirm the flagged paragraphs: that saves a new draft, and you approve it again. You can also adapt again.</p>
+  {% elif answer.approved %}
+    <p id="adapt-approved">Approved. Changing a paragraph starts a new draft.</p>
+  {% elif answer.units %}
+    <form id="adapt-approve-form" method="post" action="{{ base }}/adapted/{{ version_id }}/approve" hx-post="{{ base }}/adapted/{{ version_id }}/approve" hx-target="#adapt" hx-select="#adapt" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <button type="submit" id="adapt-approve" class="button button-primary"{% if blocked_ids or busy %} aria-disabled="true"{% endif %} aria-describedby="adapt-heading{% if busy %} adapt-running{% elif blocked_ids %} adapt-approve-reason{% endif %}{% if alert %} adapt-alert{% endif %}">Approve answer</button>
+    </form>
+    {% if blocked_ids and not busy %}<p id="adapt-approve-reason" class="field-hint">{{ '1 paragraph needs your check.' if blocked_ids | length == 1 else (blocked_ids | length ~ ' paragraphs need your check.') }}</p>{% endif %}
+  {% endif %}
+
+  {% if ad.earlier and not ad.has_facts %}
+    <p id="adapt-empty">No confirmed facts to adapt it with yet.</p>
+    <button type="button" id="adapt-unavailable" class="button" aria-disabled="true" aria-describedby="adapt-empty">Adapt to this role</button>
+    <p><a id="adapt-sessions" href="/sessions/new">Answer questions in a session</a></p>
+  {% elif ad.can_adapt %}
+    <form id="adapt-form" method="post" action="{{ base }}/adapt" hx-post="{{ base }}/adapt" hx-target="#adapt" hx-select="#adapt" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ version_id }}">
+      {% if practice.adapt_reason %}{% set budget_blocked = practice.adapt_reason %}{% include 'fragments/budget/_blocked.html' %}{% endif %}
+      <button type="submit" id="adapt-submit" class="button{% if not answer.version %} button-primary{% endif %}"{% if practice.adapt_reason %} aria-disabled="true" aria-describedby="adapt-reason{% if alert %} adapt-alert{% endif %} adapt-hint"{% elif busy %} aria-disabled="true" aria-describedby="adapt-running{% if alert %} adapt-alert{% endif %} adapt-hint"{% else %} aria-describedby="{% if alert %}adapt-alert {% endif %}adapt-hint"{% endif %}>{{ 'Adapt again' if answer.version else 'Adapt to this role' }}</button>
+    </form>
+    <p id="adapt-hint" class="field-hint">Uses AI: one request, and one more if the answer comes back unusable. It rewrites your earlier answer for this job using only your confirmed facts; you check every paragraph before you approve it. The whole earlier answer is sent to the AI as written, including any employer name in it.{% if answer.version %} Adapting again writes a new draft from your earlier answer. Your edits to the current draft are not carried into it.{% endif %}</p>
+  {% endif %}
+  {% if practice.adapt_dialog %}{% set budget_dialog = practice.adapt_dialog %}{% include 'fragments/budget/_dialog.html' %}{% endif %}
+</section>

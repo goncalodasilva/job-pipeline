@@ -34,7 +34,8 @@ class NarrativeOutput(TaskOutput):
     result: TailoredCv
 
 
-def _job_context(job: TailoringJob) -> str:
+def job_context(job: TailoringJob) -> str:
+    """The job as one JSON text: title, company, posting and requirements (untrusted)."""
     return json.dumps(
         {
             "title": job.title,
@@ -79,7 +80,7 @@ async def run_draft_narrative(
         DRAFT_NARRATIVE,
         {
             "card_kind": card_kind,
-            "job_context": _job_context(job),
+            "job_context": job_context(job),
             "facts": prompt_fact_block(facts),
             "angle": ""
             if angle is None

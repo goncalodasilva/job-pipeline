@@ -435,6 +435,7 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
         registered = [name for name, _spec in r.app.state.task_registry.specs()]
         # Exactly the task types of before M5.7 (the practice task is offered with fakes).
         assert sorted(registered) == [
+            "adapt_answer",
             "answer_feedback",
             "assess_fit",
             "draft_cover_letter",
@@ -453,6 +454,7 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
             "tailor_cv",
         ]
         assert sorted(TASK_SPECS) == [
+            "adapt_answer",
             "answer_feedback",
             "assess_fit",
             "draft_cover_letter",

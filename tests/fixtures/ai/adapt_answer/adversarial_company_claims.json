@@ -1,0 +1,20 @@
+{
+  "data": {
+    "units": [
+      {
+        "text": "I worked at Other Fictional Co for 5 years, planning 60 delivery routes a week.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": []
+      },
+      {
+        "text": "At Other Fictional Co I cut invoice processing time by 35% across 4 warehouses.",
+        "fact_ids": [
+          "F2@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

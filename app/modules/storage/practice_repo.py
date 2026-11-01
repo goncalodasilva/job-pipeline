@@ -75,6 +75,34 @@ def attempt(conn: sqlite3.Connection, attempt_id: str) -> AttemptRow | None:
     return AttemptRow(*row) if row else None
 
 
+@dataclass(frozen=True)
+class EarlierAnswer:
+    """The best earlier answer to a question: its text, when it was practiced and whether its
+    item is marked ready. Nothing that names the application it was practiced in."""
+
+    text: str
+    practiced_at: str
+    ready: bool
+
+
+def best_answer(
+    conn: sqlite3.Connection, question_id: str, exclude_application: str
+) -> EarlierAnswer | None:
+    """The latest attempt of the question's items in OTHER applications whose item is marked
+    ready; when none has an attempt, the latest attempt among all other applications' items."""
+    for ready_only in (1, 0):
+        row = conn.execute(
+            "SELECT a.answer_text,a.created_at,p.ready FROM practice_attempts a "
+            "JOIN prep_items p ON p.id=a.prep_item_id "
+            "WHERE p.question_id=? AND p.application_id<>? AND (p.ready=1 OR ?=0) "
+            "ORDER BY a.created_at DESC,a.id DESC LIMIT 1",
+            (question_id, exclude_application, ready_only),
+        ).fetchone()
+        if row:
+            return EarlierAnswer(str(row[0]), str(row[1]), bool(row[2]))
+    return None
+
+
 def write_feedback(
     conn: sqlite3.Connection,
     attempt_id: str,

@@ -1,0 +1,41 @@
+The interview question:
+
+<untrusted_document source="question" id="app-example">
+Tell me about a time you planned under pressure.
+</untrusted_document>
+
+The person's earlier answer to it, written for another application:
+
+<untrusted_document source="old_answer" id="app-example">
+At Example Widgets I planned 60 delivery routes a week with a team of 3. Later I managed 17 stores across the region, using Terraform.
+</untrusted_document>
+
+The job title, company, posting and its extracted requirements, each with its requirement_id:
+
+<untrusted_document source="job_context" id="app-example">
+{"title":"Fictional Route Planner","company":"Fictional Harbor Kite","posting":"Fictional route planner","requirements":[{"requirement_id":"req-1","kind":"must_have","text":"Plans delivery routes for a small fleet."}]}
+</untrusted_document>
+
+The person's usable confirmed facts, with versioned references and the Role: of each:
+
+<untrusted_document source="facts" id="app-example">
+[F3@2]
+Role: Operations Analyst at Example Widgets Ltd
+Skills: Excel
+Text: Cut invoice processing time by 35% across 4 warehouses.
+
+[F5@1]
+Role: Junior Planner at Sample Logistics SA
+Text: Planned 60 delivery routes a week with a team of 3.
+
+[F8@1 (generalize names)]
+Text: Ran the Fernhill Bank payments migration.
+</untrusted_document>
+
+The chosen angle (empty when none):
+
+<untrusted_document source="angle" id="app-example">
+{"name":"Planner","description":"Lead with routes."}
+</untrusted_document>
+
+Return only the answer paragraphs, as JSON matching the schema.
