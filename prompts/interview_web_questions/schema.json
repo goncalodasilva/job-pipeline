@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "questions": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+(?![\\s\\S])"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "behavioral",
+              "technical",
+              "cv",
+              "ask_them"
+            ]
+          },
+          "source_url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "pattern": "^https?://[^\\s]+(?![\\s\\S])"
+          },
+          "source_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+(?![\\s\\S])"
+          }
+        },
+        "required": [
+          "text",
+          "type",
+          "source_url",
+          "source_date"
+        ]
+      }
+    }
+  },
+  "required": [
+    "questions"
+  ]
+}

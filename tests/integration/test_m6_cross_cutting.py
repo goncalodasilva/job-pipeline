@@ -324,6 +324,21 @@ def drive_structure_answer(desk: Exporting) -> None:
     assert desk.r.run.wait_terminal(made.task.id).status.value == "succeeded"
 
 
+def drive_interview(web: bool) -> Callable[[Exporting], None]:
+    def drive(desk: Exporting) -> None:
+        from app.modules.ai import AICapabilities
+        from tests.tailoring_pages import Tailoring
+
+        aid = Tailoring(desk.r).ready("personal-prep", facts=False).id
+        service = desk.r.run.app.state.prep
+        desk.r.run.spy.capabilities = AICapabilities(web_search=True, reports_token_usage=True)
+        begin = service.start_web if web else service.start_questions
+        ref = begin(aid, version=service.view(aid).version)
+        assert ref is not None and desk.r.run.wait_terminal(ref.id).status.value == "succeeded"
+
+    return drive
+
+
 DRIVERS: dict[str, Callable[[Exporting], None]] = {
     "extract_cv": drive_extract_cv,
     "refine_fact": drive_refine_fact,
@@ -336,6 +351,8 @@ DRIVERS: dict[str, Callable[[Exporting], None]] = {
     "draft_cover_letter": drive_cover_letter,
     "enrichment_question": drive_enrichment_question,
     "structure_answer": drive_structure_answer,
+    "interview_questions": drive_interview(False),
+    "interview_web_questions": drive_interview(True),
 }
 
 

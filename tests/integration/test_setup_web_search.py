@@ -126,8 +126,8 @@ PARAGRAPHS = (
     "step; with Claude, that is Claude's built-in web search.",
     "A search runs only when you ask for something that needs one. The app never searches on "
     "its own or in the background.",
-    "Nothing in this version searches the web yet, so there's nothing you need to do here "
-    "today. You can set a budget now so it's ready, continue without one, or choose Skip for "
+    "Interview prep has a separate button for web questions. You can set a budget now, "
+    "continue without one, or choose Skip for "
     "now; a skipped step stays marked on the last page so you can find it again.",
 )
 HINT_START = (

@@ -5,6 +5,10 @@
   <h2 id="providers-heading">Providers</h2>
   {% include "fragments/setup/_provider.html" %}
   {% if form.workspace_open %}
+  {% if search_provider %}
+  <p>Search provider: {{ search_provider.name }}. Searches run only from an explicit web-search button.</p>
+  {% if search_provider.storage_allowed is none %}<p class="notice">Not saved: this search provider's terms on keeping results are unclear</p>{% elif not search_provider.storage_allowed %}<p class="notice">Not saved: this search provider does not allow keeping results</p>{% endif %}
+  {% endif %}
   {% include "fragments/settings/_tiers.html" %}
   {% endif %}
 </section>

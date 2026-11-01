@@ -1,0 +1,6 @@
+<untrusted_document source="interview_context" id="app-example">
+{"job_summary": "Build and maintain data services for a small fictional team.", "uncovered_requirements": [{"id": "req-1", "kind": "must_have", "text": "Python services"}, {"id": "req-2", "kind": "key", "text": "Mentoring junior colleagues"}], "cv_sent": "Fictional CV text about garden planning software."}
+</untrusted_document>
+
+Write up to 10 interview questions and up to 3 questions to ask them.
+Return the questions using only the context above and its uncovered requirement ids.

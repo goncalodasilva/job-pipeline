@@ -90,7 +90,9 @@ def test_tailoring_page_read_only_resume_step_derived(tw: Tailoring):
     assert default.status_code == 200 and "application-timeline" in default.text
     assert not has_id(default.text, "tailoring")
     links = tab_links(default.text)
-    assert list(links) == ["Timeline and contacts", "Tailoring"]  # no Interview prep placeholder
+    assert list(links) == ["Timeline and contacts", "Tailoring", "Interview prep"]
+    assert links["Interview prep"]["href"] == f"/applications/{app.id}?tab=prep"
+    assert "aria-current" not in links["Interview prep"]
     assert links["Timeline and contacts"]["aria-current"] == "page"
     assert links["Tailoring"]["href"] == f"/applications/{app.id}?tab=tailoring"
     assert "aria-current" not in links["Tailoring"]

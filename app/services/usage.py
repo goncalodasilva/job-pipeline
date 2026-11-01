@@ -355,16 +355,17 @@ class UsageService:
             conn, service, start=utc_text(cycle.start), end=utc_text(cycle.end), tier=tier
         )
 
-    def preflight(self, service: str, *, tier: str) -> Decision:
+    def preflight(self, service: str, *, tier: str, lookahead: int = 1) -> Decision:
         """What the next request on ``tier`` would meet; writes nothing. Raises
         ``UsageLimitsUnreadable`` when the stored budgets can't be read."""
         service = check_service(service)
         checked_tier = check_tier(tier)
+        self._check_lookahead(lookahead)
         with self._db.transaction() as conn:
-            return self._decide(conn, service, self._clock.now(), checked_tier)
+            return self._decide(conn, service, self._clock.now(), checked_tier, lookahead)
 
     def check_start(
-        self, service: str, *, tier: str, confirming: Confirmation | None = None
+        self, service: str, *, tier: str, confirming: Confirmation | None = None, lookahead: int = 1
     ) -> StartCheck:
         """``preflight`` for an action the user starts, with what its answer needs.
 
@@ -376,11 +377,12 @@ class UsageService:
         """
         service = check_service(service)
         checked_tier = check_tier(tier)
+        self._check_lookahead(lookahead)
         with self._db.transaction() as conn:
             now = self._clock.now()
             counts = self._counts(conn, service, now)
             cycle_start = counts.cycle.start_date
-            decision = self._decide_on(conn, service, counts, checked_tier)
+            decision = self._decide_on(conn, service, counts, checked_tier, lookahead)
             block_at = None if counts.budget is None else counts.budget.block_at
             if isinstance(decision, Warn) and confirming == Confirmation(
                 service, decision.threshold, cycle_start
@@ -393,11 +395,11 @@ class UsageService:
                     threshold=decision.threshold,
                     now=utc_text(now),
                 )
-                after = self._decide(conn, service, now, checked_tier)
+                after = self._decide(conn, service, now, checked_tier, lookahead)
                 return StartCheck(after, cycle_start, acknowledged=True, block_at=block_at)
             fast = None
             if isinstance(decision, CapBlocked) and decision.offer_fast:
-                fast = self._decide_on(conn, service, counts, "fast")
+                fast = self._decide_on(conn, service, counts, "fast", lookahead)
             return StartCheck(decision, cycle_start, fast=fast, block_at=block_at)
 
     def breakdown(
@@ -520,12 +522,27 @@ class UsageService:
         )
 
     def _decide(
-        self, conn: sqlite3.Connection, service: ServiceId, now: datetime, tier: BudgetTier
+        self,
+        conn: sqlite3.Connection,
+        service: ServiceId,
+        now: datetime,
+        tier: BudgetTier,
+        lookahead: int = 1,
     ) -> Decision:
-        return self._decide_on(conn, service, self._counts(conn, service, now), tier)
+        return self._decide_on(conn, service, self._counts(conn, service, now), tier, lookahead)
+
+    @staticmethod
+    def _check_lookahead(lookahead: int) -> None:
+        if type(lookahead) is not int or not 1 <= lookahead <= 20:
+            raise ValueError("Invalid request look-ahead.")
 
     def _decide_on(
-        self, conn: sqlite3.Connection, service: ServiceId, counts: _Counts, tier: BudgetTier
+        self,
+        conn: sqlite3.Connection,
+        service: ServiceId,
+        counts: _Counts,
+        tier: BudgetTier,
+        lookahead: int = 1,
     ) -> Decision:
         if counts.unreadable:
             raise UsageLimitsUnreadable(detail="stored usage budgets are not valid")
@@ -533,10 +550,10 @@ class UsageService:
             return evaluate(None, counts.effective.value, shown=frozenset(), cycle=counts.cycle)
         tier_count = None
         if counts.budget.cap_for(tier) is not None:
-            tier_count = self._tier_count(conn, service, counts.cycle, tier)
+            tier_count = self._tier_count(conn, service, counts.cycle, tier) + lookahead - 1
         return evaluate(
             counts.budget,
-            counts.effective.value,
+            counts.effective.value + lookahead - 1,
             shown=counts.shown,
             cycle=counts.cycle,
             tier=tier,

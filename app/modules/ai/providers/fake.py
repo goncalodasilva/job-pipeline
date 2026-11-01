@@ -81,6 +81,8 @@ class ScriptedResponse:
     usage_snapshots: tuple[ProviderUsageSnapshot, ...] = ()
     # Web searches the fake asks ``on_tool_use`` for, when the request allows search (M2.16).
     tool_calls: int = 0
+    searched_urls: tuple[str, ...] = ()
+    search_count: int = 0
 
     def __post_init__(self) -> None:
         if self.tool_calls < 0:
@@ -193,9 +195,10 @@ class FakeAIProvider:
             await self._sleep(response.delay_seconds)
             if cancel.cancelled:  # cancelled while the call was running
                 raise CallCancelled
+        searched = False
         if request.allow_web_search:
             for _ in range(response.tool_calls):
-                await self._tool_call(request)
+                searched = await self._tool_call(request) or searched
         for snapshot in response.usage_snapshots:
             report_usage(request.on_usage, snapshot)
         if response.failure is not None:
@@ -209,7 +212,14 @@ class FakeAIProvider:
             raise InvalidModelOutput(detail="response is not JSON") from None
         if not isinstance(data, dict):
             raise InvalidModelOutput(detail="response is not a JSON object")
-        return AIResponse(raw_text=raw_text, data=data, model=request.model, usage=response.usage)
+        return AIResponse(
+            raw_text=raw_text,
+            data=data,
+            model=request.model,
+            usage=response.usage,
+            searched_urls=response.searched_urls if searched else (),
+            search_count=response.search_count,
+        )
 
     async def test_connection(self, model: str) -> ConnectionResult:
         if self._connection == "connected":
@@ -222,11 +232,12 @@ class FakeAIProvider:
     def known_models(self) -> list[ModelChoice]:
         return list(KNOWN_MODELS)
 
-    async def _tool_call(self, request: AIRequest) -> None:
+    async def _tool_call(self, request: AIRequest) -> bool:
         """Ask the budget hook for one web search; no hook means no search."""
         hook = request.on_tool_use
         allowed = hook is not None and await hook(WEB_SEARCH_TOOL) is True
         self.tool_calls.append((WEB_SEARCH_TOOL, allowed))
+        return allowed
 
     def _next(self, request: AIRequest) -> ScriptedResponse:
         task = request.task
@@ -236,6 +247,18 @@ class FakeAIProvider:
         queue = self._scripts.get(task)
         if not queue:
             if self._app_mode:
+                from app.modules.ai.providers.prep_scripts import (
+                    FICTIONAL_SOURCE,
+                    question_data,
+                    web_data,
+                )
+
+                if task == "interview_questions":
+                    return ScriptedResponse(data=question_data(request.user))
+                if task == "interview_web_questions":
+                    return ScriptedResponse(
+                        data=web_data(), tool_calls=1, searched_urls=(FICTIONAL_SOURCE,)
+                    )
                 raise InvalidModelOutput(detail="fake provider: no script for this task")
             raise LookupError(f"No scripted response for task {task!r}.")
         return queue.popleft() if len(queue) > 1 else queue[0]

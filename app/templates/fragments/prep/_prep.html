@@ -1,0 +1,75 @@
+<section id="prep" aria-labelledby="prep-heading" data-keep-edits
+         hx-get="/applications/{{ prep.view.application_id }}/prep{{ prep.suffix }}" hx-trigger="{% if prep.active %}every 2s, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML">
+  <h3 id="prep-heading" tabindex="-1" data-refresh-safe-focus{% if prep.focus == 'prep-heading' %} data-autofocus{% endif %}>Interview prep</h3>
+  {% if prep.message %}<p class="notice">{{ prep.message }}</p>{% endif %}
+  <p data-stale-note hidden>Updates are ready. <button type="button" class="button" hx-get="/applications/{{ prep.view.application_id }}/prep{{ prep.suffix }}{% if prep.suffix %}&amp;{% else %}?{% endif %}focus=1" hx-target="#prep" hx-swap="outerHTML">Refresh prep</button></p>
+  {% if prep.conflict %}
+    {% set reload_id = 'prep-conflict' %}{% set reload_message = 'This application changed in another window.' %}{% set reload_detail = 'Your change was not saved.' %}{% set reload_url = prep.page_url %}
+    {% include 'fragments/shell/_reload_prompt.html' %}
+  {% endif %}
+  {% if prep.active %}<p id="prep-working" role="status">{% if prep.active_web %}Looking for questions reported online…{% else %}Preparing questions…{% endif %} Progress is also in Tasks.</p>{% endif %}
+  {% for error in prep.task_errors %}<p class="field-error" role="alert">{{ error }} Try starting again.</p>{% endfor %}
+  <section aria-labelledby="prep-questions-heading">
+    <h4 id="prep-questions-heading">Questions</h4>
+    <p>{% if prep.view.cv_source == 'sent' %}Based on the job and the CV you sent.{% elif prep.view.cv_source == 'approved' %}No sent CV is recorded. Using your latest approved CV.{% else %}No approved or sent CV is available. Questions about your CV are left out.{% endif %} Your question bank is reused first.</p>
+    {% if not prep.view.has_summary %}<p>Summarize the job in <a href="/applications/{{ prep.view.application_id }}?tab=tailoring&amp;step=1">Tailoring</a> to generate questions. You can still use bank questions.</p>{% endif %}
+    {% if prep.generate_reason %}{% set budget_blocked = prep.generate_reason %}{% include 'fragments/budget/_blocked.html' %}{% endif %}
+    <div class="form-actions">
+      {% for action, label in [('generate','Generate questions'), ('more','Show more'), ('regenerate','Regenerate')] %}
+      {% set needs_set = action != 'generate' and not prep.view.has_items %}
+      <form method="post" action="/applications/{{ prep.view.application_id }}/prep/{{ action }}{{ prep.suffix }}" hx-post="/applications/{{ prep.view.application_id }}/prep/{{ action }}{{ prep.suffix }}" hx-target="#prep" hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="version" value="{{ prep.view.version }}">
+        <button type="submit" id="prep-{{ action }}" class="button{% if action == 'generate' %} button-primary{% endif %}"{% if prep.generate_reason %} aria-disabled="true" aria-describedby="prep-reason"{% elif needs_set %} aria-disabled="true" aria-describedby="prep-set-reason"{% elif prep.active %} aria-disabled="true" aria-describedby="prep-working prep-use"{% else %} aria-describedby="prep-use"{% endif %}>{{ label }}</button>
+      </form>
+      {% endfor %}
+    </div>
+    {% if not prep.view.has_items %}<p id="prep-set-reason" class="field-hint">Show more and Regenerate work on a set of questions. Generate questions first.</p>{% endif %}
+    <p id="prep-use" class="field-hint">Generate and Show more use AI. If an answer comes back unusable, the app tries once more. Regenerate asks you to confirm first.</p>
+    <form method="get" action="/applications/{{ prep.view.application_id }}" hx-get="/applications/{{ prep.view.application_id }}/prep" hx-target="#prep" hx-swap="outerHTML">
+      <input type="hidden" name="tab" value="prep"><input type="hidden" name="push" value="1"><input type="hidden" name="focus" value="1">
+      <input type="hidden" name="q" value="{{ prep.query }}">
+      <label for="prep-type">Question type</label>
+      <select id="prep-type" name="type" aria-describedby="prep-type-hint">
+        {% for key, name in [('', 'All types'), ('behavioral','Behavioral'), ('technical','Technical'), ('cv','About your CV'), ('ask_them','Questions to ask them')] %}<option value="{{ key }}"{% if prep.kind == key %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="button">Filter questions</button>
+      <span id="prep-type-hint" class="field-hint">Also filters the question bank below.</span>
+    </form>
+    <ul class="prep-list" role="list">
+      {% for row in prep.view.questions %}{% set q = row.question %}{% set location = 'questions' %}{% include 'fragments/prep/_question.html' %}{% else %}<li>No questions for this view yet. Generate a set or search your bank.</li>{% endfor %}
+    </ul>
+    <h4>Already prepared</h4>
+    <ul class="prep-list" role="list">
+      {% for row in prep.view.already_prepared %}{% set q = row.question %}{% set location = 'ready' %}{% include 'fragments/prep/_question.html' %}{% else %}<li>No questions marked ready yet.</li>{% endfor %}
+    </ul>
+  </section>
+  <section aria-labelledby="prep-research-heading">
+    <h4 id="prep-research-heading">Research</h4>
+  {% if prep.view.search_provider %}
+    <p id="prep-web-use">Web questions use AI and web search through {{ prep.view.search_provider.name }}: up to five searches per attempt. If an answer comes back unusable, the app tries once more, using another request and more searches. This month: {{ prep.search_count }} search{% if prep.search_count != 1 %}es{% endif %}{% if prep.search_allowance %} of {{ prep.search_allowance }}{% endif %}.</p>
+    {% if prep.web_reason %}{% set budget_blocked = prep.web_reason %}{% include 'fragments/budget/_blocked.html' %}{% endif %}
+    <form method="post" action="/applications/{{ prep.view.application_id }}/prep/web{{ prep.suffix }}" hx-post="/applications/{{ prep.view.application_id }}/prep/web{{ prep.suffix }}" hx-target="#prep" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ prep.view.version }}">
+      <button type="submit" id="prep-web-start" class="button"{% if prep.web_reason %} aria-disabled="true" aria-describedby="prep-web-reason"{% elif prep.active %} aria-disabled="true" aria-describedby="prep-working prep-web-use"{% else %} aria-describedby="prep-web-use"{% endif %}>Find web questions</button>
+    </form>
+    {% if prep.view.storage_notice %}<p class="notice">{{ prep.view.storage_notice }}. These results are shown now and need a new search next time. They can't be marked ready.</p>{% endif %}
+    {% if prep.view.transient %}<ul class="prep-list" role="list">{% for q in prep.view.transient %}{% set row = none %}{% set location = 'transient' %}{% include 'fragments/prep/_question.html' %}{% endfor %}</ul>{% endif %}
+  {% else %}
+    <p>Web questions need a search provider. Add one in <a href="/settings#providers" data-section-link>Settings</a>.</p>
+  {% endif %}
+  </section>
+  <section aria-labelledby="prep-bank-heading">
+    <h4 id="prep-bank-heading">Question bank</h4>
+    <form method="get" action="/applications/{{ prep.view.application_id }}" hx-get="/applications/{{ prep.view.application_id }}/prep" hx-target="#prep" hx-swap="outerHTML">
+      <input type="hidden" name="tab" value="prep"><input type="hidden" name="push" value="1"><input type="hidden" name="focus" value="1"><input type="hidden" name="type" value="{{ prep.kind }}">
+      <label for="prep-bank-query">Search bank questions</label>
+      <input type="search" id="prep-bank-query" name="q" maxlength="200" value="{{ prep.query }}">
+      <button type="submit" class="button">Search bank</button>
+    </form>
+    <p class="field-hint">Showing up to 20 of the newest questions. Search to narrow the list. Questions for another company stay with that company.</p>
+    <ul class="prep-list" role="list">
+      {% for q in prep.view.bank %}{% set row = prep.rows.get(q.id) %}{% set location = 'bank' %}{% include 'fragments/prep/_question.html' %}{% else %}<li>No bank questions match this search.</li>{% endfor %}
+    </ul>
+  </section>
+  {% if prep.dialog %}{% set budget_dialog = prep.dialog %}{% include 'fragments/budget/_dialog.html' %}{% endif %}
+</section>

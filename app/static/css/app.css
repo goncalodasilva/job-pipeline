@@ -846,6 +846,21 @@ body.layout-guide {
   white-space: normal;
 }
 
+.prep-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+.prep-question {
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+.prep-question h5 { margin-block: 0 0.5rem; font-size: 1rem; }
+#prep section { margin-block: 1.5rem; }
+#prep input[type="search"], #prep select { max-width: 100%; }
 .form-actions {
   display: flex;
   flex-wrap: wrap;

@@ -337,6 +337,7 @@ def _render(
             "connection": connection,  # a test just ran: focus moves to its result
             "step_view": dict(step_view or {}),  # a removal to confirm, or kept: focus there
             "tiers_saved": tiers_saved,  # the tier map was saved: focus moves to its status
+            "search_provider": request.app.state.prep.settings_search_info(),
             "tiers_url": TIERS_PATH,
             # The provider step's fragment, pointed at the Settings routes.
             "provider_context": "settings",

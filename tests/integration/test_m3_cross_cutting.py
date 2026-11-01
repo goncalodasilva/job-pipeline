@@ -37,6 +37,8 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
         "draft_cover_letter",
         "enrichment_question",
         "structure_answer",
+        "interview_questions",
+        "interview_web_questions",
     }
     with refining(tmp_path) as r:
         hidden = r.typed(HIDDEN, privacy="never_use")
@@ -62,6 +64,17 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
                 desk.check(application.id, None)
             else:
                 desk.propose(application.id, None)
+        elif task in {"interview_questions", "interview_web_questions"}:
+            from app.modules.ai import AICapabilities
+
+            application = Tailoring(r).ready("never-use-prep", facts=False)
+            service = r.run.app.state.prep
+            r.run.spy.capabilities = AICapabilities(web_search=True, reports_token_usage=True)
+            begin = (
+                service.start_web if task == "interview_web_questions" else service.start_questions
+            )
+            ref = begin(application.id, version=service.view(application.id).version)
+            assert ref is not None and r.run.wait_terminal(ref.id).status.value == "succeeded"
         elif task == "draft_cv_template":
             # M6.6: the calling service and its task over the real prompt and the app's
             # provider. The request carries no fact text at all (ADR-106 item 12).
@@ -108,6 +121,10 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
         for request in requests:
             assert HIDDEN not in repr(request)
             assert f"F{hidden.number}@" not in repr(request)
+            if task in {"interview_questions", "interview_web_questions"}:
+                fact_texts = [row["text"] for row in r.run.rows("SELECT text FROM fact_versions")]
+                assert TARGET in fact_texts and HIDDEN in fact_texts
+                assert not [text for text in fact_texts if text and text in repr(request)]
             if task == "draft_cv_template":
                 # The check bites: the recorded request does hold the country and the note.
                 assert "Netherlands" in repr(request) and DRAFT_NOTE in repr(request)

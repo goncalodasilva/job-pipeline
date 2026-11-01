@@ -50,5 +50,7 @@ _SPECS: Final = (
     TaskSpec("draft_cover_letter", kind="generation"),
     TaskSpec("enrichment_question", kind="feedback"),
     TaskSpec("structure_answer", kind="feedback"),
+    TaskSpec("interview_questions", kind="feedback"),
+    TaskSpec("interview_web_questions", kind="summary", allow_web_search=True, max_searches=5),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

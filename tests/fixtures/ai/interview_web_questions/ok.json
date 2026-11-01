@@ -1,0 +1,12 @@
+{
+  "data": {
+    "questions": [
+      {
+        "text": "Describe teamwork.",
+        "type": "behavioral",
+        "source_url": "https://example.test/interviews",
+        "source_date": null
+      }
+    ]
+  }
+}

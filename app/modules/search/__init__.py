@@ -1,5 +1,7 @@
 """Search module interface (spec 2.4). The first provider delegates to the AI provider (ADR-009)."""
 
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -30,3 +32,22 @@ class SearchProvider(Protocol):
     def reports_usage(self) -> bool: ...
 
     async def search(self, query: str, limit: int) -> list[SearchResult]: ...  # standalone only
+
+
+class TransientSearchResults:
+    """Bounded process-local results for providers that do not permit saving output."""
+
+    def __init__(self) -> None:
+        self._values: OrderedDict[str, object] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def put(self, key: str, value: object) -> None:
+        with self._lock:
+            self._values[key] = value
+            self._values.move_to_end(key)
+            while len(self._values) > 100:
+                self._values.popitem(last=False)
+
+    def get(self, key: str) -> object | None:
+        with self._lock:
+            return self._values.get(key)

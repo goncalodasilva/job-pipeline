@@ -38,6 +38,7 @@ SPEC_TASK_TIERS: dict[str, str] = {
     "enrichment_question": "fast",
     "structure_answer": "fast",
     "interview_questions": "thorough",
+    "interview_web_questions": "thorough",
     "answer_feedback": "thorough",
     "draft_narrative": "thorough",
     "adapt_answer": "thorough",
@@ -45,7 +46,7 @@ SPEC_TASK_TIERS: dict[str, str] = {
     "group_removal_reasons": "fast",
 }
 # Spec 3.6: the only task that "uses web search".
-WEB_TASKS = frozenset({"company_brief"})
+WEB_TASKS = frozenset({"company_brief", "interview_web_questions"})
 # Spec 3.1 item 1: the tasks that write in the user's name.
 GENERATION_TASKS = frozenset({"tailor_cv", "draft_cover_letter", "draft_narrative", "adapt_answer"})
 FACT_ID_PATTERN = "^F[0-9]+@[0-9]+$"

@@ -1419,3 +1419,44 @@ def test_reported_searches_are_counted_after_budget_block(usage, db: Database) -
     assert len(rows) == 5
     assert all(r[0] == "fictional_web" and r[1] == 1 for r in rows)
     assert usage.status("web_search").unfinished_count == 0
+
+
+def test_search_gate_looks_ahead_without_reserving_usage(usage):
+    _set_budget(
+        usage,
+        _budget(allowance=10, first_warning=3, second_warning=6, block_at=10),
+        service="web_search",
+    )
+    for _ in range(7):
+        usage.reserve("web_search", tier="thorough", task_type="fictional_web")
+    assert isinstance(usage.preflight("web_search", tier="thorough", lookahead=5), Blocked)
+    assert not isinstance(usage.preflight("web_search", tier="thorough"), Blocked)
+    assert usage.status("web_search").local_count == 7
+
+
+def test_search_lookahead_warning_confirmation_names_the_same_threshold(usage):
+    from app.services.usage import Confirmation
+
+    _set_budget(
+        usage,
+        _budget(allowance=10, first_warning=3, second_warning=6, block_at=10),
+        service="web_search",
+    )
+    checked = usage.check_start("web_search", tier="thorough", lookahead=5)
+    assert isinstance(checked.decision, Warn) and checked.decision.count == 5
+    confirmed = usage.check_start(
+        "web_search",
+        tier="thorough",
+        lookahead=5,
+        confirming=Confirmation("web_search", "first", CYCLE_START),
+    )
+    assert isinstance(confirmed.decision, Note) and confirmed.acknowledged
+    assert usage.status("web_search").local_count == 0
+
+
+@pytest.mark.parametrize("lookahead", [0, -1, True, 21])
+def test_search_lookahead_refuses_invalid_caps(usage, lookahead):
+    with pytest.raises(ValueError):
+        usage.preflight("web_search", tier="thorough", lookahead=lookahead)
+    with pytest.raises(ValueError):
+        usage.check_start("web_search", tier="thorough", lookahead=lookahead)

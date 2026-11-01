@@ -129,7 +129,12 @@ class BudgetGate:
         self._usage = usage
 
     def check(
-        self, service: str, *, tier: str, confirmation: Confirmation | None = None
+        self,
+        service: str,
+        *,
+        tier: str,
+        confirmation: Confirmation | None = None,
+        lookahead: int = 1,
     ) -> GateAnswer:
         """What starting an action on ``service`` and ``tier`` meets right now. A
         ``confirmation`` naming the warning that is due for ``service`` is stored, and the
@@ -138,19 +143,29 @@ class BudgetGate:
         if usage is None:
             return Start()
         try:
-            checked = usage.check_start(service, tier=tier, confirming=confirmation)
+            checked = (
+                usage.check_start(service, tier=tier, confirming=confirmation)
+                if lookahead == 1
+                else usage.check_start(
+                    service, tier=tier, confirming=confirmation, lookahead=lookahead
+                )
+            )
         except UsageLimitsUnreadable as error:
             return Unreadable(error.user_message)
-        return _answer(service, checked)
+        return _answer(service, checked, lookahead=lookahead)
 
-    def blocked(self, service: str) -> BlockedAction | None:
+    def blocked(self, service: str, *, lookahead: int = 1) -> BlockedAction | None:
         """The block to show on an action's button before anyone presses it, if the service
         is at its blocking point. Writes nothing."""
         usage = self._usage()
         if usage is None:
             return None
         try:
-            decision = usage.preflight(service, tier=_FAST)  # the block is the same on any tier
+            decision = (
+                usage.preflight(service, tier=_FAST)
+                if lookahead == 1
+                else usage.preflight(service, tier=_FAST, lookahead=lookahead)
+            )  # the block is the same on any tier
         except UsageLimitsUnreadable:
             return None  # said when the action is started, and in Settings > Usage budgets
         return _blocked(SERVICE_NAMES[service], decision)
@@ -162,10 +177,15 @@ def _blocked(name: str, decision: Decision) -> BlockedAction | None:
     return BlockedAction(BudgetBlocked(name, decision.reset_date).user_message)
 
 
-def _warning_text(decision: Warn, block_at: int | None) -> str:
+def _warning_text(decision: Warn, block_at: int | None, *, lookahead: int = 1) -> str:
     """The warning's figures: what this request reaches, where the app stops when that
     isn't the allowance, whether this is the last request it lets through, and the reset."""
     parts = [f"This request will be number {decision.count} of {decision.allowance} this period."]
+    if lookahead > 1:
+        parts = [
+            f"This action uses up to {lookahead} searches and can reach "
+            f"{decision.count} of {decision.allowance} this period."
+        ]
     stops = None if block_at is None else block_point_note(block_at, decision.allowance)
     if stops is not None:
         parts.append(stops)
@@ -175,7 +195,7 @@ def _warning_text(decision: Warn, block_at: int | None) -> str:
     return " ".join(parts)
 
 
-def _answer(service: str, checked: StartCheck) -> GateAnswer:
+def _answer(service: str, checked: StartCheck, *, lookahead: int = 1) -> GateAnswer:
     name = SERVICE_NAMES[service]
     decision = checked.decision
     blocked = _blocked(name, decision)
@@ -189,7 +209,7 @@ def _answer(service: str, checked: StartCheck) -> GateAnswer:
     if isinstance(decision, Warn):
         return ShowWarning(
             heading=f"{_WARNING_NAMES[decision.threshold]} for {name}",
-            description=_warning_text(decision, checked.block_at),
+            description=_warning_text(decision, checked.block_at, lookahead=lookahead),
             fields=MappingProxyType(
                 {
                     SERVICE_FIELD: service,
@@ -199,6 +219,11 @@ def _answer(service: str, checked: StartCheck) -> GateAnswer:
             ),
         )
     if isinstance(decision, Note) and not checked.acknowledged:
+        if lookahead > 1:
+            return Start(
+                f"Past a warning point: up to {lookahead} searches can reach "
+                f"{decision.count} of {decision.allowance} this period."
+            )
         return Start(
             f"Past a warning point: this request is number {decision.count} of "
             f"{decision.allowance} this period."

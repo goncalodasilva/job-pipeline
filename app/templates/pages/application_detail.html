@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% set live_updates = true %}
-{% block extra_scripts %}<script src="{{ static('js/cv-step.js') }}" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ static('js/cv-step.js') }}" defer></script>{% if tab == 'prep' %}<script src="{{ static('js/prep.js') }}" defer></script>{% endif %}{% endblock %}
 {% block content %}
 <h1>Application details</h1>
 <p><a href="/board">Back to Board</a></p>
 <nav class="tabs" aria-label="Application sections">
   <ul>
-    <li><a href="/applications/{{ application_id }}"{% if tab != 'tailoring' %} aria-current="page"{% endif %}>Timeline and contacts</a></li>
+    <li><a href="/applications/{{ application_id }}"{% if tab == 'timeline' %} aria-current="page"{% endif %}>Timeline and contacts</a></li>
     <li><a href="/applications/{{ application_id }}?tab=tailoring"{% if tab == 'tailoring' %} aria-current="page"{% endif %}>Tailoring</a></li>
+    <li><a href="/applications/{{ application_id }}?tab=prep"{% if tab == 'prep' %} aria-current="page"{% endif %}>Interview prep</a></li>
   </ul>
 </nav>
 {% if tab == 'tailoring' %}
@@ -15,6 +16,9 @@
 <p><a href="/jobs/{{ tailoring.view.job_id }}">Open job</a>{% if tailoring.view.company %} · {{ tailoring.view.company }}{% endif %}</p>
 <h3>Tailoring</h3>
 {% include "fragments/tailoring/_tailoring.html" %}
+{% elif tab == 'prep' %}
+<h2>{{ prep.view.title }}{% if prep.view.company %} · {{ prep.view.company }}{% endif %}</h2>
+{% include "fragments/prep/_prep.html" %}
 {% else %}
 {% include "fragments/applications/_detail.html" %}
 {% endif %}

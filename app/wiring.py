@@ -85,7 +85,7 @@ from app.modules.fetch import JobPageFetcher
 from app.modules.fetch.providers.demo_pages import demo_pages
 from app.modules.fetch.providers.fake import FakeHostRouter, FakeJobPageFetcher
 from app.modules.fetch.providers.guarded import GuardedJobPageFetcher
-from app.modules.search import SearchProvider
+from app.modules.search import SearchProvider, TransientSearchResults
 from app.modules.search.providers.delegated import DelegatedAISearch
 from app.modules.search.providers.fake import FakeSearchProvider
 from app.modules.secrets import KNOWN_SECRET_KEYS
@@ -169,6 +169,7 @@ class Wiring:
         self._environment = environment
         self.allow_fakes = allow_fakes
         self.demo = demo
+        self.search_results = TransientSearchResults()
         # A demo run on the demo's own folder: the fake is offered by itself there (M2.26).
         self.demo_workspace = demo and demo_workspace
         # When providers observe usage (M2.2); the app's clock when ``create_app`` builds it.
@@ -222,6 +223,16 @@ class Wiring:
             return DelegatedAISearch()
         if provider.name == "fake" and self.allow_fakes:
             return FakeSearchProvider()
+        return None
+
+    def search_settings(self, settings: AIProviderSettings) -> SearchProvider | None:
+        """Settings metadata without building a provider or reading credentials."""
+        if settings.kind not in self._offered():
+            return None
+        if settings.kind == "fake" and self.allow_fakes:
+            return FakeSearchProvider()
+        if settings.kind and claude_auth_mode(settings.kind) is not None:
+            return DelegatedAISearch() if ClaudeSdkProvider.capabilities.web_search else None
         return None
 
     def fake_for_key(self, key: str | None) -> FakeAIProvider:
@@ -471,7 +482,7 @@ def _saved_fake() -> FakeAIProvider:
     """The fake as the saved provider: it answers real tasks from the fictional keyword
     scripts (ADR-088; ADR-089 item 8). The connection-test fake (``fake_for_key``) never
     does."""
-    provider = FakeAIProvider(app_mode=True)
+    provider = FakeAIProvider(app_mode=True, web_search=True)
     provider.script_keywords("summarize_job", summary_scripts())
     provider.script_keywords("assess_fit", fit_scripts())
     provider.script_keywords("gap_check", gap_check_scripts())

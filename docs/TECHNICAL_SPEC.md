@@ -771,6 +771,7 @@ Each AI task has one prompt template, one output schema, a default tier, and fix
 | `enrichment_question` | Fast | One open question and why it is asked | M7 |
 | `structure_answer` | Fast | Draft fact or story, missing parts | M7 |
 | `interview_questions` | Thorough | Questions with type and origin | M8 |
+| `interview_web_questions` | Thorough | Reported-online questions with searched source URLs and stated dates; explicit web search, at most five calls (ADR-124) | M8 |
 | `answer_feedback` | Thorough | Checklist results, unsupported claims, suggested facts | M8 |
 | `draft_narrative` | Thorough | Narrative card with fact ids | M8 |
 | `adapt_answer` | Thorough | Adapted answer with fact ids | M8 |

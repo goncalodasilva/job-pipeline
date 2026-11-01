@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import posted_version, single_value_form
 from app.api.pages import AREAS, area
+from app.api.prep import prep_context
 from app.api.security import PAGE_TAG
 from app.api.tailoring import step_from_query, tailoring_context
 from app.api.templating import render, templates
@@ -66,6 +67,19 @@ def _not_found() -> Response:
 
 def page(request: Request, application_id: str) -> Response:
     try:
+        if request.query_params.get("tab") == "prep":
+            return render(
+                request,
+                page="pages/application_detail.html",
+                fragment="fragments/prep/_prep.html",
+                ctx={
+                    "prep": prep_context(request, application_id),
+                    "tab": "prep",
+                    "application_id": application_id,
+                    "areas": AREAS,
+                    "area": area("board"),
+                },
+            )
         if request.query_params.get("tab") == "tailoring":
             shown = tailoring_context(
                 request, application_id, step_from_query(request.query_params.get("step"))

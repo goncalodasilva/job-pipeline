@@ -1,0 +1,90 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "questions": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+(?![\\s\\S])"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "behavioral",
+              "technical",
+              "cv"
+            ]
+          },
+          "requirement_ids": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]{1,128}(?![\\s\\S])"
+            },
+            "minItems": 1
+          },
+          "company_specific": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "text",
+          "type",
+          "requirement_ids",
+          "company_specific"
+        ]
+      }
+    },
+    "ask_them": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+(?![\\s\\S])"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]{1,128}(?![\\s\\S])"
+            }
+          },
+          "company_specific": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "text",
+          "requirement_ids",
+          "company_specific"
+        ]
+      }
+    }
+  },
+  "required": [
+    "questions",
+    "ask_them"
+  ]
+}
