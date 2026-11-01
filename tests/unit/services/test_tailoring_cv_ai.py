@@ -266,7 +266,11 @@ async def test_tailor_cv_request_has_facts_for_ai_only_and_no_personal_details()
         "user": request.user,
         "model": request.model,
         "output_schema": request.output_schema,
+        "max_searches": request.max_searches,
+        "on_search_usage": request.on_search_usage,
     }
+    assert type(request.max_searches) is int and 1 <= request.max_searches <= 20
+    assert request.on_search_usage is None
     # Every field of the request is looked at (a new field makes this fail until it is).
     assert set(fields) | {"allow_web_search", "on_tool_use", "on_usage"} == set(
         request.__dataclass_fields__

@@ -63,6 +63,8 @@ class RecordingTransport(ReplayTransport):
         self._on_message = on_message
         self._on_connect = on_connect
         self._user_seen = False
+        self._hook_ids: dict[str, str] = {}
+        self._hook_replies: dict[str, anyio.Event] = {}
         self.frames_read = 0
         self.closed = False
         self.close_count = 0
@@ -87,7 +89,17 @@ class RecordingTransport(ReplayTransport):
                     self._user_seen = True
                     await self._send.send(_REPLAY)
             else:
+                if (
+                    frame.get("type") == "control_request"
+                    and frame["request"].get("subtype") == "initialize"
+                ):
+                    for event, matchers in (frame["request"].get("hooks") or {}).items():
+                        self._hook_ids[event] = matchers[0]["hookCallbackIds"][0]
                 await super().write(line + "\n")
+                if frame.get("type") == "control_response":
+                    reply = self._hook_replies.get(frame.get("response", {}).get("request_id"))
+                    if reply is not None:
+                        reply.set()
 
     async def _messages(self) -> AsyncIterator[dict[str, Any]]:
         async for frame in self._receive:
@@ -100,7 +112,34 @@ class RecordingTransport(ReplayTransport):
                 if self._on_message is not None:
                     self._on_message(recorded)
                 self.frames_read += 1
-                yield dict(recorded)
+                if "__hook_event__" in recorded:
+                    event = recorded["__hook_event__"]
+                    callback_id = self._hook_ids.get(event)
+                    if callback_id is None:
+                        raise AssertionError("The replay expected a registered SDK hook.")
+                    request_id = f"fictional-hook-{self.frames_read}"
+                    reply = anyio.Event()
+                    self._hook_replies[request_id] = reply
+                    yield {
+                        "type": "control_request",
+                        "request_id": request_id,
+                        "request": {
+                            "subtype": "hook_callback",
+                            "callback_id": callback_id,
+                            "tool_use_id": "fictional-search",
+                            "input": {
+                                "hook_event_name": event,
+                                "tool_use_id": "fictional-search",
+                                "tool_name": recorded["tool_name"],
+                                "tool_input": {},
+                                "tool_response": recorded.get("tool_response"),
+                            },
+                        },
+                    }
+                    with anyio.fail_after(2):
+                        await reply.wait()
+                else:
+                    yield dict(recorded)
                 await anyio.sleep(0)  # let the consumer run between frames
             if self._raise_exc is not None:
                 raise self._raise_exc

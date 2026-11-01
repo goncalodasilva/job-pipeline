@@ -1398,3 +1398,24 @@ def test_check_start_with_unreadable_budgets_raises(db: Database, usage: Any) ->
             SERVICE, tier="fast", confirming=Confirmation(SERVICE, "first", CYCLE_START)
         )
     assert _notices(db) == []
+
+
+def test_reported_searches_are_counted_after_budget_block(usage, db: Database) -> None:
+    _set_budget(
+        usage,
+        _budget(allowance=3, first_warning=1, second_warning=2, block_at=3),
+        service="web_search",
+    )
+    for _ in range(3):
+        first = usage.reserve("web_search", tier="thorough", task_type="fictional_web")
+        usage.complete(first, success=True, tokens=None)
+    with pytest.raises(BudgetBlocked):
+        usage.reserve("web_search", tier="thorough", task_type="fictional_web")
+    usage.record_reported_searches(
+        2, tier="thorough", task_type="fictional_web", task_id=None, success=True
+    )
+    assert usage.status("web_search").local_count == 5
+    rows = db.connection.execute("SELECT task_type, success FROM usage_records").fetchall()
+    assert len(rows) == 5
+    assert all(r[0] == "fictional_web" and r[1] == 1 for r in rows)
+    assert usage.status("web_search").unfinished_count == 0

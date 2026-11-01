@@ -187,6 +187,8 @@ class AIRequest:
     # inside the provider's receive loop, so it must only record or queue cheaply: never
     # block or do I/O (no database writes). An exception it raises is logged and ignored.
     on_usage: UsageCallback | None = None
+    max_searches: int = 5
+    on_search_usage: Callable[[int], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -195,6 +197,8 @@ class AIResponse:
     data: Mapping[str, Any]  # parsed JSON object; the task executor validates the schema (M1.12)
     model: str
     usage: TokenUsage | None  # when the provider reports it
+    searched_urls: tuple[str, ...] = ()
+    search_count: int = 0
 
 
 class CallCancelled(Exception):
@@ -226,6 +230,12 @@ class UsageMeter(Protocol):
 
     def snapshot(self, snapshot: ProviderUsageSnapshot) -> None: ...
 
+    def reported_searches(
+        self, count: int, *, tier: str, task_type: str, task_id: str | None, success: bool
+    ) -> None:
+        """Count searches already performed, without blocking on a budget."""
+        ...
+
 
 @dataclass(frozen=True)
 class TaskResult:
@@ -236,6 +246,7 @@ class TaskResult:
     tier: Tier  # the tier the task resolved to (spec 3.7)
     attempts: int  # 1, or 2 after the one retry (spec 3.6)
     usage: tuple[TokenUsage | None, ...]  # one entry per provider call that returned
+    searched_urls: tuple[str, ...] = ()
 
 
 class AITaskRunner(Protocol):

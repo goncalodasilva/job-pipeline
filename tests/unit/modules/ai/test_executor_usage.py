@@ -667,6 +667,11 @@ class Memory:
     def snapshot(self, snapshot: ProviderUsageSnapshot) -> None:
         return None
 
+    def reported_searches(
+        self, count: int, *, tier: str, task_type: str, task_id: str | None, success: bool
+    ) -> None:
+        return None
+
 
 meter: UsageMeter = Memory()
 scripted = ScriptedResponse(data={"answer": "fictional"}, tool_calls=2)

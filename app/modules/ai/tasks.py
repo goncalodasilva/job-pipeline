@@ -14,6 +14,8 @@ class TaskSpec:
     name: str
     kind: TaskKind
     allow_web_search: bool = False
+    # Existing generic web callers keep the global ceiling; M8 web tasks set five.
+    max_searches: int = 20
 
 
 # The practice task (M2.17; ADR-076 item 2) drives the runner, the meter and the tasks UI

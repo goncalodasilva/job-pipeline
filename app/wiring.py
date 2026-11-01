@@ -85,6 +85,9 @@ from app.modules.fetch import JobPageFetcher
 from app.modules.fetch.providers.demo_pages import demo_pages
 from app.modules.fetch.providers.fake import FakeHostRouter, FakeJobPageFetcher
 from app.modules.fetch.providers.guarded import GuardedJobPageFetcher
+from app.modules.search import SearchProvider
+from app.modules.search.providers.delegated import DelegatedAISearch
+from app.modules.search.providers.fake import FakeSearchProvider
 from app.modules.secrets import KNOWN_SECRET_KEYS
 from app.modules.secrets.providers.chained import ChainedSecretStore
 from app.modules.secrets.providers.env import EnvSecretStore
@@ -210,6 +213,16 @@ class Wiring:
             clock=self.clock,
             run_timeout=PROVIDER_RUN_TIMEOUT,
         )
+
+    def search_provider(self, provider: AIProvider) -> SearchProvider | None:
+        """Select metadata only for an AI provider that can run metered searches."""
+        if not provider.capabilities.web_search:
+            return None
+        if provider.name == "claude":
+            return DelegatedAISearch()
+        if provider.name == "fake" and self.allow_fakes:
+            return FakeSearchProvider()
+        return None
 
     def fake_for_key(self, key: str | None) -> FakeAIProvider:
         """The fake whose connection test follows the fictional keywords in ``key``. Only

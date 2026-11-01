@@ -65,6 +65,7 @@ class _Attempt:
     usage: TokenUsage | None
     returned: bool  # False when the provider raised InvalidModelOutput (no response)
     problems: str
+    searched_urls: tuple[str, ...] = ()
 
 
 class TaskExecutor:
@@ -119,12 +120,16 @@ class TaskExecutor:
             output_schema=template.output_schema,
             model=resolve_model(run_tier, settings, self._provider_defaults),
             allow_web_search=spec.allow_web_search,
+            max_searches=spec.max_searches,
         )
-        call = CallMeter(meter, tier=run_tier, task_type=task, task_id=task_id)
+        call = CallMeter(
+            meter, tier=run_tier, task_type=task, task_id=task_id, max_searches=spec.max_searches
+        )
         request = replace(
             request,
             on_usage=call.on_usage,
             on_tool_use=call.on_tool_use if spec.allow_web_search else None,
+            on_search_usage=call.on_search_usage if spec.allow_web_search else None,
         )
         attempts = [await self._attempt(request, validator, cancel, call)]
         if attempts[0].data is None:
@@ -146,6 +151,7 @@ class TaskExecutor:
             tier=run_tier,
             attempts=len(attempts),
             usage=tuple(attempt.usage for attempt in attempts if attempt.returned),
+            searched_urls=last.searched_urls,
         )
 
     async def _attempt(
@@ -169,9 +175,15 @@ class TaskExecutor:
         try:
             attempt = _checked(response, validator)
         except Exception:  # the provider answered: the call stays counted, with its tokens
-            await call.finish(success=False, tokens=response.usage)
+            await call.finish(
+                success=False, tokens=response.usage, reported_searches=response.search_count
+            )
             raise
-        await call.finish(success=attempt.data is not None, tokens=response.usage)
+        await call.finish(
+            success=attempt.data is not None,
+            tokens=response.usage,
+            reported_searches=response.search_count,
+        )
         return attempt
 
 
@@ -192,7 +204,12 @@ def _checked(response: AIResponse, validator: Draft202012Validator) -> _Attempt:
     if problems:
         return _Attempt(None, response.model, response.usage, returned=True, problems=problems)
     return _Attempt(
-        MappingProxyType(data), response.model, response.usage, returned=True, problems=""
+        MappingProxyType(data),
+        response.model,
+        response.usage,
+        returned=True,
+        problems="",
+        searched_urls=response.searched_urls,
     )
 
 

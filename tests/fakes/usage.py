@@ -70,6 +70,23 @@ class RecordingMeter:
                 record.completed, record.success, record.tokens = True, success, tokens
             self.events.append(f"complete:{record.kind}")
 
+    def reported_searches(
+        self, count: int, *, tier: str, task_type: str, task_id: str | None, success: bool
+    ) -> None:
+        with self._lock:
+            for _ in range(count):
+                record = MeterRecord(
+                    f"record-{len(self.records) + 1}",
+                    "search",
+                    tier,
+                    task_type,
+                    task_id,
+                    completed=True,
+                    success=success,
+                    completions=1,
+                )
+                self.records.append(record)
+
     def snapshot(self, snapshot: Any) -> None:
         with self._lock:
             self.threads.append(("snapshot", threading.get_ident()))

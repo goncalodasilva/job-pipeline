@@ -45,6 +45,7 @@ from claude_agent_sdk import (
     CLIConnectionError,
     CLIJSONDecodeError,
     CLINotFoundError,
+    HookMatcher,
     Message,
     ProcessError,
     RateLimitEvent,
@@ -54,6 +55,7 @@ from claude_agent_sdk import (
 
 # Not re-exported by the SDK's top level (0.2.163).
 from claude_agent_sdk._errors import MessageParseError
+from claude_agent_sdk.types import HookContext, HookInput, HookJSONOutput
 
 from app.domain.clock import Clock, SystemClock
 from app.domain.errors import (
@@ -67,6 +69,7 @@ from app.domain.errors import (
 )
 from app.domain.settings import ClaudeAuthMode
 from app.modules.ai import (
+    WEB_SEARCH_TOOL,
     AICapabilities,
     AIRequest,
     AIResponse,
@@ -89,6 +92,7 @@ AuthMode = ClaudeAuthMode
 # Structured output is delivered through a tool call inside the CLI, so one model turn
 # may not be enough; the exact bound is confirmed by the live check (M1.25, ADR-045).
 MAX_TURNS: Final = 2
+HOOK_TIMEOUT_SECONDS = 10.0
 # The SDK's own name for its web search. Providers translate SDK tool names to the hook name
 # ``app.modules.ai.WEB_SEARCH_TOOL`` ("web_search") before asking ``AIRequest.on_tool_use``.
 _SDK_WEB_SEARCH_TOOL: Final = "WebSearch"
@@ -179,6 +183,7 @@ def build_options(
     workdir: Path,
     credential: str | None,
     allow_web_search: bool = False,
+    max_searches: int = 5,
     environ: Mapping[str, str] | None = None,
     config_dir: Path | None = None,
 ) -> ClaudeAgentOptions:
@@ -195,6 +200,8 @@ def build_options(
         raise ValueError("Token and API-key modes need a private config folder; no other.")
     if config_dir is not None and not config_dir.is_absolute():
         raise ValueError("The config folder must be an absolute path.")
+    if not 1 <= max_searches <= 20:
+        raise ValueError("Search cap must be between 1 and 20.")
     tools = [_SDK_WEB_SEARCH_TOOL] if allow_web_search else []
     return ClaudeAgentOptions(
         tools=list(tools),
@@ -202,7 +209,7 @@ def build_options(
         permission_mode="dontAsk",
         system_prompt=system,
         model=model,
-        max_turns=MAX_TURNS,
+        max_turns=MAX_TURNS + max_searches if allow_web_search else MAX_TURNS,
         output_format={"type": "json_schema", "schema": dict(output_schema)},
         cwd=workdir,
         # Nothing from the filesystem: no settings, CLAUDE.md, MCP servers, plugins or skills.
@@ -587,12 +594,6 @@ class ClaudeSdkProvider:
     ) -> AIResponse:
         if cancel.cancelled:
             raise CallCancelled
-        # ADR-080 (open item): this provider does not call ``AIRequest.on_tool_use`` yet
-        # (ADR-076 item 12, due before M8), so a real web search would run uncounted.
-        # Refused before the credential, the CLI and any client are touched. Remove this
-        # refusal when the hook is wired.
-        if request.allow_web_search:
-            raise ProviderRequestRejected(detail="web search not metered")
         credential = self._credential()
         timeout = _earliest(timeout, self._run_timeout)
         # asyncio.timeout ties the provider to asyncio, which the app runs on (uvicorn).
@@ -643,6 +644,7 @@ class ClaudeSdkProvider:
                 workdir=workdir,
                 credential=credential,
                 allow_web_search=request.allow_web_search,
+                max_searches=request.max_searches,
                 environ=self._environ,
                 config_dir=config_dir,
             ),
@@ -650,7 +652,24 @@ class ClaudeSdkProvider:
             cli_path=cli,
             stderr=_discard_stderr,
         )
-        run = _RunState()
+        search = _SearchHooks(request)
+        if request.allow_web_search:
+            options = dataclasses.replace(
+                options,
+                hooks={
+                    "PreToolUse": [
+                        HookMatcher(
+                            matcher=None, hooks=[search.before], timeout=HOOK_TIMEOUT_SECONDS + 5
+                        )
+                    ],
+                    "PostToolUse": [
+                        HookMatcher(
+                            matcher=None, hooks=[search.after], timeout=HOOK_TIMEOUT_SECONDS + 5
+                        )
+                    ],
+                },
+            )
+        run = _RunState(request.on_search_usage if request.allow_web_search else None)
         usage = _UsageReporter(_SERVICE_BY_MODE[self._mode], self._clock, request.on_usage)
         mapped: AppError | None = None
         cancelled = False
@@ -674,7 +693,100 @@ class ClaudeSdkProvider:
             raise CallCancelled
         if mapped is not None:
             raise mapped
-        return run.response(request.model)
+        return dataclasses.replace(run.response(request.model), searched_urls=tuple(search.urls))
+
+
+class _SearchHooks:
+    """Per-call hook state; only successfully authorized searches supply sources."""
+
+    def __init__(self, request: AIRequest) -> None:
+        self.request = request
+        self.urls: list[str] = []
+        self._allowed: set[str] = set()
+        self._count = 0
+        self._lock = asyncio.Lock()
+
+    async def before(
+        self, data: HookInput, tool_id: str | None, context: HookContext
+    ) -> HookJSONOutput:
+        # ADR-128: this exact CLI-owned tool emits JSON and performs no search.
+        if data.get("tool_name") == "StructuredOutput":
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                }
+            }
+        allowed = False
+        try:
+            async with asyncio.timeout(HOOK_TIMEOUT_SECONDS):
+                async with self._lock:
+                    if (
+                        data.get("tool_name") == _SDK_WEB_SEARCH_TOOL
+                        and self.request.on_tool_use is not None
+                        and self._count < self.request.max_searches
+                    ):
+                        allowed = await self.request.on_tool_use(WEB_SEARCH_TOOL) is True
+                        if allowed:
+                            self._count += 1
+                            if tool_id is not None:
+                                self._allowed.add(tool_id)
+        except Exception:
+            # Never include tool input, errors or provider prose in logs or decisions.
+            allowed = False
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow" if allowed else "deny",
+            }
+        }
+
+    async def after(
+        self, data: HookInput, tool_id: str | None, context: HookContext
+    ) -> HookJSONOutput:
+        if data.get("tool_name") != _SDK_WEB_SEARCH_TOOL or tool_id not in self._allowed:
+            return {}
+        self._allowed.remove(tool_id)
+        for url in _searched_urls(data.get("tool_response")):
+            if url not in self.urls and len(self.urls) < 50:
+                self.urls.append(url)
+        return {}
+
+
+def _searched_urls(value: object) -> tuple[str, ...]:
+    """Bounded walk of structured search results; no URLs mined from arbitrary prose."""
+    from urllib.parse import urlsplit
+
+    found: list[str] = []
+    pending = [value]
+    visited = 0
+    while pending and visited < 2000 and len(found) < 50:
+        node = pending.pop()
+        visited += 1
+        if isinstance(node, dict):
+            url = node.get("url")
+            if isinstance(url, str) and len(url) <= 2000 and not any(ord(c) < 33 for c in url):
+                try:
+                    parsed = urlsplit(url)
+                    valid = (
+                        parsed.scheme in {"http", "https"}
+                        and bool(parsed.hostname)
+                        and not parsed.username
+                    )
+                except ValueError:
+                    valid = False
+                if valid and url not in found:
+                    found.append(url)
+            pending.extend(reversed(list(node.values())[:2000]))
+        elif isinstance(node, list):
+            pending.extend(reversed(node[:2000]))
+    return tuple(found)
+
+
+def _search_count(usage: Mapping[str, Any] | None) -> int:
+    tools = usage.get("server_tool_use") if usage else None
+    count = tools.get("web_search_requests") if isinstance(tools, dict) else None
+    return count if type(count) is int and count >= 0 else 0
 
 
 def _earliest(first: float | None, second: float | None) -> float | None:
@@ -700,9 +812,9 @@ async def _receive(
     while True:
         try:
             async for message in client.receive_response():
+                run.observe(message)
                 if cancel.cancelled:
                     return True
-                run.observe(message)
                 if isinstance(message, RateLimitEvent):
                     usage.observe(message)
             return False
@@ -901,7 +1013,8 @@ async def _disconnect(client: ClaudeSDKClient) -> None:
 class _RunState:
     """What one call's messages reported."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_search_usage: Callable[[int], None] | None = None) -> None:
+        self._on_search_usage = on_search_usage
         self.model: str | None = None
         self.assistant_error: str | None = None
         self.result: ResultMessage | None = None
@@ -914,6 +1027,11 @@ class _RunState:
                 self.assistant_error = message.error
         elif isinstance(message, ResultMessage):
             self.result = message
+            if self._on_search_usage is not None:
+                try:
+                    self._on_search_usage(_search_count(message.usage))
+                except Exception as error:
+                    _LOG.warning("A search usage callback failed (%s)", type(error).__name__)
 
     def response(self, requested_model: str) -> AIResponse:
         result = self.result
@@ -932,6 +1050,7 @@ class _RunState:
             data=output,
             model=self._reported_model(result) or requested_model,
             usage=_usage(result.usage),
+            search_count=_search_count(result.usage),
         )
 
     def _reported_model(self, result: ResultMessage) -> str | None:

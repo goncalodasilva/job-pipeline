@@ -31,3 +31,10 @@ class ServiceUsageMeter:
 
     def snapshot(self, snapshot: ProviderUsageSnapshot) -> None:
         self._usage.save_snapshot(snapshot)
+
+    def reported_searches(
+        self, count: int, *, tier: str, task_type: str, task_id: str | None, success: bool
+    ) -> None:
+        self._usage.record_reported_searches(
+            count, tier=tier, task_type=task_type, task_id=task_id, success=success
+        )

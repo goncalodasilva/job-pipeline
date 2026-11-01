@@ -148,7 +148,7 @@ def practice_responses(outcome: str, *, delay_seconds: float) -> tuple[ScriptedR
 
 class FakeAIProvider:
     name: Final = "fake"
-    capabilities: Final = AICapabilities(reports_token_usage=True)
+    capabilities: AICapabilities = AICapabilities(reports_token_usage=True)
 
     def __init__(
         self,
@@ -156,9 +156,11 @@ class FakeAIProvider:
         connection: FakeOutcome = "connected",
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         app_mode: bool = False,
+        web_search: bool = False,
     ) -> None:
         """``app_mode`` (set by wiring): keep no requests in memory, since prompts carry
         personal data, and answer an unscripted task with a plain error, not a crash."""
+        self.capabilities = AICapabilities(reports_token_usage=True, web_search=web_search)
         self._connection = connection
         self._sleep = sleep
         self._app_mode = app_mode

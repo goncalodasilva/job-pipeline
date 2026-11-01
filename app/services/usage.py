@@ -261,6 +261,30 @@ class UsageService:
             )
         return record_id
 
+    def record_reported_searches(
+        self, count: int, *, tier: str, task_type: str, task_id: str | None, success: bool
+    ) -> None:
+        """M8: search usage reported after it happened is counted even above a budget."""
+        checked_tier = check_tier(tier)
+        if type(count) is not int or count < 0 or not is_task_type(task_type):
+            raise ValueError("Invalid reported search usage.")
+        with self._db.transaction() as conn:
+            now = utc_text(self._clock.now())
+            for _ in range(count):
+                record_id = self._ids.new()
+                usage_repo.insert_record(
+                    conn,
+                    record_id=record_id,
+                    service="web_search",
+                    tier=checked_tier,
+                    task_type=task_type,
+                    task_id=task_id,
+                    now=now,
+                )
+                usage_repo.complete_record(
+                    conn, record_id, success=success, input_tokens=None, output_tokens=None, now=now
+                )
+
     def complete(self, record_id: str, *, success: bool, tokens: TokenUsage | None) -> None:
         """Record a request's outcome; only the first completion counts."""
         input_tokens, output_tokens = token_counts(tokens)
