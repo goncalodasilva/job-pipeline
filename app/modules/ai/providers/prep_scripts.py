@@ -106,3 +106,25 @@ def feedback_data(user: str) -> dict[str, Any]:
         },
         "unsupported_claims": [],
     }
+
+
+_PRACTICE_CARD: Final = (
+    "Practice data. This card is a fictional example, not your own wording.",
+    "Practice data. Replace it with your own words before you rely on it.",
+)
+
+
+def narrative_data(user: str) -> dict[str, Any]:
+    """Fictional narrative card. Only the fact labels of the facts block are read, so it cites
+    only ids the request showed (one per paragraph, at most two paragraphs) and repeats nothing
+    from the facts, the posting, the notes or the brief. No fact shown, no paragraph."""
+    block = re.search(
+        r'<untrusted_document source="facts"[^>]*>\n(.*?)\n</untrusted_document>', user, re.S
+    )
+    ids = list(dict.fromkeys(_FACT_LABEL.findall(block[1]))) if block else []
+    return {
+        "units": [
+            {"text": text, "fact_ids": [fact_id], "added_details": []}
+            for text, fact_id in zip(_PRACTICE_CARD, ids, strict=False)
+        ]
+    }

@@ -1,0 +1,20 @@
+{
+  "data": {
+    "units": [
+      {
+        "text": "I planned 60 delivery routes a week with a team of 3.",
+        "fact_ids": [
+          "F1@1"
+        ],
+        "added_details": []
+      },
+      {
+        "text": "Cut invoice processing time by 85% across 14 warehouses.",
+        "fact_ids": [
+          "F2@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

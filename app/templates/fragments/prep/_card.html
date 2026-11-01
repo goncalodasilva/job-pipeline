@@ -1,0 +1,112 @@
+{# One narrative card (M8.2 part B). Needs `card` (a CardView), `v` (the CardsView) and `cards`
+   from app/api/prep_cards.py. `unit.text`, flags, claims and fact wording are escaped text,
+   never marked safe. The salary card (kind "salary") is built by code: its lines can only be removed
+   (it stays approved), and it is rebuilt, not drafted. The card's own forms swap only this
+   section (hx-select) plus #cards-status, except "Draft", whose budget question needs the whole
+   region. #}
+{% set kind = card.kind %}{% set salary = kind == 'salary' %}
+{% set base = cards.base %}
+{% set version_id = card.version.id if card.version else '' %}
+{% set busy = card.task.active %}
+{% set need_facts = (not salary) and (not v.has_facts) %}
+{% set blocked_ids = card.blockers | map(attribute='unit_id') | unique | list %}
+<section id="card-{{ kind }}" data-card="{{ kind }}" data-state="{{ card.state }}" aria-labelledby="card-{{ kind }}-heading" class="card">
+  <h4 id="card-{{ kind }}-heading" tabindex="-1" data-refresh-safe-focus{% if cards.focus == 'card-' ~ kind ~ '-heading' %} data-autofocus{% endif %}>{{ card.label }}</h4>
+  {% if cards.card == kind and cards.message and not cards.invalid_unit %}<p id="card-{{ kind }}-message" class="{{ 'field-error' if cards.error else 'notice' }}"{% if cards.error %} role="alert"{% endif %}>{{ cards.message }}{% if salary and cards.error %} <a id="card-salary-settings" href="/settings">Open Settings</a>{% endif %}</p>{% endif %}
+  {% if cards.recovered_kind == kind and cards.posted_text %}
+    <div id="card-{{ kind }}-recovery">
+      <label for="card-{{ kind }}-recovered">What you typed, not saved. Copy it before you reload.</label>
+      <textarea id="card-{{ kind }}-recovered" rows="5" readonly>{{ cards.posted_text }}</textarea>
+    </div>
+  {% endif %}
+  {% if card.version %}
+    <p id="card-{{ kind }}-status">{% if card.needs_recheck %}Needs re-check, version {{ card.version.number }}.{% elif card.version.status == 'approved' %}Approved, version {{ card.version.number }}.{% else %}Draft, version {{ card.version.number }}. Not approved yet.{% endif %}</p>
+    {% if card.version.origin == 'reused' %}<p class="field-hint">Copied from another application's card.</p>{% endif %}
+  {% endif %}
+  {% if card.left_out %}<p id="card-{{ kind }}-left-out" class="field-hint">{{ card.left_out }}</p>{% endif %}
+  {% if card.practice %}<p id="card-{{ kind }}-practice" class="badge">Practice data (fake provider). This card is a fictional example, not a real answer.</p>{% endif %}
+  {% if busy %}<p id="card-{{ kind }}-running" role="status">Drafting this card… Progress is also in Tasks.</p>{% endif %}
+  {% if cards.errors.get(kind) and not busy %}<p id="card-{{ kind }}-error" class="field-error" role="alert">{{ cards.errors.get(kind) }} Try drafting again.</p>{% endif %}
+  {% if need_facts or (card.empty and not salary and not card.removed_all) %}
+    <p id="card-{{ kind }}-empty">No confirmed facts support this card yet.</p>
+    <p><a id="card-{{ kind }}-sessions" href="/sessions/new">Answer questions in a session</a></p>
+  {% elif card.removed_all %}
+    <p id="card-{{ kind }}-removed">{% if salary %}You removed every line. Rebuild the card to get it back.{% else %}You removed every paragraph. Draft again to get a new one.{% endif %}</p>
+  {% endif %}
+
+  {% if card.units %}
+  <ol id="card-{{ kind }}-units" class="cv-lines">
+    {% for unit in card.units %}
+    {% set uid = unit.id %}
+    {% set unit_blockers = card.blockers | selectattr('unit_id', 'equalto', uid) | list %}
+    <li id="unit-{{ uid }}" data-unit data-unit-id="{{ uid }}" data-origin="{{ unit.origin }}" tabindex="-1"{% if unit_blockers %} data-flagged="true"{% endif %}>
+      <p data-unit-text id="unit-text-{{ uid }}">{{ unit.text }}</p>
+      {% if unit.origin == 'user' %}<p data-origin-label>Edited by you</p>{% endif %}
+      {% if unit_blockers %}<ul data-flags>{% for b in unit_blockers %}<li data-flag="{{ b.kind }}"><strong data-flag-label>{{ 'No fact supports this' if b.kind == 'unsupported' else 'Check this' }}</strong> <span data-flag-claim>{{ b.claim }}</span></li>{% endfor %}</ul>{% endif %}
+      {% if not salary %}
+        {% if unit.cited %}<details data-unit-facts><summary>Facts used ({{ unit.cited | length }})</summary>
+          <ul data-fact-list>{% for fact in unit.cited %}<li>{% if is_safe_id(fact.id) %}<a href="/facts/{{ fact.id }}/edit">{{ fact.text }}</a>{% else %}{{ fact.text }}{% endif %}</li>{% endfor %}</ul>
+        </details>{% else %}<p data-no-facts>No facts cited.</p>{% endif %}
+      {% endif %}
+      {% if not busy %}
+        {% if not salary %}
+        <details data-unit-edit{% if cards.invalid_unit == uid %} open{% endif %}><summary>Edit</summary>
+          <form data-unit-form="edit" method="post" action="{{ base }}/{{ kind }}/units/{{ uid }}/edit" hx-post="{{ base }}/{{ kind }}/units/{{ uid }}/edit" hx-target="#card-{{ kind }}" hx-select="#card-{{ kind }}" hx-select-oob="#cards-status" hx-swap="outerHTML" hx-disabled-elt="find button">
+            <input type="hidden" name="version" value="{{ version_id }}">
+            <label for="edit-{{ uid }}">Edit this paragraph</label>
+            {% if cards.invalid_unit == uid %}<p id="edit-error-{{ uid }}" class="field-error" role="alert">{{ cards.message }}</p>{% endif %}
+            <textarea id="edit-{{ uid }}" name="text" rows="5"{% if cards.invalid_unit == uid %} aria-invalid="true" aria-describedby="edit-error-{{ uid }}" data-autofocus{% endif %}>{{ cards.posted_text if cards.invalid_unit == uid else unit.text }}</textarea>
+            <button type="submit" class="button" aria-describedby="unit-text-{{ uid }}">Save paragraph</button>
+          </form>
+        </details>
+        {% endif %}
+        {% for action, label in [('remove', 'Remove'), ('confirm', 'This is true — save it as a fact')] %}{% if (action == 'remove') or (unit_blockers and not salary) %}
+        <form data-unit-form="{{ action }}" method="post" action="{{ base }}/{{ kind }}/units/{{ uid }}/{{ action }}" hx-post="{{ base }}/{{ kind }}/units/{{ uid }}/{{ action }}" hx-target="#card-{{ kind }}" hx-select="#card-{{ kind }}" hx-select-oob="#cards-status" hx-swap="outerHTML" hx-disabled-elt="find button">
+          <input type="hidden" name="version" value="{{ version_id }}"><button type="submit" class="button" aria-describedby="unit-text-{{ uid }}">{{ label }}</button>
+        </form>{% endif %}{% endfor %}
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+
+  {% if card.needs_recheck %}
+    <p id="card-{{ kind }}-recheck">A fact this card cites changed or was withdrawn. Edit, remove or confirm the flagged paragraphs: that saves a new draft, and you approve it again.</p>
+  {% elif card.approved %}
+    <p id="card-{{ kind }}-approved">{% if salary %}Approved. Remove a line and it stays approved. Rebuild it if your minimum or the posting changes.{% else %}Approved. Changing a paragraph starts a new draft.{% endif %}</p>
+  {% elif card.units and not salary %}
+    <form id="card-{{ kind }}-approve-form" method="post" action="{{ base }}/{{ kind }}/approve" hx-post="{{ base }}/{{ kind }}/approve" hx-target="#card-{{ kind }}" hx-select="#card-{{ kind }}" hx-select-oob="#cards-status" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ version_id }}">
+      <button type="submit" id="card-{{ kind }}-approve" class="button button-primary"{% if blocked_ids %} aria-disabled="true"{% endif %} aria-describedby="card-{{ kind }}-heading{% if blocked_ids %} card-{{ kind }}-approve-reason{% endif %}">Approve card</button>
+    </form>
+    {% if blocked_ids %}<p id="card-{{ kind }}-approve-reason" class="field-hint">{{ '1 paragraph needs your check.' if blocked_ids | length == 1 else (blocked_ids | length ~ ' paragraphs need your check.') }}</p>{% endif %}
+  {% endif %}
+
+  {% if salary %}
+    <form id="card-salary-form" method="post" action="{{ base }}/salary" hx-post="{{ base }}/salary" hx-target="#card-{{ kind }}" hx-select="#card-{{ kind }}" hx-select-oob="#cards-status" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ version_id }}">
+      <button type="submit" id="card-salary-build" class="button{% if not card.version %} button-primary{% endif %}" aria-describedby="card-salary-heading card-salary-hint">{{ 'Rebuild' if card.version else 'Build salary card' }}</button>
+    </form>
+    <p id="card-salary-hint" class="field-hint">Built from the minimum salary saved in <a id="card-salary-hint-settings" href="/settings">Settings</a> and the pay the posting states. It uses no AI and states no comparison. It is approved when it is built, and its lines are kept in your local database.</p>
+  {% else %}
+    <form id="card-{{ kind }}-generate-form" method="post" action="{{ base }}/{{ kind }}/generate" hx-post="{{ base }}/{{ kind }}/generate" hx-target="#prep" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ version_id }}">
+      <button type="submit" id="card-{{ kind }}-generate" class="button{% if not card.version %} button-primary{% endif %}"{% if cards.reason %} aria-disabled="true" aria-describedby="card-{{ kind }}-heading cards-reason"{% elif need_facts %} aria-disabled="true" aria-describedby="card-{{ kind }}-heading card-{{ kind }}-empty"{% elif busy %} aria-disabled="true" aria-describedby="card-{{ kind }}-heading card-{{ kind }}-running"{% else %} aria-describedby="card-{{ kind }}-heading card-{{ kind }}-generate-hint"{% endif %}>{{ 'Redraft' if card.version else 'Draft this card' }}</button>
+    </form>
+    <p id="card-{{ kind }}-generate-hint" class="field-hint">Uses AI: one request, and one more if the answer comes back unusable.</p>
+    {% if card.reusable %}
+    <form id="card-{{ kind }}-use-form" method="post" action="{{ base }}/{{ kind }}/use" hx-post="{{ base }}/{{ kind }}/use" hx-target="#card-{{ kind }}" hx-select="#card-{{ kind }}" hx-select-oob="#cards-status" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ version_id }}">
+      {% if card.reusable | length == 1 %}
+        <input type="hidden" name="source" value="{{ card.reusable[0].version_id }}">
+        <p id="card-{{ kind }}-use-hint" class="field-hint">Approved for {{ card.reusable[0].label }}, with the same angle ({{ v.angle_name }}).</p>
+      {% else %}
+        <label for="card-{{ kind }}-source">Copy the approved card of</label>
+        <select id="card-{{ kind }}-source" name="source">{% for option in card.reusable %}<option value="{{ option.version_id }}">{{ option.label }}</option>{% endfor %}</select>
+        <p id="card-{{ kind }}-use-hint" class="field-hint">Each was approved with the same angle ({{ v.angle_name }}).</p>
+      {% endif %}
+      <button type="submit" id="card-{{ kind }}-use" class="button" aria-describedby="card-{{ kind }}-heading card-{{ kind }}-use-hint">Use this card from another application</button>
+    </form>
+    {% endif %}
+  {% endif %}
+</section>

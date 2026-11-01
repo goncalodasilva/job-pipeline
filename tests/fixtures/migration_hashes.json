@@ -6,5 +6,6 @@
   "0005_applications.sql": "459e945a7aeeee647e9595b9a3141ed8c7a3cfc17613f4dd747fcd5606d59631",
   "0006_tailoring.sql": "dbd106346a93fb1d676f437bddce4e6531c14dcf32ce2aa11d393eae7b24835a",
   "0007_sessions.sql": "9a3fdb5cce561066b4e5080ba607e97ec5ae25633b93deebd7e201876c170cee",
-  "0008_interview_prep.sql": "b6eba8ad1493bc3217e3e1242b457a424be0f15e52ded912d41a436671ed64bc"
+  "0008_interview_prep.sql": "b6eba8ad1493bc3217e3e1242b457a424be0f15e52ded912d41a436671ed64bc",
+  "0009_prep_version_facts.sql": "d8b67fbbd5dee183339ed8c238094246376be4aa1711f1d7940d510bc95a8c1d"
 }

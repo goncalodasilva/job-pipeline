@@ -349,8 +349,15 @@ def drive_answer_feedback(desk: Exporting) -> None:
     assert desk.r.run.wait_terminal(made.task.id).status.value == "succeeded"
 
 
+def drive_draft_narrative(desk: Exporting) -> None:
+    aid = desk.cv_ready("narrative-job", template=False).id
+    ref = desk.r.run.app.state.prep_documents.start_card(aid, "tell_me_about_yourself")
+    assert desk.r.run.wait_terminal(ref.id).status.value == "succeeded"
+
+
 DRIVERS: dict[str, Callable[[Exporting], None]] = {
     "answer_feedback": drive_answer_feedback,
+    "draft_narrative": drive_draft_narrative,
     "extract_cv": drive_extract_cv,
     "refine_fact": drive_refine_fact,
     "summarize_job": drive_intake("summarize_job"),

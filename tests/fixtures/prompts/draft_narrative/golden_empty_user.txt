@@ -1,0 +1,33 @@
+The card to write: why_this_company
+
+The job title, company, posting and its extracted requirements, each with its requirement_id:
+
+<untrusted_document source="job_context" id="app-example">
+{"title":"Fictional Route Planner","company":"Fictional Harbor Kite","posting":"Fictional route planner","requirements":[{"requirement_id":"req-1","kind":"must_have","text":"Plans delivery routes for a small fleet."}]}
+</untrusted_document>
+
+The person's usable confirmed facts, with versioned references and the Role: of each:
+
+<untrusted_document source="facts" id="app-example">
+(none)
+</untrusted_document>
+
+The chosen angle (empty when none):
+
+<untrusted_document source="angle" id="app-example">
+
+</untrusted_document>
+
+The person's saved notes about the company (empty when none):
+
+<untrusted_document source="company_notes" id="app-example">
+
+</untrusted_document>
+
+A researched brief about the company (empty when none):
+
+<untrusted_document source="brief" id="app-example">
+
+</untrusted_document>
+
+Return only the card paragraphs, as JSON matching the schema.

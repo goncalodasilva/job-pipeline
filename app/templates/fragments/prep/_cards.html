@@ -1,0 +1,29 @@
+{# Narrative cards inside the Prep tab (M8.2 part B; AC-M8.4). Needs `cards` from
+   app/api/prep_cards.py. It is the whole #prep region, so every answer swaps it in place. Six
+   cards are drafted by AI from the confirmed facts, each paragraph citing the facts it rests
+   on; the seventh, the salary card, is built by code from the saved minimum and the pay the
+   posting states. Everything the model or the person wrote is escaped text. A card's own
+   buttons swap only that card (hx-select) and the page-level part (#cards-status: the reload
+   prompt and the budget reason), so a paragraph being edited in another card is kept. #}
+{% set v = cards.view %}
+<section id="prep" aria-labelledby="cards-heading" data-keep-edits
+         hx-get="{{ cards.base }}?refresh=1" hx-trigger="{% if cards.active %}every 2s, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML">
+  <p><a id="cards-back" href="{{ cards.page_url }}" hx-get="{{ cards.prep_url }}" hx-target="#prep" hx-swap="outerHTML">Back to questions</a></p>
+  <h3 id="cards-heading" tabindex="-1" data-refresh-safe-focus{% if cards.focus == 'cards-heading' %} data-autofocus{% endif %}>Narrative cards</h3>
+  <p id="cards-use" class="field-hint">Short answers for questions that come up in most interviews. Drafting a card uses AI: one request, and one more if the answer comes back unusable. The AI reads the job, your confirmed facts, your chosen angle and, for "Why this company", your saved notes about the company. Every paragraph cites the facts it rests on, and you approve each card yourself. The salary card is built without AI and is approved when it is built; its lines, including your minimum salary, are kept in your local database.</p>
+  <p id="cards-angle">{% if v.angle_name %}Angle: {{ v.angle_name }}{% else %}No angle chosen yet. <a id="cards-angle-link" href="/applications/{{ v.application_id }}?tab=tailoring&amp;step=2">Choose one in Tailoring</a>{% endif %}</p>
+  <nav id="cards-index" aria-label="Cards on this page">
+    <ul class="cards-index">{% for card in v.cards %}<li><a href="#card-{{ card.kind }}" data-section-link>{{ card.label }}</a></li>{% endfor %}</ul>
+  </nav>
+  <p data-stale-note hidden>Updates are ready. <button type="button" class="button" hx-get="{{ cards.base }}" hx-target="#prep" hx-swap="outerHTML">Refresh cards</button></p>
+  <div id="cards-status">
+    {% if cards.message and not cards.card and not cards.invalid_unit %}<p class="{{ 'field-error' if cards.error else 'notice' }}"{% if cards.error %} role="alert"{% endif %}>{{ cards.message }}</p>{% endif %}
+    {% if cards.conflict %}
+      {% set reload_id = 'cards-conflict' %}{% set reload_message = 'This card changed in another window.' %}{% set reload_detail = 'Your change was not saved.' %}{% set reload_url = cards.page_url %}
+      {% include 'fragments/shell/_reload_prompt.html' %}
+    {% endif %}
+    {% if cards.reason %}{% set budget_blocked = cards.reason %}{% include 'fragments/budget/_blocked.html' %}{% endif %}
+  </div>
+  {% for card in v.cards %}{% include 'fragments/prep/_card.html' %}{% endfor %}
+  {% if cards.dialog %}{% set budget_dialog = cards.dialog %}{% include 'fragments/budget/_dialog.html' %}{% endif %}
+</section>

@@ -1,0 +1,13 @@
+{
+  "data": {
+    "units": [
+      {
+        "text": "I audited the accounts of Lakeshore Bank over 2 years.",
+        "fact_ids": [
+          "F8@1"
+        ],
+        "added_details": []
+      }
+    ]
+  }
+}

@@ -48,7 +48,7 @@ _DETAILS_MESSAGE: Final = (
     "characters."
 )
 
-DropReason = Literal["too_many", "unknown_section", "heading", "invalid"]
+DropReason = Literal["too_many", "too_long", "unknown_section", "heading", "invalid"]
 
 
 @dataclass(frozen=True)

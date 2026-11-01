@@ -1,6 +1,7 @@
 <section id="prep" aria-labelledby="prep-heading" data-keep-edits
          hx-get="/applications/{{ prep.view.application_id }}/prep{{ prep.suffix }}" hx-trigger="{% if prep.active %}every 2s, {% endif %}tasks:resync from:body, tasks:updated from:body, usage:changed from:body" hx-swap="outerHTML">
   <h3 id="prep-heading" tabindex="-1" data-refresh-safe-focus{% if prep.focus == 'prep-heading' %} data-autofocus{% endif %}>Interview prep</h3>
+  <p><a id="prep-cards-link" href="/applications/{{ prep.view.application_id }}?tab=prep" hx-get="/applications/{{ prep.view.application_id }}/prep/cards" hx-target="#prep" hx-swap="outerHTML">Narrative cards</a> <span class="field-hint">Short answers for "Tell me about yourself", "Why this role" and more.</span></p>
   {% if prep.message %}<p class="notice">{{ prep.message }}</p>{% endif %}
   <p data-stale-note hidden>Updates are ready. <button type="button" class="button" hx-get="/applications/{{ prep.view.application_id }}/prep{{ prep.suffix }}{% if prep.suffix %}&amp;{% else %}?{% endif %}focus=1" hx-target="#prep" hx-swap="outerHTML">Refresh prep</button></p>
   {% if prep.conflict %}

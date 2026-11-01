@@ -50,6 +50,10 @@ WEB_TASKS = frozenset({"company_brief", "interview_web_questions"})
 # Spec 3.1 item 1: the tasks that write in the user's name.
 GENERATION_TASKS = frozenset({"tailor_cv", "draft_cover_letter", "draft_narrative", "adapt_answer"})
 FACT_ID_PATTERN = "^F[0-9]+@[0-9]+$"
+# M8.2 part B: a narrative card is a short list of kind-less units (text, fact_ids,
+# added_details) that may be empty: a card no confirmed fact supports has no unit to write.
+# Every other generation schema keeps both rules.
+KINDLESS_EMPTY_OK = frozenset({"draft_narrative"})
 
 # Keywords whose value is one schema, a list of schemas, or a map of name -> schema.
 _ONE = ("items", "contains", "not", "if", "then", "else", "propertyNames", "unevaluatedItems")
@@ -111,24 +115,26 @@ def open_objects(schema: Any, path: str = "$", *, inside_closed: bool = False) -
     return found
 
 
-def units_without_fact_ids(schema: dict[str, Any]) -> list[str]:
+def units_without_fact_ids(schema: dict[str, Any], task: str | None = None) -> list[str]:
     """What stops a generation schema from forcing fact ids onto every unit (spec 3.1 item 2;
     the pattern of ``prompt-file-format.md``). Empty when the rule holds."""
     # A cover letter's schema is a list of paragraphs (no kind); every other generation
     # task returns units with a kind.
     key = "paragraphs" if "paragraphs" in schema.get("properties", {}) else "units"
+    kindless = key == "paragraphs" or task in KINDLESS_EMPTY_OK
     if key not in schema.get("required", []):
         return [f"'{key}' is not required"]
     units = schema.get("properties", {}).get(key, {})
-    if units.get("type") != "array" or units.get("minItems", 0) < 1:
+    minimum = 0 if task in KINDLESS_EMPTY_OK else 1
+    if units.get("type") != "array" or units.get("minItems", 0) < minimum:
         return [f"'{key}' is not a list of at least one unit"]
     item = units.get("items", {})
     problems = []
-    needed = {"text", "fact_ids"} if key == "paragraphs" else {"kind", "text", "fact_ids"}
+    needed = {"text", "fact_ids"} if kindless else {"kind", "text", "fact_ids"}
     if not needed <= set(item.get("required", [])):
         problems.append(f"a unit doesn't require {', '.join(sorted(needed))}")
     kind = item.get("properties", {}).get("kind", {})
-    if key == "units" and kind.get("enum") != ["content", "structure"]:
+    if not kindless and kind.get("enum") != ["content", "structure"]:
         problems.append("a unit's kind is not content or structure")
     fact_ids = item.get("properties", {}).get("fact_ids", {})
     if fact_ids.get("type") != "array" or fact_ids.get("uniqueItems") is not True:
@@ -146,7 +152,9 @@ def generation_rule_problems(spec: TaskSpec, schema: dict[str, Any]) -> list[str
     if spec.name in GENERATION_TASKS and spec.kind != "generation":
         problems.append(f"{spec.name} must be declared with kind 'generation'")
     if spec.kind == "generation" or spec.name in GENERATION_TASKS:
-        problems += [f"{spec.name}: {problem}" for problem in units_without_fact_ids(schema)]
+        problems += [
+            f"{spec.name}: {problem}" for problem in units_without_fact_ids(schema, spec.name)
+        ]
     return problems
 
 
@@ -304,3 +312,32 @@ def test_schema_files_are_plain_json_objects() -> None:
     for task in _prompt_folders():
         raw = json.loads((REPO_PROMPTS / task / "schema.json").read_text(encoding="utf-8"))
         assert isinstance(raw, dict), task
+
+
+def test_narrative_schema_may_be_empty_but_never_drops_fact_ids() -> None:
+    """M8.2 part B: ``draft_narrative`` has kind-less units and may return none; every weakening
+    that matters for honesty is still caught for it."""
+    spec = TaskSpec("draft_narrative", kind="generation")
+    good = _generation_schema()
+    item = good["properties"]["units"]["items"]
+    item["required"] = ["text", "fact_ids", "added_details"]
+    item["properties"].pop("kind")
+    item["properties"].pop("section")
+    item["properties"]["added_details"] = {"type": "array", "items": {"type": "string"}}
+    good["properties"]["units"]["minItems"] = 0
+
+    assert generation_rule_problems(spec, good) == []
+    # The same schema is not enough for any other generation task.
+    assert generation_rule_problems(TaskSpec("tailor_cv", kind="generation"), good) != []
+    for weaken in (
+        lambda s: s["properties"]["units"]["items"]["required"].remove("fact_ids"),
+        lambda s: s["properties"]["units"]["items"]["properties"].pop("fact_ids"),
+        lambda s: s["properties"]["units"]["items"]["properties"]["fact_ids"].pop("uniqueItems"),
+        lambda s: s["properties"]["units"]["items"]["properties"]["fact_ids"]["items"].pop(
+            "pattern"
+        ),
+        lambda s: s["required"].remove("units"),
+    ):
+        broken = copy.deepcopy(good)
+        weaken(broken)
+        assert generation_rule_problems(spec, broken), weaken

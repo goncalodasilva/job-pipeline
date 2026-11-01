@@ -113,7 +113,7 @@ def test_0008_upgrade_keeps_0007_rows_and_backs_up(tmp_path):
         result = apply_migrations(
             database, MIGRATIONS_DIR, tmp_path / "backups", FrozenClock(START)
         )
-        assert result.applied == (8,)
+        assert result.applied == (8, 9)
         assert result.backup.is_file()
         assert database.connection.execute("SELECT * FROM facts ORDER BY id").fetchall() == before
         upgraded = schema_snapshot(database.connection)

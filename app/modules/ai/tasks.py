@@ -55,5 +55,9 @@ _SPECS: Final = (
     # M8.2: feedback on one practice answer from the confirmed facts and the CV sent; the length
     # and the match with the CV are decided in code, and nothing it says is applied for the user.
     TaskSpec("answer_feedback", kind="feedback"),
+    # M8.2: the paragraphs of a narrative card (tell me about yourself, why this role and so on)
+    # from the confirmed facts, each citing fact ids. Kind generation, as tailor_cv; the salary
+    # card is built in code and has no task.
+    TaskSpec("draft_narrative", kind="generation"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

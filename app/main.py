@@ -55,6 +55,7 @@ from app.api.letter_step import register_letter_routes
 from app.api.notifications import register_notification_routes
 from app.api.pages import register_pages
 from app.api.prep import register_prep_routes
+from app.api.prep_cards import register_card_routes
 from app.api.prep_practice import register_practice_routes
 from app.api.reminders import register_reminder_routes
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
@@ -161,9 +162,11 @@ from app.services.job_intake import JobIntakeService
 from app.services.job_summary import SUMMARIZE_JOB, SUMMARIZE_LABEL, JobSummaryService
 from app.services.job_triage import JobTriageService
 from app.services.letters import DRAFT_COVER_LETTER_LABEL, LetterService
+from app.services.narrative_ai import DRAFT_NARRATIVE
 from app.services.personal_details import PersonalDetailsService, sweep_orphan_photos
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.prep import QUESTIONS, WEB_QUESTIONS, PrepService
+from app.services.prep_documents import DRAFT_NARRATIVE_LABEL, PrepDocumentService
 from app.services.provider_setup import ProviderSetupService
 from app.services.reminders import ReminderRules, ReminderService
 from app.services.roles import RoleService
@@ -208,6 +211,7 @@ from app.tasks.job_fit import job_fit_handler
 from app.tasks.job_summary import job_summary_handler
 from app.tasks.practice import practice_handler
 from app.tasks.prep import prep_handler
+from app.tasks.prep_documents import draft_narrative_handler
 from app.tasks.sessions import enrichment_question_handler, structure_answer_handler
 from app.tasks.tailoring import gap_check_handler, propose_angles_handler
 from app.wiring import (
@@ -823,6 +827,12 @@ def _letters(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> L
     return LetterService(**_document_args(app, wiring, clock, ids))
 
 
+def _prep_documents(
+    app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory
+) -> PrepDocumentService:
+    return PrepDocumentService(**_document_args(app, wiring, clock, ids))
+
+
 def _document_args(app: FastAPI, wiring: Wiring, clock: Clock, ids: IdFactory) -> dict[str, Any]:
     """What the CV and the cover letter services are built from (they share their stored
     documents)."""
@@ -1297,6 +1307,7 @@ def create_app(
     app.state.cv_templates = _cv_templates(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.documents = _documents(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.letters = _letters(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.prep_documents = _prep_documents(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.personal_details = PersonalDetailsService(
         lambda: _current_db(app),
         app_clock,
@@ -1338,6 +1349,11 @@ def create_app(
             DRAFT_COVER_LETTER,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), DRAFT_COVER_LETTER_LABEL),
             draft_cover_letter_handler(app.state.letters),
+        )
+        handlers.register(
+            DRAFT_NARRATIVE,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), DRAFT_NARRATIVE_LABEL),
+            draft_narrative_handler(app.state.prep_documents),
         )
     app.state.job_intake = JobIntakeService(
         lambda: _current_db(app), app_clock, app_ids, app_wiring.job_page_fetcher()
@@ -1449,6 +1465,7 @@ def create_app(
     register_application_detail_routes(app)
     register_prep_routes(app)
     register_practice_routes(app)
+    register_card_routes(app)
     register_application_contact_routes(app)
     register_reminder_routes(app)
     register_notification_routes(app)
