@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from zoneinfo import ZoneInfo
 
 from app.domain.clock import Clock
+from app.domain.debrief import DEBRIEF_WINDOW_DAYS
 from app.domain.errors import format_day, format_day_time
 from app.domain.ids import is_safe_id
 from app.domain.prep_state import PREP_STATE_LABELS, prep_state, should_show
@@ -32,6 +33,19 @@ class Interview:
 
 
 @dataclass(frozen=True)
+class DebriefOffer:
+    """A finished interview that is offered a debrief; ``id`` is the event's."""
+
+    id: str
+    application_id: str
+    company: str
+    role: str
+    instant: str
+    local: str
+    zone: str
+
+
+@dataclass(frozen=True)
 class TodayView:
     interviews: tuple[Interview, ...]
     reminders: Notifications
@@ -40,11 +54,13 @@ class TodayView:
     drafts: int
     statuses: tuple[tuple[str, int], ...]
     document_drafts: tuple[DocumentDraft, ...] = ()
+    debriefs: tuple[DebriefOffer, ...] = ()
 
     @property
     def empty(self) -> bool:
         return not (
             self.interviews
+            or self.debriefs
             or self.reminders.due
             or self.unseen
             or self.drafts
@@ -76,6 +92,7 @@ class TodayService:
                 now=now.isoformat(),
                 until=(now + timedelta(days=7)).isoformat(),
                 today=now.astimezone(self._zone).date().isoformat(),
+                debrief_since=(now - timedelta(days=DEBRIEF_WINDOW_DAYS)).isoformat(),
             )
             documents = document_usage_repo.document_drafts(conn)
             prep = prep_repo.states(
@@ -102,6 +119,22 @@ class TodayService:
                     _prep_state(prep.get(row.application_id)),
                 )
             )
+        offers = []
+        for debrief in rows.debriefs:
+            if not (is_safe_id(debrief.application_id) and is_safe_id(debrief.id)):
+                continue
+            ended = datetime.fromisoformat(debrief.ends_at).astimezone(ZoneInfo(debrief.time_zone))
+            offers.append(
+                DebriefOffer(
+                    debrief.id,
+                    debrief.application_id,
+                    debrief.company or "No company",
+                    debrief.role,
+                    ended.isoformat(),
+                    format_day_time(ended),
+                    debrief.time_zone,
+                )
+            )
         return TodayView(
             tuple(interviews),
             self._reminders.notifications(),
@@ -110,6 +143,7 @@ class TodayService:
             rows.drafts,
             rows.statuses,
             tuple(d for d in documents if is_safe_id(d.application_id)),
+            tuple(offers),
         )
 
 

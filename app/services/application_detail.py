@@ -73,8 +73,15 @@ class ApplicationDetail:
             if application["applied_at"]
             else ""
         )
+        now = self._clock.now()
         for event in events:
             event.update(_event_view(event))
+            # A finished, uncancelled interview links to its debrief (M8.3 part A).
+            event["debrief"] = (
+                event["type"] == "interview"
+                and event["status"] == "scheduled"
+                and datetime.fromisoformat(event["ends_at"]) < now
+            )
         upcoming = [
             e
             for e in events

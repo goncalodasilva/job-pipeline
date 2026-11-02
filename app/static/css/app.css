@@ -2973,3 +2973,9 @@ blockquote.practice-answer { margin: var(--space-2) 0; }
 #prep .cards-index { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; list-style: none; padding: 0; margin-block: 0.5rem; }
 #prep .cards-index a { display: inline-block; min-height: 24px; padding-block: 0.25rem; }
 #prep :is([data-card], [data-adapt]) [id$="-recovered"] { background: var(--color-surface); }
+
+/* The debrief (M8.3 part A): what the person wrote is shown as typed, wrapped, never as markup. */
+.debrief-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

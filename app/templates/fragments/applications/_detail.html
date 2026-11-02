@@ -54,6 +54,7 @@
       {% elif entry.kind == 'interaction' %}<p><strong>Interaction</strong> ({{ item.channel_label }}){% if item.contact_name %} with {{ item.contact_name }}{% endif %}</p>{% if item.note %}<p>{{ item.note }}</p>{% endif %}
       {% elif entry.kind == 'event' %}<p id="event-text-{{ item.id }}"><strong>{{ 'Cancelled · ' if item.status == 'cancelled' else '' }}{{ item.label }}</strong>: {{ item.local_text }}</p>
         {% if item.type == 'interview' and item.status != 'cancelled' and is_safe_id(item.id) and is_safe_id(application.job_id) %}{{ session_offer("interview", "interview-" ~ item.id, "Talk through this interview in a session", "job:" ~ application.job_id, session_offer_length(request), "event-text-" ~ item.id) }}{% endif %}
+        {% if item.debrief and is_safe_id(item.id) %}<p><a data-debrief-link href="/applications/{{ application.id }}/debriefs/{{ item.id }}" aria-describedby="event-text-{{ item.id }}">Debrief</a></p>{% endif %}
         {% if item.round %}<p>Round: {{ item.round }}</p>{% endif %}{% if item.format %}<p>Format: {{ item.format }}</p>{% endif %}{% if item.interviewers %}<p>Interviewers: {{ item.interviewers }}</p>{% endif %}
         {% if item.location %}<p>{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener noreferrer">{{ item.location }}</a>{% else %}{{ item.location }}{% endif %}</p>{% endif %}
         {% if item.details %}<p>{{ item.details }}</p>{% endif %}

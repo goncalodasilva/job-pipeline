@@ -453,7 +453,23 @@ def visit_every_page(session: Session) -> None:
                 length=3,
                 now="2026-10-30T10:00:00+00:00",
             )
+    # M8.3 part A (ADR-124 item 11): a fictional finished interview for the debrief page.
+    with state.workspace.db.transaction() as conn:
+        if not conn.execute("SELECT 1 FROM events WHERE id = 'leak-debrief-event'").fetchone():
+            applications_repo.insert_event(
+                conn,
+                id="leak-debrief-event",
+                application_id=application.id,
+                type="interview",
+                starts_at="2026-10-29T09:00:00+00:00",
+                ends_at="2026-10-29T10:00:00+00:00",
+                time_zone="UTC",
+                now="2026-10-30T10:00:00+00:00",
+            )
     fact_pages = {
+        "/applications/{application_id}/debriefs/{event_id}": (
+            f"/applications/{application.id}/debriefs/leak-debrief-event"
+        ),
         "/sessions/{sid}": "/sessions/session-leak-page",
         "/facts/{fact_id}/edit": f"/facts/{fact_ids['fact_id']}/edit",
         "/facts/{draft_id}/merge": f"/facts/{fact_ids['draft_id']}/merge",

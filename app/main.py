@@ -30,6 +30,7 @@ from app.api.board import register_board_routes
 from app.api.companies import register_company_routes
 from app.api.company_contacts import register_company_contact_routes
 from app.api.cv_step import register_cv_routes
+from app.api.debrief import register_debrief_routes
 from app.api.errors import register_error_handlers
 from app.api.events import (
     DEFAULT_EVENT_QUEUE_SIZE,
@@ -143,6 +144,7 @@ from app.services.cv_import import (
     sweep_orphan_imports,
 )
 from app.services.cv_templates import DRAFT_LABEL, CvTemplateService
+from app.services.debrief import DEBRIEF_FACTS, DEBRIEF_FACTS_LABEL, DebriefService
 from app.services.documents import TAILOR_CV_LABEL, DocumentService
 from app.services.export_files import sweep_orphan_exports
 from app.services.exports import ExportService
@@ -211,6 +213,7 @@ from app.tasks import HandlerRegistry, TaskRunner
 from app.tasks.answer_feedback import answer_feedback_handler
 from app.tasks.cv_import import cv_import_handler
 from app.tasks.cv_templates import draft_cv_template_handler
+from app.tasks.debrief import debrief_facts_handler
 from app.tasks.documents import draft_cover_letter_handler, tailor_cv_handler
 from app.tasks.fact_refine import fact_refine_handler
 from app.tasks.job_fit import job_fit_handler
@@ -808,6 +811,24 @@ def _answer_practice(
     )
 
 
+def _debrief(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> DebriefService:
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
+
+    return DebriefService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=lambda: getattr(app.state, "workspace", None),
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None),
+        usage=_open_usage(app),
+        # Created after the prep services, so it is read when a debrief needs it.
+        applications=lambda: app.state.applications,
+    )
+
+
 def _sessions(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory) -> SessionService:
     def settings() -> AIProviderSettings | None:
         db = _current_db(app)
@@ -1283,6 +1304,7 @@ def create_app(
     app.state.answer_practice = _answer_practice(
         app, wiring=app_wiring, clock=app_clock, ids=app_ids
     )
+    app.state.debrief = _debrief(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     if task_registry is None:
         handlers.register(
             QUESTIONS,
@@ -1298,6 +1320,11 @@ def create_app(
             ANSWER_FEEDBACK,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), "Answer feedback"),
             answer_feedback_handler(app.state.answer_practice),
+        )
+        handlers.register(
+            DEBRIEF_FACTS,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(minutes=2), DEBRIEF_FACTS_LABEL),
+            debrief_facts_handler(app.state.debrief),
         )
         handlers.register(
             STRUCTURE_ANSWER,
@@ -1476,6 +1503,7 @@ def create_app(
     register_application_detail_routes(app)
     register_prep_routes(app)
     register_practice_routes(app)
+    register_debrief_routes(app)
     register_adapt_routes(app)
     register_card_routes(app)
     register_application_contact_routes(app)

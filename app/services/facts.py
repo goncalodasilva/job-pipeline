@@ -43,6 +43,7 @@ SOURCE_MERGE = "merge"
 SOURCE_MERGE_UNDO = "merge_undo"
 SOURCE_REFINE = "refine"
 SOURCE_PRACTICE = "practice"
+SOURCE_DEBRIEF = "debrief"
 
 _CONTENT_NEEDED = "Write the fact before saving."
 _STORY_NEEDED = "Fill in at least one of situation, action or result."

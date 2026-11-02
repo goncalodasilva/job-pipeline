@@ -1,0 +1,7 @@
+{# What happens to the debrief's texts (M8.3 part A). Needs `v` (the DebriefView). Shown in the
+   shell of the token-free page and in the fragment, so the wording is in one place. #}
+{% if v.state == 'open' %}
+<p id="debrief-privacy" class="field-hint">The questions you list join your question bank and may appear in later prep requests. How it went stays on this computer and is never sent to an AI. Your experiences go to the AI only if you choose to turn them into draft facts after saving.</p>
+{% elif v.state == 'done' %}
+<p id="debrief-privacy" class="field-hint">The questions you listed joined your question bank and may appear in later prep requests. How it went stays on this computer and is never sent to an AI.</p>
+{% endif %}

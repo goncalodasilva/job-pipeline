@@ -438,6 +438,7 @@ def test_ac_m5_5_nothing_scheduled_no_task_or_timer(tmp_path):
             "adapt_answer",
             "answer_feedback",
             "assess_fit",
+            "debrief_facts",
             "draft_cover_letter",
             "draft_cv_template",
             "draft_narrative",

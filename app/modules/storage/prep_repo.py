@@ -157,6 +157,7 @@ def insert_question(
     now: str,
     application_id: str | None = None,
     task_id: str | None = None,
+    event_id: str | None = None,
 ) -> BankQuestion:
     existing = duplicate_question(candidate, questions(conn))
     if existing is None:
@@ -207,13 +208,14 @@ def insert_question(
             )
     conn.execute(
         "INSERT INTO "
-        "bank_question_sightings(id,question_id,application_id,origin,source_url,source_date,"
-        "found_at,provider,model,prompt_id,prompt_version,task_id,created_at,updated_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "bank_question_sightings(id,question_id,application_id,event_id,origin,source_url,"
+        "source_date,found_at,provider,model,prompt_id,prompt_version,task_id,created_at,"
+        "updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             sighting_id,
             kept.id,
             application_id,
+            event_id,
             candidate.origin,
             candidate.source_url,
             candidate.source_date,

@@ -28,6 +28,7 @@ _SOURCES: Final[Mapping[str, str]] = {
     "merge_undo": "Merge undone",
     "refine": "Refined with AI, accepted by you",
     "practice": "From your practice answer",
+    "debrief": "From your interview debrief",
 }
 _SOURCE_OTHER: Final = "Saved"
 _EVENTS: Final[Mapping[str, str]] = {

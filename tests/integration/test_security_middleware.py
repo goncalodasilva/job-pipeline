@@ -635,6 +635,21 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
         known_params["application_id"] = app.state.applications.apply_to_job(
             "job-0001", expected_job_version=1
         ).application.id
+        # M8.3 part A (ADR-124 item 11): a seeded interview for the debrief page's {event_id}.
+        from app.modules.storage import applications_repo
+
+        with app.state.workspace.db.transaction() as conn:
+            applications_repo.insert_event(
+                conn,
+                id="page-debrief-event",
+                application_id=known_params["application_id"],
+                type="interview",
+                starts_at="2026-01-02T09:00:00+00:00",
+                ends_at="2026-01-02T10:00:00+00:00",
+                time_zone="UTC",
+                now=START.isoformat(),
+            )
+        known_params["event_id"] = "page-debrief-event"
         for route in pages:
             path = route.path
             for name in route.param_convertors:
@@ -649,6 +664,9 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
     assert visited["/facts/{draft_id}/merge"] == f"/facts/{known_params['draft_id']}/merge"
     assert visited["/jobs/{job_id}"] == "/jobs/job-0001"
     assert visited["/companies/{company_id}"] == "/companies/company-0001"
+    assert visited["/applications/{application_id}/debriefs/{event_id}"] == (
+        f"/applications/{known_params['application_id']}/debriefs/page-debrief-event"
+    )
 
 
 # --- the fact pages' addresses (M3.6): one safe segment, nothing else exempted ----------------

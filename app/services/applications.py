@@ -138,56 +138,79 @@ class ApplicationService:
         """Move to any status. The status, its history row and the first applied time are
         written together; a move to the current status is recorded too."""
         db = self._database()
-        if db is None or not is_safe_id(application_id):
+        if db is None:
+            raise ApplicationNotFound()
+        with db.transaction() as conn:
+            return self.move_in(
+                conn,
+                application_id,
+                status_key,
+                expected_version=expected_version,
+                source=source,
+                first_submission=first_submission,
+            )
+
+    def move_in(
+        self,
+        conn: sqlite3.Connection,
+        application_id: str,
+        status_key: str,
+        *,
+        expected_version: int,
+        source: str,
+        first_submission: bool = False,
+    ) -> MoveResult:
+        """``move`` inside the caller's transaction: the status, its history row and the first
+        applied time are written with whatever else the caller writes, or not at all."""
+        if not is_safe_id(application_id):
             raise ApplicationNotFound()
         history_source = _MOVE_SOURCES.get(source)
         if history_source is None or not is_safe_id(status_key):
             raise StatusNotAllowed()
         now = self._clock.now().astimezone(UTC)
         stamp = now.isoformat()
-        with db.transaction() as conn:
-            current = applications_repo.get_application(conn, application_id)
-            if current is None:
-                raise ApplicationNotFound()
-            if current.version != expected_version:
-                raise VersionConflict()
-            if first_submission and current.applied_at is not None:
-                raise StatusNotAllowed("This application is already marked Applied.")
-            target = applications_repo.get_status(conn, status_key)
-            if target is None:
-                raise StatusNotAllowed()
-            transition = move_application(
-                current.status_key,
-                datetime.fromisoformat(current.applied_at) if current.applied_at else None,
-                _domain_status(target),
-                changed_at=now,
-                source=history_source,
-            )
-            history_id = self._ids.new()
-            applications_repo.update_application(
-                conn,
-                application_id,
-                status_key=target.key,
-                applied_at=transition.applied_at.isoformat() if transition.applied_at else None,
-                now=stamp,
-                expected_version=expected_version,
-            )
-            applications_repo.insert_history(
-                conn,
-                id=history_id,
-                application_id=application_id,
-                from_status=transition.from_status,
-                to_status=transition.to_status,
-                changed_at=transition.changed_at.isoformat(),
-                source=transition.source,
-                now=stamp,
-            )
-            if current.applied_at is None and transition.applied_at is not None:
-                exports_repo.freeze(conn, application_id, transition.applied_at.isoformat())
-            saved = applications_repo.get_application(conn, application_id)
-            if saved is None:
-                raise ApplicationNotFound()
-            return MoveResult(saved, transition.follow_up)
+        current = applications_repo.get_application(conn, application_id)
+        if current is None:
+            raise ApplicationNotFound()
+        if current.version != expected_version:
+            raise VersionConflict()
+        if first_submission and current.applied_at is not None:
+            raise StatusNotAllowed("This application is already marked Applied.")
+        target = applications_repo.get_status(conn, status_key)
+        if target is None:
+            raise StatusNotAllowed()
+        transition = move_application(
+            current.status_key,
+            datetime.fromisoformat(current.applied_at) if current.applied_at else None,
+            _domain_status(target),
+            changed_at=now,
+            source=history_source,
+        )
+        history_id = self._ids.new()
+        applications_repo.update_application(
+            conn,
+            application_id,
+            status_key=target.key,
+            applied_at=transition.applied_at.isoformat() if transition.applied_at else None,
+            now=stamp,
+            expected_version=expected_version,
+        )
+        applications_repo.insert_history(
+            conn,
+            id=history_id,
+            application_id=application_id,
+            from_status=transition.from_status,
+            to_status=transition.to_status,
+            changed_at=transition.changed_at.isoformat(),
+            source=transition.source,
+            now=stamp,
+        )
+        if current.applied_at is None and transition.applied_at is not None:
+            exports_repo.freeze(conn, application_id, transition.applied_at.isoformat())
+        saved = applications_repo.get_application(conn, application_id)
+        if saved is None:
+            raise ApplicationNotFound()
+        return MoveResult(saved, transition.follow_up)
 
     def mark_submitted(self, application_id: str, *, expected_version: int) -> MoveResult:
         return self.move(
@@ -219,38 +242,59 @@ class ApplicationService:
         db = self._database()
         if db is None or not is_safe_id(application_id):
             raise ApplicationNotFound()
-        now = self._clock.now().astimezone(UTC).isoformat()
         with db.transaction() as conn:
-            if applications_repo.get_application(conn, application_id) is None:
-                raise ApplicationNotFound()
-            zone = _zone(time_zone)
-            if type(duration_minutes) is not int or not 1 <= duration_minutes <= (
-                _MAX_DURATION_MINUTES
-            ):
-                raise EventTimeInvalid(
-                    "duration_minutes", "Use a length between 1 minute and 24 hours."
-                )
-            try:
-                resolved = wall_time_to_utc(starts_at, zone)
-                ends = resolved.instant + timedelta(minutes=duration_minutes)
-            except ValueError as error:
-                raise EventTimeInvalid("starts_at", str(error)) from None
-            except (OverflowError, OSError):
-                raise EventTimeInvalid(
-                    "starts_at", "Choose a date and time that can be saved."
-                ) from None
-            event_id = self._ids.new()
-            applications_repo.insert_event(
+            self.add_interview_date_in(
                 conn,
-                id=event_id,
-                application_id=application_id,
-                type="interview",
-                starts_at=resolved.instant.isoformat(),
-                ends_at=ends.isoformat(),
+                application_id,
+                starts_at=starts_at,
                 time_zone=time_zone,
-                now=now,
+                duration_minutes=duration_minutes,
             )
-            applications_repo.touch_application(conn, application_id, now)
+
+    def add_interview_date_in(
+        self,
+        conn: sqlite3.Connection,
+        application_id: str,
+        *,
+        starts_at: datetime,
+        time_zone: str,
+        duration_minutes: int = 60,
+    ) -> str:
+        """``add_interview_date`` inside the caller's transaction; returns the new event's id."""
+        if not is_safe_id(application_id):
+            raise ApplicationNotFound()
+        now = self._clock.now().astimezone(UTC).isoformat()
+        if applications_repo.get_application(conn, application_id) is None:
+            raise ApplicationNotFound()
+        zone = _zone(time_zone)
+        if type(duration_minutes) is not int or not 1 <= duration_minutes <= (
+            _MAX_DURATION_MINUTES
+        ):
+            raise EventTimeInvalid(
+                "duration_minutes", "Use a length between 1 minute and 24 hours."
+            )
+        try:
+            resolved = wall_time_to_utc(starts_at, zone)
+            ends = resolved.instant + timedelta(minutes=duration_minutes)
+        except ValueError as error:
+            raise EventTimeInvalid("starts_at", str(error)) from None
+        except (OverflowError, OSError):
+            raise EventTimeInvalid(
+                "starts_at", "Choose a date and time that can be saved."
+            ) from None
+        event_id = self._ids.new()
+        applications_repo.insert_event(
+            conn,
+            id=event_id,
+            application_id=application_id,
+            type="interview",
+            starts_at=resolved.instant.isoformat(),
+            ends_at=ends.isoformat(),
+            time_zone=time_zone,
+            now=now,
+        )
+        applications_repo.touch_application(conn, application_id, now)
+        return event_id
 
     def add_feedback(self, application_id: str, text: str) -> None:
         """Keep the rejection feedback as a note on the application."""

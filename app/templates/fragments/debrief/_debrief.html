@@ -1,0 +1,157 @@
+{# The debrief after one interview (M8.3 part A; AC-M8.5). Needs `debrief` from
+   app/api/debrief.py. It is the whole #debrief region, so every action swaps it in place, and
+   the token-free page loads it through _shell.html. Before Save the three texts are typed here;
+   after Save they are read-only and shown escaped (a saved debrief is never edited). The whole
+   debrief is optional ("Not needed" sits beside Save). "How it went" stays on this computer: no
+   AI request holds it. Only the experiences are sent to the AI, and only when the person
+   presses "Turn into draft facts"; each answer comes back as a draft fact that needs the
+   person's own review. While that task runs the region asks again on a task event and every
+   few seconds (a task can end before the new region listens); the answer is empty until the
+   task has ended, so nothing is swapped and no focus is lost. The words after an action are plain text here: the
+   header announces them once. #}
+{% set v = debrief.view %}
+{% set entry = debrief.entry %}
+{% set errors = debrief.errors %}
+{% set first = debrief.first_error %}
+<section id="debrief" aria-labelledby="debrief-heading"{% if v.active %} hx-get="{{ debrief.base }}?active=1" hx-trigger="every 3s, tasks:updated from:body, tasks:resync from:body" hx-swap="outerHTML"{% endif %}>
+  <p><a href="{{ debrief.application_url }}">Back to the application</a></p>
+  <h2 id="debrief-heading" tabindex="-1"{% if debrief.focus == 'debrief-heading' %} data-autofocus{% endif %}>Debrief · {{ v.company }} · {{ v.role }}</h2>
+  <p>Interview on <time datetime="{{ v.instant }}">{{ v.when }}</time> · {{ v.zone }}</p>
+  {% if debrief.message and not v.moved_to %}<p id="debrief-message">{{ debrief.message }}</p>{% endif %}
+  {% if debrief.conflict %}
+    {% set typed = entry.questions or entry.how_it_went or entry.experiences %}
+    {% set reload_id = 'debrief-conflict' %}{% set reload_message = 'This debrief changed in another window.' %}{% set reload_detail = 'The text you typed was not saved.' if typed else 'Nothing was changed.' %}{% set reload_url = debrief.base %}
+    {% include 'fragments/shell/_reload_prompt.html' %}
+    {% if typed %}
+    <details id="debrief-unsaved" open>
+      <summary>What you typed (not saved)</summary>
+      {% if entry.questions %}<h4>Questions you were asked</h4><p class="debrief-text">{{ entry.questions }}</p>{% endif %}
+      {% if entry.how_it_went %}<h4>How it went</h4><p class="debrief-text">{{ entry.how_it_went }}</p>{% endif %}
+      {% if entry.experiences %}<h4>Experiences you mentioned or wish you had said</h4><p class="debrief-text">{{ entry.experiences }}</p>{% endif %}
+    </details>
+    {% endif %}
+  {% endif %}
+  {% if errors %}
+  <div id="debrief-errors" class="notice" role="alert">
+    <p>Check the marked fields, then save again. Nothing was saved.</p>
+    <ul>{% for item in debrief.error_items %}<li><a href="#{{ item.id }}">{{ item.label }}</a>: {{ item.message }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  {% if v.state == 'dismissed' %}
+  <p id="debrief-dismissed">You marked this debrief not needed. Nothing was added to your question bank.</p>
+
+  {% elif v.state == 'open' %}
+  <p id="debrief-optional">Optional: add only what you want to remember.</p>
+  {% include 'fragments/debrief/_privacy.html' %}
+  <form id="debrief-form" method="post" action="{{ debrief.base }}/save" hx-post="{{ debrief.base }}/save" hx-target="#debrief" hx-swap="outerHTML" hx-disabled-elt="#debrief-save">
+    <input type="hidden" name="version" value="{{ v.version }}">
+    <div class="field">
+      <label for="debrief-questions">Questions you were asked (one per line)</label>
+      <p id="debrief-questions-hint" class="field-hint">Up to 20 questions, each up to 1,000 characters. Leave it empty if you remember none.</p>
+      {% if errors.get('questions') %}<p id="debrief-questions-error" class="field-error">{{ errors.get('questions') }}</p>{% endif %}
+      <textarea id="debrief-questions" name="questions" rows="5" aria-describedby="debrief-questions-hint debrief-privacy{% if errors.get('questions') %} debrief-questions-error{% endif %}"{% if errors.get('questions') %} aria-invalid="true"{% endif %}{% if first == 'questions' %} data-autofocus{% endif %}>{{ entry.questions }}</textarea>
+    </div>
+    <div class="field field-check">
+      <input id="debrief-company-only" type="checkbox" name="company_only" value="1"{% if entry.company_only %} checked{% endif %} aria-describedby="debrief-company-only-hint">
+      <label for="debrief-company-only">Only for this company</label>
+    </div>
+    <p id="debrief-company-only-hint" class="field-hint">Tick it when the questions only make sense for {{ v.company }}. Otherwise they are kept for every application.</p>
+    <div class="field">
+      <label for="debrief-how">How it went</label>
+      <p id="debrief-how-hint" class="field-hint">Your own notes. They stay on this computer.</p>
+      {% if errors.get('how_it_went') %}<p id="debrief-how-error" class="field-error">{{ errors.get('how_it_went') }}</p>{% endif %}
+      <textarea id="debrief-how" name="how_it_went" rows="5" aria-describedby="debrief-how-hint{% if errors.get('how_it_went') %} debrief-how-error{% endif %}"{% if errors.get('how_it_went') %} aria-invalid="true"{% endif %}{% if first == 'how_it_went' %} data-autofocus{% endif %}>{{ entry.how_it_went }}</textarea>
+    </div>
+    <div class="field">
+      <label for="debrief-experiences">Experiences you mentioned or wish you had said</label>
+      <p id="debrief-experiences-hint" class="field-hint">Only list things that are true. Up to 3 paragraphs, separated by a blank line. Each can become a draft fact that you review before anything is kept.</p>
+      {% if errors.get('experiences') %}<p id="debrief-experiences-error" class="field-error">{{ errors.get('experiences') }}</p>{% endif %}
+      <textarea id="debrief-experiences" name="experiences" rows="6" aria-describedby="debrief-experiences-hint{% if errors.get('experiences') %} debrief-experiences-error{% endif %}"{% if errors.get('experiences') %} aria-invalid="true"{% endif %}{% if first == 'experiences' %} data-autofocus{% endif %}>{{ entry.experiences }}</textarea>
+    </div>
+    <div class="field">
+      <label for="debrief-next-step">What happens next</label>
+      {% if errors.get('next_step') %}<p id="debrief-next-step-error" class="field-error">{{ errors.get('next_step') }}</p>{% endif %}
+      <select id="debrief-next-step" name="next_step"{% if errors.get('next_step') %} aria-invalid="true" aria-describedby="debrief-next-step-error"{% endif %}{% if first == 'next_step' %} data-autofocus{% endif %}>
+        {% for value, text in [('', 'Not sure yet'), ('next_round', 'Next round'), ('offer', 'Offer'), ('rejected', 'Rejected'), ('other', 'Something else')] %}<option value="{{ value }}"{% if entry.next_step == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+      </select>
+    </div>
+    <fieldset class="choices">
+      <legend>Next round (only if there is one)</legend>
+      <p id="debrief-next-hint" class="field-hint">Choose "Next round" above, then give its date, time and time zone to add it to this application. The application's status only changes if you confirm it afterwards.</p>
+      <div class="field">
+        <label for="debrief-next-date">Next round date</label>
+        {% if errors.get('next_date') %}<p id="debrief-next-date-error" class="field-error">{{ errors.get('next_date') }}</p>{% endif %}
+        <input id="debrief-next-date" type="date" name="next_date" value="{{ entry.next_date }}" aria-describedby="debrief-next-hint{% if errors.get('next_date') %} debrief-next-date-error{% endif %}"{% if errors.get('next_date') %} aria-invalid="true"{% endif %}{% if first == 'next_date' %} data-autofocus{% endif %}>
+      </div>
+      <div class="field">
+        <label for="debrief-next-time">Next round time</label>
+        {% if errors.get('next_time') %}<p id="debrief-next-time-error" class="field-error">{{ errors.get('next_time') }}</p>{% endif %}
+        <input id="debrief-next-time" type="time" name="next_time" value="{{ entry.next_time }}" aria-describedby="debrief-next-hint{% if errors.get('next_time') %} debrief-next-time-error{% endif %}"{% if errors.get('next_time') %} aria-invalid="true"{% endif %}{% if first == 'next_time' %} data-autofocus{% endif %}>
+      </div>
+      <div class="field">
+        <label for="debrief-next-zone">Next round time zone</label>
+        {% if errors.get('next_zone') %}<p id="debrief-next-zone-error" class="field-error">{{ errors.get('next_zone') }}</p>{% endif %}
+        <input id="debrief-next-zone" type="text" name="next_zone" value="{{ entry.next_zone }}" list="debrief-zone-list" autocomplete="off" aria-describedby="debrief-next-hint{% if errors.get('next_zone') %} debrief-next-zone-error{% endif %}"{% if errors.get('next_zone') %} aria-invalid="true"{% endif %}{% if first == 'next_zone' %} data-autofocus{% endif %}>
+        <datalist id="debrief-zone-list">{% for name in debrief.zone_names %}<option value="{{ name }}"></option>{% endfor %}</datalist>
+      </div>
+    </fieldset>
+  </form>
+  <div class="form-actions">
+    <button type="submit" form="debrief-form" id="debrief-save" class="button button-primary">Save debrief</button>
+    <form id="debrief-dismiss" method="post" action="{{ debrief.base }}/dismiss" hx-post="{{ debrief.base }}/dismiss" hx-target="#debrief" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ v.version }}">
+      <button type="submit" id="debrief-not-needed" class="button">Not needed</button>
+    </form>
+  </div>
+
+  {% else %}
+  {% include 'fragments/debrief/_privacy.html' %}
+  <section aria-labelledby="debrief-saved-heading">
+    <h3 id="debrief-saved-heading">What you wrote</h3>
+    <h4>Questions you were asked</h4>
+    {% if v.questions %}<p class="debrief-text" data-debrief-text="questions">{{ v.questions }}</p>{% if v.company_only %}<p class="field-hint">Kept for {{ v.company }} only.</p>{% endif %}{% else %}<p class="field-hint">None listed.</p>{% endif %}
+    <h4>How it went</h4>
+    {% if v.how_it_went %}<p class="debrief-text" data-debrief-text="how_it_went">{{ v.how_it_went }}</p>{% else %}<p class="field-hint">Nothing written.</p>{% endif %}
+    <h4>Experiences you mentioned or wish you had said</h4>
+    {% if v.experiences %}<p class="debrief-text" data-debrief-text="experiences">{{ v.experiences }}</p>{% else %}<p class="field-hint">None written.</p>{% endif %}
+    {% if v.next_round %}<p id="debrief-next">Next round added: <time datetime="{{ v.next_round.instant }}">{{ v.next_round.local_text }}</time> · {{ v.next_round.zone }}</p>{% endif %}
+  </section>
+
+  {% if v.drafts %}
+  <section id="debrief-drafts-made" aria-labelledby="debrief-drafts-heading">
+    <h3 id="debrief-drafts-heading">Draft facts</h3>
+    <ul>{% for draft in v.drafts %}<li data-debrief-draft="{{ draft.fact_id }}">{{ draft.wording }}{% if draft.needs_check %} <strong>Check this wording</strong>: it may say more than you wrote.{% endif %}</li>{% endfor %}</ul>
+    <p><a href="/facts?tab=drafts">Review them in your facts</a>. Nothing is kept until you confirm it.</p>
+  </section>
+  {% elif v.paragraphs %}
+  <section aria-labelledby="debrief-drafts-heading">
+    <h3 id="debrief-drafts-heading">Draft facts</h3>
+    {% if v.active %}<p id="debrief-working">Making draft facts… Progress is also in Tasks.</p>
+    {% else %}
+    {% if debrief.task_error %}<p id="debrief-task-error" class="field-error" role="alert">{{ debrief.task_error }} Nothing was saved. You can try again.</p>{% endif %}
+    <form id="debrief-drafts" method="post" action="{{ debrief.base }}/drafts" hx-post="{{ debrief.base }}/drafts" hx-target="#debrief" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ v.version }}">
+      {% if debrief.reason %}{% set budget_blocked = debrief.reason %}{% include 'fragments/budget/_blocked.html' %}{% endif %}
+      <p id="debrief-drafts-hint" class="field-hint">Your {{ 'experience' if v.paragraphs == 1 else 'experiences' }} (not the rest of the debrief) go to the AI: {{ v.paragraphs }} {{ 'request' if v.paragraphs == 1 else 'requests' }}. Each answer becomes a draft fact for you to review.</p>
+      <div class="form-actions"><button type="submit" id="debrief-drafts-start" class="button"{% if debrief.reason %} aria-disabled="true" aria-describedby="debrief-reason debrief-drafts-hint"{% else %} aria-describedby="debrief-drafts-hint"{% endif %}>{{ 'Try again' if v.failed else 'Turn into draft facts' }}</button></div>
+    </form>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if v.suggestion %}
+  <section aria-labelledby="debrief-status-heading">
+    <h3 id="debrief-status-heading">Status</h3>
+    <form id="debrief-status" method="post" action="{{ debrief.base }}/status" hx-post="{{ debrief.base }}/status" hx-target="#debrief" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ v.application_version }}">
+      <p>Move to {{ v.suggestion.label }}?</p>
+      <div class="form-actions"><button type="submit" id="debrief-status-confirm" class="button">Move to {{ v.suggestion.label }}</button></div>
+    </form>
+  </section>
+  {% elif v.moved_to %}
+  <p id="debrief-moved">Moved to {{ v.moved_to }}.</p>
+  {% endif %}
+  {% endif %}
+  {% if debrief.dialog %}{% set budget_dialog = debrief.dialog %}{% include 'fragments/budget/_dialog.html' %}{% endif %}
+</section>

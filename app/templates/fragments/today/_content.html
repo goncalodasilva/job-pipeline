@@ -11,6 +11,23 @@
     <ul>{% for item in today.interviews %}<li data-interview-id="{{ item.id }}"><a href="/applications/{{ item.application_id }}">{{ item.company }} · {{ item.role }}</a> — <time datetime="{{ item.instant }}">{{ item.local }}</time> · {{ item.zone }}{% if item.prep_state %} · <span data-prep-state="{{ item.prep_state }}">{{ item.prep_label }}</span>{% endif %}</li>{% endfor %}</ul>
   </section>
   {% endif %}
+  {% if today.debriefs %}
+  <section id="today-debriefs" class="today-block" aria-labelledby="today-debriefs-heading">
+    <h2 id="today-debriefs-heading">Interview debriefs</h2>
+    <ul>{% for offer in today.debriefs %}{% set path = '/applications/' ~ offer.application_id ~ '/debriefs/' ~ offer.id %}
+      <li data-debrief-event-id="{{ offer.id }}">
+        <p id="debrief-offer-{{ offer.id }}">{{ offer.company }} · {{ offer.role }} — interview ended <time datetime="{{ offer.instant }}">{{ offer.local }}</time> · {{ offer.zone }}. How did the interview go? A debrief is optional.</p>
+        <div class="form-actions">
+          <a class="button" href="{{ path }}" aria-describedby="debrief-offer-{{ offer.id }}">Debrief</a>
+          <form method="post" action="{{ path }}/dismiss" hx-post="{{ path }}/dismiss" hx-target="#today-content" hx-swap="outerHTML" hx-disabled-elt="find button">
+            <input type="hidden" name="version" value="0">
+            <input type="hidden" name="return" value="today">
+            <button type="submit" class="button" aria-describedby="debrief-offer-{{ offer.id }}">Not needed</button>
+          </form>
+        </div>
+      </li>{% endfor %}</ul>
+  </section>
+  {% endif %}
   {% if today.reminders.items %}
   <section id="today-reminders" class="today-block" aria-labelledby="today-reminders-heading">
     <h2 id="today-reminders-heading">Due follow-ups and reminders</h2>

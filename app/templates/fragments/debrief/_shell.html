@@ -1,0 +1,14 @@
+{# The token-free page's part of the debrief (M8.3 part A): the heading, the interview's time and
+   what happens to the texts, then a placeholder that loads the real #debrief region through a
+   token-protected request on load (the pattern of fragments/tailoring/_letter_frame.html). What
+   the person wrote (questions, how it went, experiences, draft wordings) is personal data and is
+   never in a page that needs no token (spec 2.9 rule 13). Needs `debrief` (`view`, `base`,
+   `application_url`). The swap replaces this whole section. #}
+{% set v = debrief.view %}
+<section id="debrief" aria-labelledby="debrief-heading" hx-get="{{ debrief.base }}" hx-trigger="load" hx-swap="outerHTML">
+  <p><a href="{{ debrief.application_url }}">Back to the application</a></p>
+  <h2 id="debrief-heading" tabindex="-1">Debrief · {{ v.company }} · {{ v.role }}</h2>
+  <p>Interview on <time datetime="{{ v.instant }}">{{ v.when }}</time> · {{ v.zone }}</p>
+  {% include 'fragments/debrief/_privacy.html' %}
+  <p id="debrief-loading" class="field-hint">Loading your debrief… If it does not appear, reload the page.</p>
+</section>

@@ -16,6 +16,18 @@ class InterviewRow:
 
 
 @dataclass(frozen=True)
+class DebriefRow:
+    """A finished interview that has no done or dismissed debrief."""
+
+    id: str
+    application_id: str
+    ends_at: str
+    time_zone: str
+    role: str
+    company: str | None
+
+
+@dataclass(frozen=True)
 class JobRow:
     id: str
     role: str
@@ -25,19 +37,36 @@ class JobRow:
 @dataclass(frozen=True)
 class TodayRows:
     interviews: tuple[InterviewRow, ...]
+    debriefs: tuple[DebriefRow, ...]
     unseen: int
     strong: tuple[JobRow, ...]
     drafts: int
     statuses: tuple[tuple[str, int], ...]
 
 
-def read(conn: sqlite3.Connection, *, now: str, until: str, today: str) -> TodayRows:
+MAX_DEBRIEF_OFFERS = 20
+
+
+def read(
+    conn: sqlite3.Connection, *, now: str, until: str, today: str, debrief_since: str
+) -> TodayRows:
+    """``debrief_since`` is the earliest end instant (UTC) that is still offered a debrief."""
     interviews = conn.execute(
         "SELECT e.id, e.application_id, e.starts_at, e.time_zone, e.all_day, j.title, c.name "
         "FROM events e JOIN applications a ON a.id=e.application_id JOIN jobs j ON j.id=a.job_id "
         "LEFT JOIN companies c ON c.id=j.company_id WHERE e.status='scheduled' "
         "AND e.type='interview' AND e.starts_at>=? AND e.starts_at<? ORDER BY e.starts_at,e.id",
         (now, until),
+    ).fetchall()
+    debriefs = conn.execute(
+        "SELECT e.id, e.application_id, e.ends_at, e.time_zone, j.title, c.name "
+        "FROM events e JOIN applications a ON a.id=e.application_id JOIN jobs j ON j.id=a.job_id "
+        "LEFT JOIN companies c ON c.id=j.company_id WHERE e.status='scheduled' "
+        "AND e.type='interview' AND julianday(e.ends_at)<=julianday(?) "
+        "AND julianday(e.ends_at)>julianday(?) AND NOT EXISTS (SELECT 1 FROM debriefs d "
+        "WHERE d.event_id=e.id AND d.state IN ('done','dismissed')) "
+        "ORDER BY julianday(e.ends_at) DESC,e.id LIMIT ?",
+        (now, debrief_since, MAX_DEBRIEF_OFFERS),
     ).fetchall()
     unseen = int(
         conn.execute(
@@ -64,6 +93,7 @@ def read(conn: sqlite3.Connection, *, now: str, until: str, today: str) -> Today
             InterviewRow(i, a, s, z, bool(day), role, company)
             for i, a, s, z, day, role, company in interviews
         ),
+        tuple(DebriefRow(*r) for r in debriefs),
         unseen,
         tuple(JobRow(*r) for r in strong),
         drafts,

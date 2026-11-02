@@ -44,7 +44,16 @@ def seed(run):
 
 def test_ac_m5_6_blocks_in_priority_order(tmp_path: Path):
     with reminding(tmp_path, now="2026-10-01T09:00:00+00:00") as run:
-        seed(run)
+        application = seed(run)
+        # M8.3 part A (ADR-124 item 11): an interview that ended an hour ago is offered a debrief.
+        run.event(
+            "today-ended-interview",
+            application,
+            "interview",
+            "2026-10-20T07:00:00+00:00",
+            ends_at="2026-10-20T08:00:00+00:00",
+            zone="Europe/Lisbon",
+        )
         response = run.get("/", token=False)
         assert response.status_code == 200
         sections = [
@@ -54,6 +63,7 @@ def test_ac_m5_6_blocks_in_priority_order(tmp_path: Path):
         ]
         assert sections == [
             "today-interviews",
+            "today-debriefs",
             "today-reminders",
             "today-jobs",
             "today-drafts",
