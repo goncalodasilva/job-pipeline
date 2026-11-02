@@ -4,6 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from app.domain.errors import VersionConflict
+from app.modules.storage.prep_repo import SUMMARY_COLUMNS
 
 
 @dataclass(frozen=True)
@@ -260,6 +261,10 @@ class CardRow:
     next_event_type: str | None = None
     next_event_zone: str | None = None
     version: int = 1
+    prep_items: int = 0
+    prep_practiced: int = 0
+    future_interview: bool = False
+    closed: bool = False
 
 
 @dataclass(frozen=True)
@@ -286,19 +291,29 @@ def status_counts(conn: sqlite3.Connection) -> list[StatusCount]:
 
 def board_cards(conn: sqlite3.Connection, *, now: str, include_closed: bool) -> list[CardRow]:
     """Cards of preparing and active statuses, and of closed ones only when asked; each with
-    its next scheduled event not yet over at ``now`` (its start, type and time zone)."""
+    its next scheduled event not yet over at ``now`` (its start, type and time zone) and its
+    prep counts (``prep_repo.SUMMARY_COLUMNS``, in the same statement)."""
     rows = conn.execute(
-        "SELECT a.id, a.job_id, COALESCE(c.name, ''), j.title, a.status_key, a.updated_at, "
-        "e.starts_at, e.type, e.time_zone, a.version "
+        "SELECT a.id, a.job_id, COALESCE(c.name, ''), j.title, a.status_key, a.updated_at, "  # noqa: S608
+        "e.starts_at, e.type, e.time_zone, a.version, " + SUMMARY_COLUMNS + " "
         "FROM applications a JOIN application_statuses s ON s.key = a.status_key "
         "JOIN jobs j ON j.id = a.job_id LEFT JOIN companies c ON c.id = j.company_id "
         "LEFT JOIN events e ON e.id = (SELECT n.id FROM events n WHERE n.application_id = a.id "
         "AND n.status = 'scheduled' AND julianday(n.ends_at) >= julianday(?) "
         "ORDER BY julianday(n.starts_at), n.id LIMIT 1) "
         "WHERE s.phase <> 'closed' OR ? = 1",
-        (now, 1 if include_closed else 0),
+        (now, now, 1 if include_closed else 0),
     ).fetchall()
-    return [CardRow(*row) for row in rows]
+    return [
+        CardRow(
+            *row[:10],  # type: ignore[misc]  # the SELECT order above is CardRow's field order
+            prep_items=int(row[10]),
+            prep_practiced=int(row[11]),
+            future_interview=bool(row[12]),
+            closed=bool(row[13]),
+        )
+        for row in rows
+    ]
 
 
 def count_applications(conn: sqlite3.Connection) -> int:

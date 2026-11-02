@@ -18,6 +18,7 @@
   <p>Applied: {{ application.applied_date or 'Not yet' }}</p>
   <h3>Next event</h3>
   {% if next_event %}<p>{{ next_event.label }}: {{ next_event.local_text }}</p>{% else %}<p>No upcoming event. Add one when you have a date.</p>{% endif %}
+  {% if prep_state %}<p class="application-prep" data-prep-state="{{ prep_state }}">{{ prep_label }}</p>{% endif %}
   <section id="application-contacts" aria-labelledby="application-contacts-heading">
     <h3 id="application-contacts-heading" tabindex="-1"{% if message and focus == 'contacts' %} data-autofocus{% endif %}>Contacts</h3>
     {% if not application.company_id %}

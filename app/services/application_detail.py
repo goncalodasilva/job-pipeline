@@ -13,8 +13,15 @@ from app.domain.errors import ApplicationNotFound, EventTimeInvalid, VersionConf
 from app.domain.events import all_day_range, wall_time_to_utc
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.jobs import local_today
+from app.domain.prep_state import PREP_STATE_LABELS, prep_state, should_show
 from app.modules.calendar import CalendarFile, CalendarProvider, EventData, EventType
-from app.modules.storage import Database, applications_repo, contacts_repo, document_usage_repo
+from app.modules.storage import (
+    Database,
+    applications_repo,
+    contacts_repo,
+    document_usage_repo,
+    prep_repo,
+)
 from app.modules.storage import application_detail_repo as repo
 from app.services.applications import _zone
 from app.services.board_views import zone_names
@@ -52,6 +59,9 @@ class ApplicationDetail:
             on_file = contacts_repo.for_company(conn, company_id) if company_id else []
             linked = set(contacts_repo.linked_ids(conn, aid))
             sent_documents = document_usage_repo.sent_documents(conn, aid)
+            summary = prep_repo.states(conn, [aid], self._clock.now().astimezone(UTC).isoformat())[
+                aid
+            ]
         company_contacts = sorted(on_file, key=lambda c: (c["name"].casefold(), c["name"], c["id"]))
         for interaction in interactions:
             interaction["channel_label"] = CHANNELS.get(interaction["channel"], "Other")
@@ -79,8 +89,15 @@ class ApplicationDetail:
             dict(kind="interaction", at=i["happened_at"], id=i["id"], item=i) for i in interactions
         )
         timeline.sort(key=lambda entry: (entry["at"], entry["id"]), reverse=True)
+        shown = (
+            prep_state(summary.item_count, summary.practiced_count)
+            if should_show(summary.item_count, summary.has_future_interview, summary.closed)
+            else None
+        )
         return {
             "application": application,
+            "prep_state": shown,
+            "prep_label": PREP_STATE_LABELS.get(shown or "", ""),
             "sent_documents": sent_documents,
             "notes": notes,
             "events": events,

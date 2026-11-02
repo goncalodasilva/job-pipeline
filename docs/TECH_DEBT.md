@@ -30,6 +30,8 @@ M6.12 sweep (2026-10-28): TD-043 checked (closed by M6.3, listed under "Checked 
 
 M7.10 sweep (2026-10-31): TD-300 (kept session answers) added to section 2, and TD-301 to TD-314 (sessions, questions, clusters, prompts, Settings, tests and the coverage gate) added in section 12. TD-055 and TD-171 are unchanged.
 
+M8.2 sweep (2026-11-02): TD-315 to TD-322 (interview preparation: honesty gaps, practice and card limits, Prep and Today screens, and two test flakes) added in section 13.
+
 M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolved the table drawer links, due markers and reminder response refreshes; this task documents the local-page/privacy boundaries and HX-Current-URL. Prior checkpoints are recorded in PROGRESS. Remaining M5 limits are TD-266–TD-276 below; TD-257 also covers contacts and application history.
 
 ## 1. Security and hardening
@@ -376,7 +378,7 @@ M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolv
 
 ## 12. Sessions, questions and coverage (M7)
 
-Added at M7.10. TD-055 and TD-171 are unchanged and still apply to the M7 tasks. This section is last, not by impact.
+Added at M7.10. TD-055 and TD-171 are unchanged and still apply to the M7 tasks. Sections 12 and 13 are listed by milestone, not by impact.
 
 | ID | Item | Origin | Impact | When / fix |
 | --- | --- | --- | --- | --- |
@@ -394,6 +396,21 @@ Added at M7.10. TD-055 and TD-171 are unchanged and still apply to the M7 tasks.
 | TD-312 | The Coverage detail response's `HX-Trigger` announce header carries the cluster label, which comes from job text. The label is escaped JSON. The behaviour is by design. | M7.7 Evidence; `app/api/facts_coverage.py` | low: a label from a job posting is read aloud by the announcement | Keep, or decide otherwise with the user. |
 | TD-313 | The corpus stamp used for question replay does not include a closed job's requirements. | ADR-126 Consequences | low: a change to a closed job's requirements may not invalidate a stored question | Add the closed job's requirements to the stamp, with a test. |
 | TD-314 | `scripts/check_critical_coverage.py` has no entries for M5, M6 or M7 modules. Its registry ends at `app/modules/fetch/guard.py` (M4). `--milestone M7` passes on the existing registry, so it does not measure `app/domain/questions.py`, `app/domain/structured_answer.py` or `app/services/sessions.py`. | M7.10 brief; spec 4.3 | medium: the coverage gate does not measure the M7 honesty and session code | Register the M7 modules with the user's approval, with a spec 4.3 change, and record it in an ADR. |
+
+## 13. Interview preparation (M8)
+
+Added at M8.2. Sections 12 and 13 are listed by milestone, not by impact.
+
+| ID | Item | Origin | Impact | When / fix |
+| --- | --- | --- | --- | --- |
+| TD-315 | The honesty checker cannot flag embellishment or employment claims. It does not flag "led" or "senior" where a fact says "helped", or "worked at <target company>" when the fact bank holds no such employment. Only the prompt and the human review stop these. | M8.2 Left for the user; ADR-130 Consequences | high: an invented role or seniority can reach an approved narrative or adapted answer | Closing the gap changes the honesty rule in spec 3.1. It needs the user's decision and a spec change first. |
+| TD-316 | `adapt_answer` sends the whole earlier practice answer to the AI as written. Generalize-names and never-use are not applied to it, so an employer name or a never-use fact in that answer reaches the request. The prompt hint says so. | M8.2 Left for the user; ADR-130 item 4 | high: never-use facts and names in an old answer can be sent to the AI | Apply the filters to the earlier answer, or record the current rule with the user's decision. A change to the prompt bumps `adapt_answer`'s version and updates its golden test. |
+| TD-317 | The shared 1,200-character total for narrative cards and adapted answers applies at generation only. Edits are exempt, so the total can be exceeded by editing. | M8.2 Left for the user; ADR-130 item 3 | low: a card can be longer than the stated total | Apply the total on save, with a test, or record the exemption as the user's decision. |
+| TD-318 | Today's "Upcoming interviews" block still lists interviews of closed applications. Only their prep state is hidden. | M8.2 Left for the user; ADR-130 item 5 | low: closed applications still appear in the interview list | Hide closed applications' interviews from that block, or record the choice with the user's decision. |
+| TD-319 | "Draft this card" swaps the whole Prep region, not only the card. | M8.2 Left for the user | low: more of the Prep tab is redrawn than the action needs | Swap only the card, with a test, or record the choice with the user's decision. |
+| TD-320 | Native-submit flake in e2e tests. A key press or click right after an htmx swap can submit the form natively, without the launch token, and the server refuses it (403). Seen in the M5 and M6 journeys and the Tailoring workspace test. Full run `/private/tmp/m8-2-full.log` failed `test_m5_journey_apply_board_drawer_event_ics_today[phone]` ("Today reminders absent" timing). Run `/private/tmp/m8-2-full2.log` failed `test_m6_journey…[desktop]` and `test_workspace_gap_check_and_angle_by_keyboard_announced`. Each failing test passes alone. The identical working tree passed the pair from `m8-2-full2.log` 6 of 6 in a clean copy, and M8.1, part A and part B passed it 28 of 28 in clean worktrees. In the main checkout the pair fails about 40% of runs, always as a native token-less POST or GET after a step swap (the app log shows `POST /settings/cv-templates/PT/draft 403`). A wait for htmx to bind in `open_app` and `press_by_keyboard` did not remove it; those experiments were reverted. Removing three venv-only packages broke the environment and was restored. | Extends TD-309; M8.2 Evidence | medium: a flaky gate can hide a real fault | Find why the main checkout differs from a clean copy. Until then, add the settle wait TD-309 describes to the affected steps, and check the app's stderr for a 403 first. |
+| TD-321 | `test_session_drafts_never_use_never_use_facts` (M7.10) fails when a random id contains "950". | M8.2 Left for the user | low: a test-only flake on some random ids | Fix how the test builds its random ids, with a test. Do not change the assertion without the user's approval. |
+| TD-322 | The practice attempts view shows the latest 20 attempts only. | M8.2 Left for the user | low: older practice attempts are not listed | Add paging or a "show more" with a test, or record the limit with the user's decision. |
 
 ## Checked and closed (not listed)
 

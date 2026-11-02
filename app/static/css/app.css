@@ -2685,7 +2685,8 @@ kbd,
 
 .board-card-role,
 .board-card-state,
-.board-card-next {
+.board-card-next,
+.board-card-prep {
   margin: var(--space-1) 0 0;
 }
 
@@ -2695,6 +2696,11 @@ kbd,
 
 .board-card-next {
   color: var(--color-text-muted);
+}
+
+.board-card-prep {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
 }
 
 .board-menu {

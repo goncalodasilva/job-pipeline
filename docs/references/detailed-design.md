@@ -328,7 +328,7 @@ Interview prep lives in a tab on each application and generates nothing until th
 - Is there concrete evidence?
 - Is the length right, as estimated speaking time?
 - Is it consistent with the CV sent?
-- Honesty check: claims not found in the fact bank are flagged with "This isn't in your fact bank." and a checkbox "This is true; add it" (the claim stays in this fact's wording; no separate draft, ADR-097)
+- Honesty check: claims not found in the fact bank are flagged with "This isn't in your fact bank." and a checkbox "This is true; add it" (refine: the claim stays in this fact's wording; no separate draft, ADR-097. Practice: a ticked claim creates a needs-check draft fact with source `practice`, ADR-124 item 8, ADR-130)
 
 Feedback is specific and kind, and points to relevant facts. Each question keeps its practice history and can be marked "ready".
 

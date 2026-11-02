@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from app.domain.clock import Clock
+from app.domain.prep_state import prep_state, should_show
 from app.modules.storage import Database, applications_repo
 from app.modules.storage.applications_repo import CardRow
 
@@ -40,6 +41,7 @@ class BoardCard:
     next_event: NextEvent | None
     days_since_activity: int
     version: int = 1
+    prep_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -158,6 +160,9 @@ def _cards(rows: list[CardRow], now: datetime) -> list[BoardCard]:
             else None,
             max(0, (now - updated).days),
             row.version,
+            prep_state(row.prep_items, row.prep_practiced)
+            if should_show(row.prep_items, row.future_interview, row.closed)
+            else None,
         )
         for updated, row in stamped
     ]

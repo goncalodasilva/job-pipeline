@@ -1,5 +1,6 @@
 """Interview-prep persistence. Callers own the short transaction."""
 
+import json
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
@@ -291,3 +292,46 @@ def mark_ready(
     )
     if updated.rowcount != 1:
         raise VersionConflict()
+
+
+# --- prep state: what the board, the drawer and Today show (M8.2 part D) ------------------------
+
+# Correlated columns over an ``applications`` row aliased ``a``; the one ``?`` is the instant
+# "now". The board's card query embeds the same text, so it stays a single statement.
+SUMMARY_COLUMNS = (
+    "(SELECT count(*) FROM prep_items pi WHERE pi.application_id = a.id), "
+    "(SELECT count(*) FROM prep_items pp WHERE pp.application_id = a.id "
+    "AND EXISTS (SELECT 1 FROM practice_attempts pa WHERE pa.prep_item_id = pp.id)), "
+    "EXISTS (SELECT 1 FROM events pe WHERE pe.application_id = a.id AND pe.status = 'scheduled' "
+    "AND pe.type = 'interview' AND julianday(pe.ends_at) >= julianday(?)), "
+    "EXISTS (SELECT 1 FROM application_statuses ps WHERE ps.key = a.status_key "
+    "AND ps.phase = 'closed')"
+)
+
+
+@dataclass(frozen=True)
+class PrepSummary:
+    """Prep items, the items with at least one practice attempt, and whether a scheduled
+    interview is not yet over; ``closed`` is true when the application's status is in the closed
+    phase."""
+
+    item_count: int
+    practiced_count: int
+    has_future_interview: bool
+    closed: bool = False
+
+
+def states(
+    conn: sqlite3.Connection, application_ids: list[str], now: str
+) -> dict[str, PrepSummary]:
+    """A summary for each given id (zeros for an unknown one), in one SELECT; none for an empty
+    list. ``now`` is an ISO UTC instant."""
+    if not application_ids:
+        return {}
+    rows = conn.execute(
+        f"SELECT a.id, {SUMMARY_COLUMNS} FROM applications a "  # noqa: S608 - fixed text
+        "WHERE a.id IN (SELECT value FROM json_each(?))",
+        (now, json.dumps(list(application_ids))),
+    ).fetchall()
+    found = {str(r[0]): PrepSummary(int(r[1]), int(r[2]), bool(r[3]), bool(r[4])) for r in rows}
+    return {aid: found.get(aid, PrepSummary(0, 0, False)) for aid in application_ids}

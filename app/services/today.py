@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 from app.domain.clock import Clock
 from app.domain.errors import format_day, format_day_time
 from app.domain.ids import is_safe_id
-from app.modules.storage import Database, document_usage_repo, today_repo
+from app.domain.prep_state import PREP_STATE_LABELS, prep_state, should_show
+from app.modules.storage import Database, document_usage_repo, prep_repo, today_repo
 from app.modules.storage.document_usage_repo import DocumentDraft
 from app.modules.storage.today_repo import JobRow
 from app.services.reminders import Notifications, ReminderService
@@ -23,6 +24,11 @@ class Interview:
     instant: str
     local: str
     zone: str
+    prep_state: str | None = None
+
+    @property
+    def prep_label(self) -> str:
+        return PREP_STATE_LABELS.get(self.prep_state or "", "")
 
 
 @dataclass(frozen=True)
@@ -72,6 +78,11 @@ class TodayService:
                 today=now.astimezone(self._zone).date().isoformat(),
             )
             documents = document_usage_repo.document_drafts(conn)
+            prep = prep_repo.states(
+                conn,
+                sorted({r.application_id for r in rows.interviews if is_safe_id(r.application_id)}),
+                now.isoformat(),
+            )
         interviews = []
         for row in rows.interviews:
             if not is_safe_id(row.application_id):
@@ -88,6 +99,7 @@ class TodayService:
                     if row.all_day
                     else format_day_time(local),
                     row.time_zone,
+                    _prep_state(prep.get(row.application_id)),
                 )
             )
         return TodayView(
@@ -99,3 +111,11 @@ class TodayService:
             rows.statuses,
             tuple(d for d in documents if is_safe_id(d.application_id)),
         )
+
+
+def _prep_state(summary: prep_repo.PrepSummary | None) -> str | None:
+    if summary is None or not should_show(
+        summary.item_count, summary.has_future_interview, summary.closed
+    ):
+        return None
+    return prep_state(summary.item_count, summary.practiced_count)

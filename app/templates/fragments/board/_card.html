@@ -12,6 +12,7 @@
   {% else %}
   <p class="board-card-next">Last activity {{ card.activity }}</p>
   {% endif %}
+  {% if card.prep_state %}<p class="board-card-prep" data-prep-state="{{ card.prep_state }}">{{ card.prep_label }}</p>{% endif %}
   <div class="board-menu">
     <button type="button" id="board-menu-button-{{ card.application_id }}" class="button board-menu-button" aria-haspopup="menu" aria-expanded="false" aria-controls="board-menu-{{ card.application_id }}" aria-label="Move to… {{ card.company }}, {{ card.role }}">Move to…</button>
     <form method="post" action="/applications/{{ card.application_id }}/status" hx-post="/applications/{{ card.application_id }}/status" hx-target="#board-content" hx-swap="outerHTML settle:0ms">

@@ -34,6 +34,13 @@
       <p id="practice-count-note" class="visually-hidden" aria-live="polite" data-char-note></p>
     </div>
     {% if practice.reason %}{% set budget_blocked = practice.reason %}{% include 'fragments/budget/_blocked.html' %}{% endif %}
+    {% if v.speech.dictate or v.speech.read_aloud %}
+    <div class="form-actions" data-speech-controls>
+      {% if v.speech.dictate %}<button type="button" class="button" data-speech="dictate" disabled aria-disabled="true" aria-describedby="practice-speech-hint">Dictate</button>{% endif %}
+      {% if v.speech.read_aloud %}<button type="button" class="button" data-speech="read" disabled aria-disabled="true" aria-describedby="practice-speech-hint">Read aloud</button>{% endif %}
+      <p id="practice-speech-hint" class="field-hint">Not available yet. Type your answer for now.</p>
+    </div>
+    {% endif %}
     <div class="form-actions">
       <button type="submit" id="practice-submit" class="button button-primary"{% if practice.reason %} aria-disabled="true" aria-describedby="practice-reason practice-use"{% elif v.active %} aria-disabled="true" aria-describedby="practice-working practice-use"{% else %} aria-describedby="practice-use"{% endif %}>Get feedback</button>
     </div>

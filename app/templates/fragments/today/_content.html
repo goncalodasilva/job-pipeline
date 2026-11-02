@@ -8,7 +8,7 @@
   {% if today.interviews %}
   <section id="today-interviews" class="today-block" aria-labelledby="today-interviews-heading">
     <h2 id="today-interviews-heading">Upcoming interviews</h2>
-    <ul>{% for item in today.interviews %}<li data-interview-id="{{ item.id }}"><a href="/applications/{{ item.application_id }}">{{ item.company }} · {{ item.role }}</a> — <time datetime="{{ item.instant }}">{{ item.local }}</time> · {{ item.zone }}</li>{% endfor %}</ul>
+    <ul>{% for item in today.interviews %}<li data-interview-id="{{ item.id }}"><a href="/applications/{{ item.application_id }}">{{ item.company }} · {{ item.role }}</a> — <time datetime="{{ item.instant }}">{{ item.local }}</time> · {{ item.zone }}{% if item.prep_state %} · <span data-prep-state="{{ item.prep_state }}">{{ item.prep_label }}</span>{% endif %}</li>{% endfor %}</ul>
   </section>
   {% endif %}
   {% if today.reminders.items %}

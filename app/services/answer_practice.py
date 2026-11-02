@@ -37,6 +37,7 @@ from app.services.answer_ai import ANSWER_FEEDBACK, AnswerContext, answer_feedba
 from app.services.facts import SOURCE_PRACTICE, DraftInput, DraftOrigin, FactService
 from app.services.job_summary import ResultWriter, SummaryContext, SummaryPlan, SummaryWorkspace
 from app.services.prep import PrepService
+from app.services.speech import SpeechControls, speech_controls
 from app.services.tasks import TaskService
 from app.services.usage import UsageService
 from app.services.usage_meter import ServiceUsageMeter
@@ -84,6 +85,9 @@ class PracticeView:
     cv_source: str
     truncated: bool = False  # older tries exist than the ones shown
     fact_words: Mapping[str, str] = field(default_factory=dict)  # fact ref -> its short wording
+    speech: SpeechControls = field(
+        default_factory=SpeechControls
+    )  # what the provider in use declares, read per view
 
     @property
     def active(self) -> bool:
@@ -168,7 +172,16 @@ class AnswerPracticeService:
             source.cv_source,
             len(found) > len(rows),
             fact_wordings(facts_for_ai(records)),
+            self._speech(),
         )
+
+    def _speech(self) -> SpeechControls:
+        """Controls for the provider configured now; closed when there is none."""
+        try:
+            provider, _ = self._provider()
+        except ProviderNotConfigured:
+            return SpeechControls()
+        return speech_controls(provider.capabilities)
 
     def attempt_in(self, aid: str, qid: str, attempt_id: str) -> bool:
         """Whether the attempt belongs to this application's question, however old it is.

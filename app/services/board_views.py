@@ -27,6 +27,7 @@ from app.domain.errors import (
     StatusNotAllowed,
     format_short_day,
 )
+from app.domain.prep_state import PREP_STATE_LABELS
 from app.modules.storage.applications_repo import StoredStatus
 from app.services.applications import ApplicationService, ApplicationStatuses
 from app.services.board import PAGE_SIZE, BoardCard, BoardQuery, NextEvent
@@ -68,6 +69,8 @@ class CardView:
     activity: str
     closed_label: str
     focus: bool
+    prep_state: str = ""
+    prep_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -330,6 +333,8 @@ def _card(
         activity=days_in_words(card.days_since_activity),
         closed_label=f"Closed: {label.lower()}" if card.status_key in closed_keys else "",
         focus=card.application_id == focus_id,
+        prep_state=card.prep_state or "",
+        prep_label=PREP_STATE_LABELS.get(card.prep_state or "", ""),
     )
 
 
