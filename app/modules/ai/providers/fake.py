@@ -250,6 +250,7 @@ class FakeAIProvider:
                 from app.modules.ai.providers.prep_scripts import (
                     FICTIONAL_SOURCE,
                     adapt_data,
+                    brief_data,
                     feedback_data,
                     narrative_data,
                     question_data,
@@ -267,6 +268,10 @@ class FakeAIProvider:
                 if task == "interview_web_questions":
                     return ScriptedResponse(
                         data=web_data(), tool_calls=1, searched_urls=(FICTIONAL_SOURCE,)
+                    )
+                if task == "company_brief":
+                    return ScriptedResponse(
+                        data=brief_data(), tool_calls=1, searched_urls=(FICTIONAL_SOURCE,)
                     )
                 raise InvalidModelOutput(detail="fake provider: no script for this task")
             raise LookupError(f"No scripted response for task {task!r}.")

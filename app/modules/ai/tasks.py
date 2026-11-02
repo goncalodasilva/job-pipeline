@@ -63,5 +63,9 @@ _SPECS: Final = (
     # for this job, each paragraph citing fact ids. Kind generation, as draft_narrative; the old
     # answer is untrusted data and proves nothing.
     TaskSpec("adapt_answer", kind="generation"),
+    # M8.3 part B: a short sourced brief about one company from its stored name, website and
+    # industry only; no fact, job text, CV text or personal detail reaches it, so it is a plain
+    # summary (no honesty notice). Web search is allowed, five searches at most.
+    TaskSpec("company_brief", kind="summary", allow_web_search=True, max_searches=5),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

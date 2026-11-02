@@ -1,0 +1,5 @@
+<untrusted_document source="company" id="company-example">
+{"company": "Fictional Orchard", "website": "https://orchard.example.test", "industry": "Gardening"}
+</untrusted_document>
+
+Search for this company and return up to six sourced sections, each with its searched source URL.

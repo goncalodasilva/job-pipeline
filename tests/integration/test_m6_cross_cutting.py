@@ -339,6 +339,19 @@ def drive_interview(web: bool) -> Callable[[Exporting], None]:
     return drive
 
 
+def drive_company_brief(desk: Exporting) -> None:
+    from app.modules.ai import AICapabilities
+    from tests.brief_pages import company_id
+    from tests.tailoring_pages import Tailoring
+
+    Tailoring(desk.r).ready("personal-brief", facts=False)
+    desk.r.run.spy.capabilities = AICapabilities(web_search=True, reports_token_usage=True)
+    service = desk.r.run.app.state.company_brief
+    cid = company_id(desk.r)
+    ref = service.start(cid, version=service.view(cid).version)
+    assert desk.r.run.wait_terminal(ref.id).status.value == "succeeded"
+
+
 def drive_answer_feedback(desk: Exporting) -> None:
     aid = desk.cv_ready("practice-job", template=False).id
     question = desk.r.run.app.state.prep.add_bank_question(
@@ -371,6 +384,7 @@ def drive_adapt_answer(desk: Exporting) -> None:
 DRIVERS: dict[str, Callable[[Exporting], None]] = {
     "adapt_answer": drive_adapt_answer,
     "answer_feedback": drive_answer_feedback,
+    "company_brief": drive_company_brief,
     "draft_narrative": drive_draft_narrative,
     "extract_cv": drive_extract_cv,
     "refine_fact": drive_refine_fact,

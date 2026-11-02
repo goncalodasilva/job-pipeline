@@ -28,6 +28,7 @@ from app.api.application_contacts import register_application_contact_routes
 from app.api.application_detail import register_application_detail_routes
 from app.api.board import register_board_routes
 from app.api.companies import register_company_routes
+from app.api.company_brief import register_company_brief_routes
 from app.api.company_contacts import register_company_contact_routes
 from app.api.cv_step import register_cv_routes
 from app.api.debrief import register_debrief_routes
@@ -132,6 +133,7 @@ from app.services.board_views import BoardViews
 from app.services.budget_gate import BudgetGate
 from app.services.capture import CaptureService
 from app.services.companies import CompaniesService
+from app.services.company_brief import BRIEF, BRIEF_LABEL, BriefService
 from app.services.contacts import ContactsService
 from app.services.coverage_views import CoverageViews
 from app.services.cv_import import (
@@ -211,6 +213,7 @@ from app.services.usage_panel import UsagePanel
 from app.services.usage_settings import UsageSettings
 from app.tasks import HandlerRegistry, TaskRunner
 from app.tasks.answer_feedback import answer_feedback_handler
+from app.tasks.company_brief import company_brief_handler
 from app.tasks.cv_import import cv_import_handler
 from app.tasks.cv_templates import draft_cv_template_handler
 from app.tasks.debrief import debrief_facts_handler
@@ -792,6 +795,28 @@ def _prep(app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory, tz: tzi
     )
 
 
+def _company_brief(
+    app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory, tz: tzinfo
+) -> BriefService:
+    def settings() -> AIProviderSettings | None:
+        db = _current_db(app)
+        return SettingsService(db, clock).load(AI_PROVIDER).value if db else None
+
+    return BriefService(
+        factory=wiring,
+        clock=clock,
+        ids=ids,
+        workspace=lambda: getattr(app.state, "workspace", None),
+        settings=settings,
+        tasks=lambda: getattr(app.state, "task_service", None),
+        usage=_open_usage(app),
+        search=wiring.search_provider,
+        search_settings=wiring.search_settings,
+        transient=wiring.search_results,
+        tz=tz,
+    )
+
+
 def _answer_practice(
     app: FastAPI, *, wiring: Wiring, clock: Clock, ids: IdFactory
 ) -> AnswerPracticeService:
@@ -1301,6 +1326,9 @@ def create_app(
     app.state.tailoring = _tailoring(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.sessions = _sessions(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.prep = _prep(app, wiring=app_wiring, clock=app_clock, ids=app_ids, tz=app_tz)
+    app.state.company_brief = _company_brief(
+        app, wiring=app_wiring, clock=app_clock, ids=app_ids, tz=app_tz
+    )
     app.state.answer_practice = _answer_practice(
         app, wiring=app_wiring, clock=app_clock, ids=app_ids
     )
@@ -1315,6 +1343,11 @@ def create_app(
             WEB_QUESTIONS,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(minutes=3), "Reported online questions"),
             prep_handler(app.state.prep, web=True),
+        )
+        handlers.register(
+            BRIEF,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(minutes=3), BRIEF_LABEL),
+            company_brief_handler(app.state.company_brief),
         )
         handlers.register(
             ANSWER_FEEDBACK,
@@ -1498,6 +1531,7 @@ def create_app(
     register_letter_routes(app)
     register_job_detail_routes(app)
     register_company_routes(app)
+    register_company_brief_routes(app)
     register_company_contact_routes(app)
     register_board_routes(app)
     register_application_detail_routes(app)

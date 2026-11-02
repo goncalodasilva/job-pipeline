@@ -1,0 +1,18 @@
+{
+  "data": {
+    "sections": [
+      {
+        "heading": "what_they_do",
+        "text": "Plans delivery routes for small depots and sells the planning software it uses.",
+        "source_url": "https://example.test/about",
+        "source_date": null
+      },
+      {
+        "heading": "recent_news",
+        "text": "Opened a second depot in March 2024.",
+        "source_url": "https://example.test/news",
+        "source_date": "March 2024"
+      }
+    ]
+  }
+}

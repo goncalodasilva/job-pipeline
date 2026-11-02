@@ -75,6 +75,21 @@ def web_data() -> dict[str, Any]:
     }
 
 
+def brief_data() -> dict[str, Any]:
+    """A fictional company brief. It reads nothing from the request, so no company wording
+    (which is untrusted) is repeated in it."""
+    return {
+        "sections": [
+            {
+                "heading": "what_they_do",
+                "text": "A fictional company that runs on practice data, not real research.",
+                "source_url": FICTIONAL_SOURCE,
+                "source_date": None,
+            }
+        ]
+    }
+
+
 _FACT_LABEL: Final = re.compile(r"^\[(F[1-9][0-9]*@[1-9][0-9]*)(?: \(generalize names\))?\]$", re.M)
 
 

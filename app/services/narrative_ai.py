@@ -3,7 +3,7 @@ ADR-124 items 7 and 8).
 
 One user-started request for one narrative card. The job (title, company, posting and
 requirements), the confirmed facts (only through ``facts_for_ai``), the chosen angle, the
-company's saved notes (only for ``why_this_company``) and the company brief (empty until M8.3)
+company's saved notes and the latest saved company brief (both only for ``why_this_company``)
 are each one untrusted block. The card kind is the only trusted input, checked here against the
 fixed set. Personal details and anything about pay are never inputs, so no request can hold
 them. The answer is resolved by the pure rules of ``app/domain/narrative.py`` before anything is
@@ -15,6 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Final
 
+from app.domain.company_brief import BriefSection, brief_prompt_text
 from app.domain.fact_selection import FactRecord, facts_for_ai, prompt_fact_block
 from app.domain.narrative import CARD_KINDS, resolve_narrative_units
 from app.domain.settings import Tier
@@ -25,6 +26,7 @@ from app.services.tailoring_ai import ChosenAngle, TailoringJob, TaskOutput
 DRAFT_NARRATIVE: Final = "draft_narrative"
 COMPANY_CARD: Final = "why_this_company"
 MAX_NOTES_CHARS: Final = 4000
+MAX_BRIEF_CHARS: Final = 4000
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -65,9 +67,11 @@ async def run_draft_narrative(
     task_id: str | None = None,
     known_skills: Sequence[str] = (),
     new_id: Callable[[], str] | None = None,
+    brief: Sequence[BriefSection] = (),
 ) -> NarrativeOutput:
     """One card request. ``records`` are all stored fact rows; only the usable ones are sent.
-    ``company_notes`` reach the request only for ``why_this_company``. Raises ``ValueError``
+    ``company_notes`` and ``brief`` (the latest saved company brief, cut at 4,000 characters from
+    the end) reach the request only for ``why_this_company``. Raises ``ValueError``
     for a kind that is not a written card or without usable facts, ``InvalidModelOutput`` after
     the one retry, provider errors as they come."""
     if card_kind not in CARD_KINDS:
@@ -88,7 +92,7 @@ async def run_draft_narrative(
                 {"name": angle.name, "description": angle.description}, ensure_ascii=False
             ),
             "company_notes": notes,
-            "brief": "",
+            "brief": brief_prompt_text(brief, MAX_BRIEF_CHARS) if card_kind == COMPANY_CARD else "",
             "application_id": application_id,
         },
         cancel,

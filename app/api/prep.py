@@ -9,6 +9,7 @@ from fastapi.responses import PlainTextResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from app.api.budget_gate import dialog_context, reason_context, refusal_message
+from app.api.company_brief import brief_context
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx, posted_version, single_value_form
 from app.api.templating import templates
@@ -113,6 +114,7 @@ def prep_context(
             for _, status, error in view.tasks
             if status == "failed" and error
         ],
+        "brief": brief_context(request, view.company_id, level="h5") if view.company_id else None,
         "rows": {row.question.id: row for row in (*view.questions, *view.already_prepared)},
     }
 

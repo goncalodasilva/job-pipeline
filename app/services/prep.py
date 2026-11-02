@@ -77,6 +77,7 @@ class PrepView:
     storage_notice: str
     source_labels: Mapping[str, str]
     item_count: int = 0
+    company_id: str | None = None
 
     @property
     def has_items(self) -> bool:
@@ -294,6 +295,7 @@ class PrepService:
             notice,
             {q.id: self._source_label(q) for q in (*loaded.bank, *ephemeral) if q.source_url},
             len(loaded.items),
+            loaded.source.company_id,
         )
 
     def _source_label(self, q: BankQuestion) -> str:

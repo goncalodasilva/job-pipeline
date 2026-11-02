@@ -286,7 +286,6 @@ def test_company_page_has_no_placeholder_for_unbuilt_features(tmp_path):
             shown = response.text
             main = shown.split("<main", 1)[-1].lower()
             for absent in (
-                "brief",
                 "watch",
                 "coming soon",
                 "later version",

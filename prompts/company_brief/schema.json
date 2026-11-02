@@ -1,0 +1,57 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sections": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "heading": {
+            "type": "string",
+            "enum": [
+              "what_they_do",
+              "products",
+              "size_and_location",
+              "recent_news",
+              "culture",
+              "other"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+(?![\\s\\S])"
+          },
+          "source_url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "pattern": "^https?://[^\\s]+(?![\\s\\S])"
+          },
+          "source_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+(?![\\s\\S])"
+          }
+        },
+        "required": [
+          "heading",
+          "text",
+          "source_url",
+          "source_date"
+        ]
+      }
+    }
+  },
+  "required": [
+    "sections"
+  ]
+}

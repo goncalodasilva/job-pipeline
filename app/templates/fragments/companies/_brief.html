@@ -1,0 +1,52 @@
+{# The company brief (M8.3 part B): a few short sections about the company, each with the one
+   source the search returned. Shown on the company page and in the Prep tab's Research
+   section; `brief` comes from app/api/company_brief.py (brief_context). The start posts the
+   company's version and answers this block. Section text and source links are untrusted
+   data: always escaped, never |safe, links open nothing the app fetches. The newest brief is
+   the one on screen: a held (not saved) one replaces an older saved one. Like #prep, the block
+   is not replaced while the person is at work in it (data-keep-edits, data-nested-stale-note; the Prep tab's own note stays data-stale-note), and a
+   failed run is said once by the task indicator in the page's own words
+   (data-announce-instead-of, data-announce-instead), never by a repeating alert. #}
+{% set view = brief.view %}
+{% set shown = view.transient or view.brief %}
+{% set path = '/companies/' ~ view.company_id ~ '/brief' %}
+<section id="company-brief" aria-labelledby="company-brief-heading" class="company-brief" data-keep-edits
+         data-announce-instead-of="{{ brief.failed_said }}" data-announce-instead="{{ brief.failed_instead }}"
+         hx-get="{{ path }}" hx-trigger="{% if brief.active %}every 2s, {% endif %}tasks:updated from:body, usage:changed from:body, company:saved from:body" hx-swap="outerHTML">
+  <{{ brief.level }} id="company-brief-heading" tabindex="-1" data-refresh-safe-focus{% if brief.focus %} data-autofocus{% endif %}>Company brief</{{ brief.level }}>
+  <p data-nested-stale-note hidden>Updates are ready. <button type="button" class="button" hx-get="{{ path }}?focus=1" hx-target="#company-brief" hx-swap="outerHTML">Show the latest brief</button></p>
+  {% if brief.conflict %}
+    {% with reload_id='company-brief-conflict', reload_message='This company changed since this page loaded.', reload_detail='Nothing was started.', reload_url='/companies/' ~ view.company_id %}{% include 'fragments/shell/_reload_prompt.html' %}{% endwith %}
+  {% endif %}
+  {% if brief.active %}<p id="company-brief-working" role="status">Looking up this company… Progress is also in Tasks.</p>{% endif %}
+  {% for error in brief.task_errors %}<p class="field-error">{{ error }} Try starting again.</p>{% endfor %}
+  {% if view.nothing_kept and not brief.active %}<p id="company-brief-nothing">Nothing with a source was found this time.</p>{% endif %}
+  {% if view.search_provider %}
+    <p id="company-brief-use">A brief uses AI and web search through {{ view.search_provider.name }}: up to five searches per attempt. If an answer comes back unusable, the app tries once more, using another request and more searches. This month: {{ brief.search_count }} search{% if brief.search_count != 1 %}es{% endif %}{% if brief.search_allowance %} of {{ brief.search_allowance }}{% endif %}.</p>
+    <p id="company-brief-sent">The company's name, website and industry are sent to the AI and the search.</p>
+    {% if brief.reason %}{% set budget_blocked = brief.reason %}{% include 'fragments/budget/_blocked.html' %}{% endif %}
+    <form method="post" action="{{ path }}" hx-post="{{ path }}" hx-target="#company-brief" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ view.version }}">
+      <button type="submit" id="company-brief-start" class="button"{% if brief.reason %} aria-disabled="true" aria-describedby="{{ brief.reason.id }}"{% elif brief.active %} aria-disabled="true" aria-describedby="company-brief-working company-brief-use company-brief-sent"{% else %} aria-describedby="company-brief-use company-brief-sent"{% endif %}>{% if shown %}Refresh the brief{% else %}Get a company brief{% endif %}</button>
+    </form>
+  {% else %}
+    <p>A company brief needs a search provider. Add one in <a href="/settings#providers" data-section-link>Settings</a>.</p>
+  {% endif %}
+  {% if shown %}
+    <p id="company-brief-found">Found {{ view.found_day }}</p>
+    {% if view.storage_notice %}<p id="company-brief-notice" class="notice">{{ view.storage_notice }}. This brief is shown now and is lost when the app closes, and refreshing it costs searches. You can choose another search provider in <a href="/settings#providers" data-section-link>Settings</a>.</p>{% endif %}
+    <p id="company-brief-unchecked" class="notice">Written by AI from web search results. It is not checked against your facts, and the app only checks that each link came from the search, not that the text matches the page. Check the source before relying on it.</p>
+    <div class="brief-sections">
+      {% for section in shown.sections %}
+      <div class="brief-section" data-brief-section="{{ section.heading }}">
+        <{{ brief.label_level }} class="brief-section-label">{{ brief.labels.get(section.heading, 'Other') }}</{{ brief.label_level }}>
+        <p class="brief-section-text">{{ section.text }}</p>
+        <p class="brief-section-source field-hint">Source: <a href="{{ section.source_url }}" rel="noopener noreferrer nofollow" target="_blank">{{ section.source_url }}<span class="visually-hidden"> (opens in a new tab)</span></a>{% if section.source_date %} · {{ section.source_date }} (as stated by the source){% endif %}</p>
+      </div>
+      {% endfor %}
+    </div>
+  {% elif view.search_provider and not brief.active and not view.nothing_kept %}
+    <p>No brief yet. It lists a few facts about the company, each with a link to the search result it came from.</p>
+  {% endif %}
+  {% if brief.dialog %}{% set budget_dialog = brief.dialog %}{% include 'fragments/budget/_dialog.html' %}{% endif %}
+</section>

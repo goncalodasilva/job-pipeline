@@ -303,7 +303,9 @@
         !active.hasAttribute("data-refresh-safe-focus"));
   }
   function showStaleNote(region) {
-    var note = region.querySelector("[data-stale-note]");
+    // A block that sits inside another one (the company brief in the Prep tab) names its note
+    // data-nested-stale-note, so the outer block's own [data-stale-note] stays the only one.
+    var note = region.querySelector("[data-stale-note], [data-nested-stale-note]");
     if (!note || !note.hidden) return;
     note.hidden = false;
     announce(note.textContent.replace(/\s+/g, " ").trim());
@@ -876,7 +878,7 @@
   document.body.addEventListener("htmx:beforeSend", function (event) {
     var detail = event.detail || {};
     var from = detail.elt;
-    if (from instanceof Element && from.closest("#fact-refine, #job-intake, [id^='job-summary-'], #session-panel, #session-new, #prep") &&
+    if (from instanceof Element && from.closest("#fact-refine, #job-intake, [id^='job-summary-'], #session-panel, #session-new, #prep, #company-brief") &&
         detail.requestConfig && detail.requestConfig.verb === "post") {
       var xhr = detail.xhr;
       pendingOwnedRequests.add(xhr);

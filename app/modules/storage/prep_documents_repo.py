@@ -14,8 +14,10 @@ import sqlite3
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
+from app.domain.company_brief import BriefSection
 from app.domain.errors import VersionConflict
 from app.domain.facts import FactRef, fact_ref_text
+from app.modules.storage import company_briefs_repo
 from app.modules.storage.documents_repo import SentFact, StoredFlag, StoredUnit
 
 
@@ -391,6 +393,19 @@ def company_notes(conn: sqlite3.Connection, application_id: str) -> str:
         (application_id,),
     ).fetchone()
     return str(row[0]) if row and row[0] else ""
+
+
+def company_brief_sections(
+    conn: sqlite3.Connection, application_id: str
+) -> tuple[BriefSection, ...]:
+    """The sections of the company's latest saved brief (empty when none): untrusted text from
+    a web search, already reduced to sourced sections when it was saved."""
+    row = conn.execute(
+        "SELECT j.company_id FROM applications a JOIN jobs j ON j.id = a.job_id WHERE a.id = ?",
+        (application_id,),
+    ).fetchone()
+    saved = company_briefs_repo.latest(conn, row[0]) if row and row[0] else None
+    return saved.sections if saved else ()
 
 
 def task_result_ref(conn: sqlite3.Connection, task_id: str) -> str | None:

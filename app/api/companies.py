@@ -21,6 +21,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from app.api.company_brief import brief_context
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import posted_version, single_value_form
 from app.api.pages import AREAS, area
@@ -144,7 +145,10 @@ def detail_context(request: Request, company_id: str) -> dict[str, Any]:
 
 def company_page(request: Request, company_id: str) -> Response:
     try:
-        ctx = detail_context(request, company_id)
+        ctx = {
+            **detail_context(request, company_id),
+            "brief": brief_context(request, company_id, level="h2"),
+        }
     except LookupError:
         return _not_found()
     return render(request, page="pages/company.html", fragment=DETAIL_FRAGMENT, ctx=ctx)
@@ -188,5 +192,8 @@ def _save(request: Request, company_id: str, form: dict[str, str], version: int)
         request, EDIT_FRAGMENT, ctx, status_code=409 if conflict else 422 if errors else 200
     )
     if saved:
-        response.headers["HX-Trigger-After-Settle"] = json.dumps({"announce": "Saved."})
+        # company:saved lets the company brief fetch itself again for the new version.
+        response.headers["HX-Trigger-After-Settle"] = json.dumps(
+            {"announce": "Saved.", "company:saved": True}
+        )
     return response

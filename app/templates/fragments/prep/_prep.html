@@ -58,6 +58,7 @@
   {% else %}
     <p>Web questions need a search provider. Add one in <a href="/settings#providers" data-section-link>Settings</a>.</p>
   {% endif %}
+  {% if prep.brief %}{% with brief = prep.brief %}{% include 'fragments/companies/_brief.html' %}{% endwith %}{% endif %}
   </section>
   <section aria-labelledby="prep-bank-heading">
     <h4 id="prep-bank-heading">Question bank</h4>

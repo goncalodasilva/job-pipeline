@@ -36,6 +36,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Final
 
 from app.domain.clock import Clock
+from app.domain.company_brief import BriefSection
 from app.domain.documents import DocumentStatus, DocumentUnit, UnitOrigin
 from app.domain.errors import (
     ApplicationNotFound,
@@ -267,6 +268,7 @@ class CardSource:
     angle_id: str | None
     notes: str
     current_version_id: str | None
+    brief: tuple[BriefSection, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -672,6 +674,7 @@ class PrepDocumentService:
             workspace = tailoring_repo.workspace(conn, aid)
             document = prep_documents_repo.document(conn, aid, kind, question_id)
             notes = prep_documents_repo.company_notes(conn, aid)
+            brief = prep_documents_repo.company_brief_sections(conn, aid)
             skills = tuple(skill.name for skill in skills_repo.list_skills(conn))
         angle = (
             ChosenAngle(workspace.angle_name or "", workspace.angle_description or "")
@@ -692,6 +695,7 @@ class PrepDocumentService:
             workspace.angle_id if workspace else None,
             notes,
             document.current_version_id if document else None,
+            brief,
         )
 
     async def _runtime(self) -> DocumentRuntime:
@@ -729,6 +733,7 @@ class PrepDocumentService:
             task_id=ctx.task_id,
             known_skills=source.skills,
             new_id=self._ids.new,
+            brief=source.brief,
         )
         ctx.check_cancelled()
         version = self._generated_version(runtime, output, source)
