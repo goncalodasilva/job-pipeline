@@ -37,13 +37,15 @@ async def structure_paragraph(
     *,
     debrief_id: str,
     known_skills: Sequence[str],
+    offered_skills: Sequence[str],
     cancel: CancelToken,
     meter: UsageMeter,
     tier: Tier | None,
     task_id: str,
 ) -> ParagraphDraft:
     """The draft fact for one paragraph. ``InvalidModelOutput`` after the one retry, provider
-    errors as they come."""
+    errors as they come. ``known_skills`` (the whole list) is what the answer is checked against;
+    ``offered_skills`` (those of usable facts only) is all the request names."""
     skills = tuple(known_skills)
     result = await runner.run_task(
         STRUCTURE_ANSWER,
@@ -54,7 +56,8 @@ async def structure_paragraph(
                 json.dumps({"note": None, "target": str(prompt_fact_block(()))}), False
             ),
             "choices": json.dumps(
-                {"roles": {}, "generalized_roles": [], "skills": skills}, ensure_ascii=False
+                {"roles": {}, "generalized_roles": [], "skills": list(offered_skills)},
+                ensure_ascii=False,
             ),
             "session_id": debrief_id,
         },

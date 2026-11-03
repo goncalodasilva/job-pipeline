@@ -184,7 +184,7 @@ The job drawer explains the fit in the user's own facts, and the company page ga
 - **Roles:** every job seen at this company, with its state (new, later, removed, applied).
 - **History:** past applications with dates and outcomes. When the user applies again within a period they choose, the app shows a gentle note (for example, "2 applications here in the last 30 days"). It never blocks.
 - **Contacts:** name, role, how the user knows them, last contact date, and linked applications.
-- **Research:** user notes, plus an optional on-demand AI company brief using web search. The brief is saved with its date and sources, and counts toward the usage budget.
+- **Research:** user notes, plus an optional on-demand AI company brief using web search. The brief is saved with its date and sources, and counts toward the usage budget. *Built in M8.3 (ADR-132):* a brief is saved only when the search provider's storage rule allows it; otherwise it is shown until the app closes, with a notice.
 
 **Companies list:** a sortable table with name, open roles, active applications and last activity.
 
@@ -334,7 +334,7 @@ Feedback is specific and kind, and points to relevant facts. Each question keeps
 
 **Narrative.** Cards for the recurring answers: tell me about yourself, why this role, why this company, why you are leaving, strengths, weaknesses, and salary expectations (drawn from job preferences). Each is built from the chosen angle and confirmed facts, and can be reused by other applications with the same angle.
 
-**Debrief.** After an interview's date passes, Today offers an optional debrief: which questions were asked, how it went, what the user wishes they had said, and next steps. It produces question-bank entries, draft facts, new events, and a suggested status change for the user to confirm.
+**Debrief.** After an interview's date passes, Today offers an optional debrief: which questions were asked, how it went, what the user wishes they had said, and next steps. It produces question-bank entries, draft facts, new events, and a suggested status change for the user to confirm. *Built in M8.3 (ADR-132):* how it went is never sent to the AI. Experiences become draft facts only when the person presses "Turn into draft facts" (one request per paragraph, at most three). A suggested status moves the application only on confirm, and only when it is a real change.
 
 **Personal question bank.** Every question practiced or reported is kept and searchable, and new generation reuses it first, which saves usage.
 
@@ -396,7 +396,7 @@ Settings hold everything that makes the app personal; a new user can start with 
 - Threshold fields validate inline: first warning < second warning < blocking point ≤ allowance.
 - The panel shows both the local count and the provider's reported count, and which one is in use.
 
-**Search terms awareness.** Each search provider module declares whether saving AI output derived from its results is known to be allowed. When it is unclear (as with Brave's terms), selecting that provider shows a notice. The user can then choose "don't save output based on this provider's results", so those results are regenerated each time instead of cached.
+**Search terms awareness.** Each search provider module declares whether saving AI output derived from its results is known to be allowed. When it is unclear (as with Brave's terms), selecting that provider shows a notice. The user can then choose "don't save output based on this provider's results", so those results are regenerated each time instead of cached. *Decided (ADR-124 item 3, ADR-132):* the spec's rule wins over this toggle. Unclear storage means nothing derived from the results is written, with a notice and no user toggle; the result is held for the session only.
 
 ## Cross-cutting UX
 
@@ -551,7 +551,7 @@ Every API call must carry a random token generated at each launch and embedded i
 
 **Calendar module.** Event export sits behind its own interface, like AI and search. The first provider writes .ics files. Later providers (Google Calendar, Outlook, CalDAV) can add one-click adding and updates; each synced event stores the provider's event id so later changes can be pushed to it.
 
-**Optional speech.** AI providers declare whether they offer speech-to-text and text-to-speech. Microphone and read-aloud buttons appear only when the configured provider supports them, and run only on demand. If the main AI provider has no speech support, a separate speech provider can be added later through the same module pattern.
+**Optional speech.** AI providers declare whether they offer speech-to-text and text-to-speech. Microphone and read-aloud buttons appear only when the configured provider supports them, and run only on demand. If the main AI provider has no speech support, a separate speech provider can be added later through the same module pattern. *Built in M8.2 (ADR-130 item 6):* only the disabled "Dictate" and "Read aloud" buttons, with a hint, for a provider that declares the flag. There is no speech route or provider method yet (TD-323).
 
 **Document rendering.** A fixed renderer turns approved CV templates and content into PDF (from HTML, for example with WeasyPrint) and Word (for example with python-docx).
 

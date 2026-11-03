@@ -36,13 +36,20 @@ from app.domain.errors import (
     VersionConflict,
     format_day_time,
 )
+from app.domain.fact_selection import offered_skills
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.question_bank import BankQuestion
 from app.domain.settings import AIProviderSettings, Tier
 from app.domain.tasks import TaskRef
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND, ServiceId
 from app.modules.ai import AIProvider, AIProviderFactory
-from app.modules.storage import applications_repo, debrief_repo, prep_repo, skills_repo
+from app.modules.storage import (
+    applications_repo,
+    debrief_repo,
+    job_fit_repo,
+    prep_repo,
+    skills_repo,
+)
 from app.modules.storage.debrief_repo import DraftRow
 from app.services.applications import ApplicationService
 from app.services.debrief_ai import STRUCTURE_ANSWER, ParagraphDraft, structure_paragraph
@@ -549,7 +556,7 @@ class DebriefService:
 
     def _load_run(
         self, debrief_id: str
-    ) -> tuple[debrief_repo.StoredDebrief, tuple[str, ...], tuple[str, ...]]:
+    ) -> tuple[debrief_repo.StoredDebrief, tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
         with self._open().db.read() as conn:
             stored = debrief_repo.get_by_id(conn, debrief_id)
             if stored is None:
@@ -557,17 +564,18 @@ class DebriefService:
             if stored.state != "done" or debrief_repo.has_drafts(conn, debrief_id):
                 raise VersionConflict()
             skills = tuple(s.name for s in skills_repo.list_skills(conn))
+            offered = offered_skills(job_fit_repo.fact_records(conn), skills)
         paragraphs = _paragraphs(stored.experiences_text)
         if not paragraphs:
             raise VersionConflict()
-        return stored, paragraphs, skills
+        return stored, paragraphs, skills, offered
 
     async def run(self, ctx: SummaryContext) -> ResultWriter:
         parts = (ctx.input_ref or "").split("/")
         if len(parts) != 2 or not is_safe_id(parts[0]) or parts[1] not in _TIERS:
             raise ApplicationNotFound()
         debrief_id, raw_tier = parts
-        stored, paragraphs, skills = await asyncio.to_thread(self._load_run, debrief_id)
+        stored, paragraphs, skills, offered = await asyncio.to_thread(self._load_run, debrief_id)
         await ctx.heartbeat(5)
         provider, settings = await asyncio.to_thread(self._provider)
         usage = self._usage()
@@ -587,6 +595,7 @@ class DebriefService:
                     paragraph,
                     debrief_id=debrief_id,
                     known_skills=skills,
+                    offered_skills=offered,
                     cancel=ctx.cancel_flag,
                     meter=ServiceUsageMeter(usage, service),
                     tier=tier,

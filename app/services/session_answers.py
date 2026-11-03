@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import cast
 
 from app.domain.errors import SessionEmpty, SessionNotFound, VersionConflict
-from app.domain.fact_selection import AIFact, facts_for_ai
+from app.domain.fact_selection import AIFact, facts_for_ai, offered_skills
 from app.domain.facts import FactStatus, Privacy
 from app.modules.storage import (
     enrichment_repo,
@@ -87,7 +87,8 @@ class AnswerSources:
     note: str | None
     roles: dict[str, str]
     generalized_roles: frozenset[str]
-    skills: tuple[str, ...]
+    skills: tuple[str, ...]  # the whole list: the draft is checked against it
+    offered_skills: tuple[str, ...]  # of usable facts only: the one the request names
     draft_id: str | None
     draft_version: int | None
 
@@ -122,6 +123,7 @@ def answer_sources(
         roles[role.id] = " at ".join(p for p in (role.title, role.employer) if p)
         if usable and all(f.generalize for f in usable):
             generalized.add(role.id)
+    skills = tuple(s.name for s in skills_repo.list_skills(conn))
     return AnswerSources(
         entry,
         row,
@@ -130,7 +132,8 @@ def answer_sources(
         note,
         roles,
         frozenset(generalized),
-        tuple(s.name for s in skills_repo.list_skills(conn)),
+        skills,
+        offered_skills([f.record for f in bank], skills),
         draft.id if draft else None,
         draft.version if draft else None,
     )

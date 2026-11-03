@@ -304,6 +304,11 @@ class Tailoring:
             assert numbers == [1, 2, 3, 4, 5], numbers
         return application
 
+    def seed_application(self, job_id: str, title: str, company: str, status: str) -> Any:
+        """An application for a job at ``company`` in ``status`` (the one seeder numbers the
+        companies it writes, so callers go through it, not around it)."""
+        return self._seeder.application(job_id, title, company, status)
+
     def another_application(self, job_id: str) -> Any:
         return self._seeder.application(job_id, "Other Planner", "Other Fictional Co", "applied")
 

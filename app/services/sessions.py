@@ -580,7 +580,7 @@ class SessionService:
                 {
                     "roles": data.roles,
                     "generalized_roles": sorted(data.generalized_roles),
-                    "skills": data.skills,
+                    "skills": list(data.offered_skills),
                 },
                 ensure_ascii=False,
             ),

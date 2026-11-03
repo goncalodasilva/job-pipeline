@@ -107,6 +107,16 @@ def facts_for_ai(records: Iterable[FactRecord]) -> tuple[AIFact, ...]:
     return tuple(chosen.values())
 
 
+def offered_skills(records: Iterable[FactRecord], vocabulary: Iterable[str]) -> tuple[str, ...]:
+    """The skill names of ``vocabulary`` (the person's whole list, in its order) that a request
+    may offer: those carried by a fact ``facts_for_ai`` keeps. A skill only a never-use fact, a
+    draft or an old version carries, or that no fact carries, is not offered; offering it would
+    tell the model about a fact the request must not hold. What comes back from the model is still
+    checked against the whole list."""
+    carried = {skill for fact in facts_for_ai(records) for skill in fact.skills}
+    return tuple(name for name in vocabulary if name in carried)
+
+
 def worded_then(
     number: int,
     version: int,
