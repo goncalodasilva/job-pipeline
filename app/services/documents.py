@@ -60,6 +60,7 @@ from app.domain.tailored_cv import (
     check_fact_ids,
 )
 from app.domain.tasks import TaskRef
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import AIProviderFactory, AITaskRunner, UsageMeter
 from app.modules.storage import (
@@ -484,7 +485,7 @@ class DocumentBase:
         service = SERVICE_BY_PROVIDER_KIND.get(settings.kind or "") if settings else None
         if settings is None or service is None:
             raise ProviderNotConfigured()
-        return SummaryPlan(service, tier or settings.task_tiers.get(self.TASK, "thorough"))
+        return SummaryPlan(service, tier or task_tier(self.TASK, settings))
 
     async def _runtime(self) -> DocumentRuntime:
         """The provider, runner and meter of a run (``ProviderNotConfigured`` without them)."""

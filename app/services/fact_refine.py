@@ -66,6 +66,7 @@ from app.domain.honesty import Claim, new_claims
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.settings import AIProviderSettings, Tier
 from app.domain.tasks import TaskRef, dedupe_key
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND, ServiceId
 from app.modules.ai import AIProviderFactory, CancelToken
 from app.modules.storage import (
@@ -796,8 +797,8 @@ class FactRefineService:
         return settings, service
 
     def _plan(self, tier: Tier | None) -> StartPlan:
-        _settings, service = self._provider()
-        return StartPlan(service, tier if tier is not None else FAST)
+        settings, service = self._provider()
+        return StartPlan(service, tier if tier is not None else task_tier(REFINE_FACT, settings))
 
     def _enqueue(self, fact_id: str, session_id: str, tier: Tier | None) -> TaskRef:
         tasks = self._tasks()

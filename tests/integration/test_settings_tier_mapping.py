@@ -7,7 +7,8 @@ id="tiers-heading">`` "Model per tier" and a form posting to ``/settings/tiers``
 selects, ``fast`` ("Fast tier model") and ``thorough`` ("Thorough tier model"). Their options
 are exactly the active kind's ``known_models()`` (value = id, text = label, in order); the
 selected one is the stored tier model, else the provider's default for that tier ("nothing
-chosen" counts as Claude). A button "Save tier models" submits; a line says moving tasks
+chosen" counts as Claude). A button "Save tier models" submits. The per-task list of M9.2
+part C (``#task-tiers``, outside ``#tiers``) replaces the old line that said moving tasks
 between tiers comes later. The guide's provider step never shows this form.
 
 ``POST /settings/tiers`` (launch token and origin; POST only): both ids offered by the active
@@ -178,18 +179,16 @@ def assert_tier_selects(
         assert selected(elements, select) == [chosen[tier]], (tier, selected(elements, select))
 
 
-def assert_empty_state_line(elements: list[Element]) -> None:
-    """A line in #tiers says moving tasks between tiers comes later (wording not fixed)."""
+def assert_task_tiers_follow_the_model_map(elements: list[Element]) -> None:
+    """M9.2 part C (ADR-089 item 9, ADR-069 item 6): moving tasks between tiers is built, so
+    the "comes later" empty-state line is gone from #tiers and the per-task list (the
+    collapsed ``#task-tiers``, in the Providers section but outside #tiers) follows the map."""
     block = tiers_block(elements)
-    lines = [
-        e
-        for e in elements
-        if e.within(block)
-        and e.tag != "h3"
-        and "comes later" in e.text.lower()
-        and "tier" in e.text.lower()
-    ]
-    assert lines, "an empty-state line says moving tasks between tiers comes later"
+    assert not [e for e in elements if e.within(block) and "comes later" in e.text.lower()], (
+        "the model map no longer says that moving tasks between tiers comes later"
+    )
+    task_list = required(elements, "task-tiers")
+    assert task_list.within(section(elements)) and not task_list.within(block)
 
 
 def save_button(elements: list[Element]) -> Element:
@@ -238,8 +237,9 @@ def test_tier_mapping_offers_provider_known_models(
     chosen: dict[Tier, str],
 ) -> None:
     """Both selects list the active kind's ``known_models()``, the stored model (else the
-    provider's default) selected; a Save button and the empty-state line; on the full page and
-    the htmx page fragment, and never on the guide's provider step."""
+    provider's default) selected; a Save button and no "comes later" line (the task list
+    follows it); on the full page and the htmx page fragment, and never on the guide's provider
+    step."""
     finished_guide(tmp_path, provider=AIProviderSettings(kind=kind, tiers=tiers))  # type: ignore[arg-type]
     with started(tmp_path) as run:
         assert run.app.state.wiring.known_models(kind) == models, "offered from known_models"
@@ -255,7 +255,7 @@ def test_tier_mapping_offers_provider_known_models(
         elements = outline(response.text)
         assert_tier_selects(elements, models, chosen)
         save_button(elements)
-        assert_empty_state_line(elements)
+        assert_task_tiers_follow_the_model_map(elements)
 
     guide = outline(step.text)
     assert [e for e in guide if e.attrs.get("id") == TIERS_ID] == []

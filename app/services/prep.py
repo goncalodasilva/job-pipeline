@@ -28,6 +28,7 @@ from app.domain.question_bank import (
 )
 from app.domain.settings import AIProviderSettings, Tier
 from app.domain.tasks import TaskRef
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import AIProvider, AIProviderFactory
 from app.modules.search import SearchProvider, TransientSearchResults
@@ -207,7 +208,7 @@ class PrepService:
         if service is None:
             raise ProviderNotConfigured()
         task = WEB_QUESTIONS if web else QUESTIONS
-        return SummaryPlan(service, tier or settings.task_tiers.get(task, "thorough"))
+        return SummaryPlan(service, tier or task_tier(task, settings))
 
     @staticmethod
     def _key_requirements(loaded: _Loaded) -> tuple[Requirement, ...]:

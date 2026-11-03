@@ -138,6 +138,8 @@ class ProviderStep:
             "connected": self._connected,
             "models": view.models,
             "tier_models": view.tier_models,
+            "task_tiers": view.task_tiers,
+            "settings_version": view.version,
         }
 
     def save_tiers(self, form: Form) -> StepResult:
@@ -152,6 +154,15 @@ class ProviderStep:
             forgot = self._connected is not None
             self._connected = None
         return _step_result(result, then=MSG_TEST_TIERS if forgot and result.ok else None)
+
+    def save_task_tiers(self, version: int, chosen: Mapping[str, str]) -> StepResult:
+        """Move tasks between the tiers (Settings only, M9.2). ``VersionConflict`` for a stale
+        ``version``; a refused task or tier is an ``errors`` entry per name. The remembered
+        "Connected" stays: the connection test uses the Fast tier model, not a task. Blocking."""
+        service = self._service()
+        if service is None:
+            return StepResult(ok=False, errors={"form": MSG_STEP_1_FIRST})
+        return _step_result(service.save_task_tiers(version, chosen))
 
     def submit(self, form: Form) -> StepResult:
         """``action=save`` (the default) saves the choice; a ``remove=<kind>`` button (with

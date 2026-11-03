@@ -30,6 +30,7 @@ from app.domain.questions import fallback_question, question_problems
 from app.domain.settings import SESSIONS, AIProviderSettings, Tier
 from app.domain.structured_answer import resolve_structured_answer
 from app.domain.tasks import TaskRef, dedupe_key
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND, ServiceId
 from app.modules.ai import AIProviderFactory
 from app.modules.storage import (
@@ -242,10 +243,14 @@ class SessionService:
         focus: SessionFocus,
         length: int,
         *,
-        tier: Tier = "fast",
+        tier: Tier | None = None,
         confirmation: Confirmation | None = None,
     ) -> SessionStart:
-        if type(length) is not int or length not in (3, 5) or tier not in ("fast", "thorough"):
+        if (
+            type(length) is not int
+            or length not in (3, 5)
+            or tier not in (None, "fast", "thorough")
+        ):
             raise ValueError("Choose 3 or 5 questions and an available tier.")
         opened = self._open()
         with opened.db.read() as conn:
@@ -259,7 +264,10 @@ class SessionService:
             # Every write goes through this one connection (the data folder is locked to one
             # app), so an unchanged count means the snapshot read above is still current.
             seen_changes = conn.total_changes
-        _, service = self._provider()
+        settings, service = self._provider()
+        # No tier asked for (a one-off Fast from the budget dialog is): the task's own
+        # tier, so the gate checks the tier the request runs on.
+        tier = tier or task_tier(ENRICHMENT_QUESTION, settings)
         checked = self._gate().check(service, tier=tier, confirmation=confirmation)
         if not isinstance(checked, Start):
             return SessionStart(refusal=checked)
@@ -314,7 +322,7 @@ class SessionService:
         sid: str,
         *,
         expected_version: int,
-        tier: Tier = "fast",
+        tier: Tier | None = None,
         confirmation: Confirmation | None = None,
     ) -> SessionStart:
         with self._open().db.read() as conn:
@@ -323,7 +331,10 @@ class SessionService:
             if active:
                 return SessionStart(sid, TaskRef(active.id, False))
             entry = self._next_item(conn, row)
-        _, service = self._provider()
+        settings, service = self._provider()
+        # No tier asked for (a one-off Fast from the budget dialog is): the task's own
+        # tier, so the gate checks the tier the request runs on.
+        tier = tier or task_tier(ENRICHMENT_QUESTION, settings)
         checked = self._gate().check(service, tier=tier, confirmation=confirmation)
         if not isinstance(checked, Start):
             return SessionStart(sid, refusal=checked)
@@ -447,14 +458,14 @@ class SessionService:
         *,
         expected_version: int,
         session_version: int,
-        tier: Tier = "fast",
+        tier: Tier | None = None,
         confirmation: Confirmation | None = None,
     ) -> SessionStart:
         if (
             not text.strip()
             or len(text) > 4000
             or "\x00" in text
-            or tier not in ("fast", "thorough")
+            or tier not in (None, "fast", "thorough")
         ):
             raise ValueError("Write an answer of up to 4,000 characters.")
         opened = self._open()
@@ -483,7 +494,10 @@ class SessionService:
             initial = answer_sources(conn, answer, self._clock.now())
             if not _same_sources(conn, answer, initial.entry):
                 raise VersionConflict()
-        _, service = self._provider()
+        settings, service = self._provider()
+        # No tier asked for (a one-off Fast from the budget dialog is): the task's own
+        # tier, so the gate checks the tier the request runs on.
+        tier = tier or task_tier(STRUCTURE_ANSWER, settings)
         checked = self._gate().check(service, tier=tier, confirmation=confirmation)
         if not isinstance(checked, Start):
             return SessionStart(sid, refusal=checked)

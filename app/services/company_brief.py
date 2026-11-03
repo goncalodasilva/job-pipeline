@@ -19,6 +19,7 @@ from app.domain.errors import ProviderNotConfigured, VersionConflict, format_day
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.settings import AIProviderSettings, Tier
 from app.domain.tasks import TaskRef
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import AIProvider, AIProviderFactory
 from app.modules.search import SearchProvider, TransientSearchResults
@@ -134,7 +135,7 @@ class BriefService:
         service = SERVICE_BY_PROVIDER_KIND.get(settings.kind or "")
         if service is None:
             raise ProviderNotConfigured()
-        return SummaryPlan(service, tier or settings.task_tiers.get(BRIEF, "thorough"))
+        return SummaryPlan(service, tier or task_tier(BRIEF, settings))
 
     def view(self, company_id: str) -> BriefView:
         company = self._company(company_id)

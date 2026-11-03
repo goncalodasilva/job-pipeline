@@ -1,5 +1,8 @@
 <!doctype html>
-<html lang="en">
+{# The Appearance setting (M9.2): "system" follows the device's light or dark setting; the
+   density is the spacing of the pages. Read once per page, from the request (never a fragment). #}
+{% set appearance = page_appearance(request if request is defined else none) %}
+<html lang="en" data-theme="{{ appearance.theme }}" data-density="{{ appearance.density }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">

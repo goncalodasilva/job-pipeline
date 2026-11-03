@@ -5,8 +5,8 @@ imported, so a missing route or template fails the test that needs it, not the c
 Settings is a set of area pages. Each one is a token-free, read-only page (``PAGE_TAG``) whose
 controls are protected fragments and POSTs (spec 2.9 rules 2, 3, 12 and 13):
 
-- providers: ``/settings``, "Providers and AI" (nav label): Providers, Testing tools, the setup
-  guide link.
+- providers: ``/settings``, "Providers and AI" (nav label): Providers, the collapsed per-task
+  tier list ``#task-tiers`` (part C), Testing tools, the setup guide link.
 - budgets: ``/settings/budgets``, "Usage budgets": ``#usage-budgets`` (panel, budget forms,
   background tasks).
 - preferences: ``/settings/preferences``, "Job preferences": ``#preferences-settings``.
@@ -14,7 +14,7 @@ controls are protected fragments and POSTs (spec 2.9 rules 2, 3, 12 and 13):
 - sessions: ``/settings/sessions``, "Sessions": ``#sessions-settings``.
 - your-details: ``/settings/your-details``, "Your details and CV templates":
   ``#details-settings`` and ``#templates-settings``.
-- appearance: ``/settings/appearance``, "Appearance" (its controls arrive in part B).
+- appearance: ``/settings/appearance``, "Appearance": ``#appearance-settings`` (part B).
 - data: ``/settings/data``, "Data and privacy" (M9.1).
 - keyboard: ``/settings/keyboard``, "Keyboard shortcuts": ``#shortcuts-settings``.
 
@@ -66,7 +66,9 @@ class SettingsArea:
 
 
 AREAS: Final[tuple[SettingsArea, ...]] = (
-    SettingsArea("providers", "/settings", "Providers and AI", ("providers", "testing-tools")),
+    SettingsArea(
+        "providers", "/settings", "Providers and AI", ("providers", "testing-tools", "task-tiers")
+    ),
     SettingsArea("budgets", "/settings/budgets", "Usage budgets", ("usage-budgets",)),
     SettingsArea(
         "preferences",
@@ -82,7 +84,7 @@ AREAS: Final[tuple[SettingsArea, ...]] = (
         "Your details and CV templates",
         ("details-settings", "templates-settings"),
     ),
-    SettingsArea("appearance", "/settings/appearance", "Appearance"),
+    SettingsArea("appearance", "/settings/appearance", "Appearance", ("appearance-settings",)),
     SettingsArea(
         "data",
         "/settings/data",

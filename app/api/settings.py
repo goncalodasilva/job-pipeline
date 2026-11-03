@@ -35,6 +35,10 @@ Thorough tiers to models the active provider offers: 303 to ``/settings``, or fo
 with the Providers section, focus on the tier status and an "announce" trigger. A refused map
 answers 422 with the field errors and never shows the submitted values back.
 
+The per-task tier list (``#task-tiers``, M9.2 part C: a collapsed disclosure after the model
+map) is part of this section; its ``POST /settings/tiers/tasks`` is in
+``app/api/settings_task_tiers.py`` and answers with this section through ``render_task_tiers``.
+
 Usage budgets, Lists and statuses, Sessions, Your details, CV templates and Keyboard shortcuts
 moved to their own area pages (M9.2); this page holds only what Providers and AI needs.
 
@@ -56,6 +60,7 @@ from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
 from app.api.settings_nav import AREA_FRAGMENT, AREA_PAGE, area_ctx
 from app.api.setup_redirect import setup_step_path
+from app.api.task_tier_forms import TaskTierState, task_tiers_context
 from app.api.templating import render, templates
 from app.api.usage_forms import USAGE_CHANGED_EVENT
 from app.onboarding.registry import ConnectionCheck, Form, StepRegistry, StepResult
@@ -211,6 +216,16 @@ async def test_providers(request: Request) -> Response:
     return response
 
 
+def render_task_tiers(
+    request: Request, state: TaskTierState, *, status_code: int = 200
+) -> HTMLResponse:
+    """The answer to the task tier list's form: the Providers section for htmx, the whole page
+    otherwise, with ``state`` saying what happened in the list. Blocking."""
+    response = _render(request, task_tier_state=state)
+    response.status_code = status_code
+    return response
+
+
 def testing_tools_response(
     request: Request,
     *,
@@ -260,6 +275,7 @@ def _render(
     connection: ConnectionCheck | None = None,
     step_view: Mapping[str, str] | None = None,
     tiers_saved: bool = False,
+    task_tier_state: TaskTierState | None = None,
     fragment: str | None = None,
     practice_status: str | None = None,
     practice_error: str | None = None,
@@ -283,6 +299,7 @@ def _render(
         or stayed
         or step_view
         or tiers_saved
+        or (task_tier_state is not None and task_tier_state.attention)
         or practice_status
         or practice_error
     )
@@ -303,6 +320,10 @@ def _render(
             "connection": connection,  # a test just ran: focus moves to its result
             "step_view": dict(step_view or {}),  # a removal to confirm, or kept: focus there
             "tiers_saved": tiers_saved,  # the tier map was saved: focus moves to its status
+            # The per-task list (M9.2): its rows and what just happened in it.
+            "task_tiers": task_tiers_context(
+                form.get("task_tiers", {}), int(form.get("settings_version", 0)), task_tier_state
+            ),
             "search_provider": request.app.state.prep.settings_search_info(),
             "tiers_url": TIERS_PATH,
             # The provider step's fragment, pointed at the Settings routes.

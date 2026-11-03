@@ -30,6 +30,7 @@ from app.domain.ids import IdFactory, is_safe_id
 from app.domain.question_bank import BankQuestion
 from app.domain.settings import AIProviderSettings, Tier
 from app.domain.tasks import TaskRef
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import AIProvider, AIProviderFactory
 from app.modules.storage import job_fit_repo, practice_repo, prep_repo, skills_repo
@@ -246,7 +247,7 @@ class AnswerPracticeService:
         service = SERVICE_BY_PROVIDER_KIND.get(settings.kind or "") if settings else None
         if settings is None or service is None:
             raise ProviderNotConfigured()
-        return SummaryPlan(service, tier or settings.task_tiers.get(ANSWER_FEEDBACK, "thorough"))
+        return SummaryPlan(service, tier or task_tier(ANSWER_FEEDBACK, settings))
 
     def view_scope(self, aid: str, qid: str) -> None:
         if not is_safe_id(aid) or not is_safe_id(qid):

@@ -14,6 +14,7 @@ from app.domain.fit import checked_conflicts, evaluate_matches, salary_below_min
 from app.domain.ids import IdFactory, is_safe_id
 from app.domain.settings import JOB_PREFERENCES, AIProviderSettings, Tier
 from app.domain.tasks import TaskRef
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import AIProviderFactory
 from app.modules.storage import job_fit_repo
@@ -84,7 +85,7 @@ class JobFitService:
         service = SERVICE_BY_PROVIDER_KIND.get(settings.kind or "") if settings else None
         if settings is None or service is None:
             raise ProviderNotConfigured()
-        return SummaryPlan(service, tier or settings.task_tiers.get(ASSESS_FIT, "fast"))
+        return SummaryPlan(service, tier or task_tier(ASSESS_FIT, settings))
 
     def start(self, job_id: str, *, tier: Tier | None = None) -> TaskRef | None:
         if self.plan_start(job_id, tier=tier) is None:

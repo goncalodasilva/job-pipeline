@@ -41,6 +41,7 @@ from app.domain.ids import IdFactory, is_safe_id
 from app.domain.question_bank import BankQuestion
 from app.domain.settings import AIProviderSettings, Tier
 from app.domain.tasks import TaskRef
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND, ServiceId
 from app.modules.ai import AIProvider, AIProviderFactory
 from app.modules.storage import (
@@ -73,7 +74,6 @@ ZONE_NEEDED: Final = "Choose a time zone for the next round."
 DATE_NEEDS_NEXT_ROUND: Final = (
     "Choose Next round to add a date and time, or clear the date and time."
 )
-TIER_FALLBACK: Final[Tier] = "fast"
 
 
 class DebriefInvalid(ValueError):
@@ -511,7 +511,7 @@ class DebriefService:
         if settings is None or service is None:
             raise ProviderNotConfigured()
         # Each paragraph is a structure_answer request, so that task's tier is the one used.
-        planned = tier or settings.task_tiers.get(STRUCTURE_ANSWER, TIER_FALLBACK)
+        planned = tier or task_tier(STRUCTURE_ANSWER, settings)
         return DraftPlan(service, planned, shown.paragraphs)
 
     def start_drafts(

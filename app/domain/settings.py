@@ -310,6 +310,16 @@ class SessionSettings(BaseModel):
         return value
 
 
+class AppearanceSettings(BaseModel):
+    """How the pages look (M9.2; ADR-131 item 6; ADR-042 follow-up; TD-085 density only).
+    ``theme`` follows the device (``system``) or is ``light`` or ``dark``; ``density`` is the
+    spacing of the pages. Strict: a stored value of the wrong type is not coerced."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+    theme: Literal["system", "light", "dark"] = "system"
+    density: Literal["comfortable", "compact"] = "comfortable"
+
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -338,3 +348,4 @@ USAGE_BUDGETS = SettingSpec("usage_budgets", UsageBudgets, UsageBudgets())
 SHORTCUTS = SettingSpec("shortcuts", ShortcutSettings, ShortcutSettings())
 PERSONAL_DETAILS = SettingSpec("personal_details", PersonalDetails, PersonalDetails())
 SESSIONS = SettingSpec("sessions", SessionSettings, SessionSettings())
+APPEARANCE = SettingSpec("appearance", AppearanceSettings, AppearanceSettings())

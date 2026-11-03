@@ -1,0 +1,45 @@
+{# Settings > Appearance (M9.2 part B; ADR-131 item 6): the theme and the density of the pages. One
+   versioned setting, saved by POST /settings/appearance, which swaps this whole section
+   (outerHTML). The page's <html> carries the saved choice (data-theme, data-density); after a save
+   app.js applies it at once from the appearance:changed event, so no reload is needed. After a save
+   the heading takes focus and a line says so; after a refused value the first refused select takes
+   focus and each error is tied to its select (a refused value is never shown back: its select
+   shows the saved value); after a stale version the reload prompt takes focus and the form is left
+   out, so a second Save can't overwrite what changed elsewhere. Exactly one element of an answer is
+   marked data-autofocus. Needs `appearance_form` (app/api/appearance_forms.py). #}
+<section id="appearance-settings" class="settings-section" aria-labelledby="appearance-heading">
+  <h2 id="appearance-heading" tabindex="-1"{% if appearance_form.saved %} data-autofocus{% endif %}>Theme and density</h2>
+  <p class="field-hint">System follows your device's light or dark setting. Compact uses less space between items; buttons and links stay easy to hit.</p>
+  {% if appearance_form.conflict %}
+  {% set reload_id = "appearance-conflict" %}
+  {% set reload_message = appearance_form.conflict_message %}
+  {% set reload_detail = "Your change was not saved. These settings changed in another tab. Reload to see the latest and try again." %}
+  {% set reload_url = appearance_form.save_url %}
+  {% set reload_link = "Reload" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% else %}
+  {% if appearance_form.saved %}<p id="appearance-done" class="budget-done">{{ appearance_form.saved }}</p>{% endif %}
+  <form id="appearance-form" class="step-form" method="post" action="{{ appearance_form.save_url }}"
+        hx-post="{{ appearance_form.save_url }}" hx-target="#appearance-settings" hx-swap="outerHTML"
+        hx-disabled-elt="find button" novalidate>
+    <input type="hidden" name="version" value="{{ appearance_form.version }}">
+    {% set theme_error = appearance_form.errors.get('theme') %}
+    <div class="field">
+      <label for="appearance-theme">Theme</label>
+      <select id="appearance-theme" name="theme"{% if theme_error %} aria-invalid="true" aria-describedby="appearance-theme-error"{% if appearance_form.first_invalid == 'theme' %} data-autofocus{% endif %}{% endif %}>
+        {% for value, text in appearance_form.themes %}<option value="{{ value }}"{% if appearance_form.shown.theme == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+      </select>
+      {% if theme_error %}<p id="appearance-theme-error" class="field-error" role="alert">{{ theme_error }}</p>{% endif %}
+    </div>
+    {% set density_error = appearance_form.errors.get('density') %}
+    <div class="field">
+      <label for="appearance-density">Density</label>
+      <select id="appearance-density" name="density"{% if density_error %} aria-invalid="true" aria-describedby="appearance-density-error"{% if appearance_form.first_invalid == 'density' %} data-autofocus{% endif %}{% endif %}>
+        {% for value, text in appearance_form.densities %}<option value="{{ value }}"{% if appearance_form.shown.density == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+      </select>
+      {% if density_error %}<p id="appearance-density-error" class="field-error" role="alert">{{ density_error }}</p>{% endif %}
+    </div>
+    <div class="form-actions"><button type="submit" class="button button-primary">Save</button></div>
+  </form>
+  {% endif %}
+</section>

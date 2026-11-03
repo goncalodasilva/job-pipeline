@@ -259,7 +259,7 @@ def test_ac_m5_3_interviewing_date_and_rejected_feedback_offered_and_skippable(
         if zone.input_value() == "":
             expect(zone).to_have_attribute("required", "")
         expect(dialog.get_by_label(re.compile("^Duration"))).to_have_value("60")
-        dialog.get_by_label("Date", exact=True).fill("2026-11-03")
+        dialog.get_by_label("Date", exact=True).fill("2099-11-03")
         dialog.get_by_label("Time", exact=True).fill("14:00")
         zone.fill("America/New_York")
         press_by_keyboard(page, dialog.get_by_role("button", name="Save", exact=True))
@@ -272,8 +272,8 @@ def test_ac_m5_3_interviewing_date_and_rejected_feedback_offered_and_skippable(
         ) == [
             (
                 "interview",
-                "2026-11-03T19:00:00+00:00",
-                "2026-11-03T20:00:00+00:00",
+                "2099-11-03T19:00:00+00:00",
+                "2099-11-03T20:00:00+00:00",
                 "America/New_York",
             )
         ]

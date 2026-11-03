@@ -124,6 +124,21 @@
     } : null);
   });
 
+  // Settings > Appearance (M9.2): a saved choice is applied to <html> at once, with no reload.
+  // The server sends {"appearance:changed": {"theme": ..., "density": ...}}; only listed values
+  // are applied, so nothing else can reach the attributes.
+  document.body.addEventListener("appearance:changed", function (event) {
+    var detail = event.detail;
+    if (!detail || typeof detail !== "object") return;
+    var root = document.documentElement;
+    if (["system", "light", "dark"].indexOf(detail.theme) >= 0) {
+      root.setAttribute("data-theme", detail.theme);
+    }
+    if (["comfortable", "compact"].indexOf(detail.density) >= 0) {
+      root.setAttribute("data-density", detail.density);
+    }
+  });
+
   // A 403 means this page holds an old launch token, usually because the app restarted.
   // The tasks panel's own refetch is not "that last action": it reports inside the panel.
   document.body.addEventListener("htmx:responseError", function (event) {

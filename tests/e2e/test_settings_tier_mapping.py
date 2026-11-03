@@ -89,7 +89,9 @@ def test_settings_tier_mapping_axe(
         open_app(page, running_app, "/settings")
         tiers = page.locator(TIERS)
         expect(tiers.get_by_role("heading", name="Model per tier", level=3)).to_be_visible()
-        expect(tiers).to_contain_text(re.compile("comes later", re.IGNORECASE))
+        # M9.2 part C: moving tasks between tiers is built (the collapsed list below the map).
+        expect(tiers).not_to_contain_text(re.compile("comes later", re.IGNORECASE))
+        expect(page.locator("#task-tiers")).to_have_count(1)
         assert_layout(page, viewport)
 
         # The field-error state: a value the provider doesn't offer (only reachable by a

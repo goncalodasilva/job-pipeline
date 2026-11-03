@@ -66,11 +66,13 @@ from app.api.reminders import register_reminder_routes
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.api.sessions import register_session_routes
 from app.api.settings import register_settings_pages
+from app.api.settings_appearance import register_appearance_routes
 from app.api.settings_areas import register_settings_area_pages
 from app.api.settings_board import register_board_settings_routes
 from app.api.settings_data import register_data_routes
 from app.api.settings_details import register_details_routes
 from app.api.settings_sessions import register_session_settings_routes
+from app.api.settings_task_tiers import register_task_tier_routes
 from app.api.settings_templates import register_template_routes
 from app.api.settings_usage import register_usage_settings
 from app.api.setup import register_setup_pages
@@ -133,6 +135,7 @@ from app.onboarding.steps.welcome import WelcomeSettings, WelcomeStep
 from app.services.adapt_ai import ADAPT_ANSWER
 from app.services.answer_ai import ANSWER_FEEDBACK
 from app.services.answer_practice import AnswerPracticeService
+from app.services.appearance import AppearancePreferences
 from app.services.application_detail import ApplicationDetail
 from app.services.applications import ApplicationService, ApplicationStatuses
 from app.services.board import BoardQuery
@@ -1656,6 +1659,7 @@ def create_app(
     app.state.session_screens = SessionScreens(app.state.sessions, _fact_bank(app), app_clock)
     app.state.coverage_views = CoverageViews(bank=_fact_bank(app), clock=app_clock)
     app.state.session_preferences = SessionPreferences(lambda: _current_db(app), app_clock)
+    app.state.appearance = AppearancePreferences(lambda: _current_db(app), app_clock)
     app.state.job_preferences = JobPreferencesView(lambda: _current_db(app), app_clock)
     app.state.session_suggestions = SessionSuggestions(
         lambda: _current_db(app), app_clock, app.state.sessions
@@ -1700,6 +1704,8 @@ def create_app(
     register_usage_settings(app)
     register_board_settings_routes(app)
     register_session_settings_routes(app)
+    register_task_tier_routes(app)
+    register_appearance_routes(app)
     register_details_routes(app)
     register_template_routes(app)
     register_task_routes(app)

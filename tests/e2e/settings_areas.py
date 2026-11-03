@@ -25,7 +25,10 @@ from tests.running_app import RunningApp
 from tests.settings_areas import AREAS, BY_SLUG, SETTINGS_NAV_LABEL
 
 AREA_TAB_BUDGET: Final[dict[str, int]] = {
-    "providers": 70,  # Providers (8), Testing tools, the guide link, and part C's tier list
+    # Providers (8), Testing tools and the guide link. Part C's tier list (a select per task and
+    # a Save) sits in a collapsed <details> (like Sessions and Your details, ADR-125 item 1): one
+    # stop while collapsed, so the cap stays 70 and is not raised.
+    "providers": 70,
     "budgets": 80,  # the panel and four service forms plus background tasks: 34 on the old page
     "preferences": 50,  # a read-only summary and the guide link (removal rules arrive in M9.4)
     "lists": 110,  # Board statuses and reminders: 54 on the old page, then the lists editor
@@ -38,13 +41,13 @@ AREA_TAB_BUDGET: Final[dict[str, int]] = {
 
 # What shows that the area has finished loading (some parts arrive by a protected fragment).
 AREA_READY: Final[dict[str, tuple[str, ...]]] = {
-    "providers": ("#providers",),
+    "providers": ("#providers", "#task-tiers"),
     "budgets": ("#usage-budgets", "#usage-panel"),
     "preferences": ("#preferences-settings",),
     "lists": ("#board-settings",),
     "sessions": ("#sessions-settings",),
     "your-details": ("#details-summary", "#templates-settings"),
-    "appearance": ("#page-heading",),
+    "appearance": ("#appearance-settings",),
     "data": ("#data-folder",),
     "keyboard": ("#shortcuts-settings",),
 }

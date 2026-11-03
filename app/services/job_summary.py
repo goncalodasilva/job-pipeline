@@ -14,6 +14,7 @@ from app.domain.ids import IdFactory, is_safe_id
 from app.domain.job_summary import checked_summary
 from app.domain.settings import AIProviderSettings, Tier
 from app.domain.tasks import TaskRef
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND, ServiceId
 from app.modules.ai import AIProviderFactory, CancelToken
 from app.modules.storage import Database, job_summary_repo
@@ -107,7 +108,7 @@ class JobSummaryService:
     def plan_start(self, job_id: str, *, tier: Tier | None = None) -> SummaryPlan:
         self._job(job_id)
         settings, service = self._provider()
-        return SummaryPlan(service, tier or settings.task_tiers.get(SUMMARIZE_JOB, "fast"))
+        return SummaryPlan(service, tier or task_tier(SUMMARIZE_JOB, settings))
 
     def start(self, job_id: str, *, tier: Tier | None = None) -> TaskRef:
         self.plan_start(job_id, tier=tier)

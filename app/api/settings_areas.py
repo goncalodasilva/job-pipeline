@@ -16,7 +16,8 @@ route that keeps its path (spec 2.9 rules 2, 3 and 13):
   is needed).
 - ``/settings/your-details`` Your details (a placeholder that loads ``GET /settings/details``) and
   CV templates.
-- ``/settings/appearance`` Appearance (a bare page; the controls arrive in part B).
+- ``/settings/appearance`` Appearance (the ``POST`` on the same path is in
+  ``app/api/settings_appearance.py``).
 - ``/settings/keyboard`` Keyboard shortcuts (saved by ``POST /settings/shortcuts``).
 
 Providers and AI is ``/settings`` (``app/api/settings.py``) and Data and privacy
@@ -32,6 +33,7 @@ from typing import Any, Final
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
+from app.api.appearance_forms import AppearanceState, appearance_context
 from app.api.board_settings_forms import BoardSettingsState, board_context
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
@@ -54,6 +56,7 @@ from app.services.job_preferences import JobPreferencesView
 
 BOARD_FRAGMENT: Final = "fragments/settings/_board.html"
 SESSIONS_FRAGMENT: Final = "fragments/settings/_sessions.html"
+APPEARANCE_FRAGMENT: Final = "fragments/settings/_appearance.html"
 PREFERENCES_STEP: Final = "preferences"
 # Providers and AI and Data and privacy register their own pages.
 OTHER_MODULES: Final = frozenset({"providers", "data"})
@@ -100,6 +103,12 @@ def render_session_settings(request: Request, state: SessionSettingsState) -> HT
     return render_area(request, "sessions", fragment=SESSIONS_FRAGMENT, sessions=state)
 
 
+def render_appearance_settings(request: Request, state: AppearanceState) -> HTMLResponse:
+    """The answer to the Appearance form: the section for htmx, the whole page otherwise, with
+    ``state`` saying what happened. Blocking."""
+    return render_area(request, "appearance", fragment=APPEARANCE_FRAGMENT, appearance=state)
+
+
 def render_area(
     request: Request,
     slug: str,
@@ -108,6 +117,7 @@ def render_area(
     usage: UsageFormState | None = None,
     board: BoardSettingsState | None = None,
     sessions: SessionSettingsState | None = None,
+    appearance: AppearanceState | None = None,
 ) -> HTMLResponse:
     """An area's full page, or for htmx its main content (a page GET) or ``fragment`` (a form's
     section). What an area reads is read only when the answer shows it. Blocking."""
@@ -128,6 +138,9 @@ def render_area(
         if whole or sessions is not None:
             ctx["sessions"] = sessions_context(request, sessions)
             focus = not ctx["sessions"]["attention"]
+    elif slug == "appearance":
+        ctx["appearance_form"] = appearance_context(request, appearance)
+        focus = not ctx["appearance_form"]["attention"]
     elif slug == "your-details":
         ctx["cv_templates"] = section_context(request)  # holds no personal data
     elif slug == "keyboard":

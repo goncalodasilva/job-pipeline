@@ -42,7 +42,7 @@ from typing import Final, Literal, TypeVar
 
 from app.domain.errors import AppError, NetworkUnavailable, VersionConflict
 from app.domain.settings import AI_PROVIDER, AIProviderSettings, ProviderKind, Tier, TierMap
-from app.domain.tiers import resolve_model
+from app.domain.tiers import DEFAULT_TIERS, resolve_model, task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import (
     AIProviderFactory,
@@ -125,6 +125,9 @@ MSG_TEST_FAILED = "The connection test didn't finish. Nothing was lost; try agai
 MSG_CHOOSE_MODEL = "Choose one of the listed models."
 MSG_TIERS_SAVE_FAILED = "The tier models couldn't be saved. Try again."
 MSG_TIERS_SAVED = "Tier models saved."
+MSG_CHOOSE_TIER = "Choose Fast or Thorough."
+MSG_UNKNOWN_TASK = "One of these tasks isn't known. Reload the page and try again."
+MSG_TASK_TIERS_SAVED = "Task tiers saved."
 MSG_TIERS_PROVIDER_CHANGED = "The provider changed since this page loaded. Choose the models again."
 TIERS: Final[tuple[Tier, ...]] = ("fast", "thorough")
 
@@ -171,6 +174,10 @@ class ProviderSetupView:
     models: tuple[ModelChoice, ...] = ()  # the active kind's models, offered for each tier
     # The model each tier uses: the stored one, else the provider's default (M1.22).
     tier_models: Mapping[Tier, str] = field(default_factory=dict)
+    # The tier each task runs on (the override, else its default) and the setting's version,
+    # which a save of the per-task list must carry (M9.2).
+    task_tiers: Mapping[str, Tier] = field(default_factory=dict)
+    version: int = 0
 
 
 @dataclass(frozen=True)
@@ -218,7 +225,8 @@ class ProviderSetupService:
         self._stuck: threading.Thread | None = None
 
     def view(self) -> ProviderSetupView:
-        current = self._settings.load(AI_PROVIDER).value
+        loaded = self._settings.load(AI_PROVIDER)
+        current = loaded.value
         kind = current.kind
         key = SECRET_KEY_BY_KIND.get(kind) if kind is not None else None
         seen = self._seen.get(key) if key is not None else None
@@ -237,6 +245,8 @@ class ProviderSetupService:
             keychain_unavailable=self._keychain_unavailable,
             models=self._factory.known_models(kind),
             tier_models=self._tier_models(current),
+            task_tiers=MappingProxyType({name: task_tier(name, current) for name in DEFAULT_TIERS}),
+            version=loaded.version,
         )
 
     def save(self, kind: str, credential: str) -> ProviderSetupResult:
@@ -298,6 +308,39 @@ class ProviderSetupService:
         if not saved:
             return _refused("tiers", MSG_TIERS_SAVE_FAILED)
         return ProviderSetupResult(ok=True, message=MSG_TIERS_SAVED)
+
+    def save_task_tiers(
+        self, expected_version: int, chosen: Mapping[str, str]
+    ) -> ProviderSetupResult:
+        """Move tasks between the tiers (M9.2; ADR-089 item 9), changing only ``task_tiers``.
+
+        ``chosen`` maps task names to ``fast`` or ``thorough``. The version is checked first:
+        a stale one raises ``VersionConflict`` whatever the values are. A task that is not
+        listed in ``DEFAULT_TIERS`` or a tier that is not one of the two is refused (per task
+        name, or ``task_tiers`` for an unknown task) and nothing is saved. A task whose tier
+        equals its default stores no override; overrides of tasks not in ``chosen`` (and of
+        tasks the list does not show) are kept. Submitted values never reach a result or a log.
+        """
+        loaded = self._settings.load(AI_PROVIDER)
+        if loaded.version != expected_version:
+            raise VersionConflict(detail="setting ai_provider changed elsewhere")
+        errors: dict[str, str] = {}
+        if any(task not in DEFAULT_TIERS for task in chosen):
+            errors["task_tiers"] = MSG_UNKNOWN_TASK
+        for task, tier in chosen.items():
+            if task in DEFAULT_TIERS and tier not in TIERS:
+                errors[task] = MSG_CHOOSE_TIER
+        if errors:
+            return ProviderSetupResult(ok=False, errors=errors)
+        overrides: dict[str, Tier] = dict(loaded.value.task_tiers)
+        for task, tier in chosen.items():
+            if tier == DEFAULT_TIERS[task]:
+                overrides.pop(task, None)
+            else:
+                overrides[task] = "fast" if tier == "fast" else "thorough"
+        changed = loaded.value.model_copy(update={"task_tiers": MappingProxyType(overrides)})
+        self._settings.save(AI_PROVIDER, changed, expected_version=expected_version)
+        return ProviderSetupResult(ok=True, message=MSG_TASK_TIERS_SAVED)
 
     async def test_connection(
         self, kind: str, credential: str, *, data_dir: Path

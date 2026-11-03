@@ -54,6 +54,7 @@ from app.domain.facts import FactType
 from app.domain.ids import IdFactory
 from app.domain.settings import AIProviderSettings, Tier
 from app.domain.tasks import TaskRef, dedupe_key, is_task_id
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND, ServiceId
 from app.modules.ai import AIProviderFactory, CancelToken, TaskResult
 from app.modules.storage import Database, cv_imports_repo, facts_repo, tasks_repo
@@ -66,8 +67,6 @@ EXTRACT_CV: Final = "extract_cv"  # the task type, the AI task and the prompt id
 EXTRACT_CV_LABEL: Final = "CV import"
 MAX_CV_TEXT_CHARS: Final = 60_000
 PARSE_TIMEOUT_SECONDS: Final = 30
-# The tier the prompt runs on unless a start asks for one run on Fast (the budget dialog).
-EXTRACT_CV_TIER: Final[Tier] = "thorough"
 FAST: Final[Tier] = "fast"
 IMPORTS_FOLDER: Final = "imports"
 SOURCE_CV_IMPORT: Final = "cv_import"
@@ -414,8 +413,9 @@ class CvImportService:
         budget gate. Raises ``CvImportNotFound``, ``CvImportAlreadyDone`` or
         ``ProviderNotConfigured``. Writes nothing."""
         self._startable(import_id)
-        _settings, service = self._provider()
-        return StartPlan(service, tier if tier is not None else EXTRACT_CV_TIER)
+        settings, service = self._provider()
+        # One run on Fast (the budget dialog) wins; else the user's override or the default.
+        return StartPlan(service, tier if tier is not None else task_tier(EXTRACT_CV, settings))
 
     def start(self, import_id: str, *, tier: Tier | None = None) -> TaskRef:
         """Queue the import's task; one already queued or running is returned instead.
@@ -589,7 +589,6 @@ def _origin(import_id: str, provider: str, result: TaskResult) -> DraftOrigin:
 __all__ = [
     "EXTRACT_CV",
     "EXTRACT_CV_LABEL",
-    "EXTRACT_CV_TIER",
     "MAX_CV_TEXT_CHARS",
     "PARSE_TIMEOUT_SECONDS",
     "CvImportService",

@@ -10,5 +10,6 @@
   {% if search_provider.storage_allowed is none %}<p class="notice">Not saved: this search provider's terms on keeping results are unclear</p>{% elif not search_provider.storage_allowed %}<p class="notice">Not saved: this search provider does not allow keeping results</p>{% endif %}
   {% endif %}
   {% include "fragments/settings/_tiers.html" %}
+  {% include "fragments/settings/_task_tiers.html" %}
   {% endif %}
 </section>

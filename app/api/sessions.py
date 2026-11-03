@@ -238,8 +238,11 @@ async def start_session(request: Request) -> Response:
     return await _posted(request, lambda form: _start(request, form))
 
 
-def _tier(form: Form) -> Tier:
-    value = _one(form, "tier") or "fast"
+def _tier(form: Form) -> Tier | None:
+    """The one-off tier a budget dialog asks for; None leaves it to the task's own tier."""
+    value = _one(form, "tier")
+    if not value:
+        return None
     if value not in ("fast", "thorough"):
         raise ValueError
     return cast(Tier, value)

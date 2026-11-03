@@ -39,6 +39,7 @@ from app.domain.locales import COUNTRIES
 from app.domain.settings import AIProviderSettings, Tier, has_control_characters
 from app.domain.tasks import TaskRef
 from app.domain.template_draft import PhotoConvention, TemplateStyle
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import AIProviderFactory
 from app.modules.storage import tailoring_repo
@@ -355,7 +356,7 @@ class CvTemplateService:
         service = SERVICE_BY_PROVIDER_KIND.get(settings.kind or "") if settings else None
         if settings is None or service is None:
             raise ProviderNotConfigured()
-        return SummaryPlan(service, tier or settings.task_tiers.get(DRAFT_CV_TEMPLATE, "thorough"))
+        return SummaryPlan(service, tier or task_tier(DRAFT_CV_TEMPLATE, settings))
 
     def start_draft(
         self, country_code: str, style: TemplateStyle, note: str | None, *, tier: Tier | None = None

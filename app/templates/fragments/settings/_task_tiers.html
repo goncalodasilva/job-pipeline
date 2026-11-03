@@ -1,0 +1,46 @@
+{# Settings > Providers and AI: the tier per task (M9.2 part C; ADR-089 item 9; TD-165). Inside the
+   Providers section, after the model per tier, so a POST swaps it with the section. One row per AI
+   task: a plain-language label, one line on what it does, its default tier in words and a Fast or
+   Thorough select. A native disclosure, closed on a plain load (one Tab stop) and open in every
+   answer that has something to read, as Sessions and Your details do. Exactly one element of an
+   answer takes focus: the summary after a save, the first refused select, the list error or the
+   reload prompt. A refused tier is never shown back (its select shows the saved tier). After a
+   stale version the form is left out, so a second Save can't overwrite what changed elsewhere.
+   Needs `task_tiers` (app/api/task_tier_forms.py) and `provider_target`. #}
+<details id="task-tiers" class="settings-disclosure"{% if task_tiers.attention %} open{% endif %}>
+  <summary id="task-tiers-summary"{% if task_tiers.saved %} data-autofocus{% endif %}>Tier per task</summary>
+  {% if task_tiers.conflict %}
+  {% set reload_id = "task-tiers-conflict" %}
+  {% set reload_message = task_tiers.conflict_message %}
+  {% set reload_detail = "Your change was not saved. These settings changed in another tab. Reload to see the latest and try again." %}
+  {% set reload_url = task_tiers.reload_url %}
+  {% set reload_link = "Reload" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% else %}
+  <p id="task-tiers-hint" class="field-hint">Each task has a default tier. Move a task to the other tier to trade quality for speed and fewer requests. The models behind Fast and Thorough are set above.</p>
+  {% if task_tiers.saved %}<p id="task-tiers-done" class="budget-done">{{ task_tiers.saved }}</p>{% endif %}
+  <form id="task-tiers-form" class="step-form task-tiers-form" method="post" action="{{ task_tiers.save_url }}"
+        hx-post="{{ task_tiers.save_url }}" hx-target="{{ provider_target }}" hx-swap="outerHTML"
+        hx-disabled-elt="find button" novalidate>
+    <input type="hidden" name="version" value="{{ task_tiers.version }}">
+    {% if task_tiers.list_error %}
+    <p id="task-tiers-error" class="field-error" role="alert" tabindex="-1" data-autofocus>{{ task_tiers.list_error }}</p>
+    {% endif %}
+    {% for row in task_tiers.rows %}
+    <div class="field task-tier-row" data-task="{{ row.task }}">
+      <label for="task-tier-{{ row.task }}">{{ row.label }}</label>
+      <p id="task-tier-{{ row.task }}-about" class="field-hint">{{ row.description }}</p>
+      <p id="task-tier-{{ row.task }}-default" class="task-tier-default">Default: {{ row.default }}</p>
+      <select id="task-tier-{{ row.task }}" name="{{ row.field }}"
+              aria-describedby="task-tier-{{ row.task }}-about task-tier-{{ row.task }}-default{% if row.error %} task-tier-{{ row.task }}-error{% endif %}"
+              {% if row.error %}aria-invalid="true"{% endif %}
+              {% if row.field == task_tiers.first_invalid %}data-autofocus{% endif %}>
+        {% for value, text in task_tiers.tiers %}<option value="{{ value }}"{% if row.chosen == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+      </select>
+      {% if row.error %}<p id="task-tier-{{ row.task }}-error" class="field-error" role="alert">{{ row.error }}</p>{% endif %}
+    </div>
+    {% endfor %}
+    <div class="form-actions"><button type="submit" class="button">Save task tiers</button></div>
+  </form>
+  {% endif %}
+</details>

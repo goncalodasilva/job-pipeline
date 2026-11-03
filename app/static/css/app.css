@@ -67,6 +67,22 @@
   color-scheme: light;
 }
 
+/* Compact density (Settings > Appearance, M9.2; TD-085 density only): less space between items.
+   Only spacing changes: the colour tokens, and so the contrast, stay as they are in both themes.
+   Targets keep a size well above the 24 px of WCAG 2.5.8 (--target-min never goes below 1.5rem). */
+:root[data-density="compact"] {
+  --space-1: 0.15rem;
+  --space-2: 0.35rem;
+  --space-3: 0.5rem;
+  --space-4: 0.75rem;
+  --space-6: 1rem;
+  --target-min: 2rem; /* 32 px */
+}
+
+:root[data-density="compact"] body {
+  line-height: 1.4;
+}
+
 *,
 *::before,
 *::after {
@@ -2538,6 +2554,13 @@ kbd,
   margin-top: var(--space-3);
 }
 
+/* "Clear filters" is a control of its own beside the button, not a link in running text. */
+.inbox-filters > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+
 #saved-views h3,
 .queue-group h3 {
   margin: 0 0 var(--space-2);
@@ -3138,3 +3161,10 @@ blockquote.practice-answer { margin: var(--space-2) 0; }
 .brief-section p { margin-block: 0.25rem; }
 .brief-section .brief-section-label { font-size: inherit; font-weight: 600; margin-block: 0.25rem; }
 #prep .company-brief { margin-block: 1.5rem; }
+
+/* Settings > Providers and AI > Tier per task (M9.2 part C): one row per task inside the native
+   disclosure; the default tier is words, never colour. */
+.task-tiers-form .task-tier-row { padding-block: var(--space-3); border-bottom: 1px solid var(--color-border); }
+.task-tier-row .field-hint, .task-tier-row .task-tier-default { margin-block: var(--space-1); }
+.task-tier-row .task-tier-default { font-weight: 600; }
+.task-tier-row select { max-width: 100%; }

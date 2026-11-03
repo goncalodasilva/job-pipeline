@@ -31,6 +31,7 @@ from app.domain.ids import IdFactory, is_safe_id
 from app.domain.locales import COUNTRIES
 from app.domain.settings import JOB_PREFERENCES, AIProviderSettings, Tier
 from app.domain.tasks import TaskRef
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import AIProviderFactory, AITaskRunner
 from app.modules.storage import job_fit_repo, skills_repo, tailoring_repo
@@ -269,7 +270,7 @@ class TailoringService:
         service = SERVICE_BY_PROVIDER_KIND.get(settings.kind or "") if settings else None
         if settings is None or service is None:
             raise ProviderNotConfigured()
-        return SummaryPlan(service, tier or settings.task_tiers.get(task_type, "thorough"))
+        return SummaryPlan(service, tier or task_tier(task_type, settings))
 
     def _start(self, aid: str, task_type: str, tier: Tier | None) -> TaskRef | None:
         if self.plan_start(aid, task_type, tier=tier) is None:

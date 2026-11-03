@@ -64,6 +64,7 @@ from app.domain.settings import (
     has_control_characters,
 )
 from app.domain.tasks import TaskRef
+from app.domain.tiers import task_tier
 from app.domain.usage import SERVICE_BY_PROVIDER_KIND
 from app.modules.ai import AIProviderFactory
 from app.modules.storage import (
@@ -534,7 +535,7 @@ class PrepDocumentService:
         service = SERVICE_BY_PROVIDER_KIND.get(settings.kind or "") if settings else None
         if settings is None or service is None:
             raise ProviderNotConfigured()
-        return SummaryPlan(service, tier or settings.task_tiers.get(task, "thorough"))
+        return SummaryPlan(service, tier or task_tier(task, settings))
 
     def plan_start(
         self, application_id: str, kind: str, *, tier: Tier | None = None

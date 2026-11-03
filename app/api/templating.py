@@ -20,7 +20,7 @@ from app.domain.contacts import LIMITS as CONTACT_LIMITS
 from app.domain.contacts import NOTE_LIMIT
 from app.domain.errors import SessionNotFound
 from app.domain.ids import is_safe_id
-from app.domain.settings import SessionSettings
+from app.domain.settings import AppearanceSettings, SessionSettings
 from app.onboarding.registry import PROVIDER, StepRegistry
 from app.onboarding.startup import OnboardingState
 from app.services.reminders import Notifications, ReminderService
@@ -53,6 +53,21 @@ def session_offer_length(request: Request) -> int:
     return length
 
 
+def page_appearance(request: Request | None) -> AppearanceSettings:
+    """The Appearance setting every page puts on ``<html>`` (M9.2): the stored choice, or the
+    defaults when it can't be read (or the template is rendered with no request). Called lazily
+    from ``base.html``, so a fragment never reads it, and cached on the request so a page reads
+    it once."""
+    if request is None:
+        return AppearanceSettings()
+    cached: AppearanceSettings | None = getattr(request.state, "appearance", None)
+    if cached is None:
+        service = getattr(request.app.state, "appearance", None)
+        cached = service.current() if service is not None else AppearanceSettings()
+        request.state.appearance = cached
+    return cached
+
+
 def _environment() -> Environment:
     env = Environment(
         loader=FileSystemLoader(TEMPLATES_DIR),
@@ -62,6 +77,7 @@ def _environment() -> Environment:
     env.globals["static"] = static
     env.globals["is_safe_id"] = is_safe_id
     env.globals["session_offer_length"] = session_offer_length
+    env.globals["page_appearance"] = page_appearance
     env.globals["contact_limits"] = {**CONTACT_LIMITS, "interaction_note": NOTE_LIMIT}
     return env
 
