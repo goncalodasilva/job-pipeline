@@ -24,6 +24,7 @@ from app.services.usage_settings import (
     whole_number,
 )
 
+AREA_PATH = "/settings/budgets"  # the Usage budgets page (M9.2)
 BUDGETS_PATH = "/settings/usage/budgets"
 CONCURRENCY_PATH = "/settings/usage/concurrency"
 PANEL_PATH = "/settings/usage"  # the usage panel alone (M2.23)

@@ -577,6 +577,92 @@ body.layout-guide {
   margin-bottom: var(--space-4);
 }
 
+/* Settings areas (M9.2; ADR-131 item 7): the side list of areas beside the area's sections, one
+   column on a phone. The current area is marked by weight and a bar as well as colour. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.settings-nav ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-nav a {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+.settings-nav a:hover {
+  background: var(--color-accent-soft);
+  text-decoration: underline;
+}
+
+.settings-nav a[aria-current="page"] {
+  font-weight: 700;
+  background: var(--color-accent-soft);
+  border-left-color: var(--color-accent);
+}
+
+.settings-area > :first-child {
+  margin-top: 0;
+}
+
+.settings-area {
+  min-width: 0;
+}
+
+@media (max-width: 767.98px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  .settings-nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  .settings-nav a {
+    min-height: 2.25rem;
+    border: 1px solid var(--color-border);
+    border-left-width: 3px;
+  }
+}
+
+@media (forced-colors: active) {
+  .settings-nav a {
+    border-left-style: none;
+  }
+
+  .settings-nav a[aria-current="page"] {
+    border-left-style: solid;
+    border-left-color: CanvasText;
+  }
+}
+
+.preferences-summary dt {
+  margin-top: var(--space-3);
+  font-weight: 600;
+}
+
+.preferences-summary dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
 /* Settings (M1.21): one section per part, below the page heading. */
 .settings-section {
   max-width: 40rem;
@@ -598,7 +684,7 @@ body.layout-guide {
 }
 
 /* Neighbouring paragraphs, buttons and form rows in these sections do not touch; a fresh export
-   result is set apart from the form above it; the way back sits above the heading. */
+   result is set apart from the form above it. */
 .settings-section[id^="data-"] p + p,
 .settings-section[id^="data-"] p + button,
 .settings-section[id^="data-"] p + .form-actions {
@@ -628,15 +714,6 @@ body.layout-guide {
   margin-top: var(--space-3);
 }
 
-.back-link {
-  margin: 0 0 var(--space-3);
-}
-
-.back-link a {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--target-min);
-}
 
 #erased-notice {
   margin: 0 0 var(--space-4);
@@ -818,17 +895,6 @@ body.layout-guide {
 
 .reload-prompt {
   margin-top: var(--space-3);
-}
-
-/* Settings' "Coming later" card: small, spaced like the sections above it. */
-.empty-state.settings-later {
-  margin-top: var(--space-6);
-  padding: var(--space-4);
-}
-
-.settings-later h2 {
-  margin-top: 0;
-  font-size: 1.25rem;
 }
 
 .setup-steps [aria-current="step"] {

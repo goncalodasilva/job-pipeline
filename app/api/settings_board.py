@@ -12,7 +12,7 @@ and 10, ADR-104). Every route is a POST needing the launch token and the origin.
 A form's fields each appear once; an unknown or repeated field, a missing or non-numeric version
 and a bad ``direction`` or ``enabled`` are a plain-text 400. An unknown or unsafe status key is
 the fixed 404 and is never echoed. A success answers 200 for htmx with the whole section, a line
-saying what was done, one focus target and an ``announce`` message (303 to ``/settings``
+saying what was done, one focus target and an ``announce`` message (303 to ``/settings/lists``
 otherwise). A refused value is a 422 with the section (the full page when plain), what was typed
 kept and each refused field tied to its error; a stale version is a 409 with the reload prompt and
 changes nothing. Every message is fixed copy with at most a status name and a count.
@@ -26,17 +26,17 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.board_settings_forms import (
     ADD,
+    AREA_PATH,
     DELETE,
     REMINDERS_PATH,
     RENAME,
     RULE,
-    SETTINGS_PATH,
     STATUSES_PATH,
     BoardSettingsState,
 )
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx, posted_version, single_value_form
-from app.api.settings import render_board_settings
+from app.api.settings_areas import render_board_settings
 from app.domain.errors import ReminderRuleInvalid, StatusNotAllowed, VersionConflict
 from app.domain.ids import is_safe_id
 from app.services.applications import ApplicationStatuses
@@ -107,7 +107,7 @@ def _answer(
 ) -> Response:
     """The section for htmx, the full page otherwise; a plain success goes back to the page."""
     if status_code == 200 and not is_htmx(request):
-        return RedirectResponse(SETTINGS_PATH, status_code=303)
+        return RedirectResponse(AREA_PATH, status_code=303)
     response = render_board_settings(request, state)
     response.status_code = status_code
     if announce and is_htmx(request):

@@ -15,8 +15,8 @@ from fastapi import Request
 from app.domain.errors import VersionConflict
 from app.services.session_preferences import ASK_LATER, FREQUENCIES, LENGTHS, SessionPreferences
 
-SETTINGS_PATH = "/settings"
-SAVE_PATH = f"{SETTINGS_PATH}/sessions"
+SAVE_PATH = "/settings/sessions"  # also the area page (M9.2): GET shows, POST saves
+AREA_PATH = SAVE_PATH
 SAVED = "Session settings saved."
 NOT_SAVED = "Session settings not saved."
 FREQUENCY_LABELS = {

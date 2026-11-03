@@ -57,7 +57,8 @@ any other code (``XX``, ``pt``, ``PRT``) is a plain-text 404 that changes nothin
   or ``approve``) and the spec fields. 404 when the country has no template row. 400 for an unknown
   or repeated field (a ``date_of_birth``, a ``detail_nationality``), an ``action`` that is neither,
   and a missing or non-numeric ``version``. 409 for a stale ``version``: the unit with the reload
-  prompt (``VersionConflict.message`` and a "Reload" link to ``/settings``), nothing changes. 422
+  prompt (``VersionConflict.message`` and a "Reload" link to ``/settings/your-details``), nothing
+  changes. 422
   for a value the closed spec refuses: nothing changes, the unit shows the SAVED spec's markers
   but keeps what was typed in every control that can hold it, and the refusal copy is fixed per
   field (never an entered value or pydantic text). 200: ``save`` stores the spec (status ``draft``,
@@ -111,8 +112,8 @@ Workspace panel: step 3 (CV) of ``#tailoring`` (page ``?tab=tailoring&step=3`` a
 country (the workspace's, else the preference). It keeps the "later step" text about the CV itself.
 The other steps hold no unit. Reading a step writes nothing and starts nothing.
 
-Settings > CV templates: the token-free ``GET /settings`` page and ``GET /settings/cv-templates``
-hold ``<section id="templates-settings" class="settings-section"
+Settings > CV templates: the token-free ``GET /settings/your-details`` page (M9.2) and ``GET
+/settings/cv-templates`` hold ``<section id="templates-settings" class="settings-section"
 aria-labelledby="templates-heading">`` with ``<h2 id="templates-heading" tabindex="-1">CV
 templates</h2>``; ``ul#template-list`` with ``li#template-<CC>[data-country][data-status]`` per row
 in country-code order (text: the country name, the code, "Approved" or "Draft"), each with a

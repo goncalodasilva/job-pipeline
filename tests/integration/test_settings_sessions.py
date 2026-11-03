@@ -342,8 +342,11 @@ def test_session_settings_routes_need_token_and_origin(tmp_path):
                 path, data={**data, "extra": "bad"}, headers=run.run.action(**HTMX)
             )
             assert extra.status_code == 400, path
-            # Routes are POST only: with the token a GET is not one of them.
-            assert run.client.get(path, headers=run.run.htmx()).status_code == 405, path
+            # Routes are POST only: with the token a GET is not one of them. M9.2: the
+            # Sessions save path is also the area page, so its GET shows the page (writes
+            # nothing; the table check below holds) instead of being refused.
+            wanted = 200 if path == SAVE_PATH else 405
+            assert run.client.get(path, headers=run.run.htmx()).status_code == wanted, path
         assert tables(run) == before
         # With the token and the origin each works, so the 403s were about those.
         for path, data in routes:

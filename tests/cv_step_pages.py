@@ -95,8 +95,8 @@ a swap with ``#cv-draft-note`` ("Your unsaved typing was put back.", announced).
   an older version "Version N (read-only)." ``p#cv-readonly-note`` (older version only) says the
   version is read-only and not the latest, with ``a#cv-latest`` "Back to the latest version".
 - ``div#cv-contact`` (fragment): ``p[data-contact-name]``, ``li[data-contact-line]`` per line,
-  ``a[href="/settings"]`` "Change in Settings"; no form, input or button; ``p#cv-contact-empty``
-  when there is no name. Code-built, never editable.
+  ``a[href="/settings/your-details"]`` "Change in Settings"; no form, input or button;
+  ``p#cv-contact-empty`` when there is no name. Code-built, never editable.
 - ``ul#cv-diff-legend`` explains the four marks. Per section ``section[data-section="<id>"]``
   with ``h6[data-section-heading]`` (the snapshot's heading), per role block
   ``div[data-role-block]`` with a header ``[data-role-header]`` (title, employer, and the start

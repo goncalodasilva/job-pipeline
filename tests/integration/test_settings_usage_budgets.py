@@ -1,7 +1,8 @@
 """Settings > Usage budgets (M2.22; AC-M2.7, AC-M2.10; spec 3.7; ADR-076 items 4, 5, 8, 12;
 ADR-079; detailed design "Settings and usage budgets").
 
-The Settings page (and its htmx page fragment) gains ``<section id="usage-budgets">`` labelled
+The Usage budgets area page ``/settings/budgets`` (M9.2; was the Settings page) and its htmx
+page fragment hold ``<section id="usage-budgets">`` labelled
 by an ``<h2>`` "Usage budgets". Inside it, one block per service, ``#budget-<service>``, in the
 order of ``SERVICE_NAMES`` (``fake`` only while fakes are allowed), names the service and holds
 one form:
@@ -17,13 +18,13 @@ one form:
 - The reset-day field is described (``aria-describedby``) by a note saying days 29-31 move to
   the month's last day.
 
-A valid save or a removal answers 303 to ``/settings`` (a query or ``#fragment`` is allowed),
-or for htmx 200 with a fragment holding the service's block and an ``announce`` trigger. A
+A valid save or a removal answers 303 to ``/settings/budgets`` (a query or ``#fragment`` is
+allowed), or for htmx 200 with a fragment holding the service's block and an ``announce`` trigger. A
 refused save answers 422 (htmx: the fragment; plain: the full page), saves nothing, keeps what
 was typed, and marks exactly the fields ``validate_budget`` names with ``aria-invalid="true"``
 and an error element listed in the field's ``aria-describedby``. A stale ``version`` answers
 409, changes nothing and shows ``VersionConflict.message`` with a "Reload" link to
-``/settings`` (spec 2.11 and 3.5: "shown to the user as a reload prompt").
+``/settings/budgets`` (spec 2.11 and 3.5: "shown to the user as a reload prompt").
 
 "Background tasks at once" is a form posting to ``POST /settings/usage/concurrency`` with
 ``max_concurrent`` (an input or a select) and a hidden ``version`` (the task-runner setting's);
@@ -73,7 +74,7 @@ from tests.integration.test_task_routes import database_state
 
 pytestmark = pytest.mark.integration
 
-SETTINGS = "/settings"
+SETTINGS = "/settings/budgets"  # M9.2: the Usage budgets area (was /settings)
 BUDGETS_PATH = "/settings/usage/budgets"
 CONCURRENCY_PATH = "/settings/usage/concurrency"
 SECTION_ID = "usage-budgets"
@@ -420,7 +421,7 @@ def assert_reload_prompt(elements: list[Element], prompt_id: str, detail: str) -
         and "reload" in e.text.lower()
         and urlsplit(e.attrs.get("href") or "").path == SETTINGS
     ]
-    assert links, "a Reload link back to /settings"
+    assert links, "a Reload link back to /settings/budgets"
     assert only([e for e in elements if "data-autofocus" in e.attrs], "focus target") is prompt
 
 
@@ -1298,9 +1299,11 @@ def test_usage_is_read_only_when_shown_and_never_on_the_event_loop(
             assert by_id(outline(fragment.text), SECTION_ID) is None, path
             assert reads(fragment) == [], f"{path}: the section isn't in this answer"
 
+            # M9.2: the Providers forms' full-page answer is the Providers and AI page, which
+            # no longer holds Usage budgets, so it neither shows the section nor reads it.
             page = run.client.post(path, data=form, headers=run.action())
-            usage_section(outline(page.text))
-            assert reads(page) == [False], f"{path}: read once, off the event loop"
+            assert by_id(outline(page.text), SECTION_ID) is None, path
+            assert reads(page) == [], f"{path}: the section isn't on this page"
 
         assert reads(settings_page(run)) == [False]
         assert reads(settings_page(run, htmx=True)) == [False]

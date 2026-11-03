@@ -20,6 +20,7 @@ from app.services.applications import ApplicationStatuses
 from app.services.reminders import ReminderRules
 
 SETTINGS_PATH = "/settings"
+AREA_PATH = "/settings/lists"  # the Lists and statuses page (M9.2)
 STATUSES_PATH = f"{SETTINGS_PATH}/board/statuses"
 REMINDERS_PATH = f"{SETTINGS_PATH}/board/reminders"
 DEFAULT_DAYS = 14  # shown for a status with no rule yet

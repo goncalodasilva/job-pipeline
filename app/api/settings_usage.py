@@ -8,7 +8,7 @@ optional ``fast_cap`` and ``thorough_cap``. Remove ignores the fields.
 ``POST /settings/usage/concurrency`` saves ``max_concurrent`` (1 to 3) with the task-runner
 setting's ``version``.
 
-Both answer 303 to ``/settings``, or for htmx 200 with the form's block, a line in it saying
+Both answer 303 to ``/settings/budgets``, or for htmx 200 with the form's block, a line in it saying
 what was done, focus on its heading and an "announce" trigger (never ``HX-Push-Url``). A
 refused form answers 422 with the errors next to their fields and what was typed kept (htmx:
 the block, and an announcement of how many fields need a change; plain: the full page). A
@@ -38,9 +38,10 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 from starlette.concurrency import run_in_threadpool
 
 from app.api.forms import is_htmx, read_form
-from app.api.settings import SETTINGS_PATH, render_settings
+from app.api.settings_areas import render_settings
 from app.api.templating import templates
 from app.api.usage_forms import (
+    AREA_PATH,
     BUDGETS_PATH,
     CONCURRENCY,
     CONCURRENCY_PATH,
@@ -246,7 +247,7 @@ def _answer(
         said = f"{copy.refused} {_fields_to_change(len(errors))}"
         return _shown(request, refused, fragment, status_code=422, announce=said)
     if not is_htmx(request):
-        return RedirectResponse(SETTINGS_PATH, status_code=303)
+        return RedirectResponse(AREA_PATH, status_code=303)
     done = UsageFormState(target=state.target, changed=True, confirmed=copy.confirmed)
     response = _shown(request, done, fragment, announce=copy.announced)
     if then:

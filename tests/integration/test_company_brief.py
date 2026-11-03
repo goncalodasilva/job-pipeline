@@ -316,7 +316,7 @@ def test_company_brief_blocked_with_reset_date(tmp_path):
         assert start.attrs["aria-describedby"] == "company-brief-reason"
         assert has_id(page, "company-brief-reason")
         assert any(
-            e.tag == "a" and e.attrs.get("href") == "/settings#usage-budgets"
+            e.tag == "a" and e.attrs.get("href") == "/settings/budgets#usage-budgets"
             for e in elements(page)
         )
         before = snapshot(r)

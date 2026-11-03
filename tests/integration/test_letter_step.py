@@ -212,7 +212,7 @@ def test_letter_frame_is_code_built_lazy_and_around_the_paragraphs(d: LetterDesk
         # Code-built, never editable: nothing to type in or press inside the frame.
         assert not inside(shown, box, lambda e: e.tag in ("form", "input", "textarea", "button"))
         links = inside(shown, box, lambda e: e.tag == "a")
-        assert [e.attrs["href"] for e in links] == ["/settings"]
+        assert [e.attrs["href"] for e in links] == ["/settings/your-details"]  # M9.2
 
     # Without a saved name the sign-off says what to do instead of printing nothing.
     assert "name" not in frame_parts(bare) and has_id(bare, "letter-name-missing")

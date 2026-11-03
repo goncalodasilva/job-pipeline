@@ -424,7 +424,7 @@ def test_cv_step_contact_block_and_role_headers_are_code_built_not_editable(cv: 
     ]
     settings_link = inside(shown, contact, lambda e: e.tag == "a")
     assert [(e.attrs["href"], e.text) for e in settings_link] == [
-        ("/settings", "Change in Settings")
+        ("/settings/your-details", "Change in Settings")  # M9.2: the area that owns it
     ]
     assert not inside(shown, contact, lambda e: e.tag in ("form", "input", "textarea", "button"))
 

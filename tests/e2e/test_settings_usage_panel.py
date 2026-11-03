@@ -38,6 +38,7 @@ from app.services.practice import PRACTICE_STEPS
 from app.services.usage import UsageService
 from tests.e2e.axe import assert_no_serious_violations
 from tests.e2e.conftest import DESKTOP, PHONE
+from tests.e2e.settings_areas import go_to_area_by_keyboard
 from tests.e2e.test_settings_usage_budgets import FOCUS_IN_BLOCK, REMOVE, tab_to
 from tests.e2e.test_setup_provider import SMALL_PHONE
 from tests.e2e.test_shell import css_token, has_no_horizontal_scroll, new_page, open_app
@@ -158,7 +159,7 @@ def seed_usage(app: RunningApp) -> None:
 
 
 def open_panel(page: Page, app: RunningApp) -> None:
-    open_app(page, app, "/settings")
+    open_app(page, app, "/settings/budgets")
     expect(page.locator(PANEL)).to_be_visible()
     expect(page.locator(COUNT)).to_contain_text("7 / 20")
     expect(page.locator(TABLE)).to_be_visible()
@@ -250,16 +251,30 @@ def test_panel_follows_a_removed_budget_without_a_reload(
         expect(page.locator(USED)).to_contain_text("The provider's count is used")
         expect(page.locator(PANEL)).to_have_count(1)
         page.wait_for_function(FOCUS_IN_BLOCK, arg="#budget-fake")
-        expect(page).to_have_url(f"{running_app.base_url}/settings")
+        expect(page).to_have_url(f"{running_app.base_url}/settings/budgets")
 
 
-def test_panel_follows_a_practice_task_without_a_reload(
+def start_practice_by_keyboard(page: Page) -> None:
+    """On Providers and AI: Tab to the practice form's Start button and press Enter; the seeded
+    count (7 reported) is past the first warning (5), so the start asks first (M2.24) and
+    Continue by keyboard starts the task."""
+    tab_to(page, f'{PRACTICE_FORM} button[type="submit"]')
+    page.keyboard.press("Enter")
+    proceed = page.get_by_role("dialog").get_by_role("button", name="Continue", exact=True)
+    proceed.focus()
+    page.keyboard.press("Enter")
+    expect(page.locator(PRACTICE_STATUS)).to_have_text("Practice task started.")
+
+
+def test_panel_follows_a_practice_task_started_in_another_tab(
     running_app: RunningApp, browser: Browser
 ) -> None:
-    """A practice task started by keyboard from Settings > Testing tools makes one call to
-    the fake provider per step: the panel fetches itself again as the task changes and shows
-    the requests counted here, in the count lines and in the table, with no reload. The
-    refresh is silent: focus stays on the practice form's answer."""
+    """A practice task started by keyboard from Providers and AI > Testing tools (a second tab of
+    the same browser) makes one call to the fake provider per step. The panel on Usage budgets,
+    open in the first tab (M9.2: the two are on different pages), fetches itself again as the
+    task changes, through the shared event stream, and shows the requests counted here, in the
+    count lines and in the table, with no reload of that page. The refresh is silent, and focus
+    in the second tab stays on the practice form's answer."""
     after = 5 + PRACTICE_STEPS  # more than the provider's 7: the local count is used again
     assert after > 7
     seed_usage(running_app)
@@ -270,14 +285,9 @@ def test_panel_follows_a_practice_task_without_a_reload(
         navigations: list[str] = []
         page.on("framenavigated", lambda frame: navigations.append(frame.url))
 
-        tab_to(page, f'{PRACTICE_FORM} button[type="submit"]')
-        page.keyboard.press("Enter")
-        # The seeded count (7 reported) is past the first warning (5): the start asks first
-        # (M2.24), and Continue by keyboard starts the task.
-        proceed = page.get_by_role("dialog").get_by_role("button", name="Continue", exact=True)
-        proceed.focus()
-        page.keyboard.press("Enter")
-        expect(page.locator(PRACTICE_STATUS)).to_have_text("Practice task started.")
+        tools = page.context.new_page()
+        open_app(tools, running_app, "/settings")
+        start_practice_by_keyboard(tools)
 
         expect(page.locator(LOCAL)).to_have_text(f"Counted on this computer: {after}")
         page.wait_for_function(PANEL_REPLACED, arg=PANEL)
@@ -290,9 +300,29 @@ def test_panel_follows_a_practice_task_without_a_reload(
         expect(page.locator(COUNT)).to_have_text(f"{after} / 20 requests")
         expect(page.locator(USED)).to_contain_text("The count on this computer is used")
         expect(page.locator(PANEL)).to_have_count(1)
-        expect(page.locator(PRACTICE_STATUS)).to_be_focused()
-        assert navigations == [], f"the page was reloaded or left: {navigations}"
-        expect(page).to_have_url(f"{running_app.base_url}/settings")
+        expect(tools.locator(PRACTICE_STATUS)).to_be_focused()
+        assert navigations == [], f"the budgets page was reloaded or left: {navigations}"
+        expect(page).to_have_url(f"{running_app.base_url}/settings/budgets")
+        expect(tools).to_have_url(f"{running_app.base_url}/settings")
+
+
+def test_panel_shows_the_requests_of_a_practice_task_when_opened_afterwards(
+    running_app: RunningApp, browser: Browser
+) -> None:
+    """The same task, read the other way round: start it on Providers and AI, then open Usage
+    budgets by keyboard from the side list in the same tab. The panel loaded with the page (and
+    kept current while the task runs) shows the requests counted here once the task is done."""
+    after = 5 + PRACTICE_STEPS
+    seed_usage(running_app)
+    with new_page(browser, DESKTOP) as page:
+        open_app(page, running_app, "/settings")
+        start_practice_by_keyboard(page)
+        go_to_area_by_keyboard(page, running_app, "providers", "budgets")
+
+        expect(page.locator(LOCAL)).to_have_text(f"Counted on this computer: {after}")
+        expect(page.locator(COUNT)).to_have_text(f"{after} / 20 requests")
+        expect(page.locator(USED)).to_contain_text("The count on this computer is used")
+        expect(page.locator(PANEL)).to_have_count(1)
 
 
 def test_panel_refresh_keeps_focus_in_the_breakdown_region(

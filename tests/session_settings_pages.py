@@ -2,8 +2,8 @@
 Settings "Sessions"; ADR-117 item 8, ADR-119), with small HTML readers for the integration and
 end-to-end tests. The implementer matches these names. Every value is fictional.
 
-``GET /settings`` (a page route: no token needed; with ``HX-Request`` and the token the main
-content only) gains, after the Board section and before the "Coming later" card,
+``GET /settings/sessions`` (the Sessions area, M9.2; a page route: no token needed; with
+``HX-Request`` and the token the main content only) holds
 ``<section id="sessions-settings" class="settings-section" aria-labelledby="sessions-settings-
 heading">`` with ``<h2 id="sessions-settings-heading" tabindex="-1">Sessions</h2>``. A GET writes
 nothing. Inside it, one ``<form id="sessions-settings-form" method="post" action="/settings/
@@ -40,7 +40,7 @@ missing, non-numeric or negative ``version`` and a ``paused`` other than ``1`` a
   value; the hidden ``version`` is the new one), a visible ``<p id="sessions-settings-done">``
   saying "Session settings saved.", exactly one ``data-autofocus`` element in the answer
   (``#sessions-settings-heading``) and ``HX-Trigger`` carrying that same announcement. Without
-  htmx: 303 to ``/settings``. The value is stored through ``SettingsService`` under the key
+  htmx: 303 to ``/settings/sessions``. The value is stored through ``SettingsService`` under the key
   ``sessions`` (``SESSIONS``), version ``expected_version`` + 1 (``0`` inserts, version 1).
 - 422 for a refused value: the section again (plain: the full Settings page, whose ``<h1>`` has
   no ``data-autofocus``), changes nothing. Each refused field, and only those, has
@@ -53,7 +53,7 @@ missing, non-numeric or negative ``version`` and a ``paused`` other than ``1`` a
   corrected form from the 422 answer saves.
 - 409 for a stale ``version`` (including ``0`` once the setting exists): the section with the
   reload prompt ``<div id="sessions-settings-conflict" role="alert" data-autofocus>`` holding
-  ``VersionConflict.message`` and a "Reload" link to ``/settings`` (the shared
+  ``VersionConflict.message`` and a "Reload" link to ``/settings/sessions`` (the shared
   ``fragments/shell/_reload_prompt.html``); changes nothing; that prompt is the one
   ``data-autofocus`` element of the answer.
 
@@ -69,7 +69,7 @@ from typing import Any
 from tests.board_pages import by_id, elements
 from tests.integration.test_app_shell import Element
 
-SETTINGS = "/settings"
+SETTINGS = "/settings/sessions"  # M9.2: the Sessions area (was /settings)
 SAVE_PATH = "/settings/sessions"
 SECTION_ID = "sessions-settings"
 FORM_ID = "sessions-settings-form"

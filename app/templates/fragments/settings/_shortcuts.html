@@ -8,7 +8,7 @@
   {% set reload_id = "shortcuts-conflict" %}
   {% set reload_message = conflict_message %}
   {% set reload_detail = "Your last change was not saved." %}
-  {% set reload_url = "/settings" %}
+  {% set reload_url = "/settings/keyboard" %}
   {% include "fragments/shell/_reload_prompt.html" %}
   {% else %}
   {% if shortcuts_saved %}<p id="shortcuts-saved">Saved.</p>{% endif %}

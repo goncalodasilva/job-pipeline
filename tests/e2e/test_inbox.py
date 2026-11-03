@@ -134,7 +134,7 @@ def test_shortcuts_ignored_while_typing_and_off_when_disabled(running_app, brows
         assert page.evaluate("() => document.querySelectorAll('dialog[open]').length") == 0
         assert page.evaluate("() => document.getElementById('inbox-help').open") is False
         page.keyboard.press("Escape")
-        open_app(page, running_app, "/settings")
+        open_app(page, running_app, "/settings/keyboard")
         toggle = page.get_by_label("Use single-key shortcuts", exact=True)
         tab_until(page, toggle)
         page.keyboard.press("Space")

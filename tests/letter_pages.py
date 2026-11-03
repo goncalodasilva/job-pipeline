@@ -133,7 +133,7 @@ approved``), ``data-version-id``, ``data-version-number`` (absent without a vers
 - ``div#letter-frame`` (filled by the fragment and by ``.../4/frame``): ``p[data-letter-greeting]``,
   ``p[data-letter-opening]``, ``p[data-letter-closing]``, ``p[data-letter-name]``, in that DOM
   order, text = the ``LetterFrame`` fields; no form, input, textarea or button inside it
-  (code-built, never editable); ``a[href="/settings"]`` "Change in Settings";
+  (code-built, never editable); ``a[href="/settings/your-details"]`` "Change in Settings";
   ``p#letter-name-missing`` instead of ``[data-letter-name]`` when there is no name. The
   paragraphs sit between the opening and the closing in the DOM (greeting, opening,
   ``ol#letter-paragraphs``, closing, name).

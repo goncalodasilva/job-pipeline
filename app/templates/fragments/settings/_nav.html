@@ -1,0 +1,9 @@
+{# The side list of Settings areas (M9.2): one link per area, the current one marked with
+   aria-current and, besides colour, a bold name and a bar (see .settings-nav in app.css). #}
+<nav class="settings-nav" aria-label="Settings areas">
+  <ul>
+    {% for item in settings_areas %}
+    <li><a href="{{ item.path }}"{% if item.slug == settings_area.slug %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>

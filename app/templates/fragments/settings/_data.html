@@ -1,11 +1,10 @@
-{# Settings > Data and privacy (M9.1 part D; AC-M9.3; spec 2.9 rule 13). A token-free, read-only
+{# Settings > Data and privacy (M9.1 part D, M9.2; AC-M9.3; spec 2.9 rule 13). The area's content
+   (the heading and the side list come from _area.html). A token-free, read-only
    page: it holds no path and no stored text. The data folder's path is a placeholder that loads
    the protected fragment (GET /settings/data/location) when the page loads, as Your details
    does. Export, Import and Delete all data are sections of their own: a POST swaps its section
    (outerHTML) and takes focus there. Delete's confirmation is a dialog fragment loaded when
    its button is pressed. #}
-<p class="back-link"><a href="/settings">Back to Settings</a></p>
-<h1 id="page-heading" data-autofocus>Data and privacy</h1>
 <p class="field-hint">Everything you enter stays on this computer, in the app's data folder. You can export a copy, restore a copy into an empty workspace, or delete everything.</p>
 <div id="data-location" class="settings-section" hx-get="/settings/data/location" hx-trigger="load" hx-swap="innerHTML">
   <p class="field-hint">Finding the data folder…</p>

@@ -5,10 +5,10 @@
 all required, and ``paused`` (``1`` when on, absent when off). A field appears once; an unknown
 or repeated field, a missing required field, a bad ``version`` and a ``paused`` other than ``1``
 are a plain-text 400. A success answers 200 for htmx with the whole section, a line saying so,
-one focus target (the heading) and an ``announce`` message (303 to ``/settings`` otherwise). A
-stale version is a 409 with the reload prompt and changes nothing, whatever the values are (it
-is checked first); a refused value is then a 422 with the section (the full page when plain),
-each refused field tied to its fixed message.
+one focus target (the heading) and an ``announce`` message (303 to ``/settings/sessions``
+otherwise). A stale version is a 409 with the reload prompt and changes nothing, whatever the
+values are (it is checked first); a refused value is then a 422 with the section (the full page
+when plain), each refused field tied to its fixed message.
 """
 
 import json
@@ -20,13 +20,13 @@ from starlette.concurrency import run_in_threadpool
 from app.api.errors import INVALID_REQUEST
 from app.api.forms import is_htmx, posted_version, single_value_form
 from app.api.session_settings_forms import (
+    AREA_PATH,
     NOT_SAVED,
     SAVE_PATH,
     SAVED,
-    SETTINGS_PATH,
     SessionSettingsState,
 )
-from app.api.settings import render_session_settings
+from app.api.settings_areas import render_session_settings
 from app.domain.errors import VersionConflict
 from app.services.session_preferences import CHOICES, SessionPreferences
 
@@ -43,7 +43,7 @@ def _answer(
 ) -> Response:
     """The section for htmx, the full page otherwise; a plain success goes back to the page."""
     if status_code == 200 and not is_htmx(request):
-        return RedirectResponse(SETTINGS_PATH, status_code=303)
+        return RedirectResponse(AREA_PATH, status_code=303)
     response = render_session_settings(request, state)
     response.status_code = status_code
     if announce and is_htmx(request):

@@ -40,7 +40,7 @@ def stored(app: RunningApp) -> list[tuple[str, int]]:
 
 def open_settings(page: Page, app: RunningApp) -> None:
     page.add_init_script(RECORD_ANNOUNCEMENTS)
-    open_app(page, app, "/settings")
+    open_app(page, app, "/settings/sessions")
     section = page.locator(SECTION)
     expect(section.get_by_role("heading", name="Sessions", level=2, exact=True)).to_be_visible()
 

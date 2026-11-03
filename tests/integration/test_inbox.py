@@ -206,7 +206,7 @@ def test_invalid_reason_text_422_tied_to_field(tmp_path):
 
 def test_shortcuts_setting_saved_with_version(tmp_path):
     with refining(tmp_path) as r:
-        assert "Use single-key shortcuts" in r.client.get("/settings").text
+        assert "Use single-key shortcuts" in r.client.get("/settings/keyboard").text
         shown = post(r, "/settings/shortcuts", version="0")
         assert shown.status_code == 200 and "Saved." in shown.text
         assert 'data-shortcuts="false"' in r.client.get("/inbox").text

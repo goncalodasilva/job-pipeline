@@ -55,6 +55,7 @@ from app.api.restore_upload import (
     save_upload,
 )
 from app.api.security import PAGE_TAG
+from app.api.settings_nav import AREA_FRAGMENT, AREA_PAGE, area_ctx
 from app.api.templating import render, templates
 from app.services.data_erasure import (
     CONFIRMATION_WORD,
@@ -72,8 +73,6 @@ EXPORT_PATH: Final = f"{PAGE_PATH}/export"
 IMPORT_PATH: Final = f"{PAGE_PATH}/import"
 DELETE_PATH: Final = f"{PAGE_PATH}/delete"
 DOWNLOAD_PATH: Final = f"{PAGE_PATH}/exports/{{name}}"
-DATA_PAGE: Final = "pages/settings_data.html"
-DATA_FRAGMENT: Final = "fragments/settings/_data.html"
 EXPORT_FRAGMENT: Final = "fragments/settings/_data_export.html"
 IMPORT_FRAGMENT: Final = "fragments/settings/_data_import.html"
 LOCATION_FRAGMENT: Final = "fragments/settings/_data_location.html"
@@ -176,10 +175,11 @@ def data_page(request: Request) -> HTMLResponse:
     ctx = {
         "area": area("settings"),
         "areas": AREAS,
+        **area_ctx("data"),
         "data_export": export_context(),
         "data_import": import_context(blocked=not _portability(request).can_restore()),
     }
-    return render(request, page=DATA_PAGE, fragment=DATA_FRAGMENT, ctx=ctx)
+    return render(request, page=AREA_PAGE, fragment=AREA_FRAGMENT, ctx=ctx)
 
 
 def location(request: Request) -> HTMLResponse:

@@ -90,7 +90,7 @@ def test_ac_m8_2_blocked_web_button_disabled_with_reset_date_while_generate_work
         assert "Monthly search limit reached. Resets on " in shown.text
         assert 'id="prep-web-start"' in shown.text
         assert 'aria-disabled="true" aria-describedby="prep-web-reason"' in shown.text
-        assert "/settings#usage-budgets" in shown.text
+        assert "/settings/budgets#usage-budgets" in shown.text
         assert (
             post(
                 r, f"/applications/{aid}/prep/web", version=str(service.view(aid).version)

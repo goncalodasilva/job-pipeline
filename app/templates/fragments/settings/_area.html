@@ -1,0 +1,12 @@
+{# One Settings area (M9.2; ADR-131 item 7): the page heading, the side list of areas and the
+   area's own sections. Needs `settings_area`, `settings_areas` and `heading_focus`
+   (app/api/settings_nav.py). The heading is the one focus target of a plain load; a result,
+   error or saved status inside an area takes it instead (`heading_focus` is false). The side
+   list is part of the main content, so an htmx answer for the page carries it. #}
+<h1 id="page-heading"{% if heading_focus %} data-autofocus{% endif %}>{{ settings_area.title }}</h1>
+<div class="settings-layout">
+  {% include "fragments/settings/_nav.html" %}
+  <div class="settings-area">
+    {% include settings_area.content %}
+  </div>
+</div>

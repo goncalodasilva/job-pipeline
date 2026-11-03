@@ -595,7 +595,8 @@ def test_template_review_requests_are_strict(tw: Templates) -> None:
     stale = tw.post_raw(path, {**good, "heading_1": "Late", "version": shown["version"]})
     assert stale.status_code == 409
     assert VersionConflict.message in said_text(stale.text)
-    assert any(e.tag == "a" and e.text == "Reload" for e in elements(stale.text))
+    reloads = [e for e in elements(stale.text) if e.tag == "a" and e.text == "Reload"]
+    assert [e.attrs.get("href") for e in reloads] == ["/settings/your-details"]  # M9.2: its area
     assert tw.template_row("PT") == saved
     late = tw.post_raw(path, {**good, "action": "approve", "version": shown["version"]})
     assert late.status_code == 409 and tw.template_row("PT") == saved
@@ -750,7 +751,7 @@ def test_settings_lists_templates_with_country_and_status(tw: Templates) -> None
     tw.approved_template("PT", "ok")
     tw.drafted("DE", "photo_expected")
 
-    for page in (settings_section(tw), tw.r.client.get("/settings").text):
+    for page in (settings_section(tw), tw.r.client.get("/settings/your-details").text):
         rows = listed(page)
         assert list(rows) == ["DE", "PT"], "in country-code order"
         assert rows["PT"].attrs["data-status"] == "approved"
@@ -787,11 +788,27 @@ def test_settings_list_says_in_words_when_a_redraft_runs_or_failed(tw: Templates
     assert "failed" not in rows["PT"].text and "Redrafting" not in rows["PT"].text
 
 
+def test_template_unit_heading_level_follows_the_settings_area_page(tw: Templates) -> None:
+    """M9.2: the unit sits under the area's section heading (h3) when the page that asked is
+    the Your details and CV templates area, and under the step's heading (h5) elsewhere. The
+    old Settings page is no longer the one that holds it."""
+    tw.approved_template("PT", "ok")
+    base = "http://127.0.0.1:8000"
+    in_area = tw.show("PT", **{"HX-Current-URL": f"{base}/settings/your-details"})
+    assert by_id(in_area.text, "cv-template-heading").tag == "h3"
+    on_step = tw.show("PT", **{"HX-Current-URL": f"{base}/applications/app-0001/tailoring/3"})
+    assert by_id(on_step.text, "cv-template-heading").tag == "h5"
+    on_settings = tw.show("PT", **{"HX-Current-URL": f"{base}/settings"})
+    assert by_id(on_settings.text, "cv-template-heading").tag == "h5", (
+        "/settings no longer holds it"
+    )
+
+
 def test_settings_page_lists_templates_and_is_read_only(tw: Templates) -> None:
     tw.approved_template("PT", "ok")
     before, requests = snapshot(tw.r), len(tw.spy.requests)
 
-    page = tw.r.client.get("/settings")
+    page = tw.r.client.get("/settings/your-details")
 
     assert page.status_code == 200 and has_id(page.text, "templates-settings")
     assert snapshot(tw.r) == before, "reading Settings writes nothing and starts nothing"

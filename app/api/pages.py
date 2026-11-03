@@ -6,10 +6,9 @@ the middleware marks their responses ``Cache-Control: no-store``. With ``HX-Requ
 they return only the main-content fragment, which needs the token.
 
 Until each area is built, its page is a placeholder with an empty state (ADR-029). Settings
-has a page of its own (``app/api/settings.py``, M1.21), with a small empty state for its parts
-still to come, and so have the Fact bank (``app/api/facts.py``, M3.5), the Job inbox
-(``app/api/inbox.py``, M4.7), Companies (``app/api/companies.py``, M4.10) and the Board
-(``app/api/board.py``, M5.4).
+has area pages of its own (``app/api/settings.py``, ``settings_areas.py``; M1.21, M9.2), and
+so have the Fact bank (``app/api/facts.py``, M3.5), the Job inbox (``app/api/inbox.py``,
+M4.7), Companies (``app/api/companies.py``, M4.10) and the Board (``app/api/board.py``, M5.4).
 """
 
 from collections.abc import Callable

@@ -22,7 +22,7 @@
   {% set reload_id = prefix ~ "-conflict" %}
   {% set reload_message = usage.conflict_message %}
   {% set reload_detail = usage.conflict_detail %}
-  {% set reload_url = area.path %}
+  {% set reload_url = "/settings/budgets" %}
   {% include "fragments/shell/_reload_prompt.html" %}
   {% endif %}
   <form id="{{ prefix }}-form" class="step-form" method="post" action="{{ usage.budgets_url }}"

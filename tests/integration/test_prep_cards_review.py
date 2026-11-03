@@ -275,7 +275,9 @@ def test_the_salary_card_says_it_is_approved_when_built_and_kept_locally_and_lin
 
     hint = said_text(by_id(page, "card-salary-hint").text)
     assert "approved when it is built" in hint and "local database" in hint
-    assert re.search(r'<a [^>]*href="/settings"[^>]*>', tag_block(page, "card-salary-hint"))
+    assert re.search(
+        r'<a [^>]*href="/settings/preferences"[^>]*>', tag_block(page, "card-salary-hint")
+    )
     intro = said_text(by_id(page, "cards-use").text)
     assert "approved when it is built" in intro and "local database" in intro
 
@@ -292,7 +294,9 @@ def test_the_refusal_to_build_the_salary_card_links_to_settings(d: CardDesk):
     refused = d.post(d.path("/salary"), {"version": ""})
 
     assert refused.status_code == 409
-    assert re.search(r'<a [^>]*id="card-salary-settings"[^>]*href="/settings"', refused.text)
+    assert re.search(
+        r'<a [^>]*id="card-salary-settings"[^>]*href="/settings/preferences"', refused.text
+    )
 
 
 # --- messages inside the card ---------------------------------------------------------------------

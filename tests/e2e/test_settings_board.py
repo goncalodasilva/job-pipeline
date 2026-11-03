@@ -100,7 +100,7 @@ def label_in_db(app: RunningApp, label: str) -> list[tuple[Any, ...]]:
 
 def open_settings(page: Page, app: RunningApp, statuses: int = 9) -> None:
     page.add_init_script(RECORD_ANNOUNCEMENTS)
-    open_app(page, app, "/settings")
+    open_app(page, app, "/settings/lists")
     section = page.locator(SECTION)
     expect(section.get_by_role("heading", name="Board", level=2, exact=True)).to_be_visible()
     expect(page.locator(ROWS)).to_have_count(statuses)
@@ -236,7 +236,7 @@ def test_settings_board_statuses_and_rules_by_keyboard_phone_axe(
             expect(prompt).to_be_visible()
             expect(prompt).to_contain_text("changed elsewhere")
             expect(prompt.get_by_role("link", name=re.compile("Reload"))).to_have_attribute(
-                "href", "/settings"
+                "href", "/settings/lists"
             )
             assert label_in_db(app, "Lost change") == []
             assert label_in_db(app, "Reply awaited")[0][0] == key

@@ -67,7 +67,8 @@ from app.services.template_ai import MAX_NOTE_CHARS
 BASE: Final = "/settings/cv-templates"
 UNIT_FRAGMENT: Final = "fragments/settings/_template_unit.html"
 SECTION_FRAGMENT: Final = "fragments/settings/_templates.html"
-SETTINGS_PATH: Final = "/settings"
+SETTINGS_PATH: Final = "/settings"  # Providers and AI: where a provider is added
+AREA_PATH: Final = "/settings/your-details"  # the page that holds the section (M9.2)
 STARTED: Final = "Template draft started."
 READY: Final = "Template draft ready."
 SAVED: Final = "Template saved. Approve it to use it."
@@ -173,7 +174,7 @@ def _level(request: Request) -> int:
         path = urlsplit(request.headers.get("HX-Current-URL", "")).path
     except ValueError:
         return STEP_LEVEL
-    return SETTINGS_LEVEL if path == SETTINGS_PATH else STEP_LEVEL
+    return SETTINGS_LEVEL if path == AREA_PATH else STEP_LEVEL
 
 
 def _state(view: TemplateView) -> str:
@@ -321,7 +322,7 @@ def unit_context(
         "conflict": state.conflict,
         "busy": TemplateBusy.message if state.busy else "",
         "conflict_message": VersionConflict.message,
-        "settings_url": SETTINGS_PATH,
+        "settings_url": AREA_PATH,
         "slots": range(1, SLOTS + 1),
         "section_options": SECTION_LABELS,
         "detail_options": DETAIL_LABELS,

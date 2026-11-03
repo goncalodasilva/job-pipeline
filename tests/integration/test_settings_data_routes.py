@@ -202,11 +202,20 @@ def test_data_page_sections_and_dialog_markup(tmp_path: Path) -> None:
         page = run.client.get(PAGE).text
         assert one(page, "page-heading").text == "Data and privacy"
         everything = elements(page)
-        back = [e for e in everything if e.tag == "a" and e.text == "Back to Settings"]
+        # M9.2: the "Back to Settings" link is replaced by the side list of Settings areas,
+        # whose first link is the way back (Providers and AI, /settings); the page's one <h1>
+        # leads the main content.
+        side_list = [
+            e
+            for e in everything
+            if e.tag == "nav" and e.attrs.get("aria-label") == "Settings areas"
+        ]
+        assert len(side_list) == 1
+        back = [
+            e for e in inside(page, side_list[0]) if e.tag == "a" and e.text == "Providers and AI"
+        ]
         assert len(back) == 1 and back[0].attrs.get("href") == "/settings", "a way back"
-        heading = one(page, "page-heading")
-        position = {id(e): n for n, e in enumerate(everything)}
-        assert position[id(back[0])] < position[id(heading)], "the way back comes first"
+        assert not [e for e in everything if e.tag == "a" and e.text == "Back to Settings"]
 
         export = one(page, "data-export")
         assert export.tag == "section"

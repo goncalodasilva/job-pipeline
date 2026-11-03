@@ -11,7 +11,8 @@ Service: ``app/services/personal_details.py``, ``PersonalDetailsService`` on
 ``app.state.personal_details`` (built like ``SettingsService``: workspace db, clock, ids, data
 folder), over the versioned setting ``PERSONAL_DETAILS``. Photo files live in ``<data>/assets/``.
 
-Privacy: ``GET /settings`` is a token-free page (spec 2.9 rule 13), so the full page carries NO
+Privacy: ``GET /settings/your-details`` (the Your details and CV templates area, M9.2) is a
+token-free page (spec 2.9 rule 13), so the full page carries NO
 personal value and no photo. Its "Your details" block is a lazy placeholder
 ``<section id="details-settings" class="settings-section" aria-labelledby="details-heading"
 hx-get="/settings/details" hx-trigger="load">`` (with ``<h2 id="details-heading">Your
@@ -62,7 +63,7 @@ Markup of the section (``GET /settings/details`` and every answer):
   ``version`` and a button "Remove photo".
 - ``<p id="details-done">`` after a success, with the message below.
 
-Answers (htmx; without ``HX-Request`` a success is a 303 to ``/settings``):
+Answers (htmx; without ``HX-Request`` a success is a 303 to ``/settings/your-details``):
 
 - 200: the whole section again with fresh versions, ``#details-done`` and ``HX-Trigger``
   ``{"announce": "<message>"}``; exactly one ``data-autofocus`` element in the section.
@@ -77,8 +78,8 @@ Answers (htmx; without ``HX-Request`` a success is a 303 to ``/settings``):
   entered value, a file name or pydantic's text (TD-280); nothing is logged with a value. Detail
   fields are tied by their name (a bad link to the ``link_<n>`` it came from); a photo refusal is
   tied to ``file``.
-- 409: the reload prompt (``VersionConflict.message`` and a "Reload" link to ``/settings``);
-  nothing changes.
+- 409: the reload prompt (``VersionConflict.message`` and a "Reload" link to
+  ``/settings/your-details``); nothing changes.
 """
 
 import base64
@@ -98,7 +99,7 @@ from tests.integration.test_app_shell import Element
 from tests.settings_board_pages import accessible_name, controls_in, errors_in, invalid_names
 from tests.upload_bodies import CONTENT_TYPE, FieldPart, FilePart, multipart_body
 
-SETTINGS = "/settings"
+SETTINGS = "/settings/your-details"  # M9.2: the Your details area (was /settings)
 DETAILS = "/settings/details"
 PHOTO = "/settings/details/photo"
 PHOTO_REMOVE = "/settings/details/photo/remove"

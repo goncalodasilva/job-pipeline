@@ -1,8 +1,8 @@
 """Settings page layout and re-running the setup guide (M1.20 and M1.21 follow-ups).
 
-Layout: the page's one ``<h1>`` ("Settings") comes first, outside any card; then the
-Providers section; then a small ``.empty-state`` card for the parts that arrive later, which
-never says "below". A plain GET (htmx or not) focuses only the ``<h1>``.
+Layout: the page's one ``<h1>`` comes first, outside any card; then the Providers section.
+Since M9.2 the small "Coming later" card is gone (every part is an area page). A plain GET
+(htmx or not) focuses only the ``<h1>``.
 
 Re-running the guide (detailed design: the guide "can be re-run from Settings at any time"):
 Settings links to the guide's first step. A finished guide reached that way offers "Back to
@@ -12,7 +12,6 @@ stored data and no step status.
 Every folder lives under ``tmp_path``; every value is fictional.
 """
 
-import re
 from pathlib import Path
 
 import pytest
@@ -54,7 +53,13 @@ def rerun_links(elements: list[Element]) -> list[Element]:
 
 
 @pytest.mark.parametrize("htmx", [False, True], ids=["page", "htmx"])
-def test_settings_heading_then_providers_then_coming_later_card(tmp_path: Path, htmx: bool) -> None:
+def test_settings_heading_then_providers_and_no_coming_later_card(
+    tmp_path: Path, htmx: bool
+) -> None:
+    """M9.2 (ADR-131 item 7): Settings is split into area pages and ``/settings`` is Providers
+    and AI. It keeps the layout rule of M1.21 (one ``<h1>`` leads the page, outside any card,
+    and is the only focus of a plain load) with Providers as the first section after it, and the
+    "Coming later" card for parts that had not arrived is gone: every part exists as an area."""
     finished_guide(tmp_path)
     with started(tmp_path) as run:
         if htmx:
@@ -67,19 +72,19 @@ def test_settings_heading_then_providers_then_coming_later_card(tmp_path: Path, 
     headings = [e for e in elements if e.tag == "h1"]
     assert len(headings) == 1, "one <h1>"
     (heading,) = headings
-    assert heading.text == "Settings"
+    assert heading.text in ("Settings", "Providers and AI"), heading.text
     providers = next(e for e in elements if e.attrs.get("id") == "providers")
+    sections = [e for e in elements if e.tag == "section" and "settings-section" in class_tokens(e)]
+    assert sections and sections[0] is providers, "Providers and AI is the first section"
     cards = [e for e in elements if "empty-state" in class_tokens(e)]
-    assert len(cards) == 1, "one card for the parts that arrive later"
-    (card,) = cards
+    assert cards == [], "no card for parts that arrive later"
+    assert not [e for e in elements if "settings-later" in class_tokens(e)]
+    page_words = " ".join(e.text for e in elements if e.text)
+    assert "coming later" not in page_words.lower(), page_words
 
-    order = [elements.index(e) for e in (heading, providers, card)]
-    assert order == sorted(order), "the h1, then Providers, then the coming-later card"
-    assert not heading.within(card), "the h1 leads the page, not the card"
-    assert not card.within(providers)
-    card_text = " ".join(e.text for e in elements if e.within(card) and e.text)
-    assert "later" in card_text.lower(), card_text
-    assert not re.search(r"\bbelow\b", card_text, re.IGNORECASE), card_text
+    order = [elements.index(e) for e in (heading, providers)]
+    assert order == sorted(order), "the h1, then Providers"
+    assert not heading.within(providers), "the h1 leads the page, not the Providers section"
 
     focused = [e for e in elements if "data-autofocus" in e.attrs]
     assert focused == [heading], "only the h1 is focused on a plain load"

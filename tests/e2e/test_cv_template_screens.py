@@ -135,7 +135,7 @@ def test_details_photo_and_template_review_by_keyboard(
         page.add_init_script(RECORD_ANNOUNCEMENTS)
 
         # Your details: the lazy section arrives, every field is typed and saved by keyboard.
-        open_app(page, app, "/settings")
+        open_app(page, app, "/settings/your-details")
         section = page.locator("#details-settings")
         expect(section.get_by_role("heading", name="Your details", level=2)).to_be_visible()
         form = page.locator("#details-form")
@@ -234,7 +234,7 @@ def test_details_and_templates_phone_390x844_and_axe(
         page.add_init_script(RECORD_ANNOUNCEMENTS)
 
         # Settings, nothing saved yet: details form, empty photo block, empty template list.
-        open_app(page, app, "/settings")
+        open_app(page, app, "/settings/your-details")
         form = page.locator("#details-form")
         summary = page.locator("#details-summary")
         expect(summary).to_be_visible(timeout=RESULT_TIMEOUT_MS)
@@ -305,7 +305,7 @@ def test_details_and_templates_phone_390x844_and_axe(
 
         # Settings > CV templates lists it; Review opens the editor in place; an edit shows in
         # the list without a reload.
-        open_app(page, app, "/settings")
+        open_app(page, app, "/settings/your-details")
         item = page.locator("#template-PT")
         expect(item).to_have_attribute("data-status", "approved", timeout=RESULT_TIMEOUT_MS)
         expect(item).to_contain_text("Portugal")

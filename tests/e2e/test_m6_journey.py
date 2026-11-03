@@ -115,7 +115,7 @@ def start_task_by_keyboard(page: Page, app: RunningApp, locator: Locator, task_t
 
 
 def upload_photo(page: Page, app: RunningApp) -> None:
-    open_app(page, app, "/settings")
+    open_app(page, app, "/settings/your-details")
     expand_details(page)
     photo = page.locator("#photo-form")
     picker = photo.locator('input[type="file"]')

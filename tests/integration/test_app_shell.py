@@ -43,6 +43,11 @@ AREAS: list[tuple[str, str]] = [
 ]
 PAGE_PATHS = [path for path, _ in AREAS]
 AREA_IDS = [name.lower().replace(" ", "-") for _, name in AREAS]
+# Settings (M9.2, ADR-131 item 7) is a set of area pages, not a placeholder: the "Coming later"
+# card that was its one empty state is gone, so the empty-state tests cover the other areas. Its
+# page, title, current sidebar entry and caching stay covered by the tests above and below.
+EMPTY_STATE_AREAS = [pair for pair in AREAS if pair[1] != "Settings"]
+EMPTY_STATE_IDS = [name.lower().replace(" ", "-") for _, name in EMPTY_STATE_AREAS]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = REPO_ROOT / "app" / "static"
@@ -533,13 +538,12 @@ def _empty_state(page: str) -> tuple[Element, list[Element]]:
     return states[0], elements
 
 
-@pytest.mark.parametrize(("path", "area"), AREAS, ids=AREA_IDS)
+@pytest.mark.parametrize(("path", "area"), EMPTY_STATE_AREAS, ids=EMPTY_STATE_IDS)
 def test_placeholder_pages_have_empty_state(client: TestClient, path: str, area: str) -> None:
     page = _get_page(client, path)
     state, elements = _empty_state(page)
 
     assert len([e for e in elements if e.tag == "h1"]) == 1, "one <h1> per page"
-    # Settings leads with its own <h1> and Providers; its empty state covers the later parts.
     # The Fact bank leads with its own <h1> and tabs; its empty state is the empty Library's.
     # The Job inbox (M4.7) leads with its own <h1> and "+ Add job"; its empty state is the
     # empty queue's (ADR-098 item 9).
@@ -547,7 +551,7 @@ def test_placeholder_pages_have_empty_state(client: TestClient, path: str, area:
     # empty list's (ADR-098 item 9).
     # The Board (M5.4) leads with its own <h1> and the Board/Table toggle; its empty state is
     # the empty board's, with a link to the inbox (ADR-102 item 11).
-    own_page = area in ("Settings", "Fact bank", "Job inbox", "Companies", "Board", "Today")
+    own_page = area in ("Fact bank", "Job inbox", "Companies", "Board", "Today")
     headings = [e for e in elements if e.tag == "h1" and (own_page or e.within(state))]
     assert headings, "the empty state has no <h1>"
     assert area.lower() in headings[0].text.lower(), headings[0].text
@@ -567,11 +571,11 @@ def test_placeholder_pages_have_empty_state(client: TestClient, path: str, area:
 def test_empty_state_explanations_differ_per_area(client: TestClient) -> None:
     """Each empty state explains its own area, not one generic sentence for all."""
     explanations = []
-    for path, _ in AREAS:
+    for path, _ in EMPTY_STATE_AREAS:
         state, elements = _empty_state(_get_page(client, path))
         explanations.append(" ".join(e.text for e in elements if e.tag == "p" and e.within(state)))
 
-    assert len(set(explanations)) == len(AREAS), explanations
+    assert len(set(explanations)) == len(EMPTY_STATE_AREAS), explanations
 
 
 # --- favicon ---------------------------------------------------------------------------------

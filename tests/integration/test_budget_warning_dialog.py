@@ -416,7 +416,7 @@ def test_ac_m2_7_crossing_threshold_returns_dialog_with_count_allowance_reset_da
         change = control(elements, dialog, CHANGE_LIMITS)
         assert change.tag == "a", change.tag
         href = str(change.attrs.get("href") or "")
-        assert href in (f"{SETTINGS}{LIMITS_ANCHOR}", LIMITS_ANCHOR), href
+        assert href == f"/settings/budgets{LIMITS_ANCHOR}", href  # M9.2: the budgets area
 
         # Showing it changes nothing.
         assert_nothing_started(practice, count=9)

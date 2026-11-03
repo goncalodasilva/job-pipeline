@@ -74,7 +74,7 @@ from tests.e2e.test_budget_warning_dialog import (
 from tests.e2e.test_settings_usage_budgets import SAVED, fill_by_keyboard
 from tests.e2e.test_settings_usage_budgets import STATUS as BUDGET_STATUS
 from tests.e2e.test_setup_provider_test import tab_to_locator
-from tests.e2e.test_shell import has_no_horizontal_scroll
+from tests.e2e.test_shell import has_no_horizontal_scroll, open_app
 from tests.e2e.test_tasks_needs_attention import (
     ONE,
     TWO,
@@ -283,7 +283,8 @@ def warn_then_block(page: Page, app: RunningApp) -> str:
     used, _no_cycle = usage_state(app)
     assert used > 0, "the tasks so far were counted on the Fake provider"
     first_warning, block_at, allowance = used + 1, used + PRACTICE_STEPS, used + 10
-    reopen(page, app)
+    # M9.2: the budget forms are on Usage budgets; the practice task is on Providers and AI.
+    open_app(page, app, "/settings/budgets")
     fill_by_keyboard(
         page,
         {
@@ -300,6 +301,7 @@ def warn_then_block(page: Page, app: RunningApp) -> str:
     _count, resets_on = usage_state(app)
     assert resets_on is not None, "the saved budget has a cycle"
 
+    reopen(page, app)  # back on Providers and AI, which reads the new budget
     before = len(stored_tasks(app))
     start_by_keyboard(page)
     expect_dialog(page, first_warning, allowance, resets_on=resets_on)

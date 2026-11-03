@@ -12,7 +12,7 @@
 {% set blocked_ids = card.blockers | map(attribute='unit_id') | unique | list %}
 <section id="card-{{ kind }}" data-card="{{ kind }}" data-state="{{ card.state }}" aria-labelledby="card-{{ kind }}-heading" class="card">
   <h4 id="card-{{ kind }}-heading" tabindex="-1" data-refresh-safe-focus{% if cards.focus == 'card-' ~ kind ~ '-heading' %} data-autofocus{% endif %}>{{ card.label }}</h4>
-  {% if cards.card == kind and cards.message and not cards.invalid_unit %}<p id="card-{{ kind }}-message" class="{{ 'field-error' if cards.error else 'notice' }}"{% if cards.error %} role="alert"{% endif %}>{{ cards.message }}{% if salary and cards.error %} <a id="card-salary-settings" href="/settings">Open Settings</a>{% endif %}</p>{% endif %}
+  {% if cards.card == kind and cards.message and not cards.invalid_unit %}<p id="card-{{ kind }}-message" class="{{ 'field-error' if cards.error else 'notice' }}"{% if cards.error %} role="alert"{% endif %}>{{ cards.message }}{% if salary and cards.error %} <a id="card-salary-settings" href="/settings/preferences">Open Settings</a>{% endif %}</p>{% endif %}
   {% if cards.recovered_kind == kind and cards.posted_text %}
     <div id="card-{{ kind }}-recovery">
       <label for="card-{{ kind }}-recovered">What you typed, not saved. Copy it before you reload.</label>
@@ -87,7 +87,7 @@
       <input type="hidden" name="version" value="{{ version_id }}">
       <button type="submit" id="card-salary-build" class="button{% if not card.version %} button-primary{% endif %}" aria-describedby="card-salary-heading card-salary-hint">{{ 'Rebuild' if card.version else 'Build salary card' }}</button>
     </form>
-    <p id="card-salary-hint" class="field-hint">Built from the minimum salary saved in <a id="card-salary-hint-settings" href="/settings">Settings</a> and the pay the posting states. It uses no AI and states no comparison. It is approved when it is built, and its lines are kept in your local database.</p>
+    <p id="card-salary-hint" class="field-hint">Built from the minimum salary saved in <a id="card-salary-hint-settings" href="/settings/preferences">Settings</a> and the pay the posting states. It uses no AI and states no comparison. It is approved when it is built, and its lines are kept in your local database.</p>
   {% else %}
     <form id="card-{{ kind }}-generate-form" method="post" action="{{ base }}/{{ kind }}/generate" hx-post="{{ base }}/{{ kind }}/generate" hx-target="#prep" hx-swap="outerHTML" hx-disabled-elt="find button">
       <input type="hidden" name="version" value="{{ version_id }}">

@@ -1,10 +1,10 @@
 """Markup and routes of Settings > Board (M5.7; AC-M5.1; ADR-102 item 10, ADR-104), and small
 HTML readers for the integration and end-to-end tests. The implementer matches these names.
 
-``GET /settings`` (a page route: no token needed; with ``HX-Request`` and the token the main
-content only) gains ``<section id="board-settings" class="settings-section"
-aria-labelledby="board-settings-heading">`` with ``<h2 id="board-settings-heading" tabindex="-1">
-Board</h2>``. A GET writes nothing. Inside it:
+``GET /settings/lists`` (the Lists and statuses area, M9.2; a page route: no token needed; with
+``HX-Request`` and the token the main content only) holds ``<section id="board-settings"
+class="settings-section" aria-labelledby="board-settings-heading">`` with ``<h2
+id="board-settings-heading" tabindex="-1">Board</h2>``. A GET writes nothing. Inside it:
 
 - ``<h3 id="board-statuses-heading" tabindex="-1">Statuses</h3>`` and ``<ul id="status-list">``
   with one ``<li id="status-<key>" data-status-key="<key>" data-phase="preparing|active|closed">``
@@ -42,13 +42,13 @@ or ``enabled`` are a plain-text 400 "This request isn't valid."), and answers:
   version), a visible ``<p id="board-settings-done">`` with the message, exactly one
   ``data-autofocus`` element in the answer (the changed row for add, rename, move and a rule;
   ``#board-statuses-heading`` after a delete) and an ``announce`` message in ``HX-Trigger``.
-  Without htmx: 303 to ``/settings``.
+  Without htmx: 303 to ``/settings/lists``.
 - 422 for a refused value: the section again (plain: the full page) with the typed values kept
   and each refused field marked ``aria-invalid="true"`` with ``aria-describedby`` naming a
   visible error element (ids unique on the page). Only the fields at fault are marked. Focus
   goes to the first invalid field and the announcement says how many need a change.
 - 409 for a stale ``version``: the section with the reload prompt (``VersionConflict.message``
-  and a "Reload" link to ``/settings``); nothing changes.
+  and a "Reload" link to ``/settings/lists``); nothing changes.
 - 404 for an unknown or unsafe status key: plain text, ``StatusNotAllowed.message``, the key is
   never echoed.
 
@@ -75,7 +75,7 @@ from typing import Any
 from tests.board_pages import by_id, elements
 from tests.integration.test_app_shell import Element
 
-SETTINGS = "/settings"
+SETTINGS = "/settings/lists"  # M9.2: the Lists and statuses area (was /settings)
 STATUSES_PATH = "/settings/board/statuses"
 REMINDERS_PATH = "/settings/board/reminders"
 SECTION_ID = "board-settings"

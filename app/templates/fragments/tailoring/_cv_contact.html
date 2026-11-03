@@ -3,6 +3,6 @@
   {% if cv.view.contact.name %}<p data-contact-name>{{ cv.view.contact.name }}</p>
   {% else %}<p id="cv-contact-empty">Add your name in Settings before exporting.</p>{% endif %}
   <ul>{% for line in cv.view.contact.lines %}<li data-contact-line>{{ line }}</li>{% endfor %}</ul>
-  <a href="/settings">Change in Settings</a>
+  <a href="/settings/your-details">Change in Settings</a>
 {% endif %}
 </div>

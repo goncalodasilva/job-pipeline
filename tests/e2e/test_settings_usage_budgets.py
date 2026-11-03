@@ -5,7 +5,7 @@ allowed), so ``#usage-budgets`` shows four services, each "No limit". By keyboar
 tabs through the Fake provider's form (``#budget-fake``), types a budget and presses Enter on
 its Save button: the live region announces it was saved, focus lands inside ``#budget-fake`` on
 something that is not a control, a visible line in the block says "Saved.", the page stays on
-``/settings`` and a reload shows the budget.
+``/settings/budgets`` and a reload shows the budget.
 A refused save moves focus to the first invalid field (like the other Settings forms), whose
 error is listed in its ``aria-describedby``; correcting it and pressing Enter saves.
 "Background tasks at once" is changed by keyboard too. The section, also with every field
@@ -156,7 +156,7 @@ def fill_fields_in(page: Page, block: str, values: dict[str, str]) -> None:
 
 
 def open_settings(page: Page, app: RunningApp) -> None:
-    open_app(page, app, "/settings")
+    open_app(page, app, "/settings/budgets")
     section = page.locator(SECTION)
     expect(section.get_by_role("heading", name="Usage budgets", level=2)).to_be_visible()
     expect(page.locator(STATUS)).to_contain_text(NO_LIMIT)
@@ -194,7 +194,7 @@ def save_valid(page: Page) -> None:
 def test_usage_budget_saved_by_keyboard(running_app: RunningApp, browser: Browser) -> None:
     """AC-M2.10 then a save: "No limit" for every service, a budget typed and saved by
     keyboard for one, kept after a reload; the other services still say "No limit"."""
-    settings_url = f"{running_app.base_url}/settings"
+    settings_url = f"{running_app.base_url}/settings/budgets"
     with new_page(browser, DESKTOP) as page:
         open_settings(page, running_app)
         for service in ("claude_subscription", "claude_api_key", "web_search", "fake"):
@@ -260,7 +260,7 @@ def test_ac_m2_7_invalid_save_focuses_first_invalid_field(
         for name, value in wrong.items():
             expect(page.locator(field(name))).to_have_value(value)
         expect(page.locator(STATUS)).to_contain_text(NO_LIMIT)
-        expect(page).to_have_url(f"{running_app.base_url}/settings")
+        expect(page).to_have_url(f"{running_app.base_url}/settings/budgets")
 
         # The reset-day note stays tied to its field next to the errors.
         note_ids = page.locator(field("reset_day")).get_attribute("aria-describedby") or ""
@@ -305,7 +305,7 @@ def test_concurrency_saved_by_keyboard(running_app: RunningApp, browser: Browser
             "Saved. It applies the next time you start the app."
         )
         page.wait_for_function(FOCUS_IN_BLOCK, arg="#usage-concurrency")
-        expect(page).to_have_url(f"{running_app.base_url}/settings")
+        expect(page).to_have_url(f"{running_app.base_url}/settings/budgets")
         expect(page.locator(CONCURRENCY)).to_have_value("3")
         expect(page.locator(f'{CONCURRENCY}[aria-invalid="true"]')).to_have_count(0)
         page.reload()

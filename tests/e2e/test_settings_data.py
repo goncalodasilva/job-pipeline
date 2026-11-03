@@ -28,6 +28,7 @@ from app.services.facts import FactInput, FactService
 from tests.data_pages import EXPORT_NAME, FACT_TEXT, FILES, MARKER, OTHER_ENTRIES, plant
 from tests.e2e.axe import assert_no_serious_violations, wait_for_settled_styles
 from tests.e2e.conftest import DESKTOP, PHONE
+from tests.e2e.settings_areas import NAV
 from tests.e2e.test_board import rows
 from tests.e2e.test_facts_page import RECORD_ANNOUNCEMENTS
 from tests.e2e.test_settings_board import tab_to
@@ -207,8 +208,9 @@ def test_export_then_restore_into_empty_workspace_in_settings_by_keyboard(
         open_data_by_keyboard(page, running_app)
         shown_folder(page, running_app)
 
-        # A way back to Settings comes first.
-        back = page.get_by_role("link", name="Back to Settings", exact=True)
+        # A way back to Settings: M9.2 replaces the "Back to Settings" link with the side list
+        # of Settings areas, whose first link is Providers and AI.
+        back = page.locator(NAV).get_by_role("link", name="Providers and AI", exact=True)
         expect(back).to_have_attribute("href", "/settings")
 
         # Import is blocked here (the workspace has content) and says why, once; there is no
@@ -395,7 +397,9 @@ def test_data_area_phone_390x844_and_axe(
 
         # Targets of at least 24 by 24 px, and a blocked Import still reachable and explained.
         targets = {
-            "Back to Settings": page.get_by_role("link", name="Back to Settings", exact=True),
+            "Providers and AI": page.locator(NAV).get_by_role(
+                "link", name="Providers and AI", exact=True
+            ),
             "Export": page.locator(EXPORT_BUTTON),
             "snapshots label": page.locator("#data-export-form label").first,
             "Import": page.locator(IMPORT_BUTTON),

@@ -66,6 +66,7 @@ from app.api.reminders import register_reminder_routes
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.api.sessions import register_session_routes
 from app.api.settings import register_settings_pages
+from app.api.settings_areas import register_settings_area_pages
 from app.api.settings_board import register_board_settings_routes
 from app.api.settings_data import register_data_routes
 from app.api.settings_details import register_details_routes
@@ -173,6 +174,7 @@ from app.services.inbox_views import InboxViews
 from app.services.job_detail import JobDetailService
 from app.services.job_fit import ASSESS_FIT, FIT_LABEL, JobFitService
 from app.services.job_intake import JobIntakeService
+from app.services.job_preferences import JobPreferencesView
 from app.services.job_summary import SUMMARIZE_JOB, SUMMARIZE_LABEL, JobSummaryService
 from app.services.job_triage import JobTriageService
 from app.services.letters import DRAFT_COVER_LETTER_LABEL, LetterService
@@ -1654,6 +1656,7 @@ def create_app(
     app.state.session_screens = SessionScreens(app.state.sessions, _fact_bank(app), app_clock)
     app.state.coverage_views = CoverageViews(bank=_fact_bank(app), clock=app_clock)
     app.state.session_preferences = SessionPreferences(lambda: _current_db(app), app_clock)
+    app.state.job_preferences = JobPreferencesView(lambda: _current_db(app), app_clock)
     app.state.session_suggestions = SessionSuggestions(
         lambda: _current_db(app), app_clock, app.state.sessions
     )
@@ -1692,6 +1695,7 @@ def create_app(
     register_pages(app)
     register_session_routes(app)
     register_settings_pages(app)
+    register_settings_area_pages(app)
     register_data_routes(app)
     register_usage_settings(app)
     register_board_settings_routes(app)

@@ -1,8 +1,8 @@
 """Settings > Your details: contact details and the optional CV photo (M6.6; ADR-106 items 3 and
 4; spec 2.9 rules 2, 3, 5 and 13; TD-280). None of these routes is a page, so every one needs the
-launch token, and every POST also the origin. ``GET /settings`` carries only a lazy placeholder
-(``_details_placeholder.html``) that fetches ``GET /settings/details``: the page itself holds no
-personal value and no photo.
+launch token, and every POST also the origin. ``GET /settings/your-details`` carries only a
+lazy placeholder (``_details_placeholder.html``) that fetches ``GET /settings/details``: the page
+itself holds no personal value and no photo.
 
 - ``GET /settings/details``: the ``#details-settings`` section with the saved values and the
   photo as an inline data URI. Changes nothing, takes no focus.
@@ -17,9 +17,9 @@ are rendered inside the block (``DetailsState.scope``) and unsaved details text 
 
 An unknown or repeated field and a missing or non-numeric ``version`` are a plain-text 400. A
 success answers 200 for htmx with the section, a line saying what was done, one focus target and
-an ``announce`` message (303 to ``/settings`` otherwise). A refused value is a 422 with the
-section: the typed values stay in the inputs (escaped), each refused control is tied to a fixed
-message, and no message, header or log line holds an entered value or a file name. A stale
+an ``announce`` message (303 to ``/settings/your-details`` otherwise). A refused value is a 422
+with the section: the typed values stay in the inputs (escaped), each refused control is tied to
+a fixed message, and no message, header or log line holds an entered value or a file name. A stale
 version is a 409 with the reload prompt; a failed write is a 422 with a general message and
 nothing changed.
 """
@@ -60,8 +60,8 @@ from app.services.personal_details import (
 
 _log = logging.getLogger(__name__)
 
-SETTINGS_PATH: Final = "/settings"
-DETAILS_PATH: Final = f"{SETTINGS_PATH}/details"
+AREA_PATH: Final = "/settings/your-details"  # the page that holds the section (M9.2)
+DETAILS_PATH: Final = "/settings/details"
 PHOTO_PATH: Final = f"{DETAILS_PATH}/photo"
 PHOTO_REMOVE_PATH: Final = f"{PHOTO_PATH}/remove"
 CONFLICT_DETAIL: Final = {
@@ -138,7 +138,7 @@ def _context(request: Request, state: DetailsState) -> dict[str, Any]:
         "scope": state.scope,
         "after": state.after,
         "name_saved": bool(view.details.name),
-        "settings_url": SETTINGS_PATH,
+        "settings_url": AREA_PATH,
         "details_url": DETAILS_PATH,
         "photo_url": PHOTO_PATH,
         "photo_remove_url": PHOTO_REMOVE_PATH,
@@ -151,7 +151,7 @@ def _answer(
 ) -> Response:
     """The section for htmx; a plain success goes back to the page."""
     if status_code == 200 and state.message and not is_htmx(request):
-        return RedirectResponse(SETTINGS_PATH, status_code=303)
+        return RedirectResponse(AREA_PATH, status_code=303)
     state = replace(state, opened=True)
     response = templates.TemplateResponse(
         request, FRAGMENT, {"details": _context(request, state)}, status_code=status_code

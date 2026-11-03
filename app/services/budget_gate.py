@@ -41,7 +41,7 @@ THRESHOLD_FIELD: Final = "budget_threshold"
 CYCLE_FIELD: Final = "budget_cycle_start"
 LAST_REQUEST: Final = "This is the last request before the blocking point."
 # Where budgets are changed (Settings > Usage budgets).
-LIMITS_URL: Final = "/settings#usage-budgets"
+LIMITS_URL: Final = "/settings/budgets#usage-budgets"  # the Usage budgets area (M9.2)
 LIMITS_LINK: Final = "Open Usage budgets"
 
 _WARNING_NAMES: Final[Mapping[str, str]] = MappingProxyType(

@@ -1,15 +1,16 @@
-"""Settings page and Settings > Providers (M1.21; AC-M1.3, AC-M1.4; detailed design "Settings").
+"""Settings > Providers and AI (M1.21, M9.2; AC-M1.3, AC-M1.4; detailed design "Settings").
 
-``GET /settings`` is a page route (``PAGE_TAG``, like ``register_pages``): with
+``GET /settings`` is a page route (``PAGE_TAG``, like ``register_pages``): the Providers and AI
+area, the first of the Settings area pages (``app/api/settings_nav.py``; the others are in
+``app/api/settings_areas.py`` and ``app/api/settings_data.py``). With
 ``HX-Request: true`` it returns the main content only. Its Providers section reuses the
 provider step's handler (``ProviderStep``, over ``ProviderSetupService``; ADR-062) and its
 fragment, posting to the Settings routes instead of the guide's. GET and HEAD have no side
 effects (spec 2.9 rule 12): the credential status comes from the settings row and cached facts,
 never the keychain. A link re-runs the setup guide from its first step (detailed design; ADR-066:
-the finished guide offers "Back to the app" and resets nothing). The rest of Settings arrives
-later and has a small empty state after Providers. While the practice task is offered (fakes
-allowed and the fake saved; M2.17), a "Testing tools" section follows Providers; its form posts
-to ``/tasks/practice`` (``app/api/tasks.py``).
+the finished guide offers "Back to the app" and resets nothing). While the practice task is
+offered (fakes allowed and the fake saved; M2.17), a "Testing tools" section follows Providers;
+its form posts to ``/tasks/practice`` (``app/api/tasks.py``).
 
 ``GET /settings/testing-tools`` (M2.24; launch token; GET only; changes nothing) answers the
 Testing tools section alone, the same with or without ``HX-Request``. The section fetches it
@@ -34,9 +35,8 @@ Thorough tiers to models the active provider offers: 303 to ``/settings``, or fo
 with the Providers section, focus on the tier status and an "announce" trigger. A refused map
 answers 422 with the field errors and never shows the submitted values back.
 
-The Usage budgets section (M2.22) is shown here and saved by the routes in
-``app/api/settings_usage.py``. It is read only for an answer that shows it (the full page, the
-page fragment, a usage form's answer).
+Usage budgets, Lists and statuses, Sessions, Your details, CV templates and Keyboard shortcuts
+moved to their own area pages (M9.2); this page holds only what Providers and AI needs.
 
 Rendering reads the database, so the async routes render in a worker thread.
 """
@@ -50,21 +50,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from app.api.board_settings_forms import BoardSettingsState, board_context
 from app.api.budget_gate import dialog_context, reason_context, refusal_message
 from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
-from app.api.session_settings_forms import SessionSettingsState, sessions_context
-from app.api.settings_templates import section_context
+from app.api.settings_nav import AREA_FRAGMENT, AREA_PAGE, area_ctx
 from app.api.setup_redirect import setup_step_path
-from app.api.templating import render, renders_fragment, templates
-from app.api.usage_forms import (
-    USAGE_CHANGED_EVENT,
-    UsageFormState,
-    panel_context,
-    usage_context,
-)
+from app.api.templating import render, templates
+from app.api.usage_forms import USAGE_CHANGED_EVENT
 from app.onboarding.registry import ConnectionCheck, Form, StepRegistry, StepResult
 from app.onboarding.steps.provider import ProviderStep
 from app.services.budget_gate import BlockedAction, BudgetGate, Refusal
@@ -79,14 +72,10 @@ SETTINGS_PATH = "/settings"
 PROVIDERS_PATH = f"{SETTINGS_PATH}/providers"
 PROVIDERS_TEST_PATH = f"{PROVIDERS_PATH}/test"
 TIERS_PATH = f"{SETTINGS_PATH}/tiers"
-SETTINGS_PAGE = "pages/settings.html"
-SETTINGS_FRAGMENT = "fragments/settings/_settings.html"
 PROVIDERS_FRAGMENT = "fragments/settings/_providers.html"
 PROVIDERS_TARGET = "#providers"
 PROVIDERS_SAVED_FRAGMENT = "fragments/settings/_providers_saved.html"
 TESTING_TOOLS_FRAGMENT = "fragments/settings/_testing_tools.html"
-BOARD_FRAGMENT = "fragments/settings/_board.html"
-SESSIONS_FRAGMENT = "fragments/settings/_sessions.html"
 TESTING_TOOLS_ID = "testing-tools"
 TESTING_TOOLS_PATH = f"{SETTINGS_PATH}/testing-tools"  # the section alone (M2.24)
 # The section shows a blocked action: it fetches itself again when a budget changes.
@@ -247,24 +236,6 @@ def testing_tools_response(
     )
 
 
-def render_settings(request: Request, *, fragment: str, usage: UsageFormState) -> HTMLResponse:
-    """The answer to one of the Usage budgets forms: ``fragment`` for htmx, the full Settings
-    page otherwise, with ``usage`` saying what happened to the form. Blocking."""
-    return _render(request, fragment=fragment, usage=usage)
-
-
-def render_board_settings(request: Request, state: BoardSettingsState) -> HTMLResponse:
-    """The answer to one of the Settings > Board forms: the section for htmx, the full Settings
-    page otherwise, with ``state`` saying what happened. Blocking."""
-    return _render(request, fragment=BOARD_FRAGMENT, board=state)
-
-
-def render_session_settings(request: Request, state: SessionSettingsState) -> HTMLResponse:
-    """The answer to the Settings > Sessions form: the section for htmx, the full Settings
-    page otherwise, with ``state`` saying what happened. Blocking."""
-    return _render(request, fragment=SESSIONS_FRAGMENT, sessions=state)
-
-
 # --- helpers ---------------------------------------------------------------------------------
 
 
@@ -295,42 +266,37 @@ def _render(
     practice_selected: Mapping[str, str] | None = None,
     practice_note: str | None = None,
     practice_refusal: Refusal | None = None,
-    usage: UsageFormState | None = None,
-    board: BoardSettingsState | None = None,
-    sessions: SessionSettingsState | None = None,
 ) -> HTMLResponse:
-    """The full Settings page, or for htmx the Providers section (after a POST), the main
-    content (a page GET) or ``fragment``. Blocking."""
+    """The full Providers and AI page, or for htmx the Providers section (after a POST), the
+    main content (a page GET) or ``fragment``. Blocking."""
     handler = _handler(request)
     practice: PracticeService = request.app.state.practice
     offered = practice.offered()  # a settings read; writes nothing
     if fragment is None:
-        fragment = PROVIDERS_FRAGMENT if section_only else SETTINGS_FRAGMENT
+        fragment = PROVIDERS_FRAGMENT if section_only else AREA_FRAGMENT
     registry: StepRegistry = request.app.state.setup_registry
-    # Usage budgets (M2.22): read only when this answer shows the section or one of its forms.
-    shows_usage = (
-        usage is not None or fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
-    )
-    # The usage panel (M2.23) comes with the whole section only, never with a form's answer.
-    shows_panel = fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
-    # Settings > Board (M5.7): read only when this answer shows the section.
-    shows_board = (
-        board is not None or fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
-    )
-    # Settings > Sessions (M7.8): read only when this answer shows the section.
-    shows_sessions = (
-        sessions is not None or fragment == SETTINGS_FRAGMENT or not renders_fragment(request)
+    # One focus target: a result, an error, a saved status, a confirmation or a saved tier map in
+    # Providers (or a practice start) takes it instead of the heading.
+    heading_focus = not (
+        connection
+        or errors
+        or stayed
+        or step_view
+        or tiers_saved
+        or practice_status
+        or practice_error
     )
     form: dict[str, Any] = dict(handler.context())
     if submitted:
         echo_submitted(form, handler, submitted)
     return render(
         request,
-        page=SETTINGS_PAGE,
+        page=AREA_PAGE,
         fragment=fragment,
         ctx={
             "area": area("settings"),
             "areas": AREAS,
+            **area_ctx("providers", heading_focus=heading_focus),
             "form": form,
             "errors": dict(errors or {}),
             "stayed": stayed,  # saved: focus moves to the credential status
@@ -345,17 +311,6 @@ def _render(
             "provider_test_url": PROVIDERS_TEST_PATH,
             "provider_target": PROVIDERS_TARGET,
             "guide_url": setup_step_path(registry.first.id),  # re-run the setup guide
-            "usage": usage_context(request, usage) if shows_usage else None,
-            "usage_panel": panel_context(request) if shows_panel else None,
-            "board": board_context(request, board) if shows_board else None,
-            "sessions": sessions_context(request, sessions) if shows_sessions else None,
-            # Settings > CV templates (M6.6): read only; holds no personal data.
-            "cv_templates": section_context(request) if shows_panel else None,
-            # Keyboard shortcuts (M4.7): its own block, saved by app/api/inbox.py.
-            "shortcuts": request.app.state.inbox_views.shortcuts() if shows_panel else None,
-            "shortcuts_saved": False,
-            "shortcuts_conflict": False,
-            "conflict_message": "",
             # Testing tools (M2.17): shown only while the practice task is offered.
             "practice": _practice_context(
                 request,

@@ -455,6 +455,7 @@ def test_today_get_writes_nothing(desk):
             assert desk.client.request(method, "/").status_code == 200
         assert desk.client.get("/today/content", headers=token_headers).status_code == 200
         assert desk.client.get("/settings").status_code == 200
+        assert desk.client.get("/settings/sessions").status_code == 200  # M9.2: Sessions area
         assert desk.client.get("/sessions/new").status_code == 200
 
     # A suggestion is due: showing it does not store a reset, a task or a session.
