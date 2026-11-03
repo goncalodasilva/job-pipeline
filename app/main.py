@@ -146,6 +146,7 @@ from app.services.cv_import import (
     sweep_orphan_imports,
 )
 from app.services.cv_templates import DRAFT_LABEL, CvTemplateService
+from app.services.data_portability import sweep_restore_staging
 from app.services.debrief import DEBRIEF_FACTS, DEBRIEF_FACTS_LABEL, DebriefService
 from app.services.documents import TAILOR_CV_LABEL, DocumentService
 from app.services.export_files import sweep_orphan_exports
@@ -411,6 +412,7 @@ def _prepare_workspace(
     except sqlite3.Error as error:
         detail = f"can't list exports ({type(error).__name__})"
         raise DataFolderUnavailable(detail=detail) from None
+    sweep_restore_staging(folder)  # best effort; it swallows its own OS errors
     _mark_cv_import_if_started(db, registry=registry, clock=clock)
     return _check_provider(db, wiring=wiring, onboarding=onboarding, registry=registry, clock=clock)
 

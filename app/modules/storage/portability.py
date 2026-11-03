@@ -5,11 +5,20 @@ import binascii
 import json
 import math
 import re
+import shutil
 import sqlite3
+import tempfile
+from pathlib import Path
 from typing import Any
 
+from app.domain.clock import Clock
 from app.modules.storage.database import Database
-from app.modules.storage.runner import MIGRATIONS_DIR, load_migrations
+from app.modules.storage.runner import (
+    MIGRATIONS_DIR,
+    MigrationError,
+    apply_migrations,
+    load_migrations,
+)
 
 
 class PortabilityError(ValueError):
@@ -73,12 +82,12 @@ def export_tables(db: Database, *, include_usage_snapshots: bool = False) -> dic
         }
 
 
-def _seed_rows(version: int) -> dict[str, list[tuple[Any, ...]]]:
+def _seed_rows(version: int, migrations_dir: Path) -> dict[str, list[tuple[Any, ...]]]:
     # Migration SQL alone defines defaults. Never guess that all rows in a seeded table
     # are disposable: a user may have renamed a status or changed a controlled value.
     conn = sqlite3.connect(":memory:")
     try:
-        for migration in load_migrations(MIGRATIONS_DIR):
+        for migration in load_migrations(migrations_dir):
             if migration.version <= version:
                 conn.executescript(migration.path.read_text(encoding="utf-8"))
         names, _ = _catalog(conn)
@@ -87,15 +96,15 @@ def _seed_rows(version: int) -> dict[str, list[tuple[Any, ...]]]:
         conn.close()
 
 
-def is_empty(db: Database) -> bool:
+def is_empty(db: Database, *, migrations_dir: Path = MIGRATIONS_DIR) -> bool:
     """Only migration defaults and setup progress may exist before restore."""
     with db.read() as conn:
-        return _is_empty(conn)
+        return _is_empty(conn, migrations_dir)
 
 
-def _is_empty(conn: sqlite3.Connection) -> bool:
+def _is_empty(conn: sqlite3.Connection, migrations_dir: Path) -> bool:
     version = conn.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
-    seeds = _seed_rows(version)
+    seeds = _seed_rows(version, migrations_dir)
     names, _ = _catalog(conn)
     return set(names) == set(seeds) and all(
         sorted(conn.execute(f"SELECT * FROM {_quote(n)}").fetchall(), key=repr)  # noqa: S608 - quoted catalog identifier
@@ -128,11 +137,13 @@ def _ordered(conn: sqlite3.Connection, names: list[str]) -> list[str]:
     return result
 
 
-def import_tables(db: Database, snapshot: dict[str, Any]) -> None:
+def import_tables(
+    db: Database, snapshot: dict[str, Any], *, migrations_dir: Path = MIGRATIONS_DIR
+) -> None:
     """Replace only migration defaults; guards and rows roll back together on failure."""
     try:
         with db.transaction() as conn:
-            if not _is_empty(conn):
+            if not _is_empty(conn, migrations_dir):
                 raise PortabilityError("Restore needs a workspace with no content.")
             version = conn.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
             if (
@@ -205,3 +216,33 @@ def import_tables(db: Database, snapshot: dict[str, Any]) -> None:
         raise
     except (KeyError, TypeError, ValueError, sqlite3.Error, OverflowError) as error:
         raise PortabilityError("The export contains invalid database content.") from error
+
+
+def database_from_snapshot(
+    path: Path, snapshot: dict[str, Any], clock: Clock, *, migrations_dir: Path = MIGRATIONS_DIR
+) -> Database:
+    """Build in a caller-owned staging folder using trusted migration SQL only.
+
+    The exported version selects a prefix of bundled migrations, never supplied SQL.
+    Import and validate at that version before applying subsequent migrations.
+    """
+    migrations = load_migrations(migrations_dir)
+    version = snapshot.get("schema_version")
+    if type(version) is not int or version not in {m.version for m in migrations}:
+        raise PortabilityError("The export needs a different app schema version.")
+    db = Database.open(path)
+    try:
+        with tempfile.TemporaryDirectory(prefix="migration-prefix-", dir=path.parent) as folder:
+            prefix = Path(folder)
+            for migration in migrations:
+                if migration.version <= version:
+                    shutil.copyfile(migration.path, prefix / migration.path.name)
+            apply_migrations(db, prefix, path.parent / "backups", clock)
+            import_tables(db, snapshot, migrations_dir=prefix)
+        apply_migrations(db, migrations_dir, path.parent / "backups", clock)
+        return db
+    except BaseException as error:
+        db.close()
+        if isinstance(error, (sqlite3.Error, MigrationError)):
+            raise PortabilityError("The export could not be upgraded safely.") from error
+        raise
