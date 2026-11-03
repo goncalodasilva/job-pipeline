@@ -41,7 +41,7 @@ Keep the main session terse: delegate well-scoped implementation to `implementer
 
 ## Park a task (local problem, the run continues)
 
-Park when the problem belongs to this task only: an ambiguous criterion for this task, a test expectation that looks wrong, or three failed attempts at the same failure.
+Correct spec-justified test errors directly under spec 4.4/ADR-133 and continue; they are not blockers. Park when the problem belongs to this task only: an ambiguous criterion (including a test whose correct expectation cannot be established from the spec), or three failed attempts at the same failure.
 
 1. Stash its work: `git stash push --include-untracked -m "parked M<n>.<k>: <short reason>"`. Make sure the tree is clean afterwards.
 2. Have `docs-keeper` add `  - Blocked: <date> — <the question for the user, with the options you see>` under the task, and commit that change (`docs(progress): park M<n>.<k>`).

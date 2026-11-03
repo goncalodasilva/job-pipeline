@@ -19,4 +19,4 @@ The setup guide is described in `docs/references/detailed-design.md` ("Today and
    - the registry test lists every step id and order, and the e2e guide walk and the "Step N of 6" assertions include every step (ADR-087 item 3);
    - e2e: complete the guide with the fake provider at desktop and phone sizes, keyboard only, with axe.
 7. **Copy:** plain and warm, explaining why each step matters, in the tone of the detailed design.
-8. **Changing the step count** touches the registry, the detection tests, the guide shell's `STEPS` (a test constant in `tests/e2e/test_setup_guide_shell.py`) and every "Step N of M" assertion (ADR-087). Those assertions are tests: changing them needs the user's approval (AGENTS.md, golden rule 6).
+8. **Changing the step count** touches the registry, the detection tests, the guide shell's `STEPS` (a test constant in `tests/e2e/test_setup_guide_shell.py`) and every "Step N of M" assertion (ADR-087). Once the step change is specified or approved, update these tests without separate approval, with the justification and verification required by spec 4.4/ADR-133. An unspecified change to the setup flow still needs the user's decision.

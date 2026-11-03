@@ -920,6 +920,8 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 - For UI work: an e2e scenario, a keyboard-only path where relevant, a phone-viewport check, and an axe scan with no serious or critical violations.
 - For AI work: fixture responses including at least one malformed and one adversarial output.
 
+**Test maintenance (ADR-133).** The spec and approved ADRs govern both code and tests. Agents MAY correct new or existing tests, fixtures and helpers without separate user approval when the requirement establishes the expected behavior. They MUST record the requirement reference, why the old check was wrong, how meaningful coverage is preserved (including replacement checks where needed), and verification actually run in task Evidence or the session log. This includes correcting assertions, fixture mismatches and obsolete checks after a specified change. Agents MUST NOT skip, xfail, weaken or delete tests merely to get green, match a broken implementation or avoid specified behavior. Tests-first, independent review and verification still apply. When requirements conflict or the correct behavior is unclear, agents MUST ask the user; changing the product or spec still needs the user's decision. They MUST NOT change requirements to excuse a failing implementation.
+
 ### 4.5 Commands
 
 | Purpose | Command |
@@ -1371,7 +1373,7 @@ Guardrail changes need the user's explicit authorization. Claude can return `per
 
 1. Plan from spec section 5 and the design. Propose criteria, tests, touched modules and checkpoints; wait for approval before writing tasks.
 2. Inspect branch/status/history and resume task-owned work at its actual phase. Stop if ownership of changes is unclear.
-3. Write behavior tests first and observe expected failures using fictional fakes/temp data. Claude delegates to test-author; Codex normally performs this phase itself.
+3. Write behavior tests first and observe expected failures using fictional fakes/temp data. Claude delegates to test-author; Codex normally performs this phase itself. Correct tests under 4.4/ADR-133 when justified by the spec and approved ADRs; record the requirement, reason, preserved coverage and verification, without requesting separate approval.
 4. Implement using the relevant shared procedures; Claude may delegate to implementer.
 5. Run `bash scripts/verify.sh quick`, or full for templates/static/page routes/migrations/task runner changes. Claude normally delegates execution to verifier. Debug within scope; stop after three failed fixes of the same failure.
 6. Obtain independent code review and the triggered specialist reviews; fix critical findings and cheap should-fix findings, record the rest, and re-verify after fixes.
@@ -1385,7 +1387,7 @@ Guardrail changes need the user's explicit authorization. Claude can return `per
 - A new runtime dependency or any stack change.
 - Any change to the honesty rule, the security model, or stored personal data.
 - Scope changes to a milestone.
-- A test's expectation seems wrong; never weaken tests to get green.
+- A test's correct expectation cannot be established because requirements conflict or are unclear. A correction justified by the spec and approved ADRs needs no separate approval (4.4, ADR-133); never weaken tests merely to get green.
 - Three failed fixes of the same failure.
 - Anything needing real credentials or the user's real data.
 - Pushing, rewriting history or deleting data.

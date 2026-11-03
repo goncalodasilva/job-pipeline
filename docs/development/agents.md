@@ -34,6 +34,8 @@ Claude keeps its ten specialists. Codex normally handles understanding, failing 
 
 `PROGRESS.md` and ADR-065 define the same checkpoints, task parking, completion evidence and user acceptance in both tools. Neither tool may accept a milestone on the user's behalf.
 
+Both tools follow spec 4.4 and ADR-133 for test maintenance: the spec and approved ADRs govern code and tests. Correct a justified test error without separate approval; record the requirement, reason, preserved coverage and verification in task Evidence or the session log. A wrong test alone is not a stop or parking condition. Ask when requirements conflict or the correct behavior is unclear, and obtain the user's decision for product/spec changes. Never weaken tests merely to get green.
+
 ## Shared files and compatibility
 
 - `AGENTS.md`: shared project contract and explicit path-to-rule routing for Codex. Claude also loads the `.claude/rules/` files natively.

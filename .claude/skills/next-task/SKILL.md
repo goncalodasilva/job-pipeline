@@ -20,7 +20,7 @@ Work on exactly one task, then stop. Keep the user informed with one short line 
 
 1. **Understand.** Read the task's lines in `docs/PROGRESS.md`, the acceptance criteria it references in `docs/TECHNICAL_SPEC.md` section 5, the spec sections it touches, and the matching parts of `docs/references/detailed-design.md`. Check `docs/DECISIONS.md` for related decisions. If the task has no acceptance criteria or something conflicts, stop and ask. If it has a `Blocked:` line (ADR-065), show the question and its stash (`git stash list`) and ask the user for the answer before starting.
 2. **Branch.** Make sure you're on the milestone branch (`m<n>-<slug>`); create it from main if needed.
-3. **Tests first.** Delegate to `test-author` with the task id, its acceptance criteria and the relevant spec excerpts. Confirm the new tests fail, and fail for the expected reason.
+3. **Tests first.** Delegate to `test-author` with the task id, its acceptance criteria and the relevant spec excerpts. Confirm the new tests fail, and fail for the expected reason. Correct spec-justified errors in new or existing tests without separate approval (spec 4.4, ADR-133); record the requirement, reason, preserved coverage and verification in task Evidence or the session log. Never weaken checks merely to get green.
 4. **Implement.** Make the tests pass with the smallest coherent change that respects the module boundaries (spec 2.3). For a well-scoped task you may delegate to `implementer`. Use the procedure skills when they apply (`add-ai-task`, `add-provider`, `htmx-ui`, `db-migration`, `background-task`, `onboarding-step`).
 5. **Verify.** Delegate to `verifier`: quick mode, or full mode if the task touched templates, static files, migrations or the task runner.
 6. **Debug.** On failure, fix it or delegate to `debugger`. After three failed attempts at the same failure, stop and ask the user.
@@ -35,6 +35,6 @@ Work on exactly one task, then stop. Keep the user informed with one short line 
 - sources conflict or the spec is ambiguous;
 - a new runtime dependency or stack change seems needed;
 - the honesty rule, security model or stored personal data would change;
-- the task's scope would change, or a test's expectation looks wrong;
+- the task's scope would change, or a test's correct expectation cannot be established from the spec and approved ADRs;
 - three attempts at the same failure didn't work;
 - real credentials or the user's real data would be needed.

@@ -2,6 +2,9 @@
 
 Recurring issues and project-specific patterns, one line each. Keep this file short and current.
 
+- Test maintenance (ADR-133): judge code and tests against the spec and approved ADRs. Correct justified test errors without asking, recording the requirement, reason, preserved coverage and verification. Older notes about test-edit approval describe the former policy; unclear or conflicting requirements still need the user's decision.
+- Restore eligibility must be checked inside the write transaction that replaces data. A preflight empty-workspace read leaves a window for another connection's committed row to be silently deleted; pin this with a real second-connection write at transaction entry (M9.1 A).
+
 - Partial export retries must retain the original rendering inputs across formats, including mutable details, photos and role headers. Semantic actions such as "mark Applied" need stable status keys rather than user-reorderable column positions (M6.10).
 
 - Marker checks must use `item.get_closest_marker(name)`, not `name in item.keywords` (keywords include node names: dirs, param ids); pytester tests should place fixtures where dir names can't mask the bug.

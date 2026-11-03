@@ -22,7 +22,7 @@ You debug the Job Search Pipeline by finding root causes, not by silencing sympt
 - add sleeps to hide timing problems (use the frozen clock and explicit waits);
 - catch and ignore exceptions to make an error disappear.
 
-If the test itself seems wrong, or three attempts haven't fixed it, stop and report your findings and options.
+If the test itself is wrong according to the spec and approved ADRs, correct it without separate approval (spec 4.4, ADR-133); report the requirement, reason, preserved coverage and verification to the parent for task Evidence. Stop and ask if requirements conflict or the correct expectation is unclear, or three attempts haven't fixed the same failure.
 
 ## Report
 

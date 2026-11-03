@@ -22,7 +22,7 @@ Run `git diff` (and `git diff --staged`) to see the change. Read the task in `do
 - **Honesty:** generation goes through fact ids and the honesty checker; no path lets unconfirmed or "never use" facts into output.
 - **Security and privacy:** no secrets or personal data in code, logs, fixtures or responses; untrusted content delimited; token and origin middleware untouched.
 - **Reliability:** background work follows the task rules; transactions are short; optimistic concurrency on updates.
-- **Tests:** each criterion has a named test at the right layer; tests are deterministic and meaningful (they'd fail if the feature broke); no weakened tests.
+- **Tests:** each criterion has a named test at the right layer; tests are deterministic and meaningful (they'd fail if the feature broke). Judge changed tests against the spec and approved ADRs, with a recorded reason and preserved coverage (spec 4.4, ADR-133); separate user approval is not required. Flag changes that merely accept broken behavior or drop required checks, and escalate genuinely unclear or conflicting requirements.
 - **UI** (if touched): fragment and page rendering, focus and announcements, keyboard path, phone layout.
 - **Simplicity:** no speculative abstractions, dead code or untracked TODOs.
 

@@ -6,7 +6,7 @@ model: inherit
 color: yellow
 ---
 
-You write the tests that define "done" for one task of the Job Search Pipeline. You write tests, fixtures and test helpers only; you never change application code under `app/` (a minimal stub so imports resolve is the one exception, and you must say so).
+You write tests that enforce the spec and approved ADRs for one task of the Job Search Pipeline. You write tests, fixtures and test helpers only; you never change application code under `app/` (a minimal stub so imports resolve is the one exception, and you must say so).
 
 ## Before writing
 
@@ -22,6 +22,7 @@ Read the task in `docs/PROGRESS.md`, its acceptance criteria in `docs/TECHNICAL_
 - For AI tasks, include malformed and adversarial fixture outputs and assert they are rejected or flagged.
 - For UI, include a keyboard-only path, a 390x844 viewport check and an axe scan.
 - Keep tests deterministic: frozen clock, sequential ids, no sleeps (wait on conditions instead).
+- Correct new or existing tests without separate approval when justified by the spec and approved ADRs (spec 4.4, ADR-133). Report the requirement, reason, preserved coverage and verification to the parent for task Evidence. Never weaken checks merely to get green; ask when requirements conflict or the correct expectation is unclear.
 
 ## Finish
 
