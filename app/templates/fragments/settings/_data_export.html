@@ -1,0 +1,30 @@
+{# Settings > Data and privacy > Export (M9.1 part D). POST /settings/data/export writes one JSON
+   file into the data folder's exports folder and swaps this whole section with its generated
+   name and a Download button (app.js's [data-file-download] helper sends the launch token as a
+   header). Exactly one element of an answer is marked data-autofocus: the result line, or the
+   error. The file holds your facts, jobs and documents in plain text: keep it private. Saved
+   keys are never in it. #}
+<section id="data-export" class="settings-section" aria-labelledby="data-export-heading">
+  <h2 id="data-export-heading">Export</h2>
+  <p class="field-hint">Save a copy of everything in this workspace as one file: your data, documents, photo, CV uploads and prompt changes. Backups, logs and earlier exports are not included, and neither are saved keys. The file is not encrypted, so keep it somewhere private.</p>
+  <form id="data-export-form" class="step-form" method="post" action="/settings/data/export"
+        hx-post="/settings/data/export" hx-target="#data-export" hx-swap="outerHTML"
+        hx-disabled-elt="find button">
+    <div class="field field-check">
+      <input id="data-export-snapshots" type="checkbox" name="snapshots" value="1" aria-describedby="data-export-snapshots-hint">
+      <label for="data-export-snapshots">Include provider usage snapshots</label>
+    </div>
+    <p id="data-export-snapshots-hint" class="field-hint">Adds the saved usage counts for your AI and search providers. It holds no keys or text.</p>
+    <div class="form-actions"><button type="submit" class="button button-primary">Export</button></div>
+    <p class="htmx-indicator" role="status">Exporting…</p>
+  </form>
+  {% if data_export.error %}
+  <p id="data-export-error" class="field-error" role="alert" tabindex="-1" data-autofocus>{{ data_export.error }}</p>
+  {% elif data_export.name %}
+  <p id="data-export-done" class="budget-done" tabindex="-1" data-autofocus>Export ready: <strong>{{ data_export.name }}</strong>. It is saved in the app's exports folder. Download a copy and keep it somewhere private. Delete all data removes this one too.</p>
+  <div class="form-actions">
+    <button type="button" class="button" data-file-download="/settings/data/exports/{{ data_export.name }}" hidden>Download</button>
+    <span data-file-status role="status"></span>
+  </div>
+  {% endif %}
+</section>

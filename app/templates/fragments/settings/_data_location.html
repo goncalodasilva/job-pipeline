@@ -1,0 +1,7 @@
+{# The data folder's path, loaded by the page (a protected fragment: the page itself never holds
+   it). Escaped; it wraps on a phone. Nothing takes focus and nothing is announced. #}
+{% if folder %}
+<p id="data-location-text">The data folder is <code id="data-folder">{{ folder }}</code></p>
+{% else %}
+<p id="data-location-text" class="field-hint">No data folder is open.</p>
+{% endif %}

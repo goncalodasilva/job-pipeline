@@ -1,6 +1,10 @@
 {% set folder_error = errors.get("folder") %}
 {% set form_error = errors.get("form") %}
-<h2 id="step-heading"{% if not folder_error %} data-autofocus{% endif %}>Welcome and data folder</h2>
+{# Shown by app.js for the one visit that follows Delete all data (Settings > Data and privacy):
+   the delete answer sets a flag in sessionStorage because the setup redirect drops any query
+   string. Static words; nothing is read from the request. #}
+<p id="erased-notice" class="budget-done" hidden>All data was deleted. You're at the start of setup again.</p>
+<h2 id="step-heading"{% if not (folder_error or errors.get("restore")) %} data-autofocus{% endif %}>Welcome and data folder</h2>
 <p>This app helps you find jobs that fit, tailor your CV and cover letters honestly, and keep track of your applications.</p>
 <p>Everything you add (your CV, jobs, notes and drafts) stays in a data folder on this computer. Only the text needed for each AI request is sent to the AI provider you choose in the next step.</p>
 
@@ -33,7 +37,7 @@
     {% endif %}
     {% if form.folder_fixed %}
     <p id="folder-fixed" class="field-hint">
-      {% if form.explicit_folder %}This folder was set when the app started (with --data-dir, JOBPIPELINE_DATA_DIR or --demo), so it can't be changed here.{% else %}The app is already using this folder. To use another one, start the app with --data-dir.{% endif %}
+      {% if form.explicit_folder %}This folder was set when the app started (with --data-dir, JOBPIPELINE_DATA_DIR or --demo), so it can't be changed here.{% elif form.opened_for_restore %}This folder is open now. Choose the export file again, or use it as it is and continue.{% else %}The app is already using this folder. To use another one, start the app with --data-dir.{% endif %}
     </p>
     {% else %}
     <p id="folder-hint" class="field-hint">A new or empty folder, or one this app already uses. Enter the full path.</p>
@@ -48,6 +52,39 @@
     {% endif %}
   </div>
 </form>
+
+{# Restore from an export (M9.1 part D): POST /setup/welcome/restore. The data folder typed above
+   travels as the hidden "folder" (app.js copies it in when the form is sent; it comes before the
+   file, so the server knows the folder before the upload starts) and is ignored when the folder
+   is fixed. A refusal is a fixed message tied to the file field; nothing of the file is shown.
+   Exactly one element of an answer is marked data-autofocus. #}
+{% set restore_error = errors.get("restore") %}
+{% set restore_folder_note = errors.get("restore_folder") %}
+<section id="setup-restore" class="setup-restore" aria-labelledby="restore-heading">
+  <h3 id="restore-heading">Restore from an export</h3>
+  <p>Already have an export from Settings, Data and privacy? {% if form.folder_fixed %}This data folder will be used: choose the export file and restore.{% else %}Enter a new or empty data folder above, choose the export file and restore.{% endif %} Your data and files come back as they were, and you carry on from where that copy left off. You don't need to finish this step first; restoring takes its place.</p>
+  <form id="restore-form" class="step-form" method="post" action="/setup/welcome/restore"
+        enctype="multipart/form-data" hx-post="/setup/welcome/restore" hx-encoding="multipart/form-data"
+        hx-target="#setup-guide" hx-swap="outerHTML" hx-disabled-elt="find button" novalidate>
+    {# htmx is required: the launch token travels in hx-headers, so a plain POST gets 403. #}
+    <input type="hidden" name="folder" value="{{ form.folder }}" data-follows="folder">
+    <div class="field">
+      <label for="restore-file">Export file (.json)</label>
+      <input type="file" id="restore-file" name="file" accept=".json,application/json"
+             aria-describedby="restore-hint{% if restore_folder_note %} restore-folder-note{% endif %}{% if restore_error %} restore-error{% endif %}"
+             {% if restore_error %}aria-invalid="true" data-autofocus{% endif %}>
+      <p id="restore-hint" class="field-hint">The export must come from this app. Nothing is merged, and nothing is restored if the file can't be read.</p>
+      {% if restore_folder_note %}
+      <p id="restore-folder-note" class="field-hint">{{ restore_folder_note }}</p>
+      {% endif %}
+      {% if restore_error %}
+      <p id="restore-error" class="field-error" role="alert">{{ restore_error }}</p>
+      {% endif %}
+    </div>
+    <div class="form-actions"><button id="restore-submit" type="submit" class="button">Restore from this file</button></div>
+    <p class="htmx-indicator" role="status">Restoring…</p>
+  </form>
+</section>
 
 {% if not form.demo %}
 <section class="try-demo" aria-labelledby="try-demo-heading">

@@ -107,6 +107,9 @@ class ProviderStep:
         self._mark_done = mark_done  # blocking: marks the step done, refreshes the decision
         self._is_done = is_done  # no I/O: the cached step status
         self._connected: str | None = None  # "Connected (...)" from a test in this run
+        # The service (one per open database) the text above was earned with: a later workspace,
+        # such as the one that opens after delete all data, starts without it.
+        self._connected_for: ProviderSetupService | None = None
         self._testing = asyncio.Lock()  # one connection test at a time
 
     def context(self) -> Mapping[str, object]:
@@ -120,6 +123,8 @@ class ProviderStep:
         if service is None:
             return {**common, "workspace_open": False}
         view = service.view()
+        if self._connected_for is not service:
+            self._connected, self._connected_for = None, None
         return {
             **common,
             "workspace_open": True,
@@ -217,7 +222,7 @@ class ProviderStep:
                 return ConnectionCheck(ok=False, message=MSG_NOT_RECORDED)
         message = f"Connected ({result.model})" if result.model else "Connected"
         if mark_done or self._is_done():
-            self._connected = message
+            self._connected, self._connected_for = message, service
         return ConnectionCheck(ok=True, message=message)
 
 

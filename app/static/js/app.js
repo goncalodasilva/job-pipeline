@@ -233,7 +233,14 @@
   document.body.addEventListener("htmx:afterSettle", function () {
     if (openModal()) return;
     var dialog = document.querySelector("dialog[data-modal]");
-    if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+    if (dialog && typeof dialog.showModal === "function") {
+      dialog.showModal();
+      // A tall dialog on a phone must open at its title: focus the safe choice without scrolling
+      // to it, then start from the top.
+      var first = dialog.querySelector("[autofocus]");
+      if (first && typeof first.focus === "function") first.focus({preventScroll: true});
+      dialog.scrollTop = 0;
+    }
   });
 
   document.addEventListener("click", function (event) {
@@ -425,6 +432,50 @@
       form.querySelector("button[type='submit'], button:not([type]), input[type='submit']");
     refuseBlocked(event, blockedControl(submitter));
   }, true);
+
+  // A field that names the word to type ([data-confirm-word], Delete all data) frees its form's
+  // [data-confirm-submit] button only while it holds exactly that word. Until then the button is
+  // blocked (aria-disabled, above), so keyboard users reach it and hear why. The server checks
+  // the word again.
+  document.addEventListener("input", function (event) {
+    var field = event.target;
+    if (!(field instanceof HTMLInputElement) || !field.hasAttribute("data-confirm-word") || !field.form) return;
+    var button = field.form.querySelector("[data-confirm-submit]");
+    if (!button) return;
+    if (field.value.trim() === field.getAttribute("data-confirm-word")) button.removeAttribute("aria-disabled");
+    else button.setAttribute("aria-disabled", "true");
+  });
+
+  // Setup's "Restore from an export" sends the Data folder field with the file: its hidden
+  // [data-follows] input takes the field's value just before the form is sent (it sits before the
+  // file in the form, so the server knows the folder before the upload begins).
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    var follower = form.querySelector("input[type=hidden][data-follows]");
+    var source = follower ? document.getElementById(follower.getAttribute("data-follows")) : null;
+    if (follower && source instanceof HTMLInputElement) follower.value = source.value;
+  }, true);
+
+  // Delete all data (Settings > Data and privacy) answers with HX-Redirect and a data:erased event.
+  // The setup redirect drops any query string, so the flag waits in sessionStorage; the setup
+  // page's #erased-notice is shown once and announced, and the flag is cleared.
+  var ERASED_KEY = "jobpipeline-erased";
+  document.body.addEventListener("data:erased", function () {
+    try { window.sessionStorage.setItem(ERASED_KEY, "1"); } catch (error) { /* no storage: no note */ }
+  });
+  (function showErasedNotice() {
+    var notice = document.getElementById("erased-notice");
+    if (!notice) return;
+    var flagged = false;
+    try {
+      flagged = window.sessionStorage.getItem(ERASED_KEY) === "1";
+      if (flagged) window.sessionStorage.removeItem(ERASED_KEY);
+    } catch (error) { /* no storage: no note */ }
+    if (!flagged) return;
+    notice.hidden = false;
+    announce(notice.textContent.replace(/\s+/g, " ").trim());
+  })();
 
   // Refine with AI (M3.9). "Edit it myself" ([data-focus-field], a button) takes focus to
   // the editor's wording field and leaves the conversation as it is.
@@ -1204,7 +1255,10 @@
     if (!button || button.disabled) return;
     var file = button.hasAttribute("data-file-download");
     var path = button.getAttribute(file ? "data-file-download" : "data-calendar-download");
-    if (file ? !/^\/applications\/[A-Za-z0-9_-]+\/exports\/[A-Za-z0-9_-]+$/.test(path) : !/^\/applications\/[A-Za-z0-9_-]+\/events\/[A-Za-z0-9_-]+\/ics$/.test(path)) return;
+    // A workspace export (Settings > Data and privacy): its generated name is in the path and
+    // the answer must carry the same name and the JSON type.
+    var dataExport = /^\/settings\/data\/exports\/(jobpipeline-export-[0-9]{8}T[0-9]{12}Z(?:-[1-9][0-9]*)?\.json)$/.exec(path || "");
+    if (file ? !(dataExport || /^\/applications\/[A-Za-z0-9_-]+\/exports\/[A-Za-z0-9_-]+$/.test(path)) : !/^\/applications\/[A-Za-z0-9_-]+\/events\/[A-Za-z0-9_-]+\/ics$/.test(path)) return;
     var filename = "jobpipeline-event.ics";
     var failure = file ? "File could not be downloaded. Try again." : "Calendar file could not be downloaded. Try again.";
     var headers;
@@ -1215,7 +1269,11 @@
     fetch(path, {headers: headers, credentials: "same-origin", cache: "no-store", redirect: "error"}).then(function (response) {
       var media = response.headers.get("Content-Type") || "";
       if (!response.ok) throw new Error("download");
-      if (file) {
+      if (dataExport) {
+        var named = /^attachment; filename="([^"]+)"$/.exec(response.headers.get("Content-Disposition") || "");
+        if (!named || named[1] !== dataExport[1] || media !== "application/json") throw new Error("download");
+        filename = named[1];
+      } else if (file) {
         var match = /^attachment; filename="((?:cv|cover-letter)-v[1-9][0-9]*(?:-[a-z0-9]+)?\.(pdf|docx))"$/.exec(response.headers.get("Content-Disposition") || "");
         if (!match || media !== (match[2] === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) throw new Error("download");
         filename = match[1];

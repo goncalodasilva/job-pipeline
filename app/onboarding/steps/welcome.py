@@ -7,6 +7,11 @@ again and only writes ``config.toml`` when none exists (never in demo mode, and 
 existing one). When ``config.toml`` names a folder that has gone, the user can locate it or
 start fresh.
 
+"Restore from an export" (M9.1 part D; ``app/api/setup_restore.py``) opens the folder the way
+"Start fresh" does (``open_for_restore``) and, once the export is restored, names it in
+``config.toml`` under the same rule as finishing this step (``finish_restore``). It never marks
+this step done: the restored ``setup_state`` decides.
+
 Collaborators are injected by wiring, so this module touches neither the app state nor files
 beyond the read-only folder inspection.
 """
@@ -32,6 +37,7 @@ ACCEPTED: Mapping[str, frozenset[FolderState]] = {
     "open": frozenset({"missing", "empty", "workspace"}),
     "locate": frozenset({"workspace"}),
     "fresh": frozenset({"missing", "empty"}),
+    "restore": frozenset({"missing", "empty"}),  # setup's "Restore from an export"
 }
 
 MSG_EMPTY = "Enter the folder where the app should keep your data."
@@ -51,6 +57,15 @@ MSG_HAS_DATA = (
 MSG_ALREADY_WORKSPACE = (
     "This folder already holds data from this app. To keep using it, choose "
     '"Locate the folder"; to start fresh, choose an empty or new folder.'
+)
+# "Restore from an export" (setup) says "restoring", not "starting fresh", and never points at
+# buttons that step 1 may not show.
+MSG_HAS_DATA_RESTORE = (
+    "This folder isn't empty, so restoring here could mix up files. Choose an empty or new folder."
+)
+MSG_ALREADY_WORKSPACE_RESTORE = (
+    "This folder already holds data from this app, so restoring here could mix up your data. "
+    "Choose an empty or new folder."
 )
 MSG_UNKNOWN_ACTION = "That choice isn't available. Reload the page and try again."
 MSG_OPEN_FAILED = (
@@ -95,6 +110,9 @@ class WelcomeStep:
         self._write_bootstrap = write_bootstrap
         self._progress = progress
         self._opened: Path | None = None  # the folder this step opened, if any
+        # The folder a restore attempt opened and the step has not been continued from since: the
+        # page then says it is open now, not that the app was started with it.
+        self._restore_opened: Path | None = None
 
     def context(self) -> Mapping[str, object]:
         open_folder = self._workspace_folder()
@@ -103,6 +121,7 @@ class WelcomeStep:
             "folder": str(open_folder or self._settings.suggested_folder),
             "folder_fixed": open_folder is not None or self._settings.folder_fixed,
             "explicit_folder": self._settings.folder_fixed,
+            "opened_for_restore": open_folder is not None and open_folder == self._restore_opened,
             "mode": "locate_or_fresh" if locate else "choose",
             "demo": self._settings.demo,
             "demo_command": DEMO_COMMAND,
@@ -147,7 +166,54 @@ class WelcomeStep:
             return MSG_RESERVED
         return folder
 
+    def open_for_restore(self, raw_folder: str | None) -> StepResult:
+        """Open the folder a restore goes into (setup's "Restore from an export"), as "Start
+        fresh" does: only a missing or empty folder, the same messages, the workspace opened and
+        ``self._opened`` set. A workspace that is already open is used as it is and
+        ``raw_folder`` is ignored. Never marks the step done. ``ok`` means a workspace is open."""
+        if self._workspace_folder() is not None:
+            return StepResult(ok=True)
+        if self._settings.folder_fixed:  # explicit folders open at start-up; never from the form
+            return StepResult(ok=False, errors={"form": MSG_OPEN_FAILED})
+        folder = self._parse_folder(raw_folder)
+        if isinstance(folder, str):
+            return StepResult(ok=False, errors={"folder": folder})
+        opened = self._open_folder(folder, action="restore")
+        if opened.ok:
+            self._restore_opened = folder
+        return opened
+
+    def finish_restore(self) -> bool:
+        """After a restore: ``config.toml`` names the folder exactly when finishing this step
+        would write it (``_finish_open``), then the setup decision is computed again from the
+        restored rows. The step itself stays as the restored data has it. False when either
+        could not be saved (the data is restored; the caller says so)."""
+        folder = self._workspace_folder()
+        if folder is None:
+            return False
+        self._restore_opened = None  # restored: the folder is the restored workspace's now
+        write = not self._settings.demo and (not self._bootstrap_exists() or self._opened == folder)
+        if write:
+            try:
+                self._write_bootstrap(folder)
+            except (ConfigError, OSError) as error:
+                _log.warning("Settings file can't be saved (%s).", type(error).__name__)
+                return False
+        try:
+            self._onboarding.refresh(self._progress(), bootstrap_exists=True if write else None)
+        except Exception as error:  # sqlite messages can hold paths: log the type only
+            _log.warning("Setup progress can't be read (%s).", type(error).__name__)
+            return False
+        return True
+
     def _open(self, folder: Path, *, action: str) -> StepResult:
+        opened = self._open_folder(folder, action=action)
+        if not opened.ok:
+            return opened
+        return self._save_and_finish(folder, write=not self._settings.demo)
+
+    def _open_folder(self, folder: Path, *, action: str) -> StepResult:
+        """Inspect, check and open ``folder``; ``ok`` once its workspace is open."""
         try:
             ignored = (
                 frozenset({self._settings.bootstrap_name})
@@ -170,7 +236,7 @@ class WelcomeStep:
             return StepResult(ok=False, errors={"folder": MSG_OPEN_FAILED})
         # This step chose the folder, so config.toml names it, even over an older one (locate).
         self._opened = folder
-        return self._save_and_finish(folder, write=not self._settings.demo)
+        return StepResult(ok=True)
 
     def _finish_open(self, folder: Path) -> StepResult:
         # Never reopened. config.toml is written when missing, or when this step opened the
@@ -195,6 +261,7 @@ class WelcomeStep:
         except Exception as error:  # sqlite messages can hold paths: log the type only
             _log.warning("Setup progress can't be saved (%s).", type(error).__name__)
             return StepResult(ok=False, errors={"form": MSG_SAVE_FAILED})
+        self._restore_opened = None  # continued: no longer the open question of a restore
         return StepResult(ok=True)
 
 
@@ -232,4 +299,6 @@ def _refusal(state: FolderState, action: str) -> str:
         return MSG_NOT_FOUND
     if action == "fresh":
         return MSG_ALREADY_WORKSPACE if state == "workspace" else MSG_HAS_DATA
+    if action == "restore":
+        return MSG_ALREADY_WORKSPACE_RESTORE if state == "workspace" else MSG_HAS_DATA_RESTORE
     return MSG_NOT_EMPTY

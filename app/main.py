@@ -67,12 +67,14 @@ from app.api.security import SecurityMiddleware, generate_launch_token, page_rou
 from app.api.sessions import register_session_routes
 from app.api.settings import register_settings_pages
 from app.api.settings_board import register_board_settings_routes
+from app.api.settings_data import register_data_routes
 from app.api.settings_details import register_details_routes
 from app.api.settings_sessions import register_session_settings_routes
 from app.api.settings_templates import register_template_routes
 from app.api.settings_usage import register_usage_settings
 from app.api.setup import register_setup_pages
 from app.api.setup_redirect import SetupRedirectMiddleware
+from app.api.setup_restore import register_setup_restore
 from app.api.submit_step import register_submit_routes
 from app.api.tailoring import register_tailoring_routes
 from app.api.tasks import register_task_routes
@@ -151,7 +153,7 @@ from app.services.cv_import import (
 )
 from app.services.cv_templates import DRAFT_LABEL, CvTemplateService
 from app.services.data_erasure import DataErasureService
-from app.services.data_portability import sweep_restore_staging
+from app.services.data_portability import DataPortabilityService, sweep_restore_staging
 from app.services.debrief import DEBRIEF_FACTS, DEBRIEF_FACTS_LABEL, DebriefService
 from app.services.documents import TAILOR_CV_LABEL, DocumentService
 from app.services.export_files import sweep_orphan_exports
@@ -446,6 +448,29 @@ def _mark_cv_import_if_started(db: Database, *, registry: StepRegistry, clock: C
         return
     if started:
         progress.mark_done(CV_IMPORT.id)
+
+
+def _workspace_restored(app: FastAPI, *, clock: Clock) -> Callable[[], None]:
+    """What the app does once a restore (Settings > Data and privacy) has filled the open
+    workspace: the task runner takes the restored concurrency setting, and the setup decision
+    and provider health are computed again from the restored rows. The other services read the
+    same database at call time, so they need nothing. Blocking: call it from a worker thread;
+    ``RuntimeError`` when no workspace is open."""
+
+    def refresh() -> None:
+        db = _current_db(app)
+        tasks = getattr(app.state, "task_service", None)
+        if db is None or tasks is None:
+            raise RuntimeError("no workspace is open")
+        app.state.runner.attach(tasks, settings=SettingsService(db, clock).load(TASK_RUNNER).value)
+        app.state.refresh_provider_health()
+
+    return refresh
+
+
+def _data_folder(app: FastAPI) -> Path | None:
+    workspace: Workspace | None = getattr(app.state, "workspace", None)
+    return workspace.data_dir if workspace is not None else None
 
 
 def _fact_bank_used(app: FastAPI, *, clock: Clock) -> Callable[[], None]:
@@ -1433,6 +1458,16 @@ def create_app(
         bootstrap_folder=bootstrap_folder,
         settle=settle_erase,
     )
+    # Export and restore (ADR-131 items 3-4) read the open workspace at call time. One restore or
+    # import at a time (Settings > Data and privacy and setup's restore share the slot).
+    app.state.import_active = False
+    app.state.data_portability = DataPortabilityService(
+        lambda: _current_db(app),
+        lambda: _data_folder(app),
+        app_clock,
+        migrations_dir=migrations_dir,
+    )
+    app.state.workspace_restored = _workspace_restored(app, clock=app_clock)
     practice = _practice(app, wiring=app_wiring, clock=app_clock, registry=handlers)
     app.state.practice = practice
     # The budget check in front of a started action (M2.24): the open workspace's usage.
@@ -1657,6 +1692,7 @@ def create_app(
     register_pages(app)
     register_session_routes(app)
     register_settings_pages(app)
+    register_data_routes(app)
     register_usage_settings(app)
     register_board_settings_routes(app)
     register_session_settings_routes(app)
@@ -1695,6 +1731,7 @@ def create_app(
     register_notification_routes(app)
     register_today_routes(app)
     register_setup_pages(app)
+    register_setup_restore(app)
     register_events(
         app,
         shutdown=shutdown_signal,

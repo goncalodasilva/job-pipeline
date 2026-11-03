@@ -1,0 +1,34 @@
+{# Settings > Data and privacy > Import (M9.1 part D). A restore goes only into a workspace with
+   no content (no merging). While it has some, Import is a blocked action: aria-disabled, still
+   focusable, with the reason named by aria-describedby (app.js refuses a press and says it), and
+   there is no file field to fill in. The note says why, once; a 409 answer adds only "Nothing was
+   imported." POST /settings/data/import swaps this whole section. With the file field shown, a
+   refusal (409 busy, 413, 422) is a fixed message tied to it; nothing of the file is shown back.
+   [data-shows-refusals] lets app.js swap a 413. Exactly one element of an answer is marked
+   data-autofocus. #}
+<section id="data-import" class="settings-section" aria-labelledby="data-import-heading" data-shows-refusals>
+  <h2 id="data-import-heading">Import</h2>
+  {% if data_import.done %}
+  <p id="data-import-done" class="budget-done" tabindex="-1" data-autofocus>{{ data_import.done }}</p>
+  <p><a class="button button-primary" href="/">Open the app</a></p>
+  {% else %}
+  <p class="field-hint">Restore a copy made with Export. Nothing is merged. A file from an older version is brought up to date, and one from a newer version is refused.</p>
+  {% if data_import.blocked %}
+  <p id="data-import-note" class="field-hint">Import only works in a workspace with no content. This one already has some.</p>
+  {% if data_import.error %}<p id="data-import-error" class="field-error" role="alert" tabindex="-1" data-autofocus>{{ data_import.error }}</p>{% endif %}
+  {% endif %}
+  <form id="data-import-form" class="step-form" method="post" action="/settings/data/import"
+        enctype="multipart/form-data" hx-post="/settings/data/import" hx-encoding="multipart/form-data"
+        hx-target="#data-import" hx-swap="outerHTML" hx-disabled-elt="find button">
+    {% if not data_import.blocked %}
+    <div class="field">
+      <label for="data-import-file">Export file (.json)</label>
+      <input id="data-import-file" type="file" name="file" accept=".json,application/json"{% if data_import.error %} aria-invalid="true" aria-describedby="data-import-error" data-autofocus{% endif %}>
+      {% if data_import.error %}<p id="data-import-error" class="field-error" role="alert">{{ data_import.error }}</p>{% endif %}
+    </div>
+    {% endif %}
+    <div class="form-actions"><button id="data-import-submit" type="submit" class="button button-primary"{% if data_import.blocked %} aria-disabled="true" aria-describedby="data-import-note"{% endif %}>Import</button></div>
+    <p class="htmx-indicator" role="status">Importing…</p>
+  </form>
+  {% endif %}
+</section>

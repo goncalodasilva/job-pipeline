@@ -588,6 +588,74 @@ body.layout-guide {
   font-size: 1.25rem;
 }
 
+/* Settings > Data and privacy (M9.1 part D): the long folder path wraps inside the screen, a
+   chosen export file stays a comfortable target, and the dialog's list reads as list. */
+#data-folder {
+  display: block;
+  margin-top: var(--space-2);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Neighbouring paragraphs, buttons and form rows in these sections do not touch; a fresh export
+   result is set apart from the form above it; the way back sits above the heading. */
+.settings-section[id^="data-"] p + p,
+.settings-section[id^="data-"] p + button,
+.settings-section[id^="data-"] p + .form-actions {
+  margin-top: var(--space-3);
+}
+
+.settings-section[id^="data-"] .field-check + p {
+  margin-top: var(--space-2);
+}
+
+#data-export-done,
+#data-export-error {
+  margin-top: var(--space-4);
+}
+
+/* The result line reads as a sentence; only the generated file name stands out. */
+#data-export-done {
+  font-weight: 400;
+}
+
+#data-export-done strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+#data-export-done + .form-actions {
+  margin-top: var(--space-3);
+}
+
+.back-link {
+  margin: 0 0 var(--space-3);
+}
+
+.back-link a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+
+#erased-notice {
+  margin: 0 0 var(--space-4);
+}
+
+#data-import-file {
+  height: auto;
+  min-height: var(--target-min);
+}
+
+#data-delete-dialog ul {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-5, 1.5rem);
+}
+
+#data-delete-dialog code {
+  overflow-wrap: anywhere;
+}
+
 /* Settings > Sessions (M7.8): the Save button keeps clear of the pause hint above it. */
 #sessions-settings .form-actions {
   margin-top: var(--space-3);
@@ -1120,8 +1188,25 @@ a.button {
   display: none;
 }
 
-.try-demo h3 {
+.try-demo h3,
+.setup-restore h3 {
   font-size: 1.1rem;
+}
+
+/* Setup step 1, Restore from an export (M9.1 part D): set apart from the folder form above it;
+   a chosen file stays a comfortable target and a long file name wraps. */
+.setup-restore {
+  margin-top: var(--space-5);
+}
+
+.setup-restore p + form {
+  margin-top: var(--space-3);
+}
+
+#restore-file {
+  height: auto;
+  min-height: var(--target-min);
+  max-width: 100%;
 }
 
 .try-demo pre {

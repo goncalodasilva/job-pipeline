@@ -38,6 +38,7 @@ class Harness:
         *,
         refused: tuple[Path, ...] = (),
         folder_fixed: bool = False,
+        demo: bool = False,
         bootstrap: Path | None = None,
     ) -> None:
         self.registry = m1_registry()
@@ -53,11 +54,13 @@ class Harness:
         self.bootstrap: Path | None = bootstrap
         self.open_error: BaseException | None = None
         self.write_error: BaseException | None = None
+        self.writes: list[Path] = []  # every folder write_bootstrap was asked to name
+        self.opened: list[Path] = []  # every folder open_workspace was asked to open
         self.step = WelcomeStep(
             WelcomeSettings(
                 suggested_folder=tmp_path / "data",
                 folder_fixed=folder_fixed,
-                demo=False,
+                demo=demo,
                 refused_folders=refused,
                 config_folder=tmp_path / "cfg",
             ),
@@ -72,12 +75,14 @@ class Harness:
     def open_workspace(self, folder: Path) -> None:
         if self.open_error is not None:
             raise self.open_error
+        self.opened.append(folder)
         folder.mkdir(parents=True, exist_ok=True)
         self.db = Database.open(folder / "app.db")
         apply_migrations(self.db, MIGRATIONS_DIR, folder / "backups", self.clock)
         self.folder = folder
 
     def write_bootstrap(self, folder: Path) -> None:
+        self.writes.append(folder)
         if self.write_error is not None:
             raise self.write_error
         self.bootstrap = folder

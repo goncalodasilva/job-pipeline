@@ -274,3 +274,30 @@ def test_save_on_a_done_step_suggests_a_test_when_the_kind_changed(
     assert same.message is not None and same.message.endswith(MSG_TEST_AGAIN), same.message
     switched = step.submit(form(EXISTING_KIND))
     assert switched.message is not None and switched.message.endswith(MSG_NEXT)
+
+
+async def test_connected_text_is_forgotten_when_a_new_workspace_opens(
+    db: Database, tmp_path: Path
+) -> None:
+    """Delete all data opens a later workspace (a new database, so a new setup service): the
+    "Connected" text earned in the erased one must not be shown there (M9.1 part D)."""
+    _, first, _, marks = build(db, tmp_path)
+    current: list[ProviderSetupService | None] = [first]
+    step = ProviderStep(
+        lambda: current[0],
+        data_dir=lambda: tmp_path / "data",
+        mark_done=marks,
+        is_done=lambda: True,
+    )
+    check = await step.test(form(FAKE_KIND, fake_key("fake-connected")), mark_done=False)
+    assert check.ok is True
+    assert step.context()["connected"] == check.message
+
+    current[0] = None  # the erase closed the workspace
+    assert step.context()["workspace_open"] is False
+
+    _, second, _, _ = build(db, tmp_path)  # a later workspace, a new service
+    current[0] = second
+    assert step.context()["connected"] is None
+    current[0] = first  # even the earlier service does not bring the text back
+    assert step.context()["connected"] is None

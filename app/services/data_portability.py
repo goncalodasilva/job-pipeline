@@ -250,6 +250,11 @@ class DataPortabilityService:
         self._migrations_dir = migrations_dir
         self._lock = threading.Lock()
 
+    def folder(self) -> Path:
+        """The open workspace's data folder (checked against its database). Raises
+        ``PortabilityError`` when none is open."""
+        return self._workspace()[1]
+
     def can_restore(self) -> bool:
         try:
             db, root = self._workspace()

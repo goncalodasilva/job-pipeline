@@ -148,7 +148,7 @@ def setup_step(request: Request, step_id: str) -> HTMLResponse:
         step = registry.get(step_id)
     except UnknownSetupStep:
         return _not_found(request)
-    response = _render_step(request, step)
+    response = render_step(request, step)
     if is_htmx(request):  # a step change made with htmx, such as "Continue" (ADR-053)
         response.headers["HX-Trigger"] = _announce_step(registry, step)
     return response
@@ -217,7 +217,7 @@ async def _answer(
     # Showing a step reads stored settings (the handler's context): in a worker thread too.
     if result.conflict:  # changed elsewhere: nothing saved; the step asks to load it again
         response = await run_in_threadpool(
-            _render_step, request, step, submitted=form, conflict=True
+            render_step, request, step, submitted=form, conflict=True
         )
         response.status_code = 409
         return response
@@ -225,12 +225,12 @@ async def _answer(
         # Saved, and only moving on failed: what is stored (and its version), not what was sent.
         typed = None if result.saved else form
         response = await run_in_threadpool(
-            _render_step, request, step, errors=result.errors, submitted=typed
+            render_step, request, step, errors=result.errors, submitted=typed
         )
         response.status_code = 422
         return response
     if result.view is not None:  # nothing changed: the step asks or answers a question
-        response = await run_in_threadpool(_render_step, request, step, step_view=result.view)
+        response = await run_in_threadpool(render_step, request, step, step_view=result.view)
         if is_htmx(request) and result.message:
             response.headers["HX-Trigger"] = json.dumps({"announce": result.message})
         return response
@@ -242,14 +242,14 @@ async def _answer(
     if result.stay:  # saved, but the step isn't finished: stay on it (M1.17)
         if not is_htmx(request):
             return RedirectResponse(setup_step_path(step.id), status_code=303)
-        response = await run_in_threadpool(_render_step, request, step, stayed=True)
+        response = await run_in_threadpool(render_step, request, step, stayed=True)
         response.headers["HX-Trigger"] = json.dumps({"announce": result.message or "Saved."})
         return response
     following = _next_step(registry, step)
     url = setup_step_path(following.id)
     if not is_htmx(request):
         return RedirectResponse(url, status_code=303)
-    response = await run_in_threadpool(_render_step, request, following)
+    response = await run_in_threadpool(render_step, request, following)
     response.headers["HX-Push-Url"] = url
     response.headers["HX-Trigger"] = _announce_step(registry, following, said=result.message)
     return response
@@ -278,11 +278,11 @@ async def test_provider_connection(request: Request) -> Response:
     # Rendering reads the settings: in a worker thread, like every answer of an async route.
     if check.errors:
         response = await run_in_threadpool(
-            _render_step, request, step, errors=check.errors, submitted=form
+            render_step, request, step, errors=check.errors, submitted=form
         )
         response.status_code = 422
         return response
-    response = await run_in_threadpool(_render_step, request, step, connection=check)
+    response = await run_in_threadpool(render_step, request, step, connection=check)
     if is_htmx(request):
         response.headers["HX-Trigger"] = json.dumps({"announce": check.message})
     return response
@@ -291,7 +291,7 @@ async def test_provider_connection(request: Request) -> Response:
 # --- helpers ---------------------------------------------------------------------------------
 
 
-def _render_step(
+def render_step(
     request: Request,
     step: StepDefinition,
     *,

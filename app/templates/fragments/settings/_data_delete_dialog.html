@@ -1,0 +1,35 @@
+{# The Delete all data confirmation (M9.1 part D; ADR-131 item 2). A modal question (htmx-ui):
+   app.js opens it with showModal() once the swap settles; focus starts on Cancel (the safe
+   choice), Tab wraps, Esc and Cancel send nothing and give focus back to the button that opened
+   it (data-return-focus). Delete all data stays blocked (aria-disabled, still focusable) until
+   the field holds the word; app.js frees it and the server checks the word again. A refused or
+   stopped erase answers this dialog again with the reason (the service's own words, escaped);
+   the field then takes focus and the typed word is not shown back. #}
+<dialog id="data-delete-dialog" class="modal" role="dialog" aria-modal="true"
+        aria-labelledby="data-delete-title" aria-describedby="data-delete-description"
+        data-modal data-return-focus="#data-delete-open">
+  <h2 id="data-delete-title">Delete all data?</h2>
+  <p id="data-delete-description">This deletes everything inside the app's folders: your data, documents, imports, assets, prompts, backups, exports and logs. It can't be undone.</p>
+  <p><strong>Export a copy first</strong> if you want to keep your work. Exports and backups are inside the app's folders and are deleted too, so download the export and keep it somewhere else.</p>
+  <ul>
+    <li>Keys the app saved in your computer's keychain are removed too. They are shared by every workspace on this computer, unless the app's setup file points at another data folder.</li>
+    <li>A key you set as an environment variable can't be removed by the app. Remove it from your environment yourself.</li>
+    <li>Deleted files are not securely overwritten, so backups on your computer, such as Time Machine, may keep copies.</li>
+    <li>Files and folders the app didn't create are left in place.{% if erase.left %} These will be left: {% for name in erase.left %}<code>{{ name }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% if erase.more_left %} and {{ erase.more_left }} more{% endif %}.{% endif %}</li>
+  </ul>
+  <form id="data-delete-form" method="post" action="/settings/data/delete"
+        hx-post="/settings/data/delete" hx-target="#data-delete-dialog" hx-swap="outerHTML"
+        hx-disabled-elt="find button">
+    <div class="field">
+      <label for="data-delete-confirm">Type <code>{{ erase.word }}</code> to confirm</label>
+      <input id="data-delete-confirm" type="text" name="confirm" autocomplete="off" autocapitalize="none" spellcheck="false" data-confirm-word="{{ erase.word }}"{% if erase.error %} aria-invalid="true" aria-describedby="data-delete-error data-delete-hint" autofocus{% else %} aria-describedby="data-delete-hint"{% endif %}>
+      {% if erase.error %}<p id="data-delete-error" class="field-error" role="alert">{{ erase.error }}</p>{% endif %}
+      <p id="data-delete-hint" class="field-hint">Type it in lowercase. The Delete all data button stays off until then.</p>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="button" data-modal-close{% if not erase.error %} autofocus{% endif %}>Cancel</button>
+      <button id="data-delete-submit" type="submit" class="button button-primary" aria-disabled="true" aria-describedby="data-delete-hint" data-confirm-submit>Delete all data</button>
+    </div>
+    <p class="htmx-indicator" role="status">Deleting…</p>
+  </form>
+</dialog>

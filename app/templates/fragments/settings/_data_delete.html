@@ -1,0 +1,12 @@
+{# Settings > Data and privacy > Delete all data (M9.1 part D). The button loads the
+   confirmation dialog (GET /settings/data/delete) into the slot; app.js opens it with
+   showModal() and gives focus back to the button when it closes. Nothing is deleted from this
+   page. #}
+<section id="data-delete" class="settings-section" aria-labelledby="data-delete-heading">
+  <h2 id="data-delete-heading">Delete all data</h2>
+  <p class="field-hint">Remove everything the app keeps: your data, documents, backups, exports and logs, the keys the app saved in your keychain, and its setup file. Export a copy first if you want to keep your work. A key set in an environment variable can't be removed by the app.</p>
+  <button id="data-delete-open" type="button" class="button" hx-get="/settings/data/delete"
+          hx-target="#data-delete-slot" hx-swap="innerHTML">Delete all data…</button>
+  <div id="data-delete-slot"></div>
+  <noscript><p class="field-hint">Deleting needs scripts to be on.</p></noscript>
+</section>
