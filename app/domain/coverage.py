@@ -9,6 +9,8 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from itertools import chain, compress
+from operator import itemgetter
 from typing import Final, Literal
 
 from app.domain.skills import normalize_skill
@@ -126,16 +128,14 @@ def _skill_patterns(
     )
 
 
+_PHRASE: Final = itemgetter(1)
+
+
 def _skill_key(text: str, patterns: Sequence[tuple[str, str, re.Pattern[str]]]) -> str | None:
-    # The plain substring test is a cheap necessary condition for the whole-phrase match.
-    return next(
-        (
-            "skill:" + key
-            for key, phrase, pattern in patterns
-            if phrase in text and pattern.search(text)
-        ),
-        None,
-    )
+    # The plain substring test is a cheap necessary condition for the whole-phrase match; it runs
+    # in C over every pattern, so only the few that pass reach the regular expression.
+    candidates = compress(patterns, map(text.__contains__, map(_PHRASE, patterns)))
+    return next(("skill:" + key for key, _, pattern in candidates if pattern.search(text)), None)
 
 
 def _tokens(text: str) -> frozenset[str]:
@@ -173,12 +173,14 @@ def cluster_requirements(
     word_index: dict[str, set[str]] = defaultdict(set)
     for signature, (words, rows) in sorted(signatures.items()):
         # Each representative appears once per shared word, so its count is the overlap size.
-        shared = Counter(key for word in words for key in word_index[word])
-        scored = [
-            (2 * overlap / (len(words) + len(representatives[key])), key)
+        # (Chained in C: this loop is the hot path of every backlog read.)
+        shared = Counter(chain.from_iterable(map(word_index.__getitem__, words)))
+        matches = [
+            (similarity, key)
             for key, overlap in shared.items()
+            if (similarity := 2 * overlap / (len(words) + len(representatives[key])))
+            >= DICE_THRESHOLD
         ]
-        matches = [(similarity, key) for similarity, key in scored if similarity >= DICE_THRESHOLD]
         if matches:
             key = min(matches, key=lambda pair: (-pair[0], pair[1]))[1]
         else:

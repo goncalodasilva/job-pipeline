@@ -3,11 +3,12 @@
 import hashlib
 import json
 import sqlite3
+from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Literal, cast
 
-from app.domain.coverage import CoverageData, cluster_requirements, strength
+from app.domain.coverage import CoverageData, CoverageEvidence, cluster_requirements, strength
 from app.domain.enrichment import BacklogItem, ItemSignals, ItemState, JobDemand, order_backlog
 from app.domain.fact_selection import FactRecord, facts_for_ai
 from app.domain.quality_hints import quality_hints
@@ -152,9 +153,11 @@ def sources(
     if focus.kind == "job" and not any(r.job_id == focus.ref for r in coverage.requirements):
         like_closed = _live_like_closed_job(conn, coverage, focus.ref or "")
     result = []
+    cited: dict[str, list[CoverageEvidence]] = defaultdict(list)
+    for link in coverage.evidence:
+        cited[link.requirement_id].append(link.fact)
     for cluster in cluster_requirements(coverage.requirements, coverage.skills):
-        reqs = {r.id for r in cluster.requirements}
-        evidence = tuple(e.fact for e in coverage.evidence if e.requirement_id in reqs)
+        evidence = tuple(fact for r in cluster.requirements for fact in cited.get(r.id, ()))
         related = tuple(
             by_id[fid].record for fid in sorted({e.id for e in evidence}) if fid in by_id
         )
