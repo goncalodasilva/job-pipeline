@@ -184,6 +184,12 @@ class TaskRunner:
             self._attached = attached
         self.notify()
 
+    def detach(self) -> None:
+        """Let go of the workspace's task service (it is closing); safe from any thread. A
+        running worker idles until the next ``attach``."""
+        with self._lock:
+            self._attached = None
+
     def notify(self) -> None:
         """Wake the worker (after an enqueue); safe from any thread, a no-op when stopped."""
         with self._lock:

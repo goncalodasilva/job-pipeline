@@ -51,3 +51,8 @@ class TransientSearchResults:
     def get(self, key: str) -> object | None:
         with self._lock:
             return self._values.get(key)
+
+    def clear(self) -> None:
+        """Forget everything held (delete all data, ADR-131 item 2)."""
+        with self._lock:
+            self._values.clear()

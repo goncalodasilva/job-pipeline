@@ -9,6 +9,8 @@ workspace opens, leftover AI call folders are cleared and provider health is com
 cached in ``app.state.provider_health``, never on GET (spec 2.9.12).
 """
 
+import asyncio
+import concurrent.futures
 import logging
 import os
 import sqlite3
@@ -82,19 +84,21 @@ from app.config import (
     RuntimeConfig,
     data_dir_is_explicit,
     is_demo_workspace,
+    load_bootstrap,
     opens_workspace_at_startup,
     owned_by_another_user,
     refused_data_folders,
     write_bootstrap,
 )
 from app.domain.clock import Clock, SystemClock
-from app.domain.errors import DataFolderNotYours, DataFolderUnavailable
+from app.domain.errors import ConfigError, DataFolderNotYours, DataFolderUnavailable
 from app.domain.ids import IdFactory, UuidIdFactory
 from app.domain.redaction import Redactor
 from app.domain.settings import AI_PROVIDER, TASK_RUNNER, AIProviderSettings
 from app.domain.tasks import TaskChange, TaskStatus, TaskTypeSpec
 from app.modules.ai import ProviderHealth
 from app.modules.extract import extract_text, sniff_type
+from app.modules.secrets import KNOWN_SECRET_KEYS
 from app.modules.storage import (
     MIGRATIONS_DIR,
     Database,
@@ -146,6 +150,7 @@ from app.services.cv_import import (
     sweep_orphan_imports,
 )
 from app.services.cv_templates import DRAFT_LABEL, CvTemplateService
+from app.services.data_erasure import DataErasureService
 from app.services.data_portability import sweep_restore_staging
 from app.services.debrief import DEBRIEF_FACTS, DEBRIEF_FACTS_LABEL, DebriefService
 from app.services.documents import TAILOR_CV_LABEL, DocumentService
@@ -249,6 +254,8 @@ CV_IMPORT_TIMEOUT = (
 )
 # One Fast call and its close, with a minute of margin between beats.
 REFINE_TIMEOUT = TASK_TIMEOUT_FLOOR + timedelta(minutes=1)
+# How long closing the workspace waits for running tasks to end interrupted.
+RUNNER_RESTART_TIMEOUT_SECONDS = 60.0
 
 
 @dataclass(frozen=True)
@@ -265,6 +272,10 @@ class WorkspaceAlreadyOpen(RuntimeError):
 
 class WorkspaceClosed(RuntimeError):
     """``open_workspace`` was called after the app shut down."""
+
+
+class WorkspaceBusy(RuntimeError):
+    """``open_workspace`` was called while delete all data is running."""
 
 
 def open_workspace_folder(
@@ -636,9 +647,10 @@ def _step_handlers(
 def _provider_setup(
     app: FastAPI, *, wiring: Wiring, clock: Clock
 ) -> Callable[[], ProviderSetupService | None]:
-    """The provider setup service once a workspace is open; built once, so its cached
-    keychain status lasts for the run (a workspace opens at most once per app)."""
-    built: list[ProviderSetupService] = []
+    """The provider setup service once a workspace is open. One per open database, so its
+    cached keychain status lasts as long as that workspace: deleting all data opens a later
+    workspace (a new database) and gets a fresh service, never one over a closed database."""
+    built: list[tuple[Database, ProviderSetupService]] = []
     lock = threading.Lock()  # submits run in worker threads
 
     def refresh_health() -> object:
@@ -649,18 +661,21 @@ def _provider_setup(
         if db is None:
             return None
         with lock:
-            if not built:
-                built.append(
-                    ProviderSetupService(
-                        SettingsService(db, clock),
-                        wiring.secrets,
-                        wiring,
-                        wiring.environment_keys(),
-                        refresh_health,
-                        usage=app.state.usage,  # set whenever a workspace is open
+            if not built or built[0][0] is not db:
+                built[:] = [
+                    (
+                        db,
+                        ProviderSetupService(
+                            SettingsService(db, clock),
+                            wiring.secrets,
+                            wiring,
+                            wiring.environment_keys(),
+                            refresh_health,
+                            usage=app.state.usage,  # set whenever a workspace is open
+                        ),
                     )
-                )
-            return built[0]
+                ]
+            return built[0][1]
 
     return service
 
@@ -994,6 +1009,32 @@ def _publish_fact_services(
     app.state.skills = SkillService(db, clock, ids) if db is not None else None
 
 
+def _restart_runner(runner: TaskRunner, loop: list[asyncio.AbstractEventLoop]) -> None:
+    """Stop the runner on its event loop, let go of the closing workspace and start it again,
+    so a later workspace's tasks run. Called from a worker thread holding the open lock; on
+    the loop's own thread it would wait for itself, so that is refused."""
+    if not loop:
+        return  # the lifespan hasn't started the runner
+    try:
+        running: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is loop[0]:
+        raise RuntimeError("The workspace can't be closed from the event loop.")
+
+    async def cycle() -> None:
+        await runner.stop()
+        runner.detach()
+        await runner.start()
+
+    future = asyncio.run_coroutine_threadsafe(cycle(), loop[0])
+    try:
+        future.result(timeout=RUNNER_RESTART_TIMEOUT_SECONDS)
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        raise RuntimeError("The task runner didn't stop in time.") from None
+
+
 def _fact_bank(app: FastAPI) -> Callable[[], FactBank | None]:
     """The open workspace's fact services, read through the app's state at call time; None
     while no workspace is open."""
@@ -1061,6 +1102,8 @@ def create_app(
     data_folder_lock: DataFolderLock | None = None,
     task_registry: HandlerRegistry | None = None,
     tz: tzinfo | None = None,
+    detach_log_folder: Callable[[], None] | None = None,
+    reattach_log_folder: Callable[[Path], None] | None = None,
 ) -> FastAPI:
     """Build the app. ``open_at_startup`` (default: ``opens_workspace_at_startup(config)``)
     says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used.
@@ -1082,7 +1125,10 @@ def create_app(
     task types to their handlers; whenever a workspace opens, its task service
     (``app.state.task_service``, None before) is handed to the runner, and its usage service
     (``app.state.usage``, None before; one per workspace) counts provider calls in budget
-    cycles of ``tz`` (default: the computer's time zone; ADR-076 item 8)."""
+    cycles of ``tz`` (default: the computer's time zone; ADR-076 item 8).
+    ``reattach_log_folder`` logs into the folder again when delete all data reopens a fixed one.
+    ``detach_log_folder`` stops writing the log file (delete all data closes the workspace);
+    ``app.state.data_erasure`` is the delete-all-data service (ADR-131 item 2)."""
     app_clock = clock if clock is not None else SystemClock()
     app_tz = tz if tz is not None else local_timezone()
     app_wiring = (
@@ -1099,6 +1145,9 @@ def create_app(
     open_now = opens_workspace_at_startup(config) if open_at_startup is None else open_at_startup
     open_lock = threading.Lock()
     closed = threading.Event()
+    server_loop: list[asyncio.AbstractEventLoop] = []  # set by the lifespan
+    erased_folder: list[Path] = []  # the folder a half-finished erase still has to empty
+    erasing = threading.Event()  # delete all data is running: no other open meanwhile
     app_ids = UuidIdFactory()
     shutdown_signal = ShutdownSignal()
     task_events = TaskEvents(shutdown_signal, queue_size=event_queue_size)  # ValueError: no bound
@@ -1110,15 +1159,24 @@ def create_app(
 
         Blocking: it creates folders, runs migrations and may copy a backup. Call it from a
         sync route or a worker thread, never directly inside an async handler. Raises
-        ``WorkspaceAlreadyOpen`` when one is open and ``WorkspaceClosed`` after shutdown.
+        ``WorkspaceAlreadyOpen`` when one is open, ``WorkspaceBusy`` while delete all data
+        runs and ``WorkspaceClosed`` after shutdown.
 
         The setup decision and provider health are refreshed from the new database before
         logging is attached and the workspace is published; if anything fails, the database
         is closed, the decision goes back to "no workspace" and the user can retry.
         """
+        return open_folder(folder, lock=None, reopening=False)
+
+    def open_folder(folder: Path, *, lock: DataFolderLock | None, reopening: bool) -> Workspace:
+        """``open_workspace``; ``lock`` is a data-folder lock the caller holds on ``folder``
+        (see ``open_workspace_folder``) and ``reopening`` is delete all data opening its own
+        fresh workspace, which the hold-off on other opens does not apply to."""
         with open_lock:
             if closed.is_set():
                 raise WorkspaceClosed("the app has shut down")
+            if erasing.is_set() and not reopening:
+                raise WorkspaceBusy("delete all data is running")
             if getattr(app.state, "workspace", None) is not None:
                 raise WorkspaceAlreadyOpen("a workspace is already open")
             onboarding: OnboardingState = app.state.onboarding
@@ -1144,8 +1202,11 @@ def create_app(
                     folder,
                     migrations_dir=migrations_dir,
                     clock=app_clock,
-                    attach_log_folder=attach_log_folder,
+                    attach_log_folder=attach_log_folder
+                    if attach_log_folder is not None
+                    else reattach_log_folder,
                     before_logging=refresh_onboarding,
+                    lock=lock,
                 )
             except BaseException:
                 onboarding.refresh(None)  # no I/O: back to the no-workspace decision
@@ -1167,7 +1228,82 @@ def create_app(
             app.state.provider_health = health[-1]
             _publish_fact_services(app, workspace.db, clock=app_clock, ids=app_ids)
             app.state.workspace = workspace
+            erased_folder.clear()
             return workspace
+
+    def close_workspace() -> None:
+        """Close the open workspace for good (delete all data, ADR-131 item 2): stop the task
+        runner (running tasks end interrupted) and start it again with nothing attached,
+        close the database (which releases the folder lock), forget what the workspace held in
+        memory and send the guide back to "no workspace". Nothing is open afterwards, so a
+        later ``open_workspace`` works once the erase is over (``settle_erase``). Safe to call
+        again. Blocking: call it from a worker thread, never from the event loop
+        (``RuntimeError``)."""
+        with open_lock:
+            if closed.is_set():
+                return
+            erasing.set()  # until settle_erase: no other open meanwhile
+            workspace: Workspace | None = getattr(app.state, "workspace", None)
+            if workspace is not None:
+                _restart_runner(app.state.runner, server_loop)
+                erased_folder[:] = [workspace.data_dir]
+                app.state.workspace = None
+                app.state.task_service = None
+                app.state.usage = None
+                app.state.provider_health = None
+                _publish_fact_services(app, None, clock=app_clock, ids=app_ids)
+                workspace.db.close()
+                if not data_dir_is_explicit(config) and data_folder_lock is not None:
+                    # A folder chosen in step 1 may be opened again by step 1: the lock the
+                    # command line took for it must not stay held. (A fixed folder is
+                    # reopened by ``after_erase``, which reuses the lock.)
+                    data_folder_lock.release()
+            app_wiring.search_results.clear()
+            if detach_log_folder is not None:
+                detach_log_folder()
+            onboarding: OnboardingState = app.state.onboarding
+            onboarding.refresh(None, bootstrap_exists=(config.config_dir / BOOTSTRAP_FILE).exists())
+
+    def after_erase() -> None:
+        """Run once everything was removed: the setup file is gone, so the guide starts at step
+        1, and a folder fixed by ``--data-dir``, the environment or ``--demo`` is opened again
+        as a fresh workspace (reusing the lock the command line holds on it)."""
+        erased_folder.clear()
+        onboarding: OnboardingState = app.state.onboarding
+        onboarding.refresh(None, bootstrap_exists=(config.config_dir / BOOTSTRAP_FILE).exists())
+        if data_dir_is_explicit(config):
+            held = data_folder_lock is not None and data_folder_lock.held
+            open_folder(
+                config.data_dir,
+                lock=data_folder_lock if held else None,
+                reopening=True,
+            )
+
+    def settle_erase() -> None:
+        """A delete-all-data run is over, finished or stopped: other opens are allowed."""
+        erasing.clear()
+
+    def bootstrap_folder() -> Path | None:
+        """The folder ``config.toml`` names; None when there is no file, ``ConfigError`` when
+        it can't be read."""
+        found = load_bootstrap(config.config_dir)
+        return found.data_dir if found is not None else None
+
+    def erasable_folder() -> Path | None:
+        """The open workspace's folder, else the folder a stopped erase left behind, else (after
+        a restart that opened nothing) the folder ``config.toml`` names, when it exists."""
+        workspace: Workspace | None = getattr(app.state, "workspace", None)
+        if workspace is not None:
+            return workspace.data_dir
+        if erased_folder:
+            return erased_folder[0]
+        if config.demo:
+            return None  # config.toml belongs to the real setup
+        try:
+            named = bootstrap_folder()
+        except ConfigError:
+            return None
+        return named if named is not None and named.is_dir() else None
 
     def refresh_provider_health() -> ProviderHealth:
         """Recheck the provider after a state-changing request (a saved provider or sign-in):
@@ -1197,6 +1333,7 @@ def create_app(
         registry = setup_registry if setup_registry is not None else m1_registry()
         onboarding = OnboardingState(registry, _startup_inputs(config))
         runner = TaskRunner(registry=handlers)
+        server_loop[:] = [asyncio.get_running_loop()]
         workspace = None
         health: ProviderHealth | None = None
         if open_now:
@@ -1285,6 +1422,17 @@ def create_app(
         openapi_url=None,
     )
     app.state.wiring = app_wiring
+    app.state.data_erasure = DataErasureService(
+        erasable_folder,
+        app_wiring.secrets,
+        KNOWN_SECRET_KEYS,
+        config.config_dir,
+        close_workspace=close_workspace,
+        reopen=after_erase,
+        demo=config.demo,
+        bootstrap_folder=bootstrap_folder,
+        settle=settle_erase,
+    )
     practice = _practice(app, wiring=app_wiring, clock=app_clock, registry=handlers)
     app.state.practice = practice
     # The budget check in front of a started action (M2.24): the open workspace's usage.

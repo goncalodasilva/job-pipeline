@@ -749,6 +749,53 @@ def test_attach_log_folder_leaves_file_and_console_handlers_only(
     assert root.handlers == before
 
 
+def test_detach_log_folder_closes_the_file_and_allows_a_new_attach(
+    make_buffered_logging: Callable[..., LoggingSetup], log_dir: Path, tmp_path: Path
+) -> None:
+    root = logging.getLogger()
+    before = list(root.handlers)
+    setup = make_buffered_logging("INFO")
+    logger = logging.getLogger("jobpipeline.test.buffer")
+    setup.attach_log_folder(log_dir)
+    logger.info("first record")
+    flush_root()
+
+    setup.detach_log_folder()
+    setup.detach_log_folder()  # nothing attached: no-op
+
+    assert not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers)
+    logger.info("while detached")
+    assert "while detached" not in read_log_text(log_dir)
+    other = tmp_path / "other-logs"
+    setup.attach_log_folder(other)
+    logger.info("after reattach")
+    assert [r["message"] for r in read_log_records(other)] == ["after reattach"]
+
+    setup.close()
+    assert root.handlers == before
+
+
+def test_detach_log_folder_works_when_the_log_folder_was_attached_from_the_start(
+    make_logging: Callable[..., LoggingSetup], log_dir: Path, tmp_path: Path
+) -> None:
+    """A fixed data folder logs into its file from the start (no buffer): detaching closes it
+    and the same folder can be attached again after delete all data."""
+    root = logging.getLogger()
+    setup = make_logging("INFO")
+    logger = logging.getLogger("jobpipeline.test.fixed")
+    logger.info("first record")
+
+    setup.detach_log_folder()
+
+    assert not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers)
+    logger.info("while detached")
+    assert "while detached" not in read_log_text(log_dir)
+    other = tmp_path / "other-logs"
+    setup.attach_log_folder(other)
+    logger.info("after reattach")
+    assert [r["message"] for r in read_log_records(other)] == ["after reattach"]
+
+
 def test_buffer_keeps_most_recent_records_only(
     make_buffered_logging: Callable[..., LoggingSetup], log_dir: Path
 ) -> None:

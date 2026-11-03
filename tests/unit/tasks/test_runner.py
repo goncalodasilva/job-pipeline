@@ -450,6 +450,29 @@ async def test_runner_idles_without_workspace_then_runs_after_open(db: Database)
     assert len(handler.calls) == 1
 
 
+async def test_runner_detach_leaves_the_worker_idle_until_the_next_attach(db: Database) -> None:
+    """Delete all data closes the workspace: the runner lets go of its service, keeps running
+    and takes the next workspace's service."""
+    handler = Gated()
+    handler.release_all()
+    h = Harness(db, {ECHO: handler})
+    h.runner.attach(h.service, settings=_settings())
+    await h.runner.start()
+    try:
+        await asyncio.to_thread(h.runner.detach)
+        task_id = await h.enqueue()  # wakes the runner, which has no service any more
+        await _settle()
+        assert h.runner.status == "running"
+        assert handler.calls == []
+        assert (await h.row(task_id)).status == _status("queued")
+
+        await asyncio.to_thread(h.runner.attach, h.service, settings=_settings())
+        await h.changes.wait_status(task_id, "succeeded")
+    finally:
+        await h.runner.stop()
+    assert len(handler.calls) == 1
+
+
 async def test_runner_wakes_on_enqueue(db: Database) -> None:
     handler = Gated()
     handler.release_all()

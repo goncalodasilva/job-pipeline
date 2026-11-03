@@ -179,6 +179,8 @@ class _StartPlan:
     attach_log_folder: Callable[[Path], None] | None
     failed: str  # the one line printed when start-up fails
     data_folder_lock: DataFolderLock | None = None  # held from before logging writes (ADR-072)
+    detach_log_folder: Callable[[], None] | None = None  # delete all data closes the log file
+    reattach_log_folder: Callable[[Path], None] | None = None  # and logs again after a reopen
 
 
 def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) -> None:
@@ -195,13 +197,18 @@ def _run(config: RuntimeConfig, environ: Mapping[str, str], launcher: Launcher) 
             None,
             f"The app couldn't start. Details are in {config.data_dir / LOG_FOLDER}.",
             lock,
+            logging_setup.detach_log_folder,
+            logging_setup.attach_log_folder,
         )
     else:
         # First run: create nothing yet; step 1 opens the folder and the buffered records
         # move into its log file then. Until that, the console has them.
         logging_setup = configure_logging(None, config.log_level, redactor)
         plan = _StartPlan(
-            False, logging_setup.attach_log_folder, "The app couldn't start. Details are above."
+            False,
+            logging_setup.attach_log_folder,
+            "The app couldn't start. Details are above.",
+            detach_log_folder=logging_setup.detach_log_folder,
         )
     restore_hooks = install_exception_hooks()
     stop_polling = threading.Event()
@@ -291,6 +298,8 @@ def _start(
         open_at_startup=plan.open_at_startup,
         wiring=wiring,
         data_folder_lock=plan.data_folder_lock,
+        detach_log_folder=plan.detach_log_folder,
+        reattach_log_folder=plan.reattach_log_folder,
     )
     wiring.redactor.register(app.state.launch_token)  # the redactor logging uses
     if not launcher.port_free(config.port):

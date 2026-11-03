@@ -390,6 +390,22 @@ class LoggingSetup:
                 # Kept until close(), which stops its forwarding before the file closes.
             self._file_handler = file_handler
 
+    def detach_log_folder(self) -> None:
+        """Stop writing the log file and close it (delete all data removes the folder), so
+        ``attach_log_folder`` can be called again. Records go to the console only until then.
+        Does nothing when no log folder is attached."""
+        root = logging.getLogger()
+        with self._lock:
+            handler, self._file_handler = self._file_handler, None
+            if handler is None:
+                return
+            buffer, self._buffer = self._buffer, None
+            if buffer is not None:
+                with _handler_lock(buffer):
+                    buffer.stop_forwarding()  # nothing reopens the file being closed
+            root.removeHandler(handler)
+            handler.close()
+
     def close(self) -> None:
         root = logging.getLogger()
         with self._lock:
