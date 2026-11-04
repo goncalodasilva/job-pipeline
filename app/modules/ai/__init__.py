@@ -27,6 +27,11 @@ from app.domain.errors import (
 from app.domain.settings import AIProviderSettings, ProviderKind, Tier
 
 # Re-exported: services that count provider calls use these through this interface.
+from app.modules.ai.prompt_types import PromptConflict as PromptConflict
+from app.modules.ai.prompt_types import PromptError as PromptError
+from app.modules.ai.prompt_types import PromptRefused as PromptRefused
+from app.modules.ai.prompt_types import PromptStatus, PromptText
+from app.modules.ai.prompt_types import RefusalReason as RefusalReason
 from app.modules.ai.uninterrupted import reserve_uninterrupted as reserve_uninterrupted
 from app.modules.ai.uninterrupted import settled as settled
 
@@ -269,6 +274,26 @@ class AITaskRunner(Protocol):
         ...
 
 
+class PromptEditor(Protocol):
+    """Reads and edits the user's prompt overrides (spec 3.6; M9.3). Services get it
+    injected (built in wiring), so they never import the prompt module or its template
+    engine (ADR-055). Every method blocks (file work): call it from a sync route or worker
+    thread. ``status`` never raises for a broken override; the others raise ``PromptError``
+    (``PromptRefused`` for an unsafe text, ``PromptConflict`` for a stale content version)."""
+
+    def status(self, task: str) -> PromptStatus: ...
+
+    def default_text(self, task: str) -> PromptText: ...
+
+    def override_text(self, task: str) -> PromptText | None: ...
+
+    def save_override(
+        self, task: str, system: str, user: str, *, expected_content_version: str
+    ) -> PromptStatus: ...
+
+    def reset_override(self, task: str) -> None: ...
+
+
 class AIProvider(Protocol):
     # Read-only members, so implementations may use plain or narrower attributes or properties.
     @property
@@ -347,3 +372,8 @@ class AIProviderFactory(Protocol):
         *,
         data_dir: Path,
     ) -> AITaskRunner: ...
+
+    def prompt_editor(self, data_dir: Path) -> PromptEditor:
+        """The prompt editor over the same defaults and overrides folders as ``task_runner``
+        (``<data>/prompts/overrides``; building it creates nothing)."""
+        ...

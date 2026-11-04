@@ -559,6 +559,65 @@ def test_task_runner_refuses_unknown_provider(tmp_path: Path) -> None:
         )
 
 
+def test_prompt_editor_and_task_runner_share_one_library_and_overrides_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M9.3 part A: what the editor saves is what the next task reads (same defaults and
+    overrides folders), the interface is on the factory protocol, and building it creates
+    nothing."""
+    import importlib
+
+    ai = importlib.import_module("app.modules.ai")
+    assert hasattr(ai, "PromptEditor"), "app.modules.ai.PromptEditor doesn't exist yet"
+    assert hasattr(ai.AIProviderFactory, "prompt_editor")
+    wiring = wiring_for(allowed())
+    data_dir = tmp_path / "data"
+    provider = wiring.ai_provider(AIProviderSettings(kind="fake"), data_dir=data_dir)
+    libraries = record_init(monkeypatch, PromptLibrary)
+
+    runner = wiring.task_runner(provider, AIProviderSettings, data_dir=data_dir)
+    editor = wiring.prompt_editor(data_dir)
+
+    assert isinstance(runner, TaskExecutor)
+    assert libraries, "the editor is built over a prompt library"
+    for library in libraries:
+        assert Path(library["defaults_dir"]).resolve() == (REPO_ROOT / "prompts").resolve()
+        assert library["overrides_dir"] == data_dir / "prompts" / "overrides"
+    for name in ("status", "default_text", "override_text", "save_override", "reset_override"):
+        assert callable(getattr(editor, name, None)), f"the editor has no {name}"
+    assert not (data_dir / "prompts").exists(), "building the editor creates nothing"
+
+
+async def test_prompt_editor_save_is_what_the_task_runner_loads(tmp_path: Path) -> None:
+    from tests.fakes.ai import NotCancelled
+    from tests.fakes.usage import RecordingMeter
+
+    wiring = wiring_for(allowed())
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    editor = wiring.prompt_editor(data_dir)
+    provider = wiring.ai_provider(AIProviderSettings(kind="fake"), data_dir=data_dir)
+    runner = wiring.task_runner(provider, AIProviderSettings, data_dir=data_dir)
+    inputs = {"posting_context": "A fictional posting for a fictional keeper.", "job_id": "job-1"}
+    default = editor.default_text("summarize_job")
+
+    before = await runner.run_task("summarize_job", inputs, NotCancelled(), meter=RecordingMeter())
+    saved = editor.save_override(
+        "summarize_job",
+        default.system + "\nKeep the summary to two lines.",
+        default.user,
+        expected_content_version="none",
+    )
+    during = await runner.run_task("summarize_job", inputs, NotCancelled(), meter=RecordingMeter())
+    editor.reset_override("summarize_job")
+    after = await runner.run_task("summarize_job", inputs, NotCancelled(), meter=RecordingMeter())
+
+    assert saved.overridden is True and saved.error is None
+    assert before.prompt_version == str(saved.default_version)
+    assert during.prompt_version == f"{saved.default_version}+override"
+    assert after.prompt_version == before.prompt_version
+
+
 # --- the AI temp folder (ADR-057) -------------------------------------------------------------
 
 

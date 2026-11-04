@@ -1041,6 +1041,12 @@ def _publish_fact_services(
     app.state.skills = SkillService(db, clock, ids) if db is not None else None
 
 
+def _publish_prompt_editor(app: FastAPI, wiring: Wiring, data_dir: Path | None) -> None:
+    """The prompt editor over the open workspace's overrides folder (M9.3), on the app's
+    state for the routes; None while no workspace is open. Builds nothing on disk."""
+    app.state.prompt_editor = wiring.prompt_editor(data_dir) if data_dir is not None else None
+
+
 def _restart_runner(runner: TaskRunner, loop: list[asyncio.AbstractEventLoop]) -> None:
     """Stop the runner on its event loop, let go of the closing workspace and start it again,
     so a later workspace's tasks run. Called from a worker thread holding the open lock; on
@@ -1259,6 +1265,7 @@ def create_app(
             app.state.usage = UsageService(workspace.db, app_clock, app_ids, app_tz)
             app.state.provider_health = health[-1]
             _publish_fact_services(app, workspace.db, clock=app_clock, ids=app_ids)
+            _publish_prompt_editor(app, app_wiring, workspace.data_dir)
             app.state.workspace = workspace
             erased_folder.clear()
             return workspace
@@ -1284,6 +1291,7 @@ def create_app(
                 app.state.usage = None
                 app.state.provider_health = None
                 _publish_fact_services(app, None, clock=app_clock, ids=app_ids)
+                _publish_prompt_editor(app, app_wiring, None)
                 workspace.db.close()
                 if not data_dir_is_explicit(config) and data_folder_lock is not None:
                     # A folder chosen in step 1 may be opened again by step 1: the lock the
@@ -1420,6 +1428,9 @@ def create_app(
                 clock=app_clock,
                 ids=app_ids,
             )
+            _publish_prompt_editor(
+                app, app_wiring, workspace.data_dir if workspace is not None else None
+            )
             app.state.workspace = workspace
             app.state.open_workspace = open_workspace
             app.state.refresh_provider_health = refresh_provider_health
@@ -1454,6 +1465,7 @@ def create_app(
         openapi_url=None,
     )
     app.state.wiring = app_wiring
+    app.state.prompt_editor = None  # published with the workspace
     app.state.data_erasure = DataErasureService(
         erasable_folder,
         app_wiring.secrets,

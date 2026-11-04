@@ -13,12 +13,17 @@ untrusted content escape its ``<untrusted_document>`` block never loads. The ren
 the fixed ``UNTRUSTED_NOTICE`` to the system text itself, so no prompt or override can drop it.
 """
 
+import contextlib
+import hashlib
 import json
 import os
 import re
+import secrets
 import stat
+import threading
 import unicodedata
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, NoReturn, cast, get_args
@@ -32,6 +37,12 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from app.domain.fact_selection import GENERALIZE_INSTRUCTION, FactPromptBlock
 from app.domain.settings import Tier
+from app.modules.ai.prompt_types import REFUSAL_PROBLEMS, RefusalReason
+from app.modules.ai.prompt_types import PromptConflict as PromptConflict
+from app.modules.ai.prompt_types import PromptError as PromptError
+from app.modules.ai.prompt_types import PromptRefused as PromptRefused
+from app.modules.ai.prompt_types import PromptStatus as PromptStatus
+from app.modules.ai.prompt_types import PromptText as PromptText
 
 PROMPT_FILE: Final = "prompt.md"
 SCHEMA_FILE: Final = "schema.json"
@@ -88,13 +99,6 @@ _SAFE_CONTAINERS: Final = (nodes.Template, nodes.Output, nodes.If, nodes.For)
 _BANNED_NODES: Final = (nodes.Include, nodes.Import, nodes.FromImport, nodes.Extends)
 
 
-class PromptError(Exception):
-    """A prompt file is missing, malformed or unsafe, or could not be rendered.
-
-    Messages name the task and the problem, never input values.
-    """
-
-
 class UntrustedFilterError(ValueError):
     """The ``untrusted`` filter got content that isn't text, or a bad source or id."""
 
@@ -148,26 +152,401 @@ def prompt_tojson(value: object) -> str:
     return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
+_DIR_FLAGS: Final = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+_FILE_FLAGS: Final = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+_READ_CHUNK: Final = 64 * 1024
+NO_OVERRIDE: Final = "none"  # the content version of "no override file"
+_OVERRIDE_LABEL: Final = "prompt override"
+_NOT_A_FOLDER: Final = "the override folder must be a real folder, not a link or file."
+
+
+@dataclass(frozen=True)
+class _OverrideFile:
+    digest: str  # hex SHA-256 of every byte
+    data: bytes | None  # None when larger than MAX_PROMPT_FILE_BYTES
+
+
 class PromptLibrary:
-    """Loads prompts from the defaults folder (from wiring, ADR-044 item 13) and overrides."""
+    """Loads prompts from the defaults folder (from wiring, ADR-044 item 13) and overrides.
+
+    It is also the prompt editor (spec 3.6; M9.3): ``status``, ``default_text``,
+    ``override_text``, ``save_override`` and ``reset_override``. Overrides are read and
+    written through folder handles that never follow a link, below the data folder.
+    """
 
     def __init__(self, defaults_dir: Path, overrides_dir: Path | None = None) -> None:
         self._defaults_dir = defaults_dir
         self._overrides_dir = overrides_dir
+        self._write_lock = threading.Lock()
 
     def load(self, task: str) -> PromptTemplate:
-        if not isinstance(task, str) or not _NAME.fullmatch(task):
-            raise PromptError(f"Invalid prompt task name {task!r}.")
-        default = _load_folder(self._defaults_dir / task, task, label="prompt", schema=None)
+        default = self._default(task)
         if self._overrides_dir is None:
             return default
-        label = "prompt override"
-        if not _override_exists(self._overrides_dir, task, label):
+        found = self._read_override(task)
+        if found is None:
             return default
-        override = _load_folder(
-            self._overrides_dir / task, task, label=label, schema=default.output_schema
+        return _merge_override(default, _template_from_override(found, task, default))
+
+    # --- the editor ---------------------------------------------------------------------
+
+    def status(self, task: str) -> PromptStatus:
+        """Where the task's prompt stands. Raises ``PromptError`` for a bad task name or a
+        default that doesn't load; never for an override, whose problem is in ``error``."""
+        default = self._default(task)
+        version = int(default.version)
+        if self._overrides_dir is None:
+            return PromptStatus(version, False, None, None, NO_OVERRIDE)
+        try:
+            found = self._read_override(task)
+        except PromptError as problem:
+            return PromptStatus(version, True, None, str(problem), NO_OVERRIDE)
+        if found is None:
+            return PromptStatus(version, False, None, None, NO_OVERRIDE)
+        error: str | None = None
+        try:
+            _merge_override(default, _template_from_override(found, task, default))
+        except PromptError as problem:
+            error = str(problem)
+        return PromptStatus(version, True, _declared_version(found.data), error, found.digest)
+
+    def default_text(self, task: str) -> PromptText:
+        default = self._default(task)
+        return PromptText(default.system_source, default.user_source)
+
+    def override_text(self, task: str) -> PromptText | None:
+        """The override's sections, even when it doesn't load; ``None`` without one. Raises
+        ``PromptError`` when the file can't be read as sections at all."""
+        self._default(task)
+        if self._overrides_dir is None:
+            return None
+        found = self._read_override(task)
+        if found is None:
+            return None
+        text = _decode_override(found, task).replace("\r\n", "\n")
+        _, body = _split_front_matter(task, _OVERRIDE_LABEL, text)
+        system, user = _split_sections(task, _OVERRIDE_LABEL, body)
+        return PromptText(system, user)
+
+    def save_override(
+        self, task: str, system: str, user: str, *, expected_content_version: str
+    ) -> PromptStatus:
+        """Save the two sections as the task's override, then return its status.
+
+        The front matter is the default's (with its current version). The whole file goes
+        through the loader's own checks before anything is written, and the write is atomic.
+        Raises ``PromptRefused`` for an unsafe text, ``PromptConflict`` when the file isn't
+        the one ``expected_content_version`` names, and ``PromptError`` otherwise.
+        """
+        default = self._default(task)
+        if self._overrides_dir is None:
+            raise PromptError(f"Prompt override {task!r}: there is no overrides folder.")
+        data = _assemble_override(default, system, user)
+        with self._write_lock:
+            self._write_override(task, data, expected_content_version)
+        return self.status(task)
+
+    def reset_override(self, task: str) -> None:
+        """Remove the override so the default applies again. Never loads the override, and
+        does nothing without one. A link in the override's place is removed itself, never
+        followed. When other files remain in the task folder, ``prompt.md`` is removed, they
+        stay, and ``PromptError`` says so."""
+        self._default(task)
+        if self._overrides_dir is None:
+            return
+        with self._write_lock:
+            try:
+                self._remove_override(task)
+            except OSError:
+                _fail(task, _OVERRIDE_LABEL, "the override could not be reset.")
+
+    # --- internals ----------------------------------------------------------------------
+
+    def _default(self, task: str) -> PromptTemplate:
+        if not isinstance(task, str) or not _NAME.fullmatch(task):
+            raise PromptError(f"Invalid prompt task name {task!r}.")
+        return _load_folder(self._defaults_dir / task, task, label="prompt", schema=None)
+
+    def _split_overrides_dir(self) -> tuple[Path, tuple[str, ...]]:
+        """The folder opened normally, and the names below it that are never links."""
+        overrides_dir = self._overrides_dir
+        if overrides_dir is None:
+            raise PromptError("There is no overrides folder.")
+        names = (overrides_dir.parent.name, overrides_dir.name)
+        if all(names):
+            return overrides_dir.parent.parent, names
+        return overrides_dir.parent, (overrides_dir.name,)
+
+    @contextmanager
+    def _override_folder(
+        self,
+        task: str,
+        *,
+        create: bool,
+        created: list[tuple[int, str]] | None = None,
+    ) -> Iterator[int | None]:
+        """A handle on the task's override folder, ``None`` when it doesn't exist (and
+        ``create`` is off). Every folder below the anchor is opened without following links;
+        folders made here are private (0700) and listed in ``created``."""
+        anchor, names = self._split_overrides_dir()
+        with ExitStack() as stack:
+            try:
+                current = os.open(anchor, os.O_RDONLY | os.O_DIRECTORY)
+            except FileNotFoundError:
+                if create:
+                    _fail(task, _OVERRIDE_LABEL, "the data folder is missing.")
+                yield None
+                return
+            except OSError:
+                _fail(task, _OVERRIDE_LABEL, _NOT_A_FOLDER)
+            stack.callback(os.close, current)
+            for name in (*names, task):
+                made = False
+                if create:
+                    try:
+                        os.mkdir(name, mode=0o700, dir_fd=current)
+                        made = True
+                    except FileExistsError:
+                        pass
+                    except OSError:
+                        _fail(task, _OVERRIDE_LABEL, "the override folder could not be made.")
+                try:
+                    child = os.open(name, _DIR_FLAGS, dir_fd=current)
+                except FileNotFoundError:
+                    if create:
+                        _fail(task, _OVERRIDE_LABEL, "the override folder could not be made.")
+                    yield None
+                    return
+                except OSError:
+                    _fail(task, _OVERRIDE_LABEL, _NOT_A_FOLDER)
+                stack.callback(os.close, child)
+                if made:
+                    if created is not None:
+                        created.append((current, name))
+                    os.fchmod(child, 0o700)
+                current = child
+            yield current
+
+    def _read_override(self, task: str) -> _OverrideFile | None:
+        with self._override_folder(task, create=False) as folder:
+            if folder is None:
+                return None
+            return _read_prompt_file(folder, task)
+
+    def _write_override(self, task: str, data: bytes, expected: str) -> None:
+        _check_expected(task, self._read_override(task), expected)
+        created: list[tuple[int, str]] = []
+        tmp = f".{PROMPT_FILE}.{secrets.token_hex(8)}.tmp"
+        with self._override_folder(task, create=True, created=created) as folder:
+            if folder is None:
+                _fail(task, _OVERRIDE_LABEL, "the override folder could not be made.")
+            try:
+                _check_expected(task, _read_prompt_file(folder, task), expected)
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                with os.fdopen(os.open(tmp, flags, 0o600, dir_fd=folder), "wb") as stream:
+                    os.fchmod(stream.fileno(), 0o600)
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(tmp, PROMPT_FILE, src_dir_fd=folder, dst_dir_fd=folder)
+            except BaseException as problem:
+                _discard(folder, tmp, created)
+                if isinstance(problem, OSError):
+                    _fail(task, _OVERRIDE_LABEL, "the override could not be saved.")
+                raise
+            with contextlib.suppress(OSError):  # already in place; only durability is unconfirmed
+                os.fsync(folder)
+
+    def _remove_override(self, task: str) -> None:
+        anchor, names = self._split_overrides_dir()
+        with ExitStack() as stack:
+            try:
+                current = os.open(anchor, os.O_RDONLY | os.O_DIRECTORY)
+            except FileNotFoundError:
+                return
+            stack.callback(os.close, current)
+            for name in names:  # a link here is refused, and nothing is removed
+                try:
+                    current = os.open(name, _DIR_FLAGS, dir_fd=current)
+                except FileNotFoundError:
+                    return
+                except OSError:
+                    _fail(task, _OVERRIDE_LABEL, _NOT_A_FOLDER)
+                stack.callback(os.close, current)
+            try:
+                kind = os.stat(task, dir_fd=current, follow_symlinks=False).st_mode
+            except FileNotFoundError:
+                return
+            if stat.S_ISLNK(kind):  # the link entry only; its target is never touched
+                os.unlink(task, dir_fd=current)
+                return
+            if not stat.S_ISDIR(kind):
+                _fail(task, _OVERRIDE_LABEL, "the override folder isn't a folder; remove it.")
+            folder = os.open(task, _DIR_FLAGS, dir_fd=current)
+            stack.callback(os.close, folder)
+            removed = False
+            try:
+                kind = os.stat(PROMPT_FILE, dir_fd=folder, follow_symlinks=False).st_mode
+            except FileNotFoundError:
+                pass
+            else:
+                if stat.S_ISDIR(kind):
+                    _fail(task, _OVERRIDE_LABEL, f"{PROMPT_FILE} isn't a file; remove it.")
+                os.unlink(PROMPT_FILE, dir_fd=folder)
+                removed = True
+            if not os.listdir(folder):
+                os.rmdir(task, dir_fd=current)
+            elif removed:
+                _fail(
+                    task,
+                    _OVERRIDE_LABEL,
+                    "the override is removed, but other files in its folder were left in place.",
+                )
+
+
+# --- Editor helpers --------------------------------------------------------------------------
+
+
+def _read_prompt_file(folder: int, task: str) -> _OverrideFile | None:
+    """Read ``prompt.md`` in an override folder without following a link."""
+    try:
+        fd = os.open(PROMPT_FILE, _FILE_FLAGS, dir_fd=folder)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        _fail(task, _OVERRIDE_LABEL, f"{PROMPT_FILE} must be a regular file, not a link.")
+    try:
+        regular = stat.S_ISREG(os.fstat(fd).st_mode)
+    except OSError:
+        regular = False
+    if not regular:
+        os.close(fd)
+        _fail(task, _OVERRIDE_LABEL, f"{PROMPT_FILE} must be a regular file, not a link.")
+    with os.fdopen(fd, "rb") as stream:
+        digest = hashlib.sha256()
+        kept = bytearray()
+        oversize = False
+        try:
+            while chunk := stream.read(_READ_CHUNK):
+                digest.update(chunk)
+                if not oversize:
+                    kept += chunk
+                    if len(kept) > MAX_PROMPT_FILE_BYTES:
+                        oversize = True
+                        kept = bytearray()
+        except OSError:
+            _fail(task, _OVERRIDE_LABEL, f"{PROMPT_FILE} could not be read.")
+    return _OverrideFile(digest.hexdigest(), None if oversize else bytes(kept))
+
+
+def _check_expected(task: str, found: _OverrideFile | None, expected: str) -> None:
+    if (found.digest if found is not None else NO_OVERRIDE) != expected:
+        raise PromptConflict(
+            f"Prompt override {task!r}: it changed since you opened it. Reload and try again."
         )
-        return _merge_override(default, override)
+
+
+def _discard(folder: int, tmp: str, created: list[tuple[int, str]]) -> None:
+    """After a failed write: drop the temporary file and the folders this save made."""
+    with contextlib.suppress(OSError):
+        os.unlink(tmp, dir_fd=folder)
+    for parent, name in reversed(created):
+        with contextlib.suppress(OSError):
+            os.rmdir(name, dir_fd=parent)
+
+
+def _decode_override(found: _OverrideFile, task: str) -> str:
+    if found.data is None:
+        _fail(
+            task,
+            _OVERRIDE_LABEL,
+            f"{PROMPT_FILE} is larger than {MAX_PROMPT_FILE_BYTES // 1024} KiB.",
+        )
+    try:
+        return found.data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        _fail(task, _OVERRIDE_LABEL, f"{PROMPT_FILE} could not be read as UTF-8 text.")
+
+
+def _template_from_override(
+    found: _OverrideFile, task: str, default: PromptTemplate
+) -> PromptTemplate:
+    text = _decode_override(found, task)
+    return _template_from_text(
+        text, task, _OVERRIDE_LABEL, lambda: _copy_schema(default.output_schema)
+    )
+
+
+def _declared_version(data: bytes | None) -> int | None:
+    """The ``version`` the front matter claims, best effort; never raises."""
+    if data is None:
+        return None
+    try:
+        front, _ = _split_front_matter("", "", data.decode("utf-8-sig").replace("\r\n", "\n"))
+        meta = yaml.safe_load(front)
+    except Exception:
+        return None
+    version = meta.get("version") if isinstance(meta, dict) else None
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        return None
+    return version
+
+
+def _yaml_name(name: str) -> str:
+    """A name as a YAML scalar: plain like the default files, quoted when YAML would read
+    it as something else (``null``, ``yes``, ...)."""
+    return name if yaml.safe_load(name) == name else json.dumps(name)
+
+
+def _yaml_names(names: tuple[str, ...]) -> str:
+    return "[" + ", ".join(_yaml_name(name) for name in names) + "]"
+
+
+def _refused(task: str, reason: RefusalReason) -> PromptRefused:
+    return PromptRefused(reason, f"Prompt override {task!r}: {REFUSAL_PROBLEMS[reason]}")
+
+
+def _assemble_override(default: PromptTemplate, system: str, user: str) -> bytes:
+    """The override file for the two sections, checked by the loader's own code path."""
+    task = default.task
+    if not isinstance(system, str) or not isinstance(user, str):
+        raise PromptError(f"Prompt override {task!r}: the sections must be text.")
+    sections = []
+    for section in (system, user):
+        sections.append(section.replace("\r\n", "\n").replace("\r", "\n").strip())
+    system_text, user_text = sections
+    for section in sections:
+        if any(line.rstrip() == "---" for line in section.split("\n")):
+            raise _refused(task, "front_matter_in_body")
+        if _SECTION.search(section):
+            raise _refused(task, "stray_section_header")
+    front = "\n".join(
+        (
+            "---",
+            f"id: {_yaml_name(default.id)}",
+            f"version: {int(default.version)}",
+            f"task: {_yaml_name(task)}",
+            f"default_tier: {_yaml_name(default.default_tier)}",
+            f"output_schema: {SCHEMA_FILE}",
+            f"inputs: {_yaml_names(default.inputs)}",
+            f"untrusted_inputs: {_yaml_names(default.untrusted_inputs)}",
+            "---",
+        )
+    )
+    text = f"{front}\n\n## system\n\n{system_text}\n\n## user\n\n{user_text}\n"
+    data = text.encode("utf-8")
+    if len(data) > MAX_PROMPT_FILE_BYTES:
+        raise _refused(task, "oversize")
+    try:
+        template = _template_from_text(
+            text, task, _OVERRIDE_LABEL, lambda: _copy_schema(default.output_schema)
+        )
+        _merge_override(default, template)
+    except PromptRefused as problem:
+        raise _refused(task, problem.reason) from None
+    except PromptError:
+        raise _refused(task, "invalid_template") from None
+    return data
 
 
 def render_prompt(template: PromptTemplate, inputs: Mapping[str, object]) -> RenderedPrompt:
@@ -252,30 +631,11 @@ class _PromptEnvironment(ImmutableSandboxedEnvironment):
 # --- Loading ---------------------------------------------------------------------------------
 
 
-def _fail(task: str, label: str, problem: str) -> NoReturn:
-    raise PromptError(f"{label.capitalize()} {task!r}: {problem}")
-
-
-def _override_exists(overrides_dir: Path, task: str, label: str) -> bool:
-    """True when an override exists; refuse links, odd files and paths leaving the folder."""
-    folder = overrides_dir / task
-    prompt_file = folder / PROMPT_FILE
-    try:
-        folder_mode = os.lstat(folder).st_mode
-    except FileNotFoundError:
-        return False
-    if stat.S_ISLNK(folder_mode) or not stat.S_ISDIR(folder_mode):
-        _fail(task, label, "the override folder must be a real folder, not a link or file.")
-    try:
-        file_mode = os.lstat(prompt_file).st_mode
-    except FileNotFoundError:
-        return False
-    if stat.S_ISLNK(file_mode) or not stat.S_ISREG(file_mode):
-        _fail(task, label, f"{PROMPT_FILE} must be a regular file, not a link.")
-    root = overrides_dir.resolve()
-    if not prompt_file.resolve().is_relative_to(root):
-        _fail(task, label, "the override must stay inside the overrides folder.")
-    return True
+def _fail(task: str, label: str, problem: str, reason: RefusalReason | None = None) -> NoReturn:
+    message = f"{label.capitalize()} {task!r}: {problem}"
+    if reason is not None:
+        raise PromptRefused(reason, message)
+    raise PromptError(message)
 
 
 def _read_text(path: Path, task: str, label: str, *, max_bytes: int | None = None) -> str:
@@ -293,6 +653,19 @@ def _load_folder(
     folder: Path, task: str, *, label: str, schema: Mapping[str, Any] | None
 ) -> PromptTemplate:
     text = _read_text(folder / PROMPT_FILE, task, label, max_bytes=MAX_PROMPT_FILE_BYTES)
+    return _template_from_text(
+        text,
+        task,
+        label,
+        lambda: _copy_schema(schema) if schema is not None else _load_schema(folder, task, label),
+    )
+
+
+def _template_from_text(
+    text: str, task: str, label: str, schema: Callable[[], dict[str, Any]]
+) -> PromptTemplate:
+    """The one code path that turns prompt file text into a checked template: the loader
+    and the editor's save both use it."""
     front, body = _split_front_matter(task, label, text.replace("\r\n", "\n"))
     meta = _parse_front_matter(task, label, front)
     system_source, user_source = _split_sections(task, label, body)
@@ -306,9 +679,6 @@ def _load_folder(
         inputs=meta.inputs,
         untrusted_inputs=meta.untrusted_inputs,
     )
-    output_schema = (
-        _copy_schema(schema) if schema is not None else _load_schema(folder, task, label)
-    )
     return PromptTemplate(
         id=meta.id,
         task=task,
@@ -318,7 +688,7 @@ def _load_folder(
         untrusted_inputs=meta.untrusted_inputs,
         system_source=system_source,
         user_source=user_source,
-        output_schema=output_schema,
+        output_schema=schema(),
         overridden=False,
     )
 
@@ -465,13 +835,19 @@ def _check_sections(
                 task,
                 label,
                 f"the {section} section uses undeclared names {', '.join(undeclared)}.",
+                "undeclared_input",
             )
     _check_untrusted_usage(env, task, label, system_source, user_source, untrusted_inputs)
 
 
 def _check_structure(ast: nodes.Template, task: str, label: str, section: str) -> None:
     if any(True for _ in ast.find_all(_BANNED_NODES)):
-        _fail(task, label, f"the {section} section may not include, import or extend templates.")
+        _fail(
+            task,
+            label,
+            f"the {section} section may not include, import or extend templates.",
+            "include",
+        )
 
 
 def _check_untrusted_usage(
@@ -488,7 +864,12 @@ def _check_untrusted_usage(
     system_ast = _parse(env, task, label, "system", system_source)
     user_ast = _parse(env, task, label, "user", user_source)
     if any(name.name in untrusted_names for name in system_ast.find_all(nodes.Name)):
-        _fail(task, label, "untrusted inputs may only appear in the user section.")
+        _fail(
+            task,
+            label,
+            "untrusted inputs may only appear in the user section.",
+            "unwrapped_untrusted",
+        )
     allowed = {id(name) for name in _wrapped_untrusted_names(user_ast, untrusted_names)}
     for name in user_ast.find_all(nodes.Name):
         if name.name in untrusted_names and id(name) not in allowed:
@@ -497,6 +878,7 @@ def _check_untrusted_usage(
                 label,
                 f"untrusted input {name.name!r} must be rendered only as "
                 f"'{{{{ {name.name} | untrusted(source, id) }}}}'.",
+                "unwrapped_untrusted",
             )
 
 
@@ -506,7 +888,7 @@ def _parse(
     try:
         return env.parse(source)
     except TemplateSyntaxError:
-        _fail(task, label, f"the {section} section has a template syntax error.")
+        _fail(task, label, f"the {section} section has a template syntax error.", "template_syntax")
 
 
 def _wrapped_untrusted_names(

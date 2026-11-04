@@ -38,6 +38,7 @@ from app.modules.ai import (
     AIProvider,
     AITaskRunner,
     ModelChoice,
+    PromptEditor,
     ProviderChoice,
     ProviderHealth,
 )
@@ -305,9 +306,7 @@ class Wiring:
         defaults = _DEFAULTS_BY_PROVIDER.get(provider.name)
         if defaults is None:
             raise ValueError("Unknown AI provider.")
-        prompts = PromptLibrary(
-            defaults_dir=PROMPTS_DIR, overrides_dir=data_dir.joinpath(*OVERRIDES_FOLDER)
-        )
+        prompts = _prompt_library(data_dir)
         specs: Mapping[str, TaskSpec] = TASK_SPECS
         if self._is_allowed_fake(provider):
             specs = MappingProxyType({**TASK_SPECS, PRACTICE_SPEC.name: PRACTICE_SPEC})
@@ -318,6 +317,12 @@ class Wiring:
             provider_defaults=defaults,
             specs=specs,
         )
+
+    def prompt_editor(self, data_dir: Path) -> PromptEditor:
+        """The prompt editor (M9.3) over the defaults and the ``<data>/prompts/overrides``
+        folder the task runner reads: what it saves is what the next task uses. Nothing is
+        created here."""
+        return _prompt_library(data_dir)
 
     def script_practice(self, provider: AIProvider, *, outcome: str, delay_seconds: float) -> None:
         """Script the fake for one practice run (M2.17): every call takes ``delay_seconds``
@@ -444,6 +449,12 @@ def system_time_zone_name() -> str | None:
         return None
     # Only a name the interview form's own check accepts: the default is never refused.
     return name if name in available_timezones() else None
+
+
+def _prompt_library(data_dir: Path) -> PromptLibrary:
+    return PromptLibrary(
+        defaults_dir=PROMPTS_DIR, overrides_dir=data_dir.joinpath(*OVERRIDES_FOLDER)
+    )
 
 
 def clear_ai_temp(data_dir: Path) -> Path:
