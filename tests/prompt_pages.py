@@ -11,56 +11,79 @@ The pages
 - ``GET`` and ``HEAD /settings/prompts``: the area page "Prompts" (side list entry after "Lists
   and statuses", before "Sessions"; ``tests/settings_areas.py``). A token-free, read-only page.
   Its section is ``<section id="prompts-settings" class="settings-section"
-  aria-labelledby="prompts-heading">`` with ``<h2 id="prompts-heading">Prompts</h2>`` and
-  ``<ul id="prompt-list">`` of one ``<li id="prompt-<task>" data-task="<task>">`` for every task
-  of ``app.domain.tiers.DEFAULT_TIERS``, in that order. A row holds one link ``<a
-  id="prompt-link-<task>" href="/settings/prompts/<task>">`` whose text is the task's plain label
-  (``TASK_COPY``), the default version as text ("v3", from ``status.default_version``) and, as
-  text, one element ``data-badge="edited|default-updated|cant-load"`` per badge: "Edited" (an
-  override exists), "Default updated" (the override's ``base_version`` is below the default
-  version; a base above it is unknown and only "Edited") and "Can't load" (``status.error``).
-  Nothing on the page can be operated but its links: no form, input, textarea, button or
-  select. It holds no prompt text (default or override).
+  aria-labelledby="prompts-heading">`` with ``<h2 id="prompts-heading">Prompts</h2>``, a hint that
+  says in plain words that a poorly worded prompt can make results worse or less reliable and that
+  Reset goes back to the default, and that the app always adds its own untrusted-text notice and
+  honesty rule, and ``<ul id="prompt-list">`` of one ``<li id="prompt-<task>"
+  data-task="<task>">`` for every task of ``app.domain.tiers.DEFAULT_TIERS``, in that order. A row
+  holds one link ``<a id="prompt-link-<task>" href="/settings/prompts/<task>">`` whose text is
+  the task's plain label (``TASK_COPY``), the task's one-line description (``TASK_COPY``), the
+  default version as text ("Default v3", from ``status.default_version``) and, as text, one
+  element ``data-badge="edited|default-updated|cant-load"`` per badge: "Edited" (an override
+  exists), "Default updated" (the override's ``base_version`` is below the default version; a base
+  above it is unknown and only "Edited") and "Can't load" (``status.error``). Nothing on the page
+  can be operated but its links: no form, input, textarea, button or select. It holds no prompt
+  text (default or override).
 - ``GET`` and ``HEAD /settings/prompts/{task}``: the task page, a token-free shell (a ``PAGE_TAG``
   route; ``task`` must be a key of ``DEFAULT_TIERS``, otherwise a fixed plain-text 404 that never
   echoes the name). Same area chrome as the other Settings pages (side list with Prompts marked
   current: ``aria-current`` of ``page`` or ``true``), ``<h1 id="page-heading" data-autofocus>``
   with the task's label, a ``<title>`` that starts with the label and names "Prompts", "Settings"
-  and the app. It holds ``<p id="prompt-default-version">`` ("Default version: v3"), the badges as
-  above, ``<p id="prompt-base-version">`` ("Based on v2"; only with an override that has a base
-  version) and the placeholder ``<section id="prompt-editor" hx-get="/settings/prompts/<task>/
-  editor" hx-trigger="load" hx-swap="outerHTML">`` (a heading, a loading line and a ``<noscript>``
-  note). No form, input or textarea, no prompt text: an override is user-written text that may
+  and the app, an "All prompts" link and the placeholder ``<section id="prompt-editor"
+  hx-get="/settings/prompts/<task>/editor" hx-trigger="load" hx-swap="outerHTML">`` (a heading, a
+  loading line ``#prompt-editor-loading``, a ``hidden`` failure note ``#prompt-editor-failed`` with
+  a "Try again" link to the task page, and a ``<noscript>`` note). There is no summary on the shell
+  (no versions, badges or base version): the editor's one status line says where the prompt
+  stands. No form, input or textarea, no prompt text: an override is user-written text that may
   hold personal data (spec 2.9 rule 13). With ``HX-Request`` and the token: the main content only.
 - ``GET /settings/prompts/{task}/editor``: the protected fragment (token required, read only,
   ``Cache-Control: no-store``, never a page). The root is ``<section id="prompt-editor"
   class="settings-section" aria-labelledby="prompt-editor-heading">`` with ``<h2
-  id="prompt-editor-heading">`` and no ``hx-get``. Inside, escaped (no ``|safe``):
+  id="prompt-editor-heading">`` and no ``hx-get``. Inside, escaped (no ``|safe``), in this order:
 
   * ``<p id="prompt-status" tabindex="-1">``: "Using the default v3" (no override), "Edited, based
     on v3" (override on the current default), "The default was updated (v3 → v4) since you
     edited this prompt" (override based on another version; the numbers are base then default).
   * ``<p id="prompt-load-error">`` only when ``status.error``: a plain message, never prompt text.
+    It says tasks that use the prompt fail until the text is fixed or reset. When the override is
+    a link or a folder the app can't save over (``overridden``, an error and content version
+    "none") it says only Reset can fix it, and there is no ``#prompt-form`` at all.
   * ``<p id="prompt-notices">``: says the app always adds the untrusted-text notice and the
-    honesty rule (contains "always adds", "untrusted" and "honesty").
-  * ``<section id="prompt-default">``: the default text, read only (``#prompt-default-system``
-    and ``#prompt-default-user`` hold the two sections as text; no form; a textarea there must be
-    ``readonly``).
+    honesty rule (contains "always adds", "untrusted" and "honesty"), that the facts are those and
+    the answers the user provides, that the answer format stays the default's and that generated
+    text is still checked against the user's facts.
+  * ``<h3 id="prompt-version-heading">Your version</h3>``, a plain explanation of System and User
+    (``#prompt-sections-hint``), ``<ul id="prompt-inputs">`` with one ``<li>`` per declared input
+    of the default (``status.inputs``), each ``<code>`` name followed by the word "untrusted"
+    for those in ``status.untrusted_inputs``.
   * ``<form id="prompt-form" method="post" action="/settings/prompts/<task>" hx-post="...same...">``
     with hidden ``version`` (``status.content_version``), ``<textarea id="prompt-system"
-    name="system">`` labelled "System", ``<textarea id="prompt-user" name="user">`` labelled
-    "User" (prefilled from the override, else the default) and ``<button id="prompt-save"
-    type="submit">Save prompt</button>``.
-  * ``<form id="prompt-reset-form" method="post" action="/settings/prompts/<task>/reset"
-    hx-post="...same...">`` with the same hidden ``version`` and ``<button id="prompt-reset"
-    type="submit">Reset to default</button>``, present only when an override exists (also when
-    it does not load).
+    name="system">`` labelled "Your System text", ``<textarea id="prompt-user" name="user">``
+    labelled "Your User text" (prefilled from the override, else the default), under each a size
+    note ``#prompt-system-size`` / ``#prompt-user-size`` (the current size and the 256 KB limit,
+    as text) and ``<button id="prompt-save" type="submit">Save prompt</button>``.
+  * only when an override exists (also when it does not load): ``<button id="prompt-reset"
+    type="button" data-open-modal="#prompt-reset-dialog">Reset to default</button>`` and, after
+    it, ``<dialog id="prompt-reset-dialog" class="modal" data-modal data-modal-manual
+    data-return-focus="#prompt-reset">`` titled "Reset this prompt to the default?" with the text
+    "Your version will be removed. Unsaved typing here is lost.", the form ``<form
+    id="prompt-reset-form" method="post" action="/settings/prompts/<task>/reset"
+    hx-post="...same...">`` (hidden ``version``, submit button ``#prompt-reset-confirm``) and the
+    safe choice ``<button type="button" data-modal-close autofocus>Keep my version</button>``.
   * ``<section id="prompt-compare">`` only for an override that loads and whose base version is
-    below the default version: ``#prompt-compare-system`` and ``#prompt-compare-user`` each hold
-    one element of class ``diff-line`` per line of a server-side line diff of the CURRENT default
-    against the override. ``data-kind`` is ``added`` (in the override only; text starts with
-    "+"), ``removed`` (in the default only; starts with "-") or ``same``; the text of a line
-    follows its marker. The copy says it compares the current default with the user's version.
+    below the default version: heading "Your version compared with the current default";
+    ``#prompt-compare-system`` and ``#prompt-compare-user`` each hold elements of class
+    ``diff-line`` (one per changed line, with two lines of context) and ``diff-gap`` ("… N
+    unchanged lines") of a server-side line diff of the CURRENT default against the override. A
+    ``diff-line`` has ``data-kind`` ``added`` (in the override only), ``removed`` (in the default
+    only) or ``same``, a visually hidden "Added: " / "Removed: " on changed lines, the marker
+    ("+", "-" or a space) in ``.diff-marker`` and its text in ``.diff-text``. An unchanged section
+    says so instead of listing lines. The copy says it compares the current default with the user's
+    version and that it can't show what the update changed.
+  * ``<details id="prompt-default">`` (closed) with "Default text (read only)": ``#prompt-default-
+    system`` and ``#prompt-default-user`` hold the two sections as text; no form; a textarea there
+    must be ``readonly``.
+  * a second "All prompts" link ``#prompt-back-link-end`` after the forms.
   * A plain load takes no focus: nothing in the fragment has ``data-autofocus``.
 
 The POSTs (launch token and origin, otherwise 403; each field exactly once and nothing else,
@@ -72,19 +95,23 @@ otherwise a plain-text 400 ``INVALID_REQUEST``; 413 over the form cap; 404 for a
 - ``POST /settings/prompts/{task}/reset``: ``version`` only. Stale -> 409, nothing removed.
   Success (also when there was no override) -> 200 for htmx; the override is removed.
 
-Answers. htmx: the ``#prompt-editor`` fragment (no ``<html>``, never ``hx-get``) and an ``announce``
-in ``HX-Trigger``. Plain (no ``HX-Request``): success is 303 to ``/settings/prompts/<task>``;
-409 and 422 answer the whole task page with the editor already in place.
+Answers. htmx: the ``#prompt-editor`` fragment (no ``<html>``, never ``hx-get``, never an
+out-of-band summary) and, for a success only, an ``announce`` in ``HX-Trigger``. Plain (no
+``HX-Request``): success is 303 to ``/settings/prompts/<task>``; 409 and 422 answer the whole task
+page with the editor already in place.
 
 - 200 save: "Prompt saved."; reset: "Prompt reset to the default.". The status line has
   ``data-autofocus`` and is the only such element; the hidden versions are the new content version.
 - 409: ``<div id="prompt-conflict" role="alert" data-autofocus>`` holding ``VersionConflict.
-  message`` and a link to ``/settings/prompts/<task>``; the only ``data-autofocus``.
-- 422: the typed text kept (escaped) in the two textareas; at least one textarea has
-  ``aria-invalid="true"``, an ``aria-describedby`` naming an element of class ``field-error`` and
-  ``role="alert"`` with a fixed plain message per refusal reason; the first invalid textarea has
-  ``data-autofocus`` (and is the only one); the announcement starts with "Prompt not saved."
-  and, like every message, never repeats the typed text.
+  message`` and a link to ``/settings/prompts/<task>``; the only ``data-autofocus``. For a save the
+  typed text stays under it in two ``readonly`` textareas ``#prompt-unsaved-system`` /
+  ``#prompt-unsaved-user`` (labelled, escaped, no form, no way to overwrite) with the words "Your
+  unsaved text is below so you can copy it.".
+- 422: the typed text kept (escaped) in the two textareas; both have ``aria-invalid="true"``, an
+  ``aria-describedby`` naming the one element of class ``field-error`` with ``role="alert"`` whose
+  fixed plain message per refusal reason starts "Prompt not saved. Check both sections."; the first
+  text area has ``data-autofocus`` (and is the only one). A refusal is not announced a second time
+  (no ``announce``), and like every message never repeats the typed text.
 """
 
 import json
@@ -111,6 +138,7 @@ BADGE_WORDS: Final = {
     "cant-load": "Can't load",
 }
 NOTICE_WORDS: Final = ("always adds", "untrusted", "honesty")
+CHECK_BOTH: Final = "Check both sections."
 LEAK: Final = "kestrel-leak-marker-5521"  # planted in an override; a token-free page never holds it
 MARKER: Final = "kestrel_marker_0042"  # typed into a refused form; no message repeats it
 NO_VERSION: Final = "none"
@@ -238,14 +266,21 @@ def field_error(markup: str, field: Element) -> str:
     return texts[0]
 
 
-def diff_lines(markup: str, block_id: str) -> list[tuple[str, str]]:
-    """(data-kind, text) of each ``diff-line`` in the compare block."""
+def diff_rows(markup: str, block_id: str) -> list[tuple[str, str, str, str]]:
+    """(kind, marker, hidden word, text) of each ``diff-line`` and ``diff-gap`` in the compare
+    block, in order. A gap is ("gap", "", "", its text)."""
     box = by_known_id(markup, block_id)
-    return [
-        (str(e.attrs.get("data-kind")), e.text)
-        for e in inside(markup, box)
-        if "diff-line" in e.classes
-    ]
+    found: list[tuple[str, str, str, str]] = []
+    for e in inside(markup, box):
+        if "diff-gap" in e.classes:
+            found.append(("gap", "", "", e.text))
+        elif "diff-line" in e.classes:
+            parts = [c for c in inside(markup, e) if c.parent is e]
+            hidden = next((c.text for c in parts if "visually-hidden" in c.classes), "")
+            marker = next((c.text for c in parts if "diff-marker" in c.classes), "")
+            text = next((c.text for c in parts if "diff-text" in c.classes), "")
+            found.append((str(e.attrs.get("data-kind")), marker, hidden, text))
+    return found
 
 
 def said_of(headers: Any) -> str:

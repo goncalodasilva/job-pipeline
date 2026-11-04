@@ -37,6 +37,9 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from app.domain.fact_selection import GENERALIZE_INSTRUCTION, FactPromptBlock
 from app.domain.settings import Tier
+from app.modules.ai.prompt_types import (
+    MAX_PROMPT_FILE_BYTES as MAX_PROMPT_FILE_BYTES,
+)
 from app.modules.ai.prompt_types import OVERRIDE_TEMP_PATTERN, REFUSAL_PROBLEMS, RefusalReason
 from app.modules.ai.prompt_types import PromptConflict as PromptConflict
 from app.modules.ai.prompt_types import PromptError as PromptError
@@ -66,7 +69,6 @@ HONESTY_NOTICE: Final = (
     "person reviews every word."
 )
 
-MAX_PROMPT_FILE_BYTES: Final = 256 * 1024
 # Above this a prompt.md is not even hashed (a status check stays cheap whatever is on disk).
 MAX_HASHED_OVERRIDE_BYTES: Final = 4 * MAX_PROMPT_FILE_BYTES
 MAX_RENDERED_BYTES: Final = 2 * 1024 * 1024
@@ -251,20 +253,22 @@ class PromptLibrary:
         default that doesn't load; never for an override, whose problem is in ``error``."""
         default = self._default(task)
         version = int(default.version)
+        names = (default.inputs, default.untrusted_inputs)
         if self._overrides_dir is None:
-            return PromptStatus(version, False, None, None, NO_OVERRIDE)
+            return PromptStatus(version, False, None, None, NO_OVERRIDE, *names)
         try:
             found = self._read_override(task)
         except PromptError as problem:
-            return PromptStatus(version, True, None, str(problem), NO_OVERRIDE)
+            return PromptStatus(version, True, None, str(problem), NO_OVERRIDE, *names)
         if found is None:
-            return PromptStatus(version, False, None, None, NO_OVERRIDE)
+            return PromptStatus(version, False, None, None, NO_OVERRIDE, *names)
         error: str | None = None
         try:
             _merge_override(default, _template_from_override(found, task, default))
         except PromptError as problem:
             error = str(problem)
-        return PromptStatus(version, True, _declared_version(found.data), error, found.digest)
+        base = _declared_version(found.data)
+        return PromptStatus(version, True, base, error, found.digest, *names)
 
     def default_text(self, task: str) -> PromptText:
         default = self._default(task)

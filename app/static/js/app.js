@@ -152,6 +152,19 @@
     }
   });
 
+  // The Settings > Prompts placeholder (#prompt-editor with hx-get) could not fetch its editor:
+  // it stops saying "Loading" and shows its own failure note, with a link to try again.
+  function promptEditorFailed(event) {
+    var from = event.detail && event.detail.elt;
+    if (!(from instanceof Element) || from.id !== "prompt-editor" || !from.hasAttribute("hx-get")) return;
+    var loading = from.querySelector("[data-loading-note]");
+    var failed = from.querySelector("[data-failed-note]");
+    if (loading) loading.hidden = true;
+    if (failed) failed.hidden = false;
+  }
+  document.body.addEventListener("htmx:responseError", promptEditorFailed);
+  document.body.addEventListener("htmx:sendError", promptEditorFailed);
+
   // No response at all: the app was stopped or the connection dropped.
   document.body.addEventListener("htmx:sendError", function (event) {
     if (isTasksPanelFetch(event)) showTasksError(); else showProblem("offline", false);
@@ -247,7 +260,8 @@
 
   document.body.addEventListener("htmx:afterSettle", function () {
     if (openModal()) return;
-    var dialog = document.querySelector("dialog[data-modal]");
+    // A dialog marked data-modal-manual is part of the page and is opened by a button instead.
+    var dialog = document.querySelector("dialog[data-modal]:not([data-modal-manual])");
     if (dialog && typeof dialog.showModal === "function") {
       dialog.showModal();
       // A tall dialog on a phone must open at its title: focus the safe choice without scrolling
@@ -256,6 +270,20 @@
       if (first && typeof first.focus === "function") first.focus({preventScroll: true});
       dialog.scrollTop = 0;
     }
+  });
+
+  // A button with data-open-modal="<selector>" opens that dialog (Settings > Prompts: the reset
+  // question). Focus goes to its [autofocus] control, the safe choice, and the dialog starts at
+  // its title.
+  document.addEventListener("click", function (event) {
+    var opener = event.target instanceof Element ? event.target.closest("[data-open-modal]") : null;
+    if (!opener || openModal()) return;
+    var dialog = document.querySelector(opener.getAttribute("data-open-modal"));
+    if (!(dialog instanceof HTMLDialogElement) || dialog.open || typeof dialog.showModal !== "function") return;
+    dialog.showModal();
+    var first = dialog.querySelector("[autofocus]");
+    if (first && typeof first.focus === "function") first.focus({preventScroll: true});
+    dialog.scrollTop = 0;
   });
 
   document.addEventListener("click", function (event) {
@@ -293,7 +321,8 @@
     var selector = dialog.getAttribute("data-return-focus");
     var next = leaving ? modalLeavingTo : (selector ? document.querySelector(selector) : null);
     modalLeavingTo = null;
-    dialog.remove();
+    // A manual dialog stays in the page, closed, so it can be opened again.
+    if (!dialog.hasAttribute("data-modal-manual")) dialog.remove();
     if (next) focusQuietly(next);
   }, true);
 

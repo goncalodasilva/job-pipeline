@@ -127,6 +127,31 @@ def test_status_without_override_and_default_text(folders: Folders) -> None:
     assert folders.library.override_text(TASK) is None
 
 
+def test_status_names_the_defaults_inputs_and_which_are_untrusted(folders: Folders) -> None:
+    """The editor shows the names a prompt may use (M9.3 fix pass 2): they are the default's,
+    with or without an override, and also when the override doesn't load."""
+    expected = (("job_text", "preferences"), ("job_text",))
+
+    without = folders.library.status(TASK)
+    assert (without.inputs, without.untrusted_inputs) == expected
+
+    folders.save()
+    saved = folders.library.status(TASK)
+    assert (saved.inputs, saved.untrusted_inputs) == expected
+
+    folders.prompt_path.write_bytes(b"this is not a prompt file")
+    broken = folders.library.status(TASK)
+    assert broken.error
+    assert (broken.inputs, broken.untrusted_inputs) == expected
+
+
+def test_status_inputs_default_to_none_for_a_status_made_without_them() -> None:
+    from app.modules.ai import PromptStatus
+
+    bare = PromptStatus(1, False, None, None, "none")
+    assert bare.inputs == () and bare.untrusted_inputs == ()
+
+
 def test_override_records_base_version_and_status(folders: Folders) -> None:
     saved = folders.save()
 

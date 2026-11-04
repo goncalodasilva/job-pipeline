@@ -1,12 +1,12 @@
-{# Settings > Prompts > one task (M9.3 part B; spec 2.9 rule 13): a token-free shell. It holds the
-   summary and a placeholder that fetches the protected editor (GET /settings/prompts/{task}/editor)
-   as soon as it loads, with the launch token htmx sends on every request; the answer replaces it.
-   Loading takes no focus and announces nothing. A refused or stale plain form answers this whole
-   page with `editor` set, so the editor is already in place. Needs `prompt_task` and, then,
-   `editor` (app/api/prompt_forms.py). #}
-{% set summary = prompt_task.summary %}
-{% set summary_oob = false %}
-{% include "fragments/settings/_prompt_summary.html" %}
+{# Settings > Prompts > one task (M9.3 part B and fix pass 2; spec 2.9 rule 13): a token-free shell.
+   It holds a placeholder that fetches the protected editor (GET /settings/prompts/{task}/editor)
+   as soon as it loads, with the launch token htmx sends on every request; the answer replaces
+   it. Loading takes no focus and announces nothing. When the fetch fails (no answer, or an
+   error), app.js hides the loading line and shows the failure note in place, with a plain link
+   to try again. There is no summary of versions here: the editor's one status line says where
+   the prompt stands. A refused or stale plain form answers this whole page with `editor` set, so
+   the editor is already in place. Needs `prompt_task` and, then, `editor`
+   (app/api/prompt_forms.py). #}
 <p><a id="prompt-back-link" href="{{ prompt_task.list_url }}">All prompts</a></p>
 {% if editor is defined %}
 {% include "fragments/settings/_prompt_editor.html" %}
@@ -14,7 +14,11 @@
 <section id="prompt-editor" class="settings-section" aria-labelledby="prompt-editor-heading"
          hx-get="{{ prompt_task.editor_url }}" hx-trigger="load" hx-swap="outerHTML">
   <h2 id="prompt-editor-heading">Prompt text</h2>
-  <p class="field-hint">Loading the prompt…</p>
+  <p id="prompt-editor-loading" class="field-hint" data-loading-note>Loading the prompt…</p>
+  <div id="prompt-editor-failed" class="notice" role="status" data-failed-note hidden>
+    <p>The prompt couldn't be loaded. Reload the page to try again.</p>
+    <p><a href="{{ prompt_task.task_url }}">Try again</a></p>
+  </div>
   <noscript><p class="field-hint">The prompt text needs scripts to load here.</p></noscript>
 </section>
 {% endif %}

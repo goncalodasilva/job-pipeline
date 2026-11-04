@@ -21,6 +21,10 @@ RefusalReason = Literal[
     "invalid_template",
 ]
 
+# The most a prompt file may hold (the front matter and both sections); a larger text is refused
+# as "oversize" (spec 3.3). The editor shows it next to the size of what is typed.
+MAX_PROMPT_FILE_BYTES: Final = 256 * 1024
+
 # A temporary file the editor's atomic write may leave behind if the app stops mid-save
 # (``.prompt.md.<16 hex>.tmp``). It is never content: save and reset clear it, an export skips it.
 OVERRIDE_TEMP_PATTERN: Final = re.compile(r"\.prompt\.md\.[0-9a-f]{16}\.tmp")
@@ -77,7 +81,10 @@ class PromptStatus:
     version is a digest of its size, modification time and identity instead (so it still changes
     when the file does). It is ``"none"`` when there is no ``prompt.md``, and also when the entry
     is not a readable regular file (a link, or a folder in its place): both read as "none", so a
-    page that carried "none" can still save over or reset that entry.
+    page that carried "none" can still reset that entry (a save over it is refused).
+
+    ``inputs`` and ``untrusted_inputs`` are the names the default declares (an override keeps
+    them): the names a text may use, and those that carry text from outside the app.
     """
 
     default_version: int
@@ -85,6 +92,8 @@ class PromptStatus:
     base_version: int | None
     error: str | None
     content_version: str
+    inputs: tuple[str, ...] = ()
+    untrusted_inputs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

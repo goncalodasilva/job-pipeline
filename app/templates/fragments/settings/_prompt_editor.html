@@ -1,81 +1,133 @@
-{# Settings > Prompts > one task: the protected editor (M9.3 part B; ADR-055; spec 2.9 rule 13,
-   3.3 and 3.6). It replaces #prompt-editor (outerHTML), whether it arrives by the load of the
-   task page (GET .../editor) or as the answer to a form, and it never reloads itself. The prompt
-   text is shipped or user-written template text: it is always escaped, and the default is shown
-   as text, never rendered. Exactly one element of an answer takes focus (a plain load takes
-   none): the status line after a save or reset, the first text area after a refusal or the
-   reload prompt after a stale version (then there is no form, so a second Save can't overwrite
-   what changed elsewhere). Needs `editor` (app/api/prompt_forms.py). #}
+{# Settings > Prompts > one task: the protected editor (M9.3 part B and fix pass 2; ADR-055; spec
+   2.9 rule 13, 3.3 and 3.6). It replaces #prompt-editor (outerHTML), whether it arrives by the
+   load of the task page (GET .../editor) or as the answer to a form, and it never reloads itself.
+   The prompt text is shipped or user-written template text: it is always escaped, and the
+   default is shown as text, never rendered. Order: the one status line, the notices, "Your
+   version" (the inputs the text may use and the form), Reset (a native dialog that asks first),
+   the compare view when the default was updated, and the default text in a closed disclosure.
+   Exactly one element of an answer takes focus (a plain load takes none): the status line after
+   a save or reset, the first text area after a refusal or the reload prompt after a stale
+   version (then there is no form, so a second Save can't overwrite what changed elsewhere; the
+   text the user typed stays under it, read only, so it can be copied). A refusal is read out
+   once, by its alert. Needs `editor` (app/api/prompt_forms.py). #}
+{% macro diff_lines(diff) -%}
+{%- for line in diff.lines -%}
+{%- if line.kind == "gap" -%}
+<div class="diff-gap">{{ line.text }}</div>
+{%- else -%}
+<div class="diff-line" data-kind="{{ line.kind }}">{% if line.word %}<span class="visually-hidden">{{ line.word }}</span>{% endif %}<span class="diff-marker" aria-hidden="true">{{ line.marker }}</span><span class="diff-text">{{ line.text }}</span></div>
+{%- endif -%}
+{%- endfor -%}
+{%- endmacro %}
 <section id="prompt-editor" class="settings-section" aria-labelledby="prompt-editor-heading">
   <h2 id="prompt-editor-heading">Prompt text</h2>
   {% if editor.conflict %}
   {% set reload_id = "prompt-conflict" %}
   {% set reload_message = editor.conflict_message %}
+  {% if editor.unsaved %}
+  {% set reload_detail = "Your change was not saved. This prompt changed in another tab and now shows the latest. Your unsaved text is below so you can copy it." %}
+  {% else %}
   {% set reload_detail = "Your change was not saved. This prompt changed in another tab and now shows the latest. Check it and try again." %}
+  {% endif %}
   {% set reload_url = editor.task_url %}
   {% set reload_link = "Reload" %}
   {% include "fragments/shell/_reload_prompt.html" %}
+  {% if editor.unsaved %}
+  <section id="prompt-unsaved" class="prompt-unsaved" aria-labelledby="prompt-unsaved-heading">
+    <h3 id="prompt-unsaved-heading">Your unsaved text</h3>
+    <div class="field">
+      <label for="prompt-unsaved-system">Your unsaved System text</label>
+      <textarea id="prompt-unsaved-system" class="prompt-readonly" rows="10" readonly spellcheck="false">
+{{ editor.unsaved.system }}</textarea>
+    </div>
+    <div class="field">
+      <label for="prompt-unsaved-user">Your unsaved User text</label>
+      <textarea id="prompt-unsaved-user" class="prompt-readonly" rows="10" readonly spellcheck="false">
+{{ editor.unsaved.user }}</textarea>
+    </div>
+  </section>
+  {% endif %}
   {% else %}
   <p id="prompt-status" class="prompt-status" tabindex="-1"{% if editor.focus_status %} data-autofocus{% endif %}>{{ editor.status_line }}</p>
   {% if editor.message %}<p id="prompt-done" class="budget-done">{{ editor.message }}</p>{% endif %}
   {% if editor.load_error %}<p id="prompt-load-error" class="notice">{{ editor.load_error }}</p>{% endif %}
   <p id="prompt-notices" class="field-hint">{{ editor.notices }}</p>
 
-  <section id="prompt-default" class="prompt-default" aria-labelledby="prompt-default-heading">
-    <h3 id="prompt-default-heading">Default text (read only)</h3>
-    <h4 id="prompt-default-system-heading">System</h4>
-    <pre id="prompt-default-system" class="prompt-text">{{ editor.default.system }}</pre>
-    <h4 id="prompt-default-user-heading">User</h4>
-    <pre id="prompt-default-user" class="prompt-text">{{ editor.default.user }}</pre>
-  </section>
-
-  {% if editor.compare %}
-  <section id="prompt-compare" class="prompt-compare" aria-labelledby="prompt-compare-heading">
-    <h3 id="prompt-compare-heading">What changed in the default</h3>
-    <p class="field-hint">{{ editor.compare_copy }}</p>
-    <h4 id="prompt-compare-system-heading">System</h4>
-    <div id="prompt-compare-system" class="diff" role="group" aria-labelledby="prompt-compare-system-heading">
-      {% for line in editor.compare.system %}<div class="diff-line" data-kind="{{ line.kind }}">{{ line.marker }} {{ line.text }}</div>{% endfor %}
-    </div>
-    <h4 id="prompt-compare-user-heading">User</h4>
-    <div id="prompt-compare-user" class="diff" role="group" aria-labelledby="prompt-compare-user-heading">
-      {% for line in editor.compare.user %}<div class="diff-line" data-kind="{{ line.kind }}">{{ line.marker }} {{ line.text }}</div>{% endfor %}
-    </div>
-  </section>
-  {% endif %}
+  {% if editor.can_save %}
+  <h3 id="prompt-version-heading">Your version</h3>
+  <p id="prompt-sections-hint" class="field-hint">{{ editor.sections_hint }}</p>
+  <h4 id="prompt-inputs-heading">Inputs for this prompt</h4>
+  <p id="prompt-inputs-hint" class="field-hint">{{ editor.inputs_hint }}</p>
+  <ul id="prompt-inputs" class="prompt-inputs" aria-labelledby="prompt-inputs-heading">
+    {% for input in editor.inputs %}
+    <li><code>{{ input.name }}</code>{% if input.untrusted %} <span class="prompt-untrusted">untrusted: text from outside the app</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
 
   <form id="prompt-form" class="step-form prompt-form" method="post" action="{{ editor.task_url }}"
         hx-post="{{ editor.task_url }}" hx-target="#prompt-editor" hx-swap="outerHTML"
         hx-disabled-elt="find button" novalidate>
     <input type="hidden" name="version" value="{{ editor.version }}">
-    <p id="prompt-inputs-hint" class="field-hint">{{ editor.inputs_hint }}</p>
     {% if editor.error %}<p id="prompt-error" class="field-error" role="alert">{{ editor.error }}</p>{% endif %}
     <div class="field">
-      <label for="prompt-system">System</label>
-      <textarea id="prompt-system" name="system" rows="12" autocomplete="off" spellcheck="false" aria-describedby="prompt-inputs-hint{% if editor.invalid %} prompt-error{% endif %}"{% if editor.invalid %} aria-invalid="true" data-autofocus{% endif %}>
+      <label for="prompt-system">Your System text</label>
+      <textarea id="prompt-system" name="system" rows="12" autocomplete="off" spellcheck="false" aria-describedby="prompt-sections-hint prompt-inputs-hint prompt-system-size{% if editor.invalid %} prompt-error{% endif %}"{% if editor.invalid %} aria-invalid="true" data-autofocus{% endif %}>
 {{ editor.system }}</textarea>
+      <p id="prompt-system-size" class="field-hint">{{ editor.system_size }}</p>
     </div>
     <div class="field">
-      <label for="prompt-user">User</label>
-      <textarea id="prompt-user" name="user" rows="12" autocomplete="off" spellcheck="false" aria-describedby="prompt-inputs-hint{% if editor.invalid %} prompt-error{% endif %}"{% if editor.invalid %} aria-invalid="true"{% endif %}>
+      <label for="prompt-user">Your User text</label>
+      <textarea id="prompt-user" name="user" rows="12" autocomplete="off" spellcheck="false" aria-describedby="prompt-sections-hint prompt-inputs-hint prompt-user-size{% if editor.invalid %} prompt-error{% endif %}"{% if editor.invalid %} aria-invalid="true"{% endif %}>
 {{ editor.user }}</textarea>
+      <p id="prompt-user-size" class="field-hint">{{ editor.user_size }}</p>
     </div>
     <div class="form-actions"><button id="prompt-save" type="submit" class="button">Save prompt</button></div>
   </form>
+  {% endif %}
 
   {% if editor.can_reset %}
-  <form id="prompt-reset-form" class="step-form prompt-form" method="post" action="{{ editor.reset_url }}"
-        hx-post="{{ editor.reset_url }}" hx-target="#prompt-editor" hx-swap="outerHTML"
-        hx-disabled-elt="find button" novalidate>
-    <input type="hidden" name="version" value="{{ editor.version }}">
+  <div id="prompt-reset-box" class="prompt-reset">
     <p class="field-hint">Reset removes your version, so the default is used again.</p>
-    <div class="form-actions"><button id="prompt-reset" type="submit" class="button">Reset to default</button></div>
-  </form>
+    <div class="form-actions"><button id="prompt-reset" type="button" class="button" aria-haspopup="dialog" data-open-modal="#prompt-reset-dialog">Reset to default</button></div>
+  </div>
+  {# A native dialog that is part of the page, closed until the button above opens it (app.js:
+     data-modal-manual keeps it in place when it closes). The safe choice has autofocus; Esc
+     and "Keep my version" send nothing. #}
+  <dialog id="prompt-reset-dialog" class="modal" role="dialog" aria-modal="true"
+          aria-labelledby="prompt-reset-title" aria-describedby="prompt-reset-text"
+          data-modal data-modal-manual data-return-focus="#prompt-reset">
+    <h2 id="prompt-reset-title">Reset this prompt to the default?</h2>
+    <p id="prompt-reset-text">Your version will be removed. Unsaved typing here is lost.</p>
+    <div class="modal-actions">
+      <form id="prompt-reset-form" method="post" action="{{ editor.reset_url }}"
+            hx-post="{{ editor.reset_url }}" hx-target="#prompt-editor" hx-swap="outerHTML"
+            hx-disabled-elt="find button" novalidate>
+        <input type="hidden" name="version" value="{{ editor.version }}">
+        <button id="prompt-reset-confirm" type="submit" class="button button-primary">Reset to default</button>
+      </form>
+      <button type="button" class="button" data-modal-close autofocus>Keep my version</button>
+    </div>
+  </dialog>
   {% endif %}
+
+  {% if editor.compare %}
+  <section id="prompt-compare" class="prompt-compare" aria-labelledby="prompt-compare-heading">
+    <h3 id="prompt-compare-heading">Your version compared with the current default</h3>
+    <p class="field-hint">{{ editor.compare_copy }}</p>
+    <h4 id="prompt-compare-system-heading">System</h4>
+    <div id="prompt-compare-system" class="diff" role="group" aria-labelledby="prompt-compare-system-heading">{% if editor.compare.system.same %}<p class="diff-none">{{ editor.compare.system.same_copy }}</p>{% else %}{{ diff_lines(editor.compare.system) }}{% endif %}</div>
+    <h4 id="prompt-compare-user-heading">User</h4>
+    <div id="prompt-compare-user" class="diff" role="group" aria-labelledby="prompt-compare-user-heading">{% if editor.compare.user.same %}<p class="diff-none">{{ editor.compare.user.same_copy }}</p>{% else %}{{ diff_lines(editor.compare.user) }}{% endif %}</div>
+  </section>
   {% endif %}
+
+  <details id="prompt-default" class="prompt-default">
+    <summary>Default text (read only)</summary>
+    <p class="prompt-label"><strong>System</strong></p>
+    <pre id="prompt-default-system" class="prompt-text">{{ editor.default.system }}</pre>
+    <p class="prompt-label"><strong>User</strong></p>
+    <pre id="prompt-default-user" class="prompt-text">{{ editor.default.user }}</pre>
+  </details>
+  {% endif %}
+  <p><a id="prompt-back-link-end" href="{{ editor.list_url }}">All prompts</a></p>
 </section>
-{% if editor.refresh_summary %}
-{% set summary = editor.summary %}
-{% set summary_oob = true %}
-{% include "fragments/settings/_prompt_summary.html" %}
-{% endif %}

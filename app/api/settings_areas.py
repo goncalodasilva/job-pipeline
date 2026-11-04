@@ -208,7 +208,7 @@ def render_prompt_task(
     with the editor already in place, or for htmx the editor alone. Raises
     ``PromptUnavailable`` when the prompt's default doesn't load. Blocking."""
     status = editor.status(task)
-    shell = shell_context(task, status)
+    shell = shell_context(task)
     here = replace(
         settings_area("prompts"), content=PROMPT_TASK_CONTENT, heading=str(shell["label"])
     )

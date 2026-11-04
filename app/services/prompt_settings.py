@@ -11,6 +11,7 @@ editor's own, re-exported. Every method blocks (file work): call it from a sync 
 thread. Prompt text may hold personal data: nothing here logs it, and no message repeats it.
 """
 
+from app.modules.ai import MAX_PROMPT_FILE_BYTES as MAX_PROMPT_FILE_BYTES
 from app.modules.ai import PromptConflict, PromptEditor, PromptError, PromptRefused
 from app.modules.ai import PromptStatus as PromptStatus
 from app.modules.ai import PromptText as PromptText

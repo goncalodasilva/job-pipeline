@@ -3192,23 +3192,42 @@ blockquote.practice-answer { margin: var(--space-2) 0; }
 .prompt-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .prompt-list a { display: inline-flex; align-items: center; min-height: var(--target-min); }
 .prompt-version { color: var(--color-text-muted); }
-.prompt-badges { margin: 0 0 var(--space-3); }
+.prompt-description { flex-basis: 100%; margin: 0; }
 .prompt-status { font-weight: 600; margin-block: var(--space-3); }
+.prompt-inputs { margin-block: var(--space-2) var(--space-3); padding-inline-start: var(--space-4); }
+.prompt-untrusted { color: var(--color-text-muted); }
+.prompt-reset { margin-block: var(--space-3); }
+.prompt-label { margin: var(--space-3) 0 var(--space-1); }
+.prompt-default summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: var(--target-min);
+  display: flex;
+  align-items: center;
+}
 .prompt-text, .diff {
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.875rem;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
 }
-.diff-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.prompt-text { white-space: pre-wrap; }
+/* The compare view's lines are boxes of their own, so the markup between them can't show as blank
+   lines. A marker column sits next to a text column, so a wrapped line hangs under its own text. */
+.diff { white-space: normal; }
+.diff-line { display: flex; gap: var(--space-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-marker { flex: 0 0 1ch; }
+.diff-text { flex: 1 1 auto; min-width: 0; }
 .diff-line[data-kind="added"] { background: var(--color-accent-soft); font-weight: 600; }
-.diff-line[data-kind="removed"] { background: var(--color-warning-bg); text-decoration: line-through; }
-.prompt-form textarea {
+.diff-line[data-kind="removed"] { background: var(--color-warning-bg); }
+.diff-line[data-kind="removed"] .diff-text { text-decoration: line-through; }
+.diff-gap { color: var(--color-text-muted); padding-block: var(--space-1); }
+.diff-none { margin: 0; color: var(--color-text-muted); }
+.prompt-form textarea, .prompt-unsaved textarea {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -3216,4 +3235,7 @@ blockquote.practice-answer { margin: var(--space-2) 0; }
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.875rem;
 }
-.prompt-default h4, .prompt-compare h4 { margin-block: var(--space-3) var(--space-2); }
+.prompt-unsaved textarea { min-height: 8rem; }
+.prompt-compare h4 { margin-block: var(--space-3) var(--space-2); }
+/* The failure note of a placeholder that could not load: its link is a target of its own. */
+[data-failed-note] a { display: inline-flex; align-items: center; min-height: var(--target-min); }

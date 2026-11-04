@@ -2,13 +2,15 @@
 
 By keyboard only the user opens Prompts from the side list, opens a task, waits for the editor to
 load, edits the system text, saves (announced, the status line takes focus), reloads and finds the
-edit, adds an unsafe template (refused, announced, the refused field takes focus, nothing written),
-resets (announced, back to the default) and finds the list without a badge. At 390x844 and desktop
-size, in light and dark, the list and a task page (loading and loaded) do not scroll sideways, keep
-targets at least 24 by 24 px, keep the text areas usable and pass axe. The cap for the area is
-``AREA_TAB_BUDGET["prompts"]`` = 50 (``tests/e2e/settings_areas.py``). The markup is described in
-``tests/prompt_pages.py``. The app starts with a finished setup; nothing sleeps. Every value is
-fictional.
+edit, adds an unsafe template (refused once, in an alert; the refused field takes focus; nothing
+written), asks to reset (a native dialog: Esc keeps everything, the safe choice has focus), resets
+through the dialog (announced, back to the default) and finds the list without a badge. At 390x844
+and desktop size, in light and dark, the list and a task page (loading and loaded, and the reset
+dialog open) do not scroll sideways, keep targets at least 24 by 24 px, keep the text areas usable
+and pass axe. When the editor can't be fetched the placeholder says so, with a way to try again.
+The cap for the area is ``AREA_TAB_BUDGET["prompts"]`` = 50 (``tests/e2e/settings_areas.py``).
+The markup is described in ``tests/prompt_pages.py``. The app starts with a finished setup;
+nothing sleeps. Every value is fictional.
 """
 
 import re
@@ -155,6 +157,40 @@ def refused_field_is_focused(page: Page) -> bool:
     return focused
 
 
+def assert_compare_layout(page: Page, default_system: str) -> None:
+    """The compare view reads cleanly: no blank lines from template whitespace, the marker apart
+    from the text so a wrapped line hangs under its own text, and a long unchanged run
+    collapsed to one separator line."""
+    first = page.locator("#prompt-compare-system .diff-line").first
+    expect(first).to_be_visible()
+    layout = page.evaluate(
+        """() => {
+          const box = document.getElementById('prompt-compare-system');
+          const line = box.querySelector('.diff-line');
+          const top = box.firstElementChild;
+          const marker = line.querySelector('.diff-marker');
+          const text = line.querySelector('.diff-text');
+          const style = getComputedStyle(box);
+          const pad = parseFloat(style.paddingTop);
+          return {
+            white: style.whiteSpace,
+            gap: top.getBoundingClientRect().top - box.getBoundingClientRect().top - pad,
+            markerRight: marker.getBoundingClientRect().right,
+            textLeft: text.getBoundingClientRect().left,
+            lineDisplay: getComputedStyle(line).display,
+          };
+        }"""
+    )
+    assert layout["white"] == "normal", layout  # template whitespace can't make blank lines
+    assert abs(layout["gap"]) < 6, layout  # the first row starts at the top
+    assert layout["textLeft"] >= layout["markerRight"] - 0.5, layout  # a hanging indent
+    assert layout["lineDisplay"] == "flex", layout
+    if len(default_system.split("\n")) >= 8:
+        expect(page.locator("#prompt-compare-system .diff-gap").first).to_contain_text(
+            "unchanged lines"
+        )
+
+
 # --- the keyboard path ---------------------------------------------------------------------------
 
 
@@ -207,23 +243,52 @@ def test_prompt_edit_save_and_reset_by_keyboard(running_app: RunningApp, browser
         page.keyboard.type(f"\n{UNSAFE_LINE}")
         tab_to(page, page.locator("#prompt-save"))
         page.keyboard.press("Enter")
-        page.wait_for_function(
-            "(text) => (window.__said || []).some((said) => said.startsWith(text))",
-            arg=NOT_SAVED,
-        )
         page.wait_for_function("() => document.activeElement.tagName === 'TEXTAREA'")
         assert refused_field_is_focused(page), "the refused field is focused and tied to its alert"
+        expect(page.locator("#prompt-error")).to_contain_text(NOT_SAVED)
+        expect(page.locator("#prompt-error")).to_contain_text("Check both sections.")
+        said: list[str] = page.evaluate("() => window.__said || []")
+        assert not [x for x in said if x.startswith(NOT_SAVED)], "a refusal is read out once"
         expect(page.locator("#prompt-user")).to_have_value(re.compile(re.escape("kestrel_marker")))
         assert file.read_bytes() == saved_bytes, "a refused template writes nothing"
         assert_no_serious_violations(page)
 
-        # --- reset: back to the default --------------------------------------------------------
+        # --- reset asks first: Esc keeps the file and the typing, focus goes back --------------
+        dialog = page.locator("#prompt-reset-dialog")
+        keep = page.get_by_role("button", name="Keep my version")
+        expect(dialog).to_be_hidden()
         tab_to(page, page.locator("#prompt-reset"))
+        page.keyboard.press("Enter")
+        expect(dialog).to_be_visible()
+        expect(
+            dialog.get_by_role("heading", name="Reset this prompt to the default?")
+        ).to_be_visible()
+        expect(dialog).to_contain_text("Your version will be removed. Unsaved typing here is lost.")
+        expect(keep).to_be_focused()
+        page.keyboard.press("Escape")
+        expect(dialog).to_be_hidden()
+        expect(page.locator("#prompt-reset")).to_be_focused()
+        assert file.read_bytes() == saved_bytes, "Esc sends nothing"
+        expect(page.locator("#prompt-user")).to_have_value(re.compile(re.escape("kestrel_marker")))
+        # "Keep my version" closes it the same way
+        page.keyboard.press("Enter")
+        expect(keep).to_be_focused()
+        page.keyboard.press("Enter")
+        expect(dialog).to_be_hidden()
+        expect(page.locator("#prompt-reset")).to_be_focused()
+        assert file.read_bytes() == saved_bytes
+
+        # --- reset: back to the default, through the dialog -----------------------------------
+        page.keyboard.press("Enter")
+        expect(keep).to_be_focused()
+        page.keyboard.press("Shift+Tab")
+        expect(page.locator("#prompt-reset-confirm")).to_be_focused()
         page.keyboard.press("Enter")
         wait_said(page, RESET)
         expect(page.locator("#prompt-status")).to_be_focused()
         expect(page.locator("#prompt-status")).to_have_text(using_default(base))
         expect(page.locator("#prompt-reset")).to_have_count(0)
+        expect(page.locator("#prompt-reset-dialog")).to_have_count(0)
         expect(page.locator("#prompt-system")).not_to_have_value(re.compile(re.escape(EDIT_LINE)))
         assert not file.exists() and not file.parent.exists()
 
@@ -299,6 +364,7 @@ def test_prompts_area_phone_390x844_and_axe(
             default_updated(default_version(updated) - 1, default_version(updated))
         )
         expect(page.locator("#prompt-compare")).to_be_visible()
+        assert_compare_layout(page, library(app).default_text(updated).system)
         assert editor_took_no_focus(page), "a plain load of the editor takes no focus"
         wait_for_settled_styles(page)
         assert_fits(page, f"task loaded {label}")
@@ -330,3 +396,68 @@ def test_prompts_area_phone_390x844_and_axe(
         expect(field).to_have_value(re.compile(r" typed$"))
         assert_fits(page, f"task typed {label}")
         assert_no_serious_violations(page)
+
+        # --- the reset question, open: fits the screen, usable targets, no axe findings --------
+        page.locator("#prompt-reset").click()
+        dialog = page.locator("#prompt-reset-dialog")
+        expect(dialog).to_be_visible()
+        expect(page.get_by_role("button", name="Keep my version")).to_be_focused()
+        wait_for_settled_styles(page)
+        assert_fits(page, f"reset dialog {label}")
+        box = dialog.bounding_box()
+        assert box is not None
+        assert box["x"] >= 0 and box["x"] + box["width"] <= viewport["width"], box
+        assert box["y"] >= 0 and box["y"] + box["height"] <= viewport["height"], box
+        assert_target_size(page.locator("#prompt-reset-confirm"), "reset confirm")
+        assert_target_size(page.get_by_role("button", name="Keep my version"), "keep my version")
+        assert_no_serious_violations(page)
+        page.keyboard.press("Escape")
+        expect(dialog).to_be_hidden()
+        expect(page.locator("#prompt-reset")).to_be_focused()
+        expect(field).to_have_value(re.compile(r" typed$"))  # cancelling lost nothing
+
+
+# --- the editor can't be fetched ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("failure", ["offline", "server_error"])
+def test_prompt_editor_fetch_failure_is_said_in_place_with_a_way_to_try_again(
+    running_app: RunningApp, browser: Browser, failure: str
+) -> None:
+    """The request for the editor is held, then fails (no connection, or a 500): the placeholder
+    stops saying "Loading" and says the prompt couldn't be loaded, with a "Try again" link to the
+    task page. The link works once the route answers again."""
+    app = running_app
+    held: list[Route] = []
+    with new_page(browser, DESKTOP) as page:
+        page.route(EDITOR_ROUTE, lambda route: held.append(route))
+        open_app(page, app, task_path(TASK))
+        page.wait_for_function("() => document.querySelector('#prompt-editor.htmx-request')")
+        editor = page.locator("#prompt-editor")
+        expect(editor).to_contain_text(LOADING)
+        expect(page.locator("#prompt-editor-failed")).to_be_hidden()
+        assert len(held) == 1, "one request for the editor"
+
+        if failure == "offline":
+            held[0].abort()
+        else:
+            held[0].fulfill(status=500, body="fictional failure", content_type="text/plain")
+
+        failed = page.locator("#prompt-editor-failed")
+        expect(failed).to_be_visible()
+        expect(failed).to_contain_text(
+            "The prompt couldn't be loaded. Reload the page to try again."
+        )
+        expect(page.locator("#prompt-editor-loading")).to_be_hidden()
+        expect(page.locator("#prompt-form")).to_have_count(0)
+        again = failed.get_by_role("link", name="Try again")
+        expect(again).to_have_attribute("href", task_path(TASK))
+        assert_target_size(again, "try again")
+        assert_fits(page, f"fetch failure {failure}")
+        wait_for_settled_styles(page)
+        assert_no_serious_violations(page)
+
+        page.unroute(EDITOR_ROUTE)
+        again.click()
+        wait_task_loaded(page)
+        expect(page.locator("#prompt-status")).to_have_text(using_default(default_version(TASK)))

@@ -27,6 +27,7 @@ from app.domain.errors import (
 from app.domain.settings import AIProviderSettings, ProviderKind, Tier
 
 # Re-exported: services that count provider calls use these through this interface.
+from app.modules.ai.prompt_types import MAX_PROMPT_FILE_BYTES as MAX_PROMPT_FILE_BYTES
 from app.modules.ai.prompt_types import OVERRIDE_TEMP_PATTERN as OVERRIDE_TEMP_PATTERN
 from app.modules.ai.prompt_types import PromptConflict as PromptConflict
 from app.modules.ai.prompt_types import PromptError as PromptError

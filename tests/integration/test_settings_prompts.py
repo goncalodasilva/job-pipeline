@@ -21,8 +21,9 @@ from urllib.parse import quote
 import pytest
 from fastapi.routing import APIRoute
 
-from app.api.prompt_forms import REFUSAL_FALLBACK, REFUSAL_MESSAGES
+from app.api.prompt_forms import REFUSAL_FALLBACK, REFUSAL_MESSAGES, format_size
 from app.api.security import PAGE_TAG
+from app.api.task_tier_forms import TASK_COPY
 from app.domain.errors import VersionConflict
 from app.domain.tiers import DEFAULT_TIERS
 from app.modules.ai import RefusalReason
@@ -39,6 +40,7 @@ from tests.lists_pages import ids_are_unique, label_text
 from tests.prompt_override_support import snapshot, write_override_bytes
 from tests.prompt_pages import (
     BADGE_WORDS,
+    CHECK_BOTH,
     INVALID,
     LEAK,
     MARKER,
@@ -57,7 +59,7 @@ from tests.prompt_pages import (
     block_text,
     by_known_id,
     default_updated,
-    diff_lines,
+    diff_rows,
     edited_on,
     editor_path,
     editor_section,
@@ -228,8 +230,10 @@ def test_prompts_list_has_every_task_in_order_with_plain_labels_and_versions(
     tmp_path: Path,
 ) -> None:
     """One row per task of ``DEFAULT_TIERS`` in that order: the plain label as the one link to
-    the task page, the default version as text, no badge on a fresh install, nothing to operate
-    and no prompt text. The htmx content is the same list."""
+    the task page, the task's one-line description, the default version as text ("Default v3"),
+    no badge on a fresh install, nothing to operate and no prompt text. The hint says in plain
+    words that a poor prompt can make results worse and that Reset goes back, and that the app
+    always adds its own notices. The htmx content is the same list."""
     with prompts_app(tmp_path) as p:
         for label, response in (
             ("page", p.get(PATH)),
@@ -242,6 +246,9 @@ def test_prompts_list_has_every_task_in_order_with_plain_labels_and_versions(
             assert section.tag == "section"
             assert section.attrs.get("aria-labelledby") == "prompts-heading"
             assert by_known_id(markup, "prompts-heading").text == "Prompts"
+            hint = one_line(section_hint(markup)).lower()
+            assert "worse or less reliable" in hint and "reset" in hint, hint
+            assert all(word in hint for word in NOTICE_WORDS), hint
             rows = list_rows(markup)
             assert [str(r.attrs["data-task"]) for r in rows] == list(DEFAULT_TIERS), label
             for task, row in zip(DEFAULT_TIERS, rows, strict=True):
@@ -250,7 +257,8 @@ def test_prompts_list_has_every_task_in_order_with_plain_labels_and_versions(
                 assert [(e.attrs.get("id"), e.attrs.get("href"), e.text) for e in links] == [
                     (f"prompt-link-{task}", task_path(task), label_of(task))
                 ], (label, task)
-                assert f"v{p.default_version(task)}" in row.text, (label, task, row.text)
+                assert f"Default v{p.default_version(task)}" in row.text, (label, task, row.text)
+                assert TASK_COPY[task][1] in row.text, (label, task, "its one-line description")
                 assert badges_in(markup, row) == [], (label, task)
             assert operable(markup, section) == [], f"{label}: the list can't be operated"
             assert ids_are_unique(markup) is None
@@ -261,6 +269,13 @@ def test_prompts_list_has_every_task_in_order_with_plain_labels_and_versions(
         for task in (TASK, p.versioned_task()):
             first_line = p.editor.default_text(task).system.splitlines()[0]
             assert first_line not in p.get(PATH).text
+
+
+def section_hint(markup: str) -> str:
+    box = by_known_id(markup, "prompts-settings")
+    return " ".join(
+        e.text for e in elements(markup) if e.tag == "p" and e.within(box) and e.parent is box
+    )
 
 
 def test_prompts_list_badges_come_from_the_override_files(tmp_path: Path) -> None:
@@ -294,14 +309,13 @@ def test_prompts_list_badges_come_from_the_override_files(tmp_path: Path) -> Non
         for task in TASKS:
             if task not in (edited, updated, unsafe, garbage):
                 assert shown[task] == [], task
-        # the same words on the task page shell, which also names the base version
-        shell = p.get(task_path(updated)).text
-        assert sorted(badges_in(shell)) == sorted(shown[updated])
-        base_text = by_known_id(shell, "prompt-base-version").text
-        assert f"v{base}" in base_text, base_text
-        assert BADGE_WORDS["cant-load"] in badges_in(p.get(task_path(garbage)).text)
-        assert badges_in(p.get(task_path("assess_fit")).text).count("Can't load") == 1
-        assert by_id(p.get(task_path("extract_cv")).text, "prompt-base-version") is None
+        # the task page says it once, in the editor's one status line (the shell has no copy)
+        status_line = by_known_id(p.fragment(updated).text, "prompt-status").text
+        assert status_line == default_updated(base, p.default_version(updated))
+        for task in (updated, edited, unsafe, garbage):
+            assert badges_in(p.get(task_path(task)).text) == [], "no badges on the task page"
+        for task in (unsafe, garbage):
+            assert by_known_id(p.fragment(task).text, "prompt-load-error").text
 
 
 # --- the task page: a token-free shell --------------------------------------------------------
@@ -311,9 +325,11 @@ def test_prompts_list_badges_come_from_the_override_files(tmp_path: Path) -> Non
 def test_prompt_task_page_is_a_shell_that_loads_the_protected_editor(
     tmp_path: Path, state: str
 ) -> None:
-    """Spec 2.9 rule 13: the token-free page holds the heading, the label, the versions and the
-    badges, plus a placeholder that fetches the protected editor on load. It has no form and no
-    prompt text; the htmx content (token needed) is the same shell without ``<html>``."""
+    """Spec 2.9 rule 13: the token-free page holds the heading, the label and a placeholder that
+    fetches the protected editor on load (with a hidden note for a failed fetch). It has no form,
+    no prompt text and no summary of versions or badges (the editor's status line is the one
+    place that says where the prompt stands); the htmx content (token needed) is the same shell
+    without ``<html>``."""
     with prompts_app(tmp_path) as p:
         task = p.versioned_task()
         default = p.default_version(task)
@@ -343,25 +359,25 @@ def test_prompt_task_page_is_a_shell_that_loads_the_protected_editor(
             assert [link.text for link in links] == NAV_LABELS
             current = [link for link in links if link.attrs.get("aria-current") in ("page", "true")]
             assert [link.text for link in current] == ["Prompts"], label
-            version_line = by_known_id(markup, "prompt-default-version").text
-            assert f"v{default}" in version_line, version_line
-            expected = {
-                "default": [],
-                "edited": [BADGE_WORDS["edited"]],
-                "default_updated": [BADGE_WORDS["edited"], BADGE_WORDS["default-updated"]],
-            }[state]
-            assert sorted(badges_in(markup)) == sorted(expected), (label, state)
-            base = by_id(markup, "prompt-base-version")
-            if state == "default":
-                assert base is None
-            else:
-                wanted = default - 1 if state == "default_updated" else default
-                assert base is not None and f"v{wanted}" in base.text, (state, base)
+            for gone in ("prompt-summary", "prompt-default-version", "prompt-base-version"):
+                assert by_id(markup, gone) is None, f"#{gone}: the editor's status line says it"
+            assert badges_in(markup) == [], (label, state)
+            back = by_known_id(markup, "prompt-back-link")
+            assert back.tag == "a" and back.attrs.get("href") == PATH
             holder = editor_section(markup)
             assert holder.attrs.get("hx-get") == editor_path(task)
             assert "load" in str(holder.attrs.get("hx-trigger"))
             assert holder.attrs.get("hx-swap") == "outerHTML"
             assert holder.text, "the placeholder says it is loading"
+            loading = by_known_id(markup, "prompt-editor-loading")
+            assert loading.within(holder) and "hidden" not in loading.attrs
+            failed = by_known_id(markup, "prompt-editor-failed")
+            assert failed.within(holder) and "hidden" in failed.attrs, "shown only on a failure"
+            assert "couldn't be loaded" in failed.text and "Reload the page" in failed.text
+            again = [e for e in elements(markup) if e.tag == "a" and e.within(failed)]
+            assert [(a.text, a.attrs.get("href")) for a in again] == [
+                ("Try again", task_path(task))
+            ]
             assert not [e for e in main_of(markup) if e.tag in ("form", "input", "textarea")]
             for line in (text.system.splitlines()[0], text.user.splitlines()[0]):
                 assert line not in markup, f"{label}: no prompt text on the token-free page"
@@ -506,7 +522,7 @@ def test_prompt_text_escaped(tmp_path: Path) -> None:
             assert same_text(textarea_text(markup, "prompt-system"), system)
             assert same_text(textarea_text(markup, "prompt-user"), user)
             added = [
-                t for kind, t in diff_lines(markup, "prompt-compare-system") if kind == "added"
+                t for kind, _, _, t in diff_rows(markup, "prompt-compare-system") if kind == "added"
             ]
             assert any("<script id=" in t for t in added), "the compare view shows it as text"
             assert [e.tag for e in elements(markup) if e.tag in ("script", "img", "b")] == []
@@ -609,49 +625,104 @@ def test_prompt_editor_fragment_shows_default_override_status_and_forms(tmp_path
             assert by_known_id(markup, "prompt-editor-heading").tag == "h2"
             assert by_known_id(markup, "prompt-status").text == wanted
             assert by_known_id(markup, "prompt-status").attrs.get("tabindex") == "-1"
+            assert by_id(markup, "prompt-summary") is None, "one status line, no second summary"
             assert by_id(markup, "prompt-load-error") is None
             notices = by_known_id(markup, "prompt-notices").text.lower()
             assert all(word in notices for word in NOTICE_WORDS), notices
+            assert "facts and answers you provide" in notices, notices
+            assert "answer format" in notices and "default" in notices, notices
+            assert "checked against your facts" in notices, notices
+            # the form comes first; the default sits in a closed disclosure below it
+            order = [e.attrs.get("id") for e in elements(markup) if e.attrs.get("id")]
+            assert order.index("prompt-form") < order.index("prompt-default"), order
+            box = by_known_id(markup, "prompt-default")
+            assert box.tag == "details" and "open" not in box.attrs, "closed by default"
+            summary = [e for e in elements(markup) if e.tag == "summary" and e.within(box)]
+            assert [s.text for s in summary] == ["Default text (read only)"]
             assert one_line(block_text(markup, "prompt-default-system")) == one_line(text.system)
             assert one_line(block_text(markup, "prompt-default-user")) == one_line(text.user)
-            box = by_known_id(markup, "prompt-default")
             assert not [e for e in elements(markup) if e.tag == "form" and e.within(box)]
             assert all(
                 "readonly" in e.attrs
                 for e in elements(markup)
                 if e.tag == "textarea" and e.within(box)
             )
+            heading = by_known_id(markup, "prompt-version-heading")
+            assert heading.tag == "h3" and heading.text == "Your version"
+            hint = by_known_id(markup, "prompt-sections-hint").text
+            assert "System" in hint and "User" in hint, hint
+            declared = p.status(task)
+            listed = by_known_id(markup, "prompt-inputs")
+            names = [e for e in elements(markup) if e.tag == "li" and e.within(listed)]
+            assert [li.text.split()[0] for li in names] == list(declared.inputs)
+            for li in names:
+                marked = "untrusted" in li.text.lower()
+                assert marked == (li.text.split()[0] in declared.untrusted_inputs), li.text
+            assert declared.untrusted_inputs, "this task has an untrusted input to mark"
             form = by_known_id(markup, "prompt-form")
             assert form.tag == "form" and form.attrs.get("method") == "post"
             assert form.attrs.get("action") == task_path(task)
             assert form.attrs.get("hx-post") == task_path(task)
             assert textarea_text(markup, "prompt-system") == system.strip()
             assert textarea_text(markup, "prompt-user") == user.strip()
-            for identifier, name, word in (
-                ("prompt-system", "system", "System"),
-                ("prompt-user", "user", "User"),
+            for identifier, name, words in (
+                ("prompt-system", "system", "Your System text"),
+                ("prompt-user", "user", "Your User text"),
             ):
                 area = by_known_id(markup, identifier)
                 assert area.attrs.get("name") == name and area.within(form)
-                assert word in label_text(markup, area)
+                assert label_text(markup, area) == words
+                size = by_known_id(markup, f"{identifier}-size").text
+                assert "256 KB" in size, size
+                assert re.search(r"\d[\d.,]* (bytes?|KB)", size), size
+                assert f"{identifier}-size" in str(area.attrs.get("aria-describedby")).split()
             save = by_known_id(markup, "prompt-save")
             assert save.tag == "button" and save.attrs.get("type") == "submit"
             assert save.text == "Save prompt" and save.within(form)
             version = p.status(task).content_version
             assert form_version(markup, "prompt-form") == version
             if reset:
+                opener = by_known_id(markup, "prompt-reset")
+                assert opener.tag == "button" and opener.text == "Reset to default"
+                assert opener.attrs.get("type") == "button" and not opener.within(form)
+                assert opener.attrs.get("data-open-modal") == "#prompt-reset-dialog"
+                dialog = by_known_id(markup, "prompt-reset-dialog")
+                assert dialog.tag == "dialog" and "data-modal" in dialog.attrs
+                assert "data-modal-manual" in dialog.attrs and "open" not in dialog.attrs
+                assert dialog.attrs.get("role") == "dialog"
+                assert dialog.attrs.get("aria-modal") == "true"
+                assert dialog.attrs.get("data-return-focus") == "#prompt-reset"
+                title = by_known_id(markup, str(dialog.attrs["aria-labelledby"]))
+                assert title.within(dialog)
+                assert title.text == "Reset this prompt to the default?"
+                said = by_known_id(markup, str(dialog.attrs["aria-describedby"]))
+                assert said.text == "Your version will be removed. Unsaved typing here is lost."
                 reset_form = by_known_id(markup, "prompt-reset-form")
+                assert reset_form.within(dialog)
                 assert reset_form.attrs.get("action") == reset_path(task)
                 assert reset_form.attrs.get("hx-post") == reset_path(task)
                 assert form_version(markup, "prompt-reset-form") == version
-                button = by_known_id(markup, "prompt-reset")
-                assert button.tag == "button" and button.text == "Reset to default"
-                assert button.within(reset_form)
+                confirm = by_known_id(markup, "prompt-reset-confirm")
+                assert confirm.tag == "button" and confirm.attrs.get("type") == "submit"
+                assert confirm.within(reset_form) and confirm.text == "Reset to default"
+                keep = [
+                    e
+                    for e in elements(markup)
+                    if e.tag == "button" and e.within(dialog) and "data-modal-close" in e.attrs
+                ]
+                assert [(k.text, "autofocus" in k.attrs) for k in keep] == [
+                    ("Keep my version", True)
+                ]
             else:
                 assert by_id(markup, "prompt-reset-form") is None
                 assert by_id(markup, "prompt-reset") is None
+                assert by_id(markup, "prompt-reset-dialog") is None
+            ends = by_known_id(markup, "prompt-back-link-end")
+            assert ends.tag == "a" and ends.attrs.get("href") == PATH and ends.text == "All prompts"
+            assert order.index("prompt-back-link-end") > order.index("prompt-save")
             assert autofocus(markup) == [], "a plain load takes no focus"
             assert "<html" not in markup
+            assert "hx-swap-oob" not in markup
             ids_are_unique(markup)
 
         response = p.fragment(task)
@@ -679,6 +750,9 @@ def test_prompt_editor_fragment_shows_default_override_status_and_forms(tmp_path
         )
         compare = by_known_id(response.text, "prompt-compare")
         assert "current default" in compare.text.lower(), compare.text
+        heading = by_known_id(response.text, "prompt-compare-heading")
+        assert heading.text == "Your version compared with the current default"
+        assert "can't show what the update changed" in compare.text, compare.text
         # htmx and plain token-holding requests get the same fragment
         assert get_token(p.run, editor_path(task), htmx=True).text == response.text
 
@@ -689,12 +763,15 @@ def version_none(markup: str) -> bool:
 
 def test_prompt_compare_view_marks_added_and_removed_lines(tmp_path: Path) -> None:
     """When the default was updated the fragment compares the CURRENT default with the user's
-    version, line by line, with a text marker on each changed line ("-" only in the default,
-    "+" only in the override) and escaped text."""
+    version, line by line: a text marker and a visually hidden word ("Removed:", "Added:") on
+    each changed line, two lines of context around a change, every longer unchanged run
+    collapsed to "… N unchanged lines", escaped text, and a plain note for an unchanged
+    section."""
     with prompts_app(tmp_path) as p:
         task = p.versioned_task()
         default = p.editor.default_text(task)
         lines = default.system.split("\n")
+        assert len(lines) >= 8, "the shipped default is long enough to collapse"
         first = lines[0]
         system = "\n".join([*lines[1:], HOSTILE_LINE])
         p.editor.save_override(task, system, default.user, expected_content_version=NO_VERSION)
@@ -703,17 +780,30 @@ def test_prompt_compare_view_marks_added_and_removed_lines(tmp_path: Path) -> No
         markup = p.fragment(task).text
         compare = by_known_id(markup, "prompt-compare")
         assert compare.tag == "section" and compare.attrs.get("aria-labelledby")
-        shown = diff_lines(markup, "prompt-compare-system")
-        assert {kind for kind, _ in shown} <= {"added", "removed", "same"}
-        removed = [text for kind, text in shown if kind == "removed"]
-        added = [text for kind, text in shown if kind == "added"]
-        assert [t[0] for t in removed] == ["-"] and one_line(first) == removed[0][1:].strip()
-        assert [t[0] for t in added] == ["+"] and one_line(HOSTILE_LINE) == added[0][1:].strip()
-        assert any(kind == "same" for kind, _ in shown), "unchanged lines are shown too"
-        order = [kind for kind, _ in shown if kind != "same"]
-        assert order == ["removed", "added"], "the removed first line comes before the added last"
-        other = diff_lines(markup, "prompt-compare-user")
-        assert other and {kind for kind, _ in other} == {"same"}, "the user section is unchanged"
+        shown = diff_rows(markup, "prompt-compare-system")
+        assert {row[0] for row in shown} <= {"added", "removed", "same", "gap"}
+        removed = [row for row in shown if row[0] == "removed"]
+        added = [row for row in shown if row[0] == "added"]
+        assert [(r[1], r[2]) for r in removed] == [("-", "Removed:")]
+        assert one_line(first) == removed[0][3], "the marker is not part of the line's text"
+        assert [(r[1], r[2]) for r in added] == [("+", "Added:")]
+        assert one_line(HOSTILE_LINE) == added[0][3]
+        assert all(row[2] == "" for row in shown if row[0] in ("same", "gap"))
+        assert [row[0] for row in shown] == [
+            "removed",
+            "same",
+            "same",
+            "gap",
+            "same",
+            "same",
+            "added",
+        ], "two lines of context around each change, the unchanged run between them collapsed"
+        gap = next(row for row in shown if row[0] == "gap")
+        hidden = len(lines) - 1 - 4  # all but the removed line and the four context lines
+        assert gap[3] == f"… {hidden} unchanged lines"
+        # nothing in the user section changed: no lines, a plain note
+        assert diff_rows(markup, "prompt-compare-user") == []
+        assert block_text(markup, "prompt-compare-user") == "No differences in this section."
         assert by_id(markup, "injected-diff") is None
 
 
@@ -754,15 +844,20 @@ def test_prompt_override_that_does_not_load_shows_the_error_and_can_be_reset(
         assert BADGE_WORDS["cant-load"] in badges_in(
             p.get(PATH).text, row_of(p.get(PATH).text, TASK)
         )
-        assert BADGE_WORDS["cant-load"] in badges_in(p.get(task_path(TASK)).text)
+        assert p.get(task_path(TASK)).status_code == 200, "the shell answers; the editor says why"
         response = p.fragment(TASK)
         markup = response.text
-        error = by_known_id(markup, "prompt-load-error")
-        assert error.text, "a plain message"
+        error = by_known_id(markup, "prompt-load-error").text
+        assert "tasks that use this prompt will fail" in error, error
+        assert "fixed or reset to the default" in error, error
+        assert "app update" in error, error
+        assert "so the default is used" not in error, "the default is not used meanwhile"
         assert "kestrel" not in markup.lower()
         assert by_id(markup, "prompt-compare") is None
+        assert by_known_id(markup, "prompt-form"), "a file that can be read is fixed by saving"
         reset_form = by_known_id(markup, "prompt-reset-form")
-        assert by_known_id(markup, "prompt-reset").within(reset_form)
+        assert reset_form.within(by_known_id(markup, "prompt-reset-dialog"))
+        assert by_known_id(markup, "prompt-reset").attrs.get("type") == "button"
 
         done = p.post(reset_path(TASK), {"version": form_version(markup, "prompt-reset-form")})
         assert done.status_code == 200, done.status_code
@@ -774,6 +869,52 @@ def test_prompt_override_that_does_not_load_shows_the_error_and_can_be_reset(
         assert by_id(done.text, "prompt-load-error") is None
         assert by_id(done.text, "prompt-reset-form") is None
         assert badges_in(p.get(PATH).text, row_of(p.get(PATH).text, TASK)) == []
+
+
+@pytest.mark.parametrize("kind", ["prompt_link", "folder_link", "prompt_directory"])
+def test_prompt_override_that_is_a_link_or_folder_offers_only_reset(
+    tmp_path: Path, kind: str
+) -> None:
+    """A link, or a folder where the file belongs, can't be saved over (a save is refused with
+    a plain 500): the editor says so, offers only Reset and has no save form to fail with. A
+    reset of a link removes the link itself and never touches what it points at."""
+    with prompts_app(tmp_path) as p:
+        folder = p.overrides / TASK
+        folder.mkdir(parents=True)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "prompt.md"
+        target.write_text("fictional target text", encoding="utf-8")
+        if kind == "prompt_link":
+            (folder / "prompt.md").symlink_to(target)
+        elif kind == "folder_link":
+            folder.rmdir()
+            folder.symlink_to(outside, target_is_directory=True)
+        else:
+            (folder / "prompt.md").mkdir()
+        status = p.status(TASK)
+        assert status.overridden and status.error and status.content_version == NO_VERSION
+
+        markup = p.fragment(TASK).text
+
+        error = by_known_id(markup, "prompt-load-error").text
+        assert "link or a folder" in error and "can't be saved over" in error, error
+        assert "Reset" in error and "tasks that use this prompt will fail" in error.lower(), error
+        assert "or save new text" not in error and "by hand" in error
+        assert by_id(markup, "prompt-form") is None, "nothing to save into"
+        assert by_id(markup, "prompt-system") is None and by_id(markup, "prompt-save") is None
+        assert by_known_id(markup, "prompt-reset").attrs.get("type") == "button"
+        assert by_known_id(markup, "prompt-reset-form") and by_known_id(markup, "prompt-default")
+        assert BADGE_WORDS["cant-load"] in badges_in(
+            p.get(PATH).text, row_of(p.get(PATH).text, TASK)
+        )
+        if kind == "prompt_directory":
+            return  # the app can't remove a folder either; the message points at doing it by hand
+        done = p.post(reset_path(TASK), {"version": form_version(markup, "prompt-reset-form")})
+        assert done.status_code == 200, done.status_code
+        assert not (folder / "prompt.md").is_symlink() and not folder.is_symlink()
+        assert target.read_text(encoding="utf-8") == "fictional target text"
+        assert not p.status(TASK).overridden
 
 
 # --- saving ------------------------------------------------------------------------------------
@@ -850,7 +991,7 @@ def test_prompt_save_succeeds_announces_and_keeps_the_edit(tmp_path: Path) -> No
         assert by_id(markup, "prompt-compare") is None
         listed = p.get(PATH).text
         assert badges_in(listed, row_of(listed, TASK)) == [BADGE_WORDS["edited"]]
-        assert by_known_id(p.get(task_path(TASK)).text, "prompt-base-version")
+        assert by_id(markup, "prompt-summary") is None and "hx-swap-oob" not in markup
         # the saved text is what a new request for the fragment shows
         assert same_text(textarea_text(p.fragment(TASK).text, "prompt-system"), system)
 
@@ -943,7 +1084,9 @@ def test_prompt_save_over_the_form_cap_is_413(tmp_path: Path) -> None:
 
 def test_prompt_stale_version_is_409_before_the_text_is_looked_at(tmp_path: Path) -> None:
     """The content version is checked first: a stale version with an unsafe text is a 409 (not a
-    422), nothing is written, and the answer is the reload prompt that takes focus."""
+    422), nothing is written, and the answer is the reload prompt that takes focus. The text the
+    user typed is not lost: it stays under the prompt in read-only text areas (escaped, no form,
+    so there is nothing to overwrite with) with the words that say they can copy it."""
     with prompts_app(tmp_path) as p:
         p.edit(TASK)  # the page the user has open still carries "none"
         before = p.state()
@@ -961,13 +1104,30 @@ def test_prompt_stale_version_is_409_before_the_text_is_looked_at(tmp_path: Path
         links = [e for e in elements(markup) if e.tag == "a" and e.within(prompt)]
         assert [link.attrs.get("href") for link in links] == [task_path(TASK)]
         assert autofocus(markup) == [prompt]
-        assert MARKER not in markup
+        assert by_id(markup, "prompt-form") is None and by_id(markup, "prompt-save") is None
+        assert "Your unsaved text is below so you can copy it." in prompt.text
+        unsaved = [e for e in elements(markup) if e.tag == "textarea"]
+        assert [e.attrs.get("id") for e in unsaved] == [
+            "prompt-unsaved-system",
+            "prompt-unsaved-user",
+        ]
+        for area, words in zip(
+            unsaved, ("Your unsaved System text", "Your unsaved User text"), strict=True
+        ):
+            assert "readonly" in area.attrs and "aria-invalid" not in area.attrs
+            assert label_text(markup, area) == words
+        assert same_text(textarea_text(markup, "prompt-unsaved-system"), unsafe)
+        assert same_text(textarea_text(markup, "prompt-unsaved-user"), unsafe)
+        assert markup.count(MARKER) == 2, "the typed text appears only in the read-only areas"
+        assert MARKER not in prompt.text and "<script" not in markup.lower()
+        assert not [e for e in elements(markup) if e.tag in ("form", "input", "button")]
         assert p.state() == before
 
         # the same for a reset whose page is stale
         reset = p.post(reset_path(TASK), {"version": NO_VERSION})
         assert reset.status_code == 409
         assert by_known_id(reset.text, "prompt-conflict").attrs.get("role") == "alert"
+        assert by_id(reset.text, "prompt-unsaved-system") is None, "a reset has no typed text"
         assert p.file(TASK).is_file()
         assert p.state() == before
 
@@ -995,10 +1155,11 @@ def test_prompt_refused_template_is_422_in_place_with_a_fixed_message_per_reason
     tmp_path: Path,
 ) -> None:
     """A text the safety checks refuse is a 422 that nothing is written for: the typed text
-    stays in the text areas, a refused text area is ``aria-invalid`` and tied to a fixed
-    message that is an alert, the first refused text area takes focus, the announcement says it
-    was not saved, and no message repeats what was typed. The message differs per reason and
-    does not depend on the typed text."""
+    stays in the text areas, both text areas are ``aria-invalid`` (no reason names a section) and
+    tied to one fixed message that is an alert and says "Prompt not saved. Check both sections.",
+    the first text area takes focus, the refusal is not announced a second time, and no message
+    repeats what was typed. The message differs per reason and does not depend on the typed
+    text."""
     with prompts_app(tmp_path) as p:
         before = p.state()
         messages: dict[str, str] = {}
@@ -1010,11 +1171,11 @@ def test_prompt_refused_template_is_422_in_place_with_a_fixed_message_per_reason
                 markup = response.text
                 assert "<html" not in markup
                 invalid = invalid_fields(markup)
-                assert invalid, f"{reason}: no text area is marked invalid"
-                assert {e.attrs.get("id") for e in invalid} <= {"prompt-system", "prompt-user"}
+                assert [e.attrs.get("id") for e in invalid] == ["prompt-system", "prompt-user"]
                 found = {field_error(markup, field) for field in invalid}
                 assert len(found) == 1, f"{reason}: one message per refusal: {found}"
                 message = found.pop()
+                assert message.startswith(f"{NOT_SAVED} {CHECK_BOTH} "), message
                 assert message and marker not in message
                 assert messages.setdefault(reason, message) == message, (
                     f"{reason}: the message depends on the typed text"
@@ -1027,13 +1188,47 @@ def test_prompt_refused_template_is_422_in_place_with_a_fixed_message_per_reason
                     f"{reason}: the typed text appears only in the text areas"
                 )
                 assert form_version(markup, "prompt-form") == NO_VERSION
-                heard = said_of(response.headers)
-                assert heard.startswith(NOT_SAVED) and marker not in heard, heard
+                assert not has_announce(response.headers), f"{reason}: said twice"
                 for name, value in response.headers.items():
                     assert marker not in value, (reason, name)
         assert len(set(messages.values())) == len(REFUSALS), f"one message per reason: {messages}"
         assert p.state() == before, "a refused text writes nothing"
         assert not (p.overrides / TASK).exists()
+
+
+def test_prompt_refusal_copy_points_at_the_inputs_list_and_names_the_size_limit() -> None:
+    """The two reasons a user can act on say how: names are those listed under "Inputs for this
+    prompt" (the list the editor shows) and the size limit is stated."""
+    assert (
+        "Use only the names listed under Inputs for this prompt."
+        in (REFUSAL_MESSAGES["undeclared_input"])
+    )
+    assert "256 KB" in REFUSAL_MESSAGES["oversize"]
+
+
+def test_prompt_size_notes_show_the_current_size_and_the_limit_without_scripts(
+    tmp_path: Path,
+) -> None:
+    """Under each text area a server-rendered note says how large the shown text is and the 256 KB
+    limit (the system and user sections together). A refused oversize form shows the size of what
+    was typed, the limit and the matching message."""
+    with prompts_app(tmp_path) as p:
+        text = p.editor.default_text(TASK)
+        markup = p.fragment(TASK).text
+        for field, shown in (("system", text.system), ("user", text.user)):
+            note = by_known_id(markup, f"prompt-{field}-size").text
+            assert format_size(len(shown.strip().encode())) in note, note
+            assert "256 KB" in note, note
+
+        big = "x" * (300 * 1024)
+        response = p.save(TASK, system=big)
+
+        assert response.status_code == 422, response.status_code
+        refused = response.text
+        assert "256 KB" in by_known_id(refused, "prompt-error").text
+        assert "300.0 KB" in by_known_id(refused, "prompt-system-size").text
+        assert "256 KB" in by_known_id(refused, "prompt-system-size").text
+        assert not p.file(TASK).exists()
 
 
 # --- reset -------------------------------------------------------------------------------------
@@ -1186,8 +1381,9 @@ def test_prompt_save_of_a_resource_bomb_is_a_422_with_a_fixed_message(
         invalid = invalid_fields(response.text)
         assert invalid, "the refused text areas are marked"
         (message,) = {field_error(response.text, field) for field in invalid}
-        assert message == REFUSAL_MESSAGES["unsupported_expression"] != REFUSAL_FALLBACK
-        assert "1900000000" not in said_of(response.headers)
+        assert message == f"{NOT_SAVED} {CHECK_BOTH} {REFUSAL_MESSAGES['unsupported_expression']}"
+        assert REFUSAL_MESSAGES["unsupported_expression"] != REFUSAL_FALLBACK
+        assert "1900000000" not in " ".join(response.headers.values())
         assert p.state() == before
 
 
@@ -1211,7 +1407,7 @@ def test_prompt_override_file_that_cannot_be_checked_still_renders_every_page(
         assert listed.status_code == 200
         assert BADGE_WORDS["cant-load"] in badges_in(listed.text, row_of(listed.text, TASK))
         shell = p.get(task_path(TASK))
-        assert shell.status_code == 200 and BADGE_WORDS["cant-load"] in badges_in(shell.text)
+        assert shell.status_code == 200 and badges_in(shell.text) == []
         fragment = p.get(editor_path(TASK), token=True)
         assert fragment.status_code == 200
         assert by_known_id(fragment.text, "prompt-load-error").text

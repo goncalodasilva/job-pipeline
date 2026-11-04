@@ -16,11 +16,12 @@ service (``app.state.prompt_settings``, over the prompt editor) and take only th
   checked first: a stale one is a 409 with the reload prompt and changes nothing, whatever the text
   is. A text the safety checks refuse is a 422 with the typed text kept (a fixed message per
   reason, never the text). A success answers 200 for htmx with the editor, a status line that
-  takes focus and an ``announce`` message (303 to the task page otherwise).
+  takes focus and an ``announce`` message (303 to the task page otherwise). A refusal is not
+  announced: its alert is the one place that says it. A stale save keeps the typed text, read
+  only, under the reload prompt.
 """
 
 import json
-from dataclasses import replace
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
@@ -32,7 +33,6 @@ from app.api.prompt_forms import (
     AREA_PATH,
     NOT_DONE,
     NOT_FOUND,
-    NOT_SAVED,
     RESET,
     SAVED,
     PromptState,
@@ -40,7 +40,6 @@ from app.api.prompt_forms import (
     is_content_version,
     is_task,
     prompt_settings,
-    refusal_message,
 )
 from app.api.security import PAGE_TAG
 from app.api.settings_areas import PROMPT_EDITOR_FRAGMENT, render_prompt_task
@@ -114,7 +113,6 @@ def _answer(
     """The editor for htmx, the whole task page otherwise; a plain success goes back to it."""
     if status_code == 200 and not is_htmx(request):
         return RedirectResponse(f"{AREA_PATH}/{task}", status_code=303)
-    state = replace(state, refresh_summary=is_htmx(request) and status_code == 200)
     response = render_prompt_task(request, task, editor, state=state)
     response.status_code = status_code
     if announce and is_htmx(request):
@@ -122,8 +120,11 @@ def _answer(
     return response
 
 
-def _conflict(request: Request, task: str, editor: PromptSettings) -> Response:
-    return _answer(request, task, editor, PromptState(conflict=True), status_code=409)
+def _conflict(
+    request: Request, task: str, editor: PromptSettings, typed: PromptText | None = None
+) -> Response:
+    """The reload prompt; a save's typed text stays under it, read only, so it isn't lost."""
+    return _answer(request, task, editor, PromptState(conflict=True, typed=typed), status_code=409)
 
 
 # --- reading -------------------------------------------------------------------------------
@@ -170,11 +171,10 @@ async def save_prompt(request: Request, task: str) -> Response:
         try:  # the service checks the version first, whatever was typed
             editor.save(task, typed.system, typed.user, version=version)
         except PromptStale:
-            return _conflict(request, task, editor)
+            return _conflict(request, task, editor, typed)
         except PromptRefusal as refused:
             state = PromptState(reason=refused.reason, typed=typed)
-            said = f"{NOT_SAVED} {refusal_message(refused.reason)}"
-            return _answer(request, task, editor, state, status_code=422, announce=said)
+            return _answer(request, task, editor, state, status_code=422)
         except PromptUnavailable:
             return _failed()
         return _answer(request, task, editor, PromptState(message=SAVED), announce=SAVED)
