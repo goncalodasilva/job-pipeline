@@ -5,6 +5,7 @@ them to services without pulling the template engine in (spec 2.3 rule 4; ADR-05
 use them through ``app.modules.ai``; ``app.modules.ai.prompts`` re-exports them too.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Final, Literal
 
@@ -16,8 +17,13 @@ RefusalReason = Literal[
     "front_matter_in_body",
     "stray_section_header",
     "template_syntax",
+    "unsupported_expression",
     "invalid_template",
 ]
+
+# A temporary file the editor's atomic write may leave behind if the app stops mid-save
+# (``.prompt.md.<16 hex>.tmp``). It is never content: save and reset clear it, an export skips it.
+OVERRIDE_TEMP_PATTERN: Final = re.compile(r"\.prompt\.md\.[0-9a-f]{16}\.tmp")
 
 
 class PromptError(Exception):
@@ -51,6 +57,9 @@ REFUSAL_PROBLEMS: Final[dict[RefusalReason, str]] = {
     "front_matter_in_body": "a line made of '---' isn't allowed in a section.",
     "stray_section_header": "a line '## system' or '## user' isn't allowed inside a section.",
     "template_syntax": "the text has a template syntax error.",
+    "unsupported_expression": (
+        "the text uses a filter, method, operation or loop that prompts don't allow."
+    ),
     "invalid_template": "the text isn't a valid prompt.",
 }
 
@@ -61,8 +70,14 @@ class PromptStatus:
 
     ``base_version`` is the default version the override was written against (``None``
     without an override or when it can't be read). ``error`` is a plain message when the
-    override can't be loaded. ``content_version`` is the hex SHA-256 of the override file's
-    bytes, or ``"none"``: the editor sends it back to detect a change in between.
+    override can't be loaded.
+
+    ``content_version`` is what the editor sends back to detect a change in between. It is the
+    hex SHA-256 of the override file's bytes up to 1 MiB; a larger file is never read, and its
+    version is a digest of its size, modification time and identity instead (so it still changes
+    when the file does). It is ``"none"`` when there is no ``prompt.md``, and also when the entry
+    is not a readable regular file (a link, or a folder in its place): both read as "none", so a
+    page that carried "none" can still save over or reset that entry.
     """
 
     default_version: int

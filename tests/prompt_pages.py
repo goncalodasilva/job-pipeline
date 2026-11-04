@@ -17,10 +17,10 @@ The pages
   id="prompt-link-<task>" href="/settings/prompts/<task>">`` whose text is the task's plain label
   (``TASK_COPY``), the default version as text ("v3", from ``status.default_version``) and, as
   text, one element ``data-badge="edited|default-updated|cant-load"`` per badge: "Edited" (an
-  override exists), "Default updated" (the override's ``base_version`` differs from the default
-  version) and "Can't load" (``status.error``). Nothing on the page can be operated but its
-  links: no form, input, textarea, button or select. It holds no prompt text (default or
-  override).
+  override exists), "Default updated" (the override's ``base_version`` is below the default
+  version; a base above it is unknown and only "Edited") and "Can't load" (``status.error``).
+  Nothing on the page can be operated but its links: no form, input, textarea, button or
+  select. It holds no prompt text (default or override).
 - ``GET`` and ``HEAD /settings/prompts/{task}``: the task page, a token-free shell (a ``PAGE_TAG``
   route; ``task`` must be a key of ``DEFAULT_TIERS``, otherwise a fixed plain-text 404 that never
   echoes the name). Same area chrome as the other Settings pages (side list with Prompts marked
@@ -56,7 +56,7 @@ The pages
     type="submit">Reset to default</button>``, present only when an override exists (also when
     it does not load).
   * ``<section id="prompt-compare">`` only for an override that loads and whose base version is
-    not the default version: ``#prompt-compare-system`` and ``#prompt-compare-user`` each hold
+    below the default version: ``#prompt-compare-system`` and ``#prompt-compare-user`` each hold
     one element of class ``diff-line`` per line of a server-side line diff of the CURRENT default
     against the override. ``data-kind`` is ``added`` (in the override only; text starts with
     "+"), ``removed`` (in the default only; starts with "-") or ``same``; the text of a line

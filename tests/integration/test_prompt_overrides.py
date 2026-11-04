@@ -206,3 +206,36 @@ def test_restored_override_that_is_unsafe_reports_error(tmp_path: Path, case: st
         library.reset_override(SUMMARIZE)  # and a reset still works
         assert library.load(SUMMARIZE).overridden is False
         assert library.status(SUMMARIZE).content_version == "none"
+
+
+def test_export_skips_a_crash_leftover_in_an_override_folder(tmp_path: Path) -> None:
+    """A crash between writing and renaming leaves ``.prompt.md.<hex>.tmp``. It must not make
+    the whole export fail; it is not content, so it is not exported either."""
+    with fresh(tmp_path / "source") as source, fresh(tmp_path / "target") as target:
+        source_dir, target_dir = source.path.parent, target.path.parent
+        library = PromptLibrary(PROMPTS_DIR, source_dir / "prompts" / "overrides")
+        text = library.default_text(SUMMARIZE)
+        library.save_override(
+            SUMMARIZE, f"{text.system}\n{EXTRA}", text.user, expected_content_version="none"
+        )
+        folder = source_dir / "prompts" / "overrides" / SUMMARIZE
+        leftover = folder / ".prompt.md.0123456789abcdef.tmp"
+        leftover.write_bytes(b"half a prompt")
+
+        exported = service(source).export()
+        service(target).restore(exported)
+
+        restored = target_dir / "prompts" / "overrides" / SUMMARIZE
+        assert (restored / "prompt.md").read_bytes() == (folder / "prompt.md").read_bytes()
+        assert not (restored / leftover.name).exists()
+        assert leftover.exists(), "the export reads, it does not clean up"
+
+
+def test_export_still_refuses_other_odd_names_in_an_override_folder(tmp_path: Path) -> None:
+    with fresh(tmp_path / "source") as source:
+        folder = source.path.parent / "prompts" / "overrides" / SUMMARIZE
+        folder.mkdir(parents=True)
+        (folder / ".prompt.md.notahexname.tmp").write_bytes(b"x")
+
+        with pytest.raises(Exception, match="unsupported name"):
+            service(source).export()

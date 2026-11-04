@@ -37,7 +37,7 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from app.domain.fact_selection import GENERALIZE_INSTRUCTION, FactPromptBlock
 from app.domain.settings import Tier
-from app.modules.ai.prompt_types import REFUSAL_PROBLEMS, RefusalReason
+from app.modules.ai.prompt_types import OVERRIDE_TEMP_PATTERN, REFUSAL_PROBLEMS, RefusalReason
 from app.modules.ai.prompt_types import PromptConflict as PromptConflict
 from app.modules.ai.prompt_types import PromptError as PromptError
 from app.modules.ai.prompt_types import PromptRefused as PromptRefused
@@ -72,6 +72,60 @@ MAX_HASHED_OVERRIDE_BYTES: Final = 4 * MAX_PROMPT_FILE_BYTES
 MAX_RENDERED_BYTES: Final = 2 * 1024 * 1024
 MAX_REPEAT_ITEMS: Final = 100_000
 MAX_POWER_OPERAND: Final = 1_000
+# Static limits on what a template may do (spec 3.3: a prompt is checked, never trusted). Every
+# check runs on the template source before anything is compiled or rendered, because compiling
+# folds constants (a huge ``%`` or ``center`` result would be made while merely checking).
+MAX_SET_STATEMENTS: Final = 8  # per section
+MAX_LOOP_DEPTH: Final = 2
+MAX_JOIN_SEPARATOR: Final = 64
+# Filters that cannot make a result much larger than their input. Anything else (``center``,
+# ``indent``, ``wordwrap``, ``format``, ``truncate``, ``replace``, ``map``, ...) is refused.
+ALLOWED_FILTERS: Final[frozenset[str]] = frozenset(
+    {
+        "trim",
+        "lower",
+        "upper",
+        "length",
+        "count",
+        "join",
+        "default",
+        "d",
+        "e",
+        "escape",
+        "string",
+        "int",
+        "float",
+        "tojson",
+        "first",
+        "last",
+        "sort",
+        "list",
+        "unique",
+        UNTRUSTED_FILTER,
+    }
+)
+# Methods a template may call; each returns something no larger than what it was called on.
+SAFE_METHODS: Final[frozenset[str]] = frozenset(
+    {
+        "items",
+        "keys",
+        "values",
+        "get",
+        "strip",
+        "lstrip",
+        "rstrip",
+        "lower",
+        "upper",
+        "title",
+        "capitalize",
+        "splitlines",
+        "split",
+        "startswith",
+        "endswith",
+        "count",
+        "find",
+    }
+)
 
 REQUIRED_FIELDS: Final = (
     "id",
@@ -248,15 +302,20 @@ class PromptLibrary:
             self._write_override(task, data, expected_content_version)
         return self.status(task)
 
-    def reset_override(self, task: str) -> None:
+    def reset_override(self, task: str, *, expected_content_version: str | None = None) -> None:
         """Remove the override so the default applies again. Never loads the override, and
         does nothing without one. A link in the override's place is removed itself, never
-        followed. When other files remain in the task folder, ``prompt.md`` is removed, they
-        stay, and ``PromptError`` says so."""
+        followed. Crash leftovers (``.prompt.md.<hex>.tmp``) are removed too. When other files
+        remain in the task folder, ``prompt.md`` is removed, they stay, and ``PromptError``
+        says so. With ``expected_content_version`` the version is checked under the write lock
+        and ``PromptConflict`` removes nothing when the file has changed since (``None``
+        resets whatever is there)."""
         self._default(task)
         if self._overrides_dir is None:
             return
         with self._write_lock:
+            if expected_content_version is not None:
+                _check_version(task, self._current_version(task), expected_content_version)
             try:
                 self._remove_override(task)
             except OSError:
@@ -289,45 +348,67 @@ class PromptLibrary:
     ) -> Iterator[int | None]:
         """A handle on the task's override folder, ``None`` when it doesn't exist (and
         ``create`` is off). Every folder below the anchor is opened without following links;
-        folders made here are private (0700) and listed in ``created``."""
-        anchor, names = self._split_overrides_dir()
+        folders made here are private (0700) and listed in ``created``. When entering fails
+        part way, the folders made so far are removed again."""
+        made_here: list[tuple[int, str]] = created if created is not None else []
         with ExitStack() as stack:
             try:
-                current = os.open(anchor, os.O_RDONLY | os.O_DIRECTORY)
+                current = self._open_chain(stack, task, create, made_here)
+            except BaseException:
+                _remove_folders(made_here)
+                raise
+            yield current
+
+    def _open_chain(
+        self, stack: ExitStack, task: str, create: bool, created: list[tuple[int, str]]
+    ) -> int | None:
+        anchor, names = self._split_overrides_dir()
+        try:
+            current = os.open(anchor, os.O_RDONLY | os.O_DIRECTORY)
+        except FileNotFoundError:
+            if create:
+                _fail(task, _OVERRIDE_LABEL, "the data folder is missing.")
+            return None
+        except OSError:
+            _fail(task, _OVERRIDE_LABEL, _NOT_A_FOLDER)
+        stack.callback(os.close, current)
+        for name in (*names, task):
+            made = False
+            if create:
+                try:
+                    os.mkdir(name, mode=0o700, dir_fd=current)
+                    made = True
+                except FileExistsError:
+                    pass
+                except OSError:
+                    _fail(task, _OVERRIDE_LABEL, "the override folder could not be made.")
+                if made:
+                    created.append((current, name))
+            try:
+                child = os.open(name, _DIR_FLAGS, dir_fd=current)
             except FileNotFoundError:
                 if create:
-                    _fail(task, _OVERRIDE_LABEL, "the data folder is missing.")
-                yield None
-                return
+                    _fail(task, _OVERRIDE_LABEL, "the override folder could not be made.")
+                return None
             except OSError:
                 _fail(task, _OVERRIDE_LABEL, _NOT_A_FOLDER)
-            stack.callback(os.close, current)
-            for name in (*names, task):
-                made = False
-                if create:
-                    try:
-                        os.mkdir(name, mode=0o700, dir_fd=current)
-                        made = True
-                    except FileExistsError:
-                        pass
-                    except OSError:
-                        _fail(task, _OVERRIDE_LABEL, "the override folder could not be made.")
+            stack.callback(os.close, child)
+            if made:
                 try:
-                    child = os.open(name, _DIR_FLAGS, dir_fd=current)
-                except FileNotFoundError:
-                    if create:
-                        _fail(task, _OVERRIDE_LABEL, "the override folder could not be made.")
-                    yield None
-                    return
-                except OSError:
-                    _fail(task, _OVERRIDE_LABEL, _NOT_A_FOLDER)
-                stack.callback(os.close, child)
-                if made:
-                    if created is not None:
-                        created.append((current, name))
                     os.fchmod(child, 0o700)
-                current = child
-            yield current
+                except OSError:
+                    _fail(task, _OVERRIDE_LABEL, "the override folder could not be made.")
+            current = child
+        return current
+
+    def _current_version(self, task: str) -> str:
+        """The content version as the status reports it: ``none`` also for an entry that can't
+        be read as a regular file."""
+        try:
+            found = self._read_override(task)
+        except PromptError:
+            return NO_OVERRIDE
+        return found.digest if found is not None else NO_OVERRIDE
 
     def _read_override(self, task: str) -> _OverrideFile | None:
         with self._override_folder(task, create=False) as folder:
@@ -342,6 +423,7 @@ class PromptLibrary:
         with self._override_folder(task, create=True, created=created) as folder:
             if folder is None:
                 _fail(task, _OVERRIDE_LABEL, "the override folder could not be made.")
+            _clear_leftovers(folder)
             try:
                 _check_expected(task, _read_prompt_file(folder, task), expected)
                 flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
@@ -396,6 +478,7 @@ class PromptLibrary:
                     _fail(task, _OVERRIDE_LABEL, f"{PROMPT_FILE} isn't a file; remove it.")
                 os.unlink(PROMPT_FILE, dir_fd=folder)
                 removed = True
+            _clear_leftovers(folder)
             if not os.listdir(folder):
                 os.rmdir(task, dir_fd=current)
             elif removed:
@@ -460,19 +543,37 @@ def _unread_digest(info: os.stat_result) -> str:
 
 
 def _check_expected(task: str, found: _OverrideFile | None, expected: str) -> None:
-    if (found.digest if found is not None else NO_OVERRIDE) != expected:
+    _check_version(task, found.digest if found is not None else NO_OVERRIDE, expected)
+
+
+def _check_version(task: str, current: str, expected: str) -> None:
+    if current != expected:
         raise PromptConflict(
             f"Prompt override {task!r}: it changed since you opened it. Reload and try again."
         )
+
+
+def _remove_folders(created: list[tuple[int, str]]) -> None:
+    for parent, name in reversed(created):
+        with contextlib.suppress(OSError):
+            os.rmdir(name, dir_fd=parent)
 
 
 def _discard(folder: int, tmp: str, created: list[tuple[int, str]]) -> None:
     """After a failed write: drop the temporary file and the folders this save made."""
     with contextlib.suppress(OSError):
         os.unlink(tmp, dir_fd=folder)
-    for parent, name in reversed(created):
-        with contextlib.suppress(OSError):
-            os.rmdir(name, dir_fd=parent)
+    _remove_folders(created)
+
+
+def _clear_leftovers(folder: int) -> None:
+    """Best effort: remove the ``.prompt.md.<hex>.tmp`` files a crash mid-save left behind.
+    A link by that name is removed itself, never followed; a folder by that name stays."""
+    with contextlib.suppress(OSError):
+        for name in os.listdir(folder):
+            if OVERRIDE_TEMP_PATTERN.fullmatch(name):
+                with contextlib.suppress(OSError):
+                    os.unlink(name, dir_fd=folder)
 
 
 def _decode_override(found: _OverrideFile, task: str) -> str:
@@ -579,11 +680,21 @@ def render_prompt(template: PromptTemplate, inputs: Mapping[str, object]) -> Ren
     if extra:
         raise PromptError(f"Prompt {task!r}: unexpected inputs {', '.join(extra)}.")
     env = _PromptEnvironment()
-    for section, source in (("system", template.system_source), ("user", template.user_source)):
-        _check_structure(_parse(env, task, "prompt", section, source), task, "prompt", section)
-    _check_untrusted_usage(
-        env, task, "prompt", template.system_source, template.user_source, template.untrusted_inputs
-    )
+    with _within_limits(task, "prompt"):
+        for section, source in (
+            ("system", template.system_source),
+            ("user", template.user_source),
+        ):
+            ast = _parse(env, task, "prompt", section, source)
+            _check_structure(ast, task, "prompt", section, template.inputs)
+        _check_untrusted_usage(
+            env,
+            task,
+            "prompt",
+            template.system_source,
+            template.user_source,
+            template.untrusted_inputs,
+        )
     # Templates receive ordinary text; immutable policy stays outside their control.
     values = {
         key: value.text if isinstance(value, FactPromptBlock) else value
@@ -621,9 +732,11 @@ def render_prompt(template: PromptTemplate, inputs: Mapping[str, object]) -> Ren
 
 
 class _PromptEnvironment(ImmutableSandboxedEnvironment):
-    """Sandbox that also refuses huge string repetition and exponentiation."""
+    """Sandbox that also refuses huge string repetition and exponentiation, and string
+    formatting with ``%`` (a width can ask for gigabytes). The static checks refuse these
+    first; this is the second line."""
 
-    intercepted_binops = frozenset({"*", "**"})
+    intercepted_binops = frozenset({"*", "**", "%"})
 
     def __init__(self) -> None:
         super().__init__(undefined=StrictUndefined, autoescape=False)
@@ -640,6 +753,8 @@ class _PromptEnvironment(ImmutableSandboxedEnvironment):
                     and len(sequence) * count > MAX_REPEAT_ITEMS
                 ):
                     raise SecurityError("repetition result is too large")
+        if operator == "%" and isinstance(left, (str, bytes)):
+            raise SecurityError("string formatting with % is not allowed")
         if operator == "**" and any(
             isinstance(operand, (int, float)) and abs(operand) > MAX_POWER_OPERAND
             for operand in (left, right)
@@ -685,20 +800,22 @@ def _template_from_text(
     text: str, task: str, label: str, schema: Callable[[], dict[str, Any]]
 ) -> PromptTemplate:
     """The one code path that turns prompt file text into a checked template: the loader
-    and the editor's save both use it."""
-    front, body = _split_front_matter(task, label, text.replace("\r\n", "\n"))
-    meta = _parse_front_matter(task, label, front)
-    system_source, user_source = _split_sections(task, label, body)
-    env = _PromptEnvironment()
-    _check_sections(
-        env,
-        task,
-        label,
-        system_source,
-        user_source,
-        inputs=meta.inputs,
-        untrusted_inputs=meta.untrusted_inputs,
-    )
+    and the editor's save both use it. Text too deep or too big to check is refused, never a
+    crash."""
+    with _within_limits(task, label):
+        front, body = _split_front_matter(task, label, text.replace("\r\n", "\n"))
+        meta = _parse_front_matter(task, label, front)
+        system_source, user_source = _split_sections(task, label, body)
+        env = _PromptEnvironment()
+        _check_sections(
+            env,
+            task,
+            label,
+            system_source,
+            user_source,
+            inputs=meta.inputs,
+            untrusted_inputs=meta.untrusted_inputs,
+        )
     return PromptTemplate(
         id=meta.id,
         task=task,
@@ -735,7 +852,7 @@ def _split_front_matter(task: str, label: str, text: str) -> tuple[str, str]:
 def _parse_front_matter(task: str, label: str, front: str) -> _FrontMatter:
     try:
         data = yaml.safe_load(front)
-    except yaml.YAMLError:
+    except Exception:  # YAMLError, but also ValueError (a bad date, a huge number) and the like
         _fail(task, label, "the front matter is not valid YAML.")
     if not isinstance(data, dict):
         _fail(task, label, "the front matter must be a mapping of fields.")
@@ -848,7 +965,7 @@ def _check_sections(
 ) -> None:
     for section, source in (("system", system_source), ("user", user_source)):
         ast = _parse(env, task, label, section, source)
-        _check_structure(ast, task, label, section)
+        _check_structure(ast, task, label, section, inputs)
         undeclared = sorted(find_undeclared_variables(ast) - set(inputs))
         if undeclared:
             _fail(
@@ -860,7 +977,10 @@ def _check_sections(
     _check_untrusted_usage(env, task, label, system_source, user_source, untrusted_inputs)
 
 
-def _check_structure(ast: nodes.Template, task: str, label: str, section: str) -> None:
+def _check_structure(
+    ast: nodes.Template, task: str, label: str, section: str, inputs: tuple[str, ...]
+) -> None:
+    """Checks on the parsed template, before anything is compiled or rendered."""
     if any(True for _ in ast.find_all(_BANNED_NODES)):
         _fail(
             task,
@@ -868,6 +988,149 @@ def _check_structure(ast: nodes.Template, task: str, label: str, section: str) -
             f"the {section} section may not include, import or extend templates.",
             "include",
         )
+    _check_costs(ast, task, label, frozenset(inputs))
+
+
+def _refuse(task: str, label: str, reason: RefusalReason) -> NoReturn:
+    _fail(task, label, REFUSAL_PROBLEMS[reason], reason)
+
+
+@contextmanager
+def _within_limits(task: str, label: str) -> Iterator[None]:
+    """Text too deeply nested (``RecursionError``) or too large (``MemoryError``) to check is a
+    refusal of the text, whichever step ran out."""
+    try:
+        yield
+    except (RecursionError, MemoryError):
+        _refuse(task, label, "invalid_template")
+
+
+def _is_number(node: nodes.Node) -> bool:
+    """A plain number written in the template (``3``, ``-2``, ``1.5``)."""
+    if isinstance(node, (nodes.Neg, nodes.Pos)):
+        node = node.node
+    return (
+        isinstance(node, nodes.Const)
+        and isinstance(node.value, (int, float))
+        and not isinstance(node.value, bool)
+    )
+
+
+def _check_costs(ast: nodes.Template, task: str, label: str, inputs: frozenset[str]) -> None:
+    """Refuse what could use gigabytes or hours when rendered (the renderer runs on the app's
+    event loop). One path for save and load, on the source: nothing is rendered or folded.
+
+    - ``*``, ``**`` and ``%`` only between written numbers (no string repetition or format
+      width), and no string ``+`` or ``~`` inside ``{% set %}``;
+    - only the filters in ``ALLOWED_FILTERS``, and a short written separator for ``join``;
+    - only the methods in ``SAFE_METHODS`` may be called, and nothing else (no macros);
+    - at most ``MAX_SET_STATEMENTS`` ``{% set %}`` statements, none reading a name that is set;
+    - a loop runs over an input (or, nested, over its enclosing loop's item), at most
+      ``MAX_LOOP_DEPTH`` deep.
+    """
+    for operation in ast.find_all((nodes.Mul, nodes.Pow, nodes.Mod)):
+        if not (_is_number(operation.left) and _is_number(operation.right)):
+            _refuse(task, label, "unsupported_expression")
+    for filtered in ast.find_all(nodes.Filter):
+        if filtered.name not in ALLOWED_FILTERS or not _filter_is_bounded(filtered):
+            _refuse(task, label, "unsupported_expression")
+    for call in ast.find_all(nodes.Call):
+        if not (isinstance(call.node, nodes.Getattr) and call.node.attr in SAFE_METHODS):
+            _refuse(task, label, "unsupported_expression")
+    _check_assignments(ast, task, label)
+    _check_loops(ast, task, label, inputs, frozenset(), 0)
+
+
+def _filter_is_bounded(node: nodes.Filter) -> bool:
+    if node.name != "join":
+        return True
+    if node.kwargs or node.dyn_args is not None or node.dyn_kwargs is not None:
+        return False
+    if not node.args:
+        return True
+    separator = node.args[0]
+    return (
+        len(node.args) == 1
+        and isinstance(separator, nodes.Const)
+        and isinstance(separator.value, str)
+        and len(separator.value) <= MAX_JOIN_SEPARATOR
+    )
+
+
+def _store_names(target: nodes.Node) -> set[str]:
+    found = {target.name} if isinstance(target, nodes.Name) else set()
+    return found | {name.name for name in target.find_all(nodes.Name)}
+
+
+def _check_assignments(ast: nodes.Template, task: str, label: str) -> None:
+    sets: list[nodes.Assign | nodes.AssignBlock] = [
+        *ast.find_all((nodes.Assign, nodes.AssignBlock))  # type: ignore[list-item]
+    ]
+    if len(sets) > MAX_SET_STATEMENTS:
+        _refuse(task, label, "unsupported_expression")
+    targets: set[str] = set()
+    for statement in sets:
+        targets |= _store_names(statement.target)
+    for statement in sets:
+        body: list[nodes.Node] = (
+            [statement.node] if isinstance(statement, nodes.Assign) else [*statement.body]
+        )
+        for part in body:
+            reads = [part, *part.find_all(nodes.Node)]
+            if any(isinstance(n, nodes.Name) and n.name in targets for n in reads):
+                _refuse(task, label, "unsupported_expression")
+            if any(isinstance(n, nodes.Concat) for n in reads):
+                _refuse(task, label, "unsupported_expression")
+            for add in (n for n in reads if isinstance(n, nodes.Add)):
+                if not (_is_number(add.left) or _is_number(add.right)):
+                    _refuse(task, label, "unsupported_expression")
+
+
+def _iterable_root(node: nodes.Node) -> str | None:
+    """The name an iterable expression starts from, when it is only reading a name: its
+    attributes, items, slices written with numbers, calls of the safe methods and the allowed
+    filters. ``None`` for anything made up in the template (literals, ``+``, conditions)."""
+    if isinstance(node, nodes.Name):
+        return node.name
+    if isinstance(node, nodes.Getattr):
+        return _iterable_root(node.node)
+    if isinstance(node, nodes.Getitem):
+        arg = node.arg
+        written = isinstance(arg, nodes.Const) or _is_number(arg)
+        if isinstance(arg, nodes.Slice):
+            parts = (arg.start, arg.stop, arg.step)
+            written = all(part is None or _is_number(part) for part in parts)
+        return _iterable_root(node.node) if written else None
+    if isinstance(node, nodes.Call) and isinstance(node.node, nodes.Getattr):
+        return _iterable_root(node.node.node)
+    if isinstance(node, nodes.Filter) and node.node is not None:
+        return _iterable_root(node.node)
+    return None
+
+
+def _check_loops(
+    node: nodes.Node,
+    task: str,
+    label: str,
+    inputs: frozenset[str],
+    loop_names: frozenset[str],
+    depth: int,
+) -> None:
+    """Walk the template; every loop must start from an input (outermost) or from an item of
+    the loop around it, and there are at most ``MAX_LOOP_DEPTH`` nested."""
+    if not isinstance(node, nodes.For):
+        for child in node.iter_child_nodes():
+            _check_loops(child, task, label, inputs, loop_names, depth)
+        return
+    roots = inputs if depth == 0 else loop_names
+    if depth >= MAX_LOOP_DEPTH or node.recursive or _iterable_root(node.iter) not in roots:
+        _refuse(task, label, "unsupported_expression")
+    inner = loop_names | _store_names(node.target)
+    _check_loops(node.iter, task, label, inputs, loop_names, depth)
+    for part in (*node.body, *([node.test] if node.test is not None else [])):
+        _check_loops(part, task, label, inputs, inner, depth + 1)
+    for part in node.else_:
+        _check_loops(part, task, label, inputs, loop_names, depth)
 
 
 def _check_untrusted_usage(

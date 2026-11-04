@@ -1,0 +1,74 @@
+{
+  "adapt_answer": {
+    "sha256": "20901b042df8a029488fd7d4bdb16cceb02edcc03a0befd820a417eb2c646b7d",
+    "version": 2
+  },
+  "answer_feedback": {
+    "sha256": "de57e63a5b3bf3247b675061057aa989641bb7a7d034165b8d40d53bfa9b0898",
+    "version": 2
+  },
+  "assess_fit": {
+    "sha256": "4455470b027483c876612f7f85c43b75b207c17a42ba248bd08bc0af0cd91ab3",
+    "version": 1
+  },
+  "company_brief": {
+    "sha256": "82cd92fdae8edfd171286d1548f06246cabe5a9bbd2694db36d05c19e7cb0c40",
+    "version": 2
+  },
+  "draft_cover_letter": {
+    "sha256": "2f789c76a610cd391a556bbc65118efb1392958a0771f03dac23a92d07e744fa",
+    "version": 1
+  },
+  "draft_cv_template": {
+    "sha256": "4daaab8c1a1c826a857145ff8cf48b0dccac7e71f592ec052f2a1abb04ce58d8",
+    "version": 2
+  },
+  "draft_narrative": {
+    "sha256": "aa9b900e60cd19fb1349827d33fde4eba4ae5f449cf3de9685a918f311db6973",
+    "version": 2
+  },
+  "enrichment_question": {
+    "sha256": "1fa06cc1f7ccceb60f570f6d6899d0c2e030a2125a228ae0063c9e8a9af1eb51",
+    "version": 2
+  },
+  "extract_cv": {
+    "sha256": "d9af5b9a734ef89f10d2ee5b494fe3d911cb156e80637ebe340606c0cc307e4c",
+    "version": 1
+  },
+  "gap_check": {
+    "sha256": "dc87db671844ee66040879983291828588e5df6861e7ef4bcda4e3007ec7d609",
+    "version": 2
+  },
+  "interview_questions": {
+    "sha256": "32d036388391d7ca64b0a6fcc03ac9cd65136b13c38ca028c11ea40170561286",
+    "version": 3
+  },
+  "interview_web_questions": {
+    "sha256": "3ac04fe56039b6d3440ee9ca4b1b7e388708b10b54e14fbffb1d6eb377eb0d06",
+    "version": 2
+  },
+  "practice": {
+    "sha256": "2ba373d0e234b04c07b347c60970505ae7563b356ba506b3a89bc7e12fa42891",
+    "version": 1
+  },
+  "propose_angles": {
+    "sha256": "e890506df76b421433f8ff08f5d723edff9efbb3c5fc6e2101c1951f3555ff79",
+    "version": 2
+  },
+  "refine_fact": {
+    "sha256": "56840430c32204609c54ea430f7a02f70682bc3619a5822fd9388b0bfade5a6b",
+    "version": 3
+  },
+  "structure_answer": {
+    "sha256": "118f7e530a0149c745d57f6adeac62d6a1a2113f0a901c1d1d0f7b2148911398",
+    "version": 2
+  },
+  "summarize_job": {
+    "sha256": "4dc21122d1e41e694ef22c554d2926a9e06a568cdf704af82bd243d3c56d4709",
+    "version": 1
+  },
+  "tailor_cv": {
+    "sha256": "4da0fc05a65cba7555cf9895896912c000da1d24bb259c57b1e2f5382343012f",
+    "version": 2
+  }
+}

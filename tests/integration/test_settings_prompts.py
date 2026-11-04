@@ -15,15 +15,17 @@ import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 from urllib.parse import quote
 
 import pytest
 from fastapi.routing import APIRoute
 
+from app.api.prompt_forms import REFUSAL_FALLBACK, REFUSAL_MESSAGES
 from app.api.security import PAGE_TAG
 from app.domain.errors import VersionConflict
 from app.domain.tiers import DEFAULT_TIERS
+from app.modules.ai import RefusalReason
 from tests.board_pages import by_id, elements
 from tests.data_pages import get_token, state_of
 from tests.integration.test_settings_areas import (
@@ -578,7 +580,10 @@ def test_prompt_path_with_an_encoded_slash_matches_no_route_and_echoes_nothing(
                 "token": p.get(path, token=True),
                 "post": p.post(path, {"version": NO_VERSION}),
             }.items():
-                assert response.status_code in (403, 404), (path, label, response.status_code)
+                # An unmatched path is the app's own answer: 403 without the launch token,
+                # 404 with it (the POST carries the token).
+                wanted = 403 if label == "plain" else 404
+                assert response.status_code == wanted, (path, label, response.status_code)
                 assert "script" not in response.text.lower(), (path, label)
                 assert "alert" not in response.text.lower(), (path, label)
         assert p.state() == before
@@ -1128,3 +1133,192 @@ def test_prompt_override_file_front_matter_is_the_defaults_with_the_base_version
         assert front_version(data) == p.default_version(TASK)
         assert sha(data) == p.status(TASK).content_version
         assert not [x for x in p.overrides.rglob("*") if x.is_file() and x.name != "prompt.md"]
+
+
+# --- robustness: deep text, resource bombs, races and failures (M9.3 fix pass 1) ---------------
+
+DEEP_TEXT = {
+    "parentheses": "{{ " + "(" * 5000 + "1" + ")" * 5000 + " }}",
+    "ifs": "{% if job_id %}" * 3000 + "x" + "{% endif %}" * 3000,
+    "unary_minus": "{{ " + "-" * 5000 + "1 }}",
+    "brackets": "{{ " + "[" * 5000 + "]" * 5000 + " }}",
+}
+BOMB_TEXT = {
+    "percent_width": "{{ '%2000000000d' % 1 }}",
+    "center_filter": "{{ 'a' | center(1900000000) }}",
+    "doubling_sets": "{% set s = 'ab' %}" + "{% set s = s ~ s %}" * 22 + "{{ s | length }}",
+    "nested_literal_loops": (
+        "{% for a in [1, 2, 3] %}{% for b in [1, 2, 3] %}{% for c in [1, 2, 3] %}x"
+        "{% endfor %}{% endfor %}{% endfor %}"
+    ),
+}
+
+
+def test_every_refusal_reason_has_its_own_message() -> None:
+    assert set(REFUSAL_MESSAGES) == set(get_args(RefusalReason))
+    assert len(set(REFUSAL_MESSAGES.values())) == len(REFUSAL_MESSAGES)
+
+
+@pytest.mark.parametrize("name", sorted(DEEP_TEXT))
+def test_prompt_save_of_deeply_nested_text_is_a_422_not_a_crash(tmp_path: Path, name: str) -> None:
+    with prompts_app(tmp_path) as p:
+        before = p.state()
+        user = f"{p.editor.default_text(TASK).user}\n{DEEP_TEXT[name]}"
+
+        response = p.save(TASK, user=user)
+
+        assert response.status_code == 422, response.status_code
+        assert invalid_fields(response.text), "the refused text area is marked"
+        assert p.state() == before
+
+
+@pytest.mark.parametrize("name", sorted(BOMB_TEXT))
+def test_prompt_save_of_a_resource_bomb_is_a_422_with_a_fixed_message(
+    tmp_path: Path, name: str
+) -> None:
+    with prompts_app(tmp_path) as p:
+        before = p.state()
+        user = f"{p.editor.default_text(TASK).user}\n{BOMB_TEXT[name]}"
+
+        response = p.save(TASK, user=user)
+
+        assert response.status_code == 422, response.status_code
+        invalid = invalid_fields(response.text)
+        assert invalid, "the refused text areas are marked"
+        (message,) = {field_error(response.text, field) for field in invalid}
+        assert message == REFUSAL_MESSAGES["unsupported_expression"] != REFUSAL_FALLBACK
+        assert "1900000000" not in said_of(response.headers)
+        assert p.state() == before
+
+
+@pytest.mark.parametrize("name", sorted(DEEP_TEXT) + sorted(BOMB_TEXT))
+def test_prompt_override_file_that_cannot_be_checked_still_renders_every_page(
+    tmp_path: Path, name: str
+) -> None:
+    """A file put straight into the overrides folder (restored, or edited by hand) with a deep
+    or costly text: the list, the task page and the editor answer 200 and say "Can't load", and
+    Reset removes it."""
+    bomb = {**DEEP_TEXT, **BOMB_TEXT}[name]
+    with prompts_app(tmp_path) as p:
+        p.edit(TASK)
+        data = p.file(TASK).read_bytes()
+        marker = b"\n## user\n\n"
+        assert marker in data
+        p.put_bytes(TASK, data.replace(marker, marker + bomb.encode() + b"\n", 1))
+        assert p.status(TASK).error
+
+        listed = p.get(PATH)
+        assert listed.status_code == 200
+        assert BADGE_WORDS["cant-load"] in badges_in(listed.text, row_of(listed.text, TASK))
+        shell = p.get(task_path(TASK))
+        assert shell.status_code == 200 and BADGE_WORDS["cant-load"] in badges_in(shell.text)
+        fragment = p.get(editor_path(TASK), token=True)
+        assert fragment.status_code == 200
+        assert by_known_id(fragment.text, "prompt-load-error").text
+
+        done = p.post(
+            reset_path(TASK), {"version": form_version(fragment.text, "prompt-reset-form")}
+        )
+
+        assert done.status_code == 200, done.status_code
+        assert not p.file(TASK).exists()
+        assert not p.status(TASK).overridden
+
+
+def test_prompt_reset_racing_a_save_is_a_409_and_keeps_the_newer_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with prompts_app(tmp_path) as p:
+        p.edit(TASK)
+        version = str(p.status(TASK).content_version)
+        real = p.editor.reset_override
+        raced: list[bool] = []
+
+        def save_then_reset(task: str, **kwargs: Any) -> None:
+            if not raced:  # another tab saves just before the reset reaches the files
+                raced.append(True)
+                text = p.editor.default_text(task)
+                p.editor.save_override(
+                    task,
+                    f"{text.system}\nA fictional line from another tab.",
+                    text.user,
+                    expected_content_version=version,
+                )
+            real(task, **kwargs)
+
+        monkeypatch.setattr(p.editor, "reset_override", save_then_reset)
+
+        response = p.post(reset_path(TASK), {"version": version})
+
+        assert response.status_code == 409, response.status_code
+        assert by_known_id(response.text, "prompt-conflict").attrs.get("role") == "alert"
+        kept = p.editor.override_text(TASK)
+        assert p.file(TASK).is_file()
+        assert kept is not None and "another tab" in kept.system
+
+
+def test_prompt_save_and_reset_that_cannot_be_done_are_a_plain_500(tmp_path: Path) -> None:
+    """A regular file where the task's override folder belongs: the page's version is "none",
+    the write fails, and the answer is the fixed plain-text 500 that changes nothing."""
+    from app.api.prompt_forms import NOT_DONE
+
+    with prompts_app(tmp_path) as p:
+        p.overrides.mkdir(parents=True)
+        (p.overrides / TASK).write_text("fictional stray file", encoding="utf-8")
+        before = p.state()
+
+        for response in (p.save(TASK), p.reset(TASK)):
+            assert response.status_code == 500, response.status_code
+            assert response.text == NOT_DONE
+            assert response.headers["content-type"].startswith("text/plain")
+
+        assert p.state() == before
+
+
+def test_prompt_pages_are_a_fixed_404_when_the_default_cannot_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.prompt_forms import NOT_FOUND
+    from app.modules.ai.prompts import PromptError
+
+    with prompts_app(tmp_path) as p:
+
+        def broken(task: str) -> Any:
+            raise PromptError("Prompt 'fictional': no prompt.md found.")
+
+        monkeypatch.setattr(p.editor, "status", broken)
+
+        for response in (p.get(task_path(TASK)), p.get(editor_path(TASK), token=True)):
+            assert response.status_code == 404, response.status_code
+            assert response.text == NOT_FOUND
+        listed = p.get(PATH)  # the list still answers, without versions or badges
+        assert listed.status_code == 200
+        assert len(list_rows(listed.text)) == len(TASKS)
+        assert all(badges_in(listed.text, row) == [] for row in list_rows(listed.text))
+
+
+@pytest.mark.parametrize(("above", "expected"), [(3, "Edited"), (1, None)])
+def test_prompt_override_based_on_a_newer_default_is_plain_edited(
+    tmp_path: Path, above: int, expected: str | None
+) -> None:
+    """A base version above the default's (a restored export from a newer app) can't be called
+    "updated": no badge, no compare view, just "Edited". A base below it is "Default updated"."""
+    with prompts_app(tmp_path) as p:
+        task = p.versioned_task()
+        default = p.default_version(task)
+        p.edit(task)
+        base = default + above if expected else default - above
+        p.lower(task, base)
+
+        listed = p.get(PATH).text
+        shown = badges_in(listed, row_of(listed, task))
+        markup = p.fragment(task).text
+        if expected:
+            assert shown == [BADGE_WORDS["edited"]], shown
+            assert by_known_id(markup, "prompt-status").text == expected
+            assert by_id(markup, "prompt-compare") is None
+            assert BADGE_WORDS["default-updated"] not in badges_in(p.get(task_path(task)).text)
+        else:
+            assert sorted(shown) == sorted([BADGE_WORDS["edited"], BADGE_WORDS["default-updated"]])
+            assert by_known_id(markup, "prompt-status").text == default_updated(base, default)
+            assert by_known_id(markup, "prompt-compare") is not None

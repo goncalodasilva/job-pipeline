@@ -443,7 +443,7 @@ def test_override_cannot_remove_untrusted_notice(tmp_path: Path) -> None:
     "user",
     [
         pytest.param(
-            '{% for _ in [1] %}{{ job_text | untrusted("job_posting", "p1") }}{% endfor %}',
+            '{% for _ in preferences %}{{ job_text | untrusted("job_posting", "p1") }}{% endfor %}',
             id="in_for",
         ),
         pytest.param(
@@ -713,7 +713,7 @@ def test_render_autoescape_off() -> None:
         "{{ preferences.__class__ }}",
         "{{ preferences.__init__.__globals__ }}",
         "{{ cycler.__init__.__globals__ }}",
-        "{{ ().__class__.__base__.__subclasses__() }}",
+        "{{ ().__class__.__base__.__subclasses__ }}",
     ],
 )
 def test_renderer_sandbox_blocks_attribute_access(user_source: str) -> None:

@@ -19,6 +19,7 @@ from typing import Any, Final
 
 from app import __version__
 from app.domain.clock import Clock
+from app.modules.ai import OVERRIDE_TEMP_PATTERN
 from app.modules.storage import MIGRATIONS_DIR, Database, portability
 from app.services.data_folder import SYSTEM_FILES
 
@@ -104,6 +105,12 @@ def _files(root: int) -> list[tuple[str, ...]]:
             info = os.stat(name, dir_fd=folder, follow_symlinks=False)
             if name in SYSTEM_FILES and not stat.S_ISDIR(info.st_mode):
                 continue  # Finder/Explorer noise: never exported, never content
+            if (
+                prefix[:2] == ("prompts", "overrides")
+                and not stat.S_ISDIR(info.st_mode)
+                and OVERRIDE_TEMP_PATTERN.fullmatch(name)
+            ):
+                continue  # a crash leftover of the prompt editor's atomic save
             if not _PART.fullmatch(name):
                 raise PortabilityError("A workspace file has an unsupported name.")
             parts = (*prefix, name)

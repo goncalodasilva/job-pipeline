@@ -4,6 +4,7 @@ It checks the content version before anything else, maps the editor's errors to 
 carries the typed text in an error. A fictional defaults folder in a temp folder; no network.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -92,3 +93,36 @@ def test_an_override_that_is_not_sections_has_no_text(
 
     assert status.overridden and status.error
     assert service.override_text(TASK) is None
+
+
+class RacingLibrary(PromptLibrary):
+    """A library where something else saves, once, just before a reset reaches the files."""
+
+    def __init__(self, defaults: Path, overrides: Path) -> None:
+        super().__init__(defaults, overrides)
+        self.before_reset: Callable[[], object] | None = None
+
+    def reset_override(self, task: str, *, expected_content_version: str | None = None) -> None:
+        action, self.before_reset = self.before_reset, None
+        if action is not None:
+            action()
+        super().reset_override(task, expected_content_version=expected_content_version)
+
+
+def test_a_save_landing_just_before_the_reset_makes_the_reset_stale(tmp_path: Path) -> None:
+    defaults = write_default(tmp_path)
+    (tmp_path / "data").mkdir()
+    library = RacingLibrary(defaults, tmp_path / "data" / "prompts" / "overrides")
+    service = PromptSettings(library)
+    first = service.save(TASK, EDIT_SYSTEM, EDIT_USER, version=NO_VERSION)
+    racing = f"{EDIT_SYSTEM}\nA fictional line from another tab."
+    library.before_reset = lambda: library.save_override(
+        TASK, racing, EDIT_USER, expected_content_version=first.content_version
+    )
+
+    with pytest.raises(PromptStale):
+        service.reset(TASK, version=first.content_version)
+
+    kept = library.override_text(TASK)
+    assert library.status(TASK).overridden is True
+    assert kept is not None and kept.system.strip() == racing

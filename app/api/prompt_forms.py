@@ -74,6 +74,10 @@ REFUSAL_MESSAGES: Final[Mapping[RefusalReason, str]] = MappingProxyType(
         "front_matter_in_body": "A line made only of --- isn't allowed in a section.",
         "stray_section_header": "A line that is only ## system or ## user isn't allowed here.",
         "template_syntax": "The text has a template syntax error. Check every {{ }} and {% %}.",
+        "unsupported_expression": (
+            "The text uses a filter, method, operation or loop that prompts don't allow. Keep "
+            "to plain values, if blocks, loops over an input and simple text filters."
+        ),
         "invalid_template": "The text isn't a valid prompt.",
     }
 )
@@ -116,12 +120,18 @@ class PromptState:
         return bool(self.message or self.conflict or self.reason)
 
 
+def default_updated(status: PromptStatus) -> bool:
+    """Whether the default moved on since the override was written. A base version above the
+    default's (an override restored from a newer app) is unknown, not "updated"."""
+    return status.base_version is not None and status.base_version < status.default_version
+
+
 def badges(status: PromptStatus) -> list[dict[str, str]]:
     """The words about where a prompt stands, as text (never colour alone)."""
     found: list[str] = []
     if status.overridden:
         found.append(BADGE_EDITED)
-    if status.overridden and status.base_version not in (None, status.default_version):
+    if status.overridden and default_updated(status):
         found.append(BADGE_UPDATED)
     if status.error:
         found.append(BADGE_CANT_LOAD)
@@ -196,6 +206,8 @@ def _status_line(status: PromptStatus) -> str:
         return "Edited"
     if base == current:
         return f"Edited, based on v{base}"
+    if base > current:
+        return "Edited"
     return f"The default was updated (v{base} → v{current}) since you edited this prompt"
 
 
@@ -210,7 +222,7 @@ def editor_context(
     # An override that can't be read as sections is None: the default is offered instead.
     mine = editor.override_text(task) if status.overridden else None
     shown = state.typed or mine or default
-    updated = status.base_version is not None and status.base_version != status.default_version
+    updated = default_updated(status)
     compare = None
     if mine is not None and status.overridden and not status.error and updated:
         compare = {

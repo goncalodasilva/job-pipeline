@@ -27,6 +27,7 @@ from app.domain.errors import (
 from app.domain.settings import AIProviderSettings, ProviderKind, Tier
 
 # Re-exported: services that count provider calls use these through this interface.
+from app.modules.ai.prompt_types import OVERRIDE_TEMP_PATTERN as OVERRIDE_TEMP_PATTERN
 from app.modules.ai.prompt_types import PromptConflict as PromptConflict
 from app.modules.ai.prompt_types import PromptError as PromptError
 from app.modules.ai.prompt_types import PromptRefused as PromptRefused
@@ -292,7 +293,10 @@ class PromptEditor(Protocol):
         self, task: str, system: str, user: str, *, expected_content_version: str
     ) -> PromptStatus: ...
 
-    def reset_override(self, task: str) -> None: ...
+    def reset_override(self, task: str, *, expected_content_version: str | None = None) -> None:
+        """Remove the override. With ``expected_content_version`` it raises ``PromptConflict``
+        (and removes nothing) when the file isn't the one that version names."""
+        ...
 
 
 class AIProvider(Protocol):

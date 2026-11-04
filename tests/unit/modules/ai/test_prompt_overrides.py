@@ -532,14 +532,15 @@ def test_prompt_editor_refuses_unsafe_template(folders: Folders, case: str, prio
 def test_a_safe_template_with_loops_and_conditions_is_accepted(folders: Folders) -> None:
     user = (
         "{% if preferences %}Preferences: {{ preferences | tojson }}{% endif %}\n"
-        "{% for n in [1, 2] %}Line {{ n }}\n{% endfor %}\n"
+        "{% for n in preferences.target_roles %}Line {{ n }}\n{% endfor %}\n"
         '{{ job_text | untrusted("job_posting", "posting-1") }}'
     )
 
     saved = folders.save(user=user)
 
     assert saved.error is None
-    assert render_prompt(folders.library.load(TASK), INPUTS).user.count("Line") == 2
+    inputs = {**INPUTS, "preferences": {"target_roles": ["Lighthouse Keeper", "Chart Keeper"]}}
+    assert render_prompt(folders.library.load(TASK), inputs).user.count("Line") == 2
 
 
 @pytest.mark.parametrize(

@@ -75,10 +75,12 @@ class PromptSettings:
 
     def reset(self, task: str, *, version: str) -> None:
         """Remove the override (harmless without one). ``PromptStale`` when ``version`` isn't
-        the file's, ``PromptUnavailable`` when it could not be removed."""
-        self._check(task, version)
+        the file's, ``PromptUnavailable`` when it could not be removed. The editor checks the
+        version under its write lock, so a save that lands in between is stale too."""
         try:
-            self._editor.reset_override(task)
+            self._editor.reset_override(task, expected_content_version=version)
+        except PromptConflict as problem:
+            raise PromptStale from problem
         except PromptError as problem:
             raise PromptUnavailable from problem
 
