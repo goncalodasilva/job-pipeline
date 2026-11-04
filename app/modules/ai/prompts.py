@@ -67,6 +67,8 @@ HONESTY_NOTICE: Final = (
 )
 
 MAX_PROMPT_FILE_BYTES: Final = 256 * 1024
+# Above this a prompt.md is not even hashed (a status check stays cheap whatever is on disk).
+MAX_HASHED_OVERRIDE_BYTES: Final = 4 * MAX_PROMPT_FILE_BYTES
 MAX_RENDERED_BYTES: Final = 2 * 1024 * 1024
 MAX_REPEAT_ITEMS: Final = 100_000
 MAX_POWER_OPERAND: Final = 1_000
@@ -408,7 +410,11 @@ class PromptLibrary:
 
 
 def _read_prompt_file(folder: int, task: str) -> _OverrideFile | None:
-    """Read ``prompt.md`` in an override folder without following a link."""
+    """Read ``prompt.md`` in an override folder without following a link.
+
+    A file larger than ``MAX_HASHED_OVERRIDE_BYTES`` is never read in full (a status check must
+    not hash gigabytes): its version is a digest of its size, time and identity instead, and it
+    reads as larger than allowed (``data`` is ``None``)."""
     try:
         fd = os.open(PROMPT_FILE, _FILE_FLAGS, dir_fd=folder)
     except FileNotFoundError:
@@ -416,18 +422,26 @@ def _read_prompt_file(folder: int, task: str) -> _OverrideFile | None:
     except OSError:
         _fail(task, _OVERRIDE_LABEL, f"{PROMPT_FILE} must be a regular file, not a link.")
     try:
-        regular = stat.S_ISREG(os.fstat(fd).st_mode)
+        info = os.fstat(fd)
+        regular = stat.S_ISREG(info.st_mode)
     except OSError:
         regular = False
     if not regular:
         os.close(fd)
         _fail(task, _OVERRIDE_LABEL, f"{PROMPT_FILE} must be a regular file, not a link.")
+    if info.st_size > MAX_HASHED_OVERRIDE_BYTES:
+        os.close(fd)
+        return _OverrideFile(_unread_digest(info), None)
     with os.fdopen(fd, "rb") as stream:
         digest = hashlib.sha256()
         kept = bytearray()
         oversize = False
+        total = 0
         try:
             while chunk := stream.read(_READ_CHUNK):
+                total += len(chunk)
+                if total > MAX_HASHED_OVERRIDE_BYTES:  # it grew while being read
+                    return _OverrideFile(_unread_digest(os.fstat(stream.fileno())), None)
                 digest.update(chunk)
                 if not oversize:
                     kept += chunk
@@ -437,6 +451,12 @@ def _read_prompt_file(folder: int, task: str) -> _OverrideFile | None:
         except OSError:
             _fail(task, _OVERRIDE_LABEL, f"{PROMPT_FILE} could not be read.")
     return _OverrideFile(digest.hexdigest(), None if oversize else bytes(kept))
+
+
+def _unread_digest(info: os.stat_result) -> str:
+    """A content version for a file that was not read: it changes when the file does."""
+    identity = f"unread:{info.st_size}:{info.st_mtime_ns}:{info.st_ino}:{info.st_dev}"
+    return hashlib.sha256(identity.encode("ascii")).hexdigest()
 
 
 def _check_expected(task: str, found: _OverrideFile | None, expected: str) -> None:

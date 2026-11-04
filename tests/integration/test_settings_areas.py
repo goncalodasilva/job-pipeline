@@ -158,9 +158,13 @@ def test_settings_area_pages_are_page_routes_and_fragments_are_not(tmp_path: Pat
             and route.path.startswith("/settings")
             and PAGE_TAG in (route.tags or [])
         }
-        assert pages == {area.path for area in AREAS}, pages
+        # M9.3 part B: each prompt also has its own token-free shell page (a path parameter, so
+        # it cannot be in ``AREAS``); its editor is a fragment and is not a page.
+        assert pages == {area.path for area in AREAS} | {"/settings/prompts/{task}"}, pages
         for route in run.app.routes:
             if isinstance(route, APIRoute) and route.path in FRAGMENT_PATHS:
+                assert PAGE_TAG not in (route.tags or []), route.path
+            if isinstance(route, APIRoute) and route.path == "/settings/prompts/{task}/editor":
                 assert PAGE_TAG not in (route.tags or []), route.path
 
 
@@ -241,7 +245,7 @@ def test_settings_area_nav_marks_current(tmp_path: Path, slug: str) -> None:
 
 def test_settings_area_nav_lists_only_routes_that_exist(tmp_path: Path) -> None:
     """Every link of the side list resolves without the token (an area appears only once its
-    route exists; Prompts is added by M9.3)."""
+    route exists; Prompts joined with M9.3 part B)."""
     with area_app(tmp_path / "root") as run:
         for link in nav_links(run.client.get("/settings").text):
             href = str(link.attrs.get("href"))

@@ -9,7 +9,7 @@ expected to hold, with room to grow, so a control added to an area later fails h
 is split or its form put behind a disclosure, rather than the ceiling being raised for
 everything. Measured on the old single page (desktop): the shell took 13 stops, Providers 8,
 Usage budgets 34, Board 54, Keyboard shortcuts 2, collapsed Sessions and Your details 1 each;
-the side list adds one stop per area (9 now).
+the side list adds one stop per area (10 now, with Prompts).
 
 Raising a cap needs a reason in the commit or ADR (the rule behind TD-308). Every value in the
 tests is fictional; nothing here sleeps: the walk waits on conditions only.
@@ -36,6 +36,11 @@ AREA_TAB_BUDGET: Final[dict[str, int]] = {
     # <details>, one Tab stop each, like Sessions and the tier list, so the cap stays 110 and is
     # not raised (tests/e2e/test_settings_lists.py pins that the groups are collapsed).
     "lists": 110,
+    # M9.3 part B. The list page is a compact list of the 17 tasks, one link each (badges are text,
+    # not links): the shell takes 13 stops on a desktop, the side list 10 and the list 17, so 40.
+    # A task page is the shell, the side list and the loaded editor (two text areas, Save and
+    # Reset: about six stops). The cap is 50 for both pages: ten stops of room.
+    "prompts": 50,
     "sessions": 45,  # one collapsed disclosure (ADR-125)
     "your-details": 50,  # one collapsed disclosure and the template list
     "appearance": 40,  # theme and density
@@ -50,6 +55,7 @@ AREA_READY: Final[dict[str, tuple[str, ...]]] = {
     # The summary arrives by a protected fragment: wait for what only it holds.
     "preferences": ("#preferences-summary, #preferences-empty", "#preferences-guide-link"),
     "lists": ("#board-settings", "#lists-editor"),
+    "prompts": ("#prompt-list",),
     "sessions": ("#sessions-settings",),
     "your-details": ("#details-summary", "#templates-settings"),
     "appearance": ("#appearance-settings",),

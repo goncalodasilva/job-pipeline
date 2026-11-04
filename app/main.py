@@ -72,6 +72,7 @@ from app.api.settings_board import register_board_settings_routes
 from app.api.settings_data import register_data_routes
 from app.api.settings_details import register_details_routes
 from app.api.settings_lists import register_lists_routes
+from app.api.settings_prompts import register_prompt_routes
 from app.api.settings_sessions import register_session_settings_routes
 from app.api.settings_task_tiers import register_task_tier_routes
 from app.api.settings_templates import register_template_routes
@@ -192,6 +193,7 @@ from app.services.prep_documents import (
     DRAFT_NARRATIVE_LABEL,
     PrepDocumentService,
 )
+from app.services.prompt_settings import PromptSettings
 from app.services.provider_setup import ProviderSetupService
 from app.services.reminders import ReminderRules, ReminderService
 from app.services.roles import RoleService
@@ -1042,9 +1044,12 @@ def _publish_fact_services(
 
 
 def _publish_prompt_editor(app: FastAPI, wiring: Wiring, data_dir: Path | None) -> None:
-    """The prompt editor over the open workspace's overrides folder (M9.3), on the app's
-    state for the routes; None while no workspace is open. Builds nothing on disk."""
-    app.state.prompt_editor = wiring.prompt_editor(data_dir) if data_dir is not None else None
+    """The prompt editor over the open workspace's overrides folder (M9.3) and the Settings >
+    Prompts service over it, on the app's state; None while no workspace is open. Builds nothing
+    on disk."""
+    editor = wiring.prompt_editor(data_dir) if data_dir is not None else None
+    app.state.prompt_editor = editor
+    app.state.prompt_settings = PromptSettings(editor) if editor is not None else None
 
 
 def _restart_runner(runner: TaskRunner, loop: list[asyncio.AbstractEventLoop]) -> None:
@@ -1466,6 +1471,7 @@ def create_app(
     )
     app.state.wiring = app_wiring
     app.state.prompt_editor = None  # published with the workspace
+    app.state.prompt_settings = None
     app.state.data_erasure = DataErasureService(
         erasable_folder,
         app_wiring.secrets,
@@ -1719,6 +1725,7 @@ def create_app(
     register_usage_settings(app)
     register_board_settings_routes(app)
     register_lists_routes(app)
+    register_prompt_routes(app)
     register_session_settings_routes(app)
     register_task_tier_routes(app)
     register_appearance_routes(app)

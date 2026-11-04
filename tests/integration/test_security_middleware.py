@@ -616,7 +616,8 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
     assert pages, "the app must register at least the root page"
     # Fill path parameters with a value the page accepts (a registered setup step; for the
     # fact pages, a fictional typed fact and a fictional draft made by the app's own service).
-    known_params = {"step_id": "welcome"}
+    # M9.3 part B: ``task`` is the prompt shell page's parameter (an allow-listed task name).
+    known_params = {"step_id": "welcome", "task": "summarize_job"}
     visited: dict[str, str] = {}
     with TestClient(app, base_url=f"http://{HOST}") as client:
         known_params.update(seed_page_ids(app.state.facts))
@@ -662,6 +663,7 @@ def test_every_page_path_dispatches_to_its_page_without_token(tmp_path: Path) ->
             visited[route.path] = path
     assert visited["/facts/{fact_id}/edit"] == f"/facts/{known_params['fact_id']}/edit"
     assert visited["/facts/{draft_id}/merge"] == f"/facts/{known_params['draft_id']}/merge"
+    assert visited["/settings/prompts/{task}"] == "/settings/prompts/summarize_job"
     assert visited["/jobs/{job_id}"] == "/jobs/job-0001"
     assert visited["/companies/{company_id}"] == "/companies/company-0001"
     assert visited["/applications/{application_id}/debriefs/{event_id}"] == (

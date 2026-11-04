@@ -3185,3 +3185,35 @@ blockquote.practice-answer { margin: var(--space-2) 0; }
 .task-tier-row .field-hint, .task-tier-row .task-tier-default { margin-block: var(--space-1); }
 .task-tier-row .task-tier-default { font-weight: 600; }
 .task-tier-row select { max-width: 100%; }
+
+/* Settings > Prompts (M9.3 part B): the list of tasks reads as words (the version and the badges
+   are text), and the prompt text, however long its lines, wraps inside the screen. The compare
+   view marks changed lines with + and - as well as a colour, and keeps the markers visible. */
+.prompt-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.prompt-list a { display: inline-flex; align-items: center; min-height: var(--target-min); }
+.prompt-version { color: var(--color-text-muted); }
+.prompt-badges { margin: 0 0 var(--space-3); }
+.prompt-status { font-weight: 600; margin-block: var(--space-3); }
+.prompt-text, .diff {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+.diff-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-line[data-kind="added"] { background: var(--color-accent-soft); font-weight: 600; }
+.diff-line[data-kind="removed"] { background: var(--color-warning-bg); text-decoration: line-through; }
+.prompt-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 12rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+}
+.prompt-default h4, .prompt-compare h4 { margin-block: var(--space-3) var(--space-2); }

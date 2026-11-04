@@ -1,0 +1,10 @@
+{# The task page's summary (M9.3 part B): the default version, the words about where the prompt
+   stands and the version an override was made against. Needs `summary` (app/api/prompt_forms.py);
+   with `summary_oob` it replaces the page's summary from an htmx answer. No prompt text. #}
+<div id="prompt-summary"{% if summary_oob %} hx-swap-oob="true"{% endif %}>
+  <p id="prompt-default-version">Default version: v{{ summary.default_version }}</p>
+  {% if summary.badges %}
+  <p class="prompt-badges">{% for badge in summary.badges %}<span class="badge" data-badge="{{ badge.kind }}">{{ badge.text }}</span> {% endfor %}</p>
+  {% endif %}
+  {% if summary.base_version is not none %}<p id="prompt-base-version">Based on v{{ summary.base_version }}</p>{% endif %}
+</div>

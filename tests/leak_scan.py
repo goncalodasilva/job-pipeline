@@ -476,6 +476,9 @@ def visit_every_page(session: Session) -> None:
         "/jobs/{job_id}": f"/jobs/{job.job_id}",
         "/companies/{company_id}": "/companies/fictional-company",  # the fixed 404 is enough
         "/applications/{application_id}": f"/applications/{application.id}",
+        # M9.3 part B: the prompt shell page (an allow-listed task name; the override text is
+        # only in the protected fragment).
+        "/settings/prompts/{task}": "/settings/prompts/summarize_job",
     }
     paths: list[str] = []
     for route in session.run.app.routes:

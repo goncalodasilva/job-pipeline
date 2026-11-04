@@ -1,0 +1,19 @@
+{# Settings > Prompts (M9.3 part B; ADR-055; ADR-131 item 7): one row per AI task, a link to the
+   task's page, the default prompt version as text and the words about where it stands (Edited,
+   Default updated, Can't load; never colour alone). A token-free, read-only page: nothing here
+   can be operated but the links, and it holds no prompt text, since an override is text the
+   user wrote and may hold personal data (spec 2.9 rule 13). Needs `prompts`
+   (app/api/prompt_forms.py). #}
+<section id="prompts-settings" class="settings-section" aria-labelledby="prompts-heading">
+  <h2 id="prompts-heading">Prompts</h2>
+  <p class="field-hint">Each AI task follows a prompt: the instructions the app sends with your text. You can change the wording of any of them. Your version is kept on this computer and used instead of the default until you reset it. The app always keeps its safety notices.</p>
+  <ul id="prompt-list" class="board-settings-list prompt-list">
+    {% for row in prompts.rows %}
+    <li id="prompt-{{ row.task }}" data-task="{{ row.task }}">
+      <a id="prompt-link-{{ row.task }}" href="{{ row.href }}">{{ row.label }}</a>
+      {% if row.version is not none %}<span class="prompt-version">v{{ row.version }}</span>{% endif %}
+      {% for badge in row.badges %}<span class="badge" data-badge="{{ badge.kind }}">{{ badge.text }}</span>{% endfor %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>

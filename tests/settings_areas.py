@@ -13,6 +13,11 @@ controls are protected fragments and POSTs (spec 2.9 rules 2, 3, 12 and 13):
 - lists: `/settings/lists`, "Lists and statuses": `#board-settings` (statuses, reminders) and
   `#lists-editor` (controlled values, skill aliases, removal reasons; M9.2 part D,
   `tests/lists_pages.py`).
+- prompts: ``/settings/prompts``, "Prompts" (M9.3 part B; the markup is in
+  ``tests/prompt_pages.py``): ``#prompts-settings``. Placed after Lists and statuses and before
+  Sessions, as in the design table. Besides the list, every task has a token-free shell page
+  ``/settings/prompts/{task}`` (also a ``PAGE_TAG`` route, not an area) whose editor loads from
+  the protected fragment ``/settings/prompts/{task}/editor``.
 - sessions: ``/settings/sessions``, "Sessions": ``#sessions-settings``.
 - your-details: ``/settings/your-details``, "Your details and CV templates":
   ``#details-settings`` and ``#templates-settings``.
@@ -20,8 +25,8 @@ controls are protected fragments and POSTs (spec 2.9 rules 2, 3, 12 and 13):
 - data: ``/settings/data``, "Data and privacy" (M9.1).
 - keyboard: ``/settings/keyboard``, "Keyboard shortcuts": ``#shortcuts-settings``.
 
-(Prompts arrive in M9.3 and are not listed yet: the side list shows only areas whose route
-exists.)
+(The side list shows only areas whose route exists; Prompts joined it with M9.3 part B, so it
+has ten links.)
 
 Contract the tests rely on (the routes and templates implement it)
 
@@ -87,6 +92,7 @@ AREAS: Final[tuple[SettingsArea, ...]] = (
     SettingsArea(
         "lists", "/settings/lists", "Lists and statuses", ("board-settings", "lists-editor")
     ),
+    SettingsArea("prompts", "/settings/prompts", "Prompts", ("prompts-settings",)),
     SettingsArea("sessions", "/settings/sessions", "Sessions", ("sessions-settings",)),
     SettingsArea(
         "your-details",
@@ -124,6 +130,9 @@ FRAGMENT_PATHS: Final = (
     # TD-342 (spec 2.9 rule 13): not an area, but the same pattern. The setup guide's preferences
     # step is a token-free shell; its form, filled from the stored preferences, is this fragment.
     "/setup/preferences/form",
+    # M9.3 part B (spec 2.9 rule 13): a prompt override is user-written text that may hold personal
+    # data, so the task page is a token-free shell and the editor is this protected fragment.
+    "/settings/prompts/summarize_job/editor",
 )
 
 # Paths that were never pages and must stay refused without the token.

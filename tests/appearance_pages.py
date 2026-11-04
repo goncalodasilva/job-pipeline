@@ -202,7 +202,11 @@ def seeded_page_paths(app: FastAPI) -> dict[str, str]:
     from tests.integration.test_setup_redirect import START
     from tests.job_fixtures import generate_jobs, seed_jobs
 
-    params: dict[str, str] = {"step_id": "welcome", **seed_page_ids(app.state.facts)}
+    params: dict[str, str] = {
+        "step_id": "welcome",
+        "task": "summarize_job",  # the prompt shell page (M9.3 part B)
+        **seed_page_ids(app.state.facts),
+    }
     with app.state.workspace.db.transaction() as conn:
         sessions_repo.insert_session(
             conn, id="session-page", focus_kind="most_useful", length=3, now=START.isoformat()

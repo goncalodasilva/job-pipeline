@@ -1,0 +1,20 @@
+{# Settings > Prompts > one task (M9.3 part B; spec 2.9 rule 13): a token-free shell. It holds the
+   summary and a placeholder that fetches the protected editor (GET /settings/prompts/{task}/editor)
+   as soon as it loads, with the launch token htmx sends on every request; the answer replaces it.
+   Loading takes no focus and announces nothing. A refused or stale plain form answers this whole
+   page with `editor` set, so the editor is already in place. Needs `prompt_task` and, then,
+   `editor` (app/api/prompt_forms.py). #}
+{% set summary = prompt_task.summary %}
+{% set summary_oob = false %}
+{% include "fragments/settings/_prompt_summary.html" %}
+<p><a id="prompt-back-link" href="{{ prompt_task.list_url }}">All prompts</a></p>
+{% if editor is defined %}
+{% include "fragments/settings/_prompt_editor.html" %}
+{% else %}
+<section id="prompt-editor" class="settings-section" aria-labelledby="prompt-editor-heading"
+         hx-get="{{ prompt_task.editor_url }}" hx-trigger="load" hx-swap="outerHTML">
+  <h2 id="prompt-editor-heading">Prompt text</h2>
+  <p class="field-hint">Loading the prompt…</p>
+  <noscript><p class="field-hint">The prompt text needs scripts to load here.</p></noscript>
+</section>
+{% endif %}

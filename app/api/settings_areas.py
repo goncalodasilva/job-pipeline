@@ -14,6 +14,10 @@ route that keeps its path (spec 2.9 rules 2, 3 and 13):
   ``GET /settings/preferences/summary``, which answers the summary and needs the token. There
   is no form.
 - ``/settings/lists`` Lists and statuses (``app/api/settings_board.py``).
+- ``/settings/prompts`` Prompts: a list of the AI tasks, with no prompt text. Each task has its own
+  token-free shell page (``/settings/prompts/{task}``) whose editor is the protected fragment
+  ``GET /settings/prompts/{task}/editor`` (``app/api/settings_prompts.py``; a prompt override is
+  user-written text that may hold personal data, spec 2.9 rule 13).
 - ``/settings/sessions`` Sessions (the ``POST`` on the same path is in
   ``app/api/settings_sessions.py``; the route that is dispatched decides whether the token
   is needed).
@@ -31,6 +35,7 @@ so these are plain functions that FastAPI runs in its thread pool.
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any, Final
 
 from fastapi import FastAPI, Request
@@ -40,6 +45,13 @@ from app.api.appearance_forms import AppearanceState, appearance_context
 from app.api.board_settings_forms import BoardSettingsState, board_context
 from app.api.lists_forms import ListsState, lists_context
 from app.api.pages import AREAS, area
+from app.api.prompt_forms import (
+    PromptState,
+    editor_context,
+    list_context,
+    prompt_settings,
+    shell_context,
+)
 from app.api.security import PAGE_TAG
 from app.api.session_settings_forms import SessionSettingsState, sessions_context
 from app.api.settings_nav import (
@@ -48,6 +60,7 @@ from app.api.settings_nav import (
     SETTINGS_AREAS,
     SettingsArea,
     area_ctx,
+    settings_area,
 )
 from app.api.settings_templates import section_context
 from app.api.setup_redirect import setup_step_path
@@ -57,11 +70,14 @@ from app.domain.locales import COUNTRIES
 from app.domain.settings import JobPreferences
 from app.onboarding.steps.preferences import WORK_MODE_LABELS
 from app.services.job_preferences import JobPreferencesView
+from app.services.prompt_settings import PromptSettings
 
 BOARD_FRAGMENT: Final = "fragments/settings/_board.html"
 LISTS_FRAGMENT: Final = "fragments/settings/_lists.html"
 SESSIONS_FRAGMENT: Final = "fragments/settings/_sessions.html"
 APPEARANCE_FRAGMENT: Final = "fragments/settings/_appearance.html"
+PROMPT_TASK_CONTENT: Final = "fragments/settings/_area_prompt_task.html"
+PROMPT_EDITOR_FRAGMENT: Final = "fragments/settings/_prompt_editor.html"
 PREFERENCES_STEP: Final = "preferences"
 PREFERENCES_SUMMARY_PATH: Final = "/settings/preferences/summary"
 PREFERENCES_SUMMARY_FRAGMENT: Final = "fragments/settings/_preferences_summary.html"
@@ -159,6 +175,8 @@ def render_area(
         if whole or lists is not None:
             ctx["lists"] = lists_context(request, lists)
             focus = focus and not ctx["lists"]["attention"]
+    elif slug == "prompts":  # a token-free list of the tasks: no prompt text
+        ctx["prompts"] = list_context(prompt_settings(request))
     elif slug == "sessions":
         if whole or sessions is not None:
             ctx["sessions"] = sessions_context(request, sessions)
@@ -180,6 +198,27 @@ def render_area(
         ctx["preferences_summary_url"] = PREFERENCES_SUMMARY_PATH
     ctx.update(area_ctx(slug, heading_focus=focus))
     return render(request, page=AREA_PAGE, fragment=fragment or AREA_FRAGMENT, ctx=ctx)
+
+
+def render_prompt_task(
+    request: Request, task: str, editor: PromptSettings, *, state: PromptState | None = None
+) -> HTMLResponse:
+    """The task page of Settings > Prompts. Without ``state`` it is the token-free shell (a
+    placeholder that loads the protected editor); with it, the answer to a form: the whole page
+    with the editor already in place, or for htmx the editor alone. Raises
+    ``PromptUnavailable`` when the prompt's default doesn't load. Blocking."""
+    status = editor.status(task)
+    shell = shell_context(task, status)
+    here = replace(
+        settings_area("prompts"), content=PROMPT_TASK_CONTENT, heading=str(shell["label"])
+    )
+    ctx: dict[str, Any] = {"area": area("settings"), "areas": AREAS, "prompt_task": shell}
+    ctx.update(area_ctx("prompts", heading_focus=not (state and state.attention)))
+    ctx["settings_area"] = here
+    if state is not None:
+        ctx["editor"] = editor_context(editor, task, status, state)
+    fragment = PROMPT_EDITOR_FRAGMENT if state is not None else AREA_FRAGMENT
+    return render(request, page=AREA_PAGE, fragment=fragment, ctx=ctx)
 
 
 def show_preferences_summary(request: Request) -> HTMLResponse:

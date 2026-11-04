@@ -3,8 +3,8 @@
 Settings is a set of area pages. Each is a token-free, read-only page whose controls are
 protected fragments and POSTs. This table is the one list of them: the side list
 (``fragments/settings/_nav.html``), every page's heading and the template that holds an area's
-sections all come from it. A page is listed only when its route exists (Prompts arrives with
-M9.3). Kept apart from the routes so every area module can use it without importing the others.
+sections all come from it. A page is listed only when its route exists. Kept apart from the
+routes so every area module can use it without importing the others.
 """
 
 from dataclasses import dataclass
@@ -29,8 +29,14 @@ class SettingsArea:
     @property
     def page_title(self) -> str:
         """The ``<title>`` text before the app name: the area, then "Settings" (so a tab or a
-        history entry of any area is found under Settings); ``/settings`` is just "Settings"."""
-        return self.title if self.title == "Settings" else f"{self.title} · Settings"
+        history entry of any area is found under Settings); ``/settings`` is just "Settings".
+        A page inside an area, whose heading differs from the area's label (a prompt's page),
+        names the area as well."""
+        if self.title == "Settings":
+            return self.title
+        if self.heading and self.heading != self.label:
+            return f"{self.title} · {self.label} · Settings"
+        return f"{self.title} · Settings"
 
 
 SETTINGS_AREAS: Final[tuple[SettingsArea, ...]] = (
@@ -53,6 +59,9 @@ SETTINGS_AREAS: Final[tuple[SettingsArea, ...]] = (
     ),
     SettingsArea(
         "lists", "Lists and statuses", "/settings/lists", "fragments/settings/_area_lists.html"
+    ),
+    SettingsArea(
+        "prompts", "Prompts", "/settings/prompts", "fragments/settings/_area_prompts.html"
     ),
     SettingsArea(
         "sessions", "Sessions", "/settings/sessions", "fragments/settings/_area_sessions.html"

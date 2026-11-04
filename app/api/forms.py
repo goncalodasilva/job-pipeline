@@ -16,15 +16,18 @@ from app.api.errors import INVALID_REQUEST
 from app.onboarding.registry import Form
 
 MAX_FORM_BYTES = 64 * 1024  # these forms are a few short fields
+# A prompt editor form holds two sections of up to 256 KiB between them (URL-encoded, a byte can
+# take three): the cap is a generous bound on that, not a limit on the prompt (M9.3).
+MAX_PROMPT_FORM_BYTES = 1024 * 1024
 MAX_VERSION = 2**63 - 1
 
 
-async def read_form(request: Request) -> Form | None:
-    """The URL-encoded body as lists of values, or None when it is too large."""
+async def read_form(request: Request, *, limit: int = MAX_FORM_BYTES) -> Form | None:
+    """The URL-encoded body as lists of values, or None when it is above ``limit`` bytes."""
     body = b""
     async for chunk in request.stream():
         body += chunk
-        if len(body) > MAX_FORM_BYTES:
+        if len(body) > limit:
             return None
     parsed: dict[str, list[str]] = parse_qs(
         body.decode("utf-8", errors="replace"), keep_blank_values=True
@@ -51,9 +54,11 @@ def is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request") == "true"
 
 
-async def single_value_form(request: Request, allowed: set[str]) -> dict[str, str] | Response:
+async def single_value_form(
+    request: Request, allowed: set[str], *, limit: int = MAX_FORM_BYTES
+) -> dict[str, str] | Response:
     """The form's fields, each given once; anything else is a 400, a huge body a 413."""
-    form = await read_form(request)
+    form = await read_form(request, limit=limit)
     if form is None:
         return PlainTextResponse(INVALID_REQUEST, status_code=413)
     if set(form) - allowed or any(len(values) != 1 for values in form.values()):

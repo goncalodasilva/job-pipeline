@@ -319,6 +319,39 @@ def test_status_reports_an_unloadable_override_and_reset_still_works(
     assert after.overridden is False and after.error is None and after.content_version == "none"
 
 
+def test_status_of_an_absurdly_large_override_does_not_read_the_file(
+    folders: Folders, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A status check stays cheap whatever is on disk: above the hashing cap the file is not
+    opened for reading at all. It reports an error, a content version that is still a 64-char
+    hex string and changes with the file, and Reset and Save (with that version) still work."""
+    from app.modules.ai import prompts
+
+    size = prompts.MAX_HASHED_OVERRIDE_BYTES + 1
+    assert size > MAX_FILE_BYTES
+    path = write_override_bytes(folders.overrides, b"")
+    with path.open("r+b") as stream:
+        stream.truncate(size)  # a sparse file: no data is written
+    monkeypatch.setattr(
+        prompts.os, "fdopen", lambda *args, **kwargs: pytest.fail("the large file was read")
+    )
+
+    status = folders.library.status(TASK)
+
+    assert status.overridden is True and status.error
+    assert "KiB" in status.error
+    assert len(status.content_version) == 64 and status.content_version != "none"
+    assert int(status.content_version, 16) >= 0
+    assert folders.library.status(TASK).content_version == status.content_version
+    with path.open("r+b") as stream:
+        stream.truncate(size + 1)
+    assert folders.library.status(TASK).content_version != status.content_version
+    monkeypatch.undo()
+    again = folders.library.status(TASK)
+    saved = folders.save(expected=again.content_version)  # replaces it, as the editor would
+    assert saved.error is None and path.stat().st_size < size
+
+
 def test_unsafe_body_still_reports_the_version_it_was_based_on(folders: Folders) -> None:
     write_override_bytes(folders.overrides, _bad_override_bytes("unwrapped_untrusted"))
 

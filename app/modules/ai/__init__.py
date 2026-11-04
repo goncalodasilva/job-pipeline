@@ -30,7 +30,8 @@ from app.domain.settings import AIProviderSettings, ProviderKind, Tier
 from app.modules.ai.prompt_types import PromptConflict as PromptConflict
 from app.modules.ai.prompt_types import PromptError as PromptError
 from app.modules.ai.prompt_types import PromptRefused as PromptRefused
-from app.modules.ai.prompt_types import PromptStatus, PromptText
+from app.modules.ai.prompt_types import PromptStatus as PromptStatus
+from app.modules.ai.prompt_types import PromptText as PromptText
 from app.modules.ai.prompt_types import RefusalReason as RefusalReason
 from app.modules.ai.uninterrupted import reserve_uninterrupted as reserve_uninterrupted
 from app.modules.ai.uninterrupted import settled as settled
