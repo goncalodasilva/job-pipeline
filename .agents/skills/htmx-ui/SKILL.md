@@ -58,7 +58,7 @@ Read `references/patterns.md` for code. These rules apply to every UI change.
 - A scroll container that the page can't otherwise reach is a region: `role="region" tabindex="0" aria-labelledby="<caption id>"` (see `fragments/settings/_usage_panel.html`). The e2e tests check that keyboard users can reach and scroll it, and that the page itself doesn't scroll sideways at 360 px.
 - Status uses text or an icon as well as color; contrast meets WCAG 2.2 AA; targets are at least 24 by 24 px; animations respect reduced motion.
 - Forms have visible labels; errors are tied to fields with `aria-describedby`.
-- **Optional forms in a disclosure** (M6; ADR-112 item 2): a long optional form (Your details) is a native `<details>` under its own heading, closed in the lazy GET answer and open in every POST answer. Collapsed by default keeps the Settings tab order short: the 120-Tab test in `tests/e2e/test_setup_provider_test.py` failed when the form was open.
+- **Optional forms in a disclosure** (M6; ADR-112 item 2): a long optional form (Your details) is a native `<details>` under its own heading, closed in the lazy GET answer and open in every POST answer. Collapsed by default keeps the area's tab order within its tab budget (`AREA_TAB_BUDGET` in `tests/e2e/settings_areas.py`; M9.2 replaced the single 120 ceiling).
 - **Refused forms keep typed values** (M6; ADR-112 item 1): a refused form refills what was typed, escaped. Error texts and logs never contain a typed value, and a refused control is tied to its fixed message.
 
 ## Tests for UI work

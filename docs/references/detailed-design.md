@@ -367,8 +367,12 @@ Settings hold everything that makes the app personal; a new user can start with 
 | Sessions | Suggestion frequency, session length, pause switch |
 | Appearance | Theme and density |
 | Data and privacy | Data folder, export and import, demo mode, delete all data |
+| Your details and CV templates | Name, contact details, links and photo; CV templates by country, approved before use |
+| Keyboard shortcuts | Use single-key shortcuts, on or off |
 
-*Built in M7 (ADR-125):* Sessions is a collapsed disclosure in Settings, closed on a plain load and open in the answer to its own form. Settings is at its tab-stop ceiling (TD-308), so the five new controls sit behind one disclosure. The current choices are shown outside it.
+*Built in M7 (ADR-125):* Sessions is a collapsed disclosure in Settings, closed on a plain load and open in the answer to its own form. Settings was at its tab-stop ceiling (TD-308), so the five new controls sit behind one disclosure. TD-308 is closed by per-area tab budgets (M9.2). The current choices are shown outside it.
+
+*Added in M9.2 (ADR-131):* the Your details and CV templates and Keyboard shortcuts rows.
 
 **Model per task tier.** Users can assign a faster, lighter model to routine tasks (summaries, field extraction) and a more capable one to tailoring and feedback. This stretches plan limits or API spend.
 
