@@ -121,6 +121,9 @@ FRAGMENT_PATHS: Final = (
     "/settings/testing-tools",
     "/settings/data/location",
     "/settings/data/delete",
+    # TD-342 (spec 2.9 rule 13): not an area, but the same pattern. The setup guide's preferences
+    # step is a token-free shell; its form, filled from the stored preferences, is this fragment.
+    "/setup/preferences/form",
 )
 
 # Paths that were never pages and must stay refused without the token.

@@ -10,7 +10,9 @@ cached decision and moves on to Done (303; htmx: the guide fragment, ``HX-Push-U
 ``<p id="<field>-error" class="field-error">``, tied to its control(s) with
 ``aria-describedby`` and marked ``aria-invalid="true"``; the first invalid field gets
 ``data-autofocus``, the title starts with "Error: ", the submitted values are shown back and
-nothing is saved. Revisiting pre-fills every field from the stored preferences.
+nothing is saved. Revisiting pre-fills every field from the stored preferences, which
+``GET /setup/preferences/form`` (token required) serves: the token-free page is a shell with a
+placeholder for it (TD-342; spec 2.9 rule 13).
 
 Step 6 (``/setup/done``) lists every registered step except Done, in order, each with its title,
 its state in text ("Done", "Skipped" or "Not done yet") and a link to ``/setup/<id>``; it shows
@@ -68,6 +70,9 @@ from tests.setup_harness import HARNESS_PROVIDER, seed_workspace
 pytestmark = pytest.mark.integration
 
 PREFERENCES_PATH = "/setup/preferences"
+# TD-342 (spec 2.9 rule 13): the token-free page is a shell; the form, with the stored values,
+# is this protected fragment (contract: tests/integration/test_setup_preferences_fragment.py).
+PREFERENCES_FORM_PATH = "/setup/preferences/form"
 DONE_PATH = "/setup/done"
 DONE_ANNOUNCEMENT = "Step 6 of 6: Done"
 LIST_FIELDS = ("target_roles", "locations", "must_haves", "deal_breakers")
@@ -398,12 +403,21 @@ def test_preferences_htmx_moves_to_done_with_push_url_and_announcement(tmp_path:
     assert "Done" in step_list_item(response, "Job preferences").text
 
 
+def get_form_fragment(run: Running, *, htmx: bool = False) -> Response:
+    """The protected form fragment of step 5 (TD-342): the form, filled from what is stored."""
+    headers = run.htmx() if htmx else run.with_token()
+    response = run.client.get(PREFERENCES_FORM_PATH, headers=headers)
+    assert response.status_code == 200, (response.status_code, response.text[:300])
+    return response
+
+
 def test_preferences_form_controls_labelled_and_selects_list_names(tmp_path: Path) -> None:
     with running(tmp_path) as run:
-        response = get_ok(run, PREFERENCES_PATH)
-    elements = outline(response.text)
-    heading = required(elements, "step-heading")
+        page = get_ok(run, PREFERENCES_PATH)
+        response = get_form_fragment(run)  # TD-342: the form is in the protected fragment
+    heading = required(outline(page.text), "step-heading")
     assert heading.text == PREFERENCES.title
+    elements = outline(response.text)
 
     form = only(
         [
@@ -625,6 +639,11 @@ def test_preferences_get_never_saves(tmp_path: Path) -> None:
     with running(tmp_path) as run:
         get_ok(run, PREFERENCES_PATH + "?target_roles=Fictional+Spy&cv_country=PT")
         assert_nothing_saved(run)
+        # TD-342: nor does the protected form fragment.
+        query = "?target_roles=Fictional+Spy&cv_country=PT"
+        response = run.client.get(PREFERENCES_FORM_PATH + query, headers=run.with_token())
+        assert response.status_code == 200
+        assert_nothing_saved(run)
 
 
 # --- step 5: revisiting ----------------------------------------------------------------------
@@ -649,19 +668,20 @@ def assert_prefilled(response: Response) -> None:
 
 
 def test_preferences_prefilled_on_revisit(tmp_path: Path) -> None:
+    # TD-342: the stored values come with the protected form fragment, not the token-free page.
     with running(tmp_path) as run:
         assert_see_other(post_preferences(run, valid_form()), DONE_PATH)
-        assert_prefilled(get_ok(run, PREFERENCES_PATH))
-        assert_prefilled(run.client.get(PREFERENCES_PATH, headers=run.htmx()))
+        assert_prefilled(get_form_fragment(run))
+        assert_prefilled(get_form_fragment(run, htmx=True))
 
     # After a restart, from the database.
     with started(tmp_path) as run:
-        assert_prefilled(get_ok(run, PREFERENCES_PATH))
+        assert_prefilled(get_form_fragment(run))
 
 
 def test_preferences_prefilled_from_seeded_preferences(tmp_path: Path) -> None:
     with running(tmp_path, done=("welcome", "provider", "preferences"), preferences=SAVED) as run:
-        assert_prefilled(get_ok(run, PREFERENCES_PATH))
+        assert_prefilled(get_form_fragment(run))
 
 
 # --- AC-M1.6: resume after a restart ---------------------------------------------------------

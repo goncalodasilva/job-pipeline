@@ -25,6 +25,12 @@ for htmx 200 with ``HX-Redirect``. A submit that changes nothing but asks or ans
 in that state, for htmx and plain requests alike. A refused submit shows back only the fields
 the handler names (``echo_fields``, one value each; ``echo_multi_fields``, every value).
 
+``GET /setup/preferences/form`` (TD-342; not page-tagged, GET only) is the job preferences
+form filled from the stored preferences, and nothing else: the step's page is a shell with a
+placeholder that fetches it with the launch token (spec 2.9 rule 13). Without a workspace it is
+the "Finish step 1" notice. It writes nothing, ignores the query string, and sets no
+``HX-Trigger`` or ``HX-Push-Url``: loading it moves no focus and announces nothing.
+
 ``POST /setup/cv_import/upload`` (M3.7; not page-tagged, POST only) is step 4's upload: one
 file or a pasted text (``read_upload``, capped), handed to the CV import step, which stores it
 through the Fact bank's ``CvImportService`` and starts it. It answers like a submit: on to job
@@ -57,12 +63,13 @@ from app.api.errors import DOCUMENT_ERRORS
 from app.api.forms import echo_submitted, is_htmx, read_form
 from app.api.security import PAGE_TAG
 from app.api.setup_redirect import SETUP_PATH, setup_step_path
-from app.api.templating import render
+from app.api.templating import render, templates
 from app.api.uploads import BOTH_GIVEN, read_upload
 from app.domain.errors import AppError, UnknownSetupStep, UploadNotAccepted, UploadTooLarge
 from app.onboarding.detection import StartupDecision
 from app.onboarding.registry import (
     CV_IMPORT,
+    PREFERENCES,
     PROVIDER,
     ConnectionCheck,
     ConnectionTester,
@@ -74,12 +81,15 @@ from app.onboarding.registry import (
 )
 from app.onboarding.startup import OnboardingState
 from app.onboarding.steps.cv_import import FILE_FIELD, TEXT_FIELD, CvImportStep
+from app.onboarding.steps.preferences import PreferencesStep
 from app.services.fact_views import MSG_CHOOSE_ONE
 
 SETUP_PAGE = "pages/setup.html"
 GUIDE_FRAGMENT = "fragments/setup/_guide_swap.html"
 NOT_FOUND_PAGE = "pages/setup_not_found.html"
 NOT_FOUND_FRAGMENT = "fragments/setup/_not_found.html"
+PREFERENCES_FORM_PATH = f"{setup_step_path(PREFERENCES.id)}/form"  # step 5's form (TD-342)
+PREFERENCES_FORM_FRAGMENT = "fragments/setup/_preferences_form.html"
 LEAVE_PATH = f"{SETUP_PATH}/leave"  # "Back to the app" (M1.20)
 CV_UPLOAD_PATH = f"{setup_step_path(CV_IMPORT.id)}/upload"  # step 4's upload (M3.7)
 _UPLOAD_ERRORS: tuple[type[AppError], ...] = (UploadTooLarge, *DOCUMENT_ERRORS)
@@ -103,6 +113,14 @@ def register_setup_pages(app: FastAPI) -> None:
         tags=[PAGE_TAG],
         response_class=HTMLResponse,
         name="setup_step",
+    )
+    # Not a page (no PAGE_TAG): the token is required, and nothing is written (TD-342).
+    app.add_api_route(
+        PREFERENCES_FORM_PATH,
+        show_preferences_form,
+        methods=["GET"],
+        response_class=HTMLResponse,
+        name="setup_preferences_form",
     )
     app.add_api_route(
         f"{setup_step_path(PROVIDER.id)}/test",
@@ -148,10 +166,18 @@ def setup_step(request: Request, step_id: str) -> HTMLResponse:
         step = registry.get(step_id)
     except UnknownSetupStep:
         return _not_found(request)
-    response = render_step(request, step)
+    response = render_step(request, step, arrival=True)
     if is_htmx(request):  # a step change made with htmx, such as "Continue" (ADR-053)
         response.headers["HX-Trigger"] = _announce_step(registry, step)
     return response
+
+
+def show_preferences_form(request: Request) -> HTMLResponse:
+    """The protected form that replaces the placeholder on step 5's token-free page. A plain
+    function: FastAPI runs it in its thread pool (it reads the database)."""
+    handler: StepHandler = request.app.state.setup_handlers[PREFERENCES.id]
+    ctx = {"form": dict(handler.context()), "errors": {}, "shell": False}
+    return templates.TemplateResponse(request, PREFERENCES_FORM_FRAGMENT, ctx)
 
 
 async def submit_step(request: Request, step_id: str) -> Response:
@@ -249,7 +275,7 @@ async def _answer(
     url = setup_step_path(following.id)
     if not is_htmx(request):
         return RedirectResponse(url, status_code=303)
-    response = await run_in_threadpool(render_step, request, following)
+    response = await run_in_threadpool(render_step, request, following, arrival=True)
     response.headers["HX-Push-Url"] = url
     response.headers["HX-Trigger"] = _announce_step(registry, following, said=result.message)
     return response
@@ -301,11 +327,17 @@ def render_step(
     connection: ConnectionCheck | None = None,
     step_view: Mapping[str, str] | None = None,
     conflict: bool = False,
+    arrival: bool = False,
 ) -> HTMLResponse:
     registry: StepRegistry = request.app.state.setup_registry
     onboarding: OnboardingState = request.app.state.onboarding
     handler: StepHandler = request.app.state.setup_handlers[step.id]
-    form: dict[str, Any] = dict(handler.context())
+    # Arriving at step 5 (its page, or moving on to it) shows a shell: its form, with the stored
+    # values, loads by the protected fragment (TD-342). Answers about the form itself carry it.
+    if arrival and isinstance(handler, PreferencesStep):
+        form: dict[str, Any] = dict(handler.shell_context())
+    else:
+        form = dict(handler.context())
     if submitted and not form.get("folder_fixed"):
         echo_submitted(form, handler, submitted)
     return render(
@@ -320,6 +352,7 @@ def render_step(
             "setup_finished": _setup_finished(onboarding.decision),
             "attention": frozenset(onboarding.decision.banners),  # list says "Needs attention"
             "form": form,
+            "shell": arrival,  # step 5: a placeholder, its form loads by the fragment
             "errors": dict(errors or {}),
             "stayed": stayed,  # saved and staying on the step: focus moves to its status
             "connection": connection,  # a connection test just ran: focus moves to its result

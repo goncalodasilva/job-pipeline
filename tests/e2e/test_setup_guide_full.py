@@ -344,7 +344,9 @@ def test_ac_m1_8_guide_completes_keyboard_only_desktop(
         assert_swapped_to(page, app, "preferences", said=CV_IMPORT_STARTED)
         expect_step_done(page, "Import CV")
 
-        # Step 5: every field by keyboard; Enter in the roles textarea is a new line.
+        # Step 5: every field by keyboard; Enter in the roles textarea is a new line. The form
+        # arrives by its protected fragment (TD-342): wait for it before tabbing.
+        expect(page.locator(ROLES)).to_be_visible()
         tab_to(page, ROLES)
         page.keyboard.type(ROLE_LINES[0])
         page.keyboard.press("Enter")

@@ -229,7 +229,12 @@ def test_ac_m1_7_setup_flag_reopens_guide_without_losing_data(tmp_path: Path) ->
         welcome = get_ok(run, WELCOME)
         assert back_to_app_forms(welcome.text), "the reopened guide offers Back to the app"
         preferences = get_ok(run, PREFERENCES_STEP)
-        assert FICTIONAL_ROLE in preferences.text, "saved preferences are pre-filled"
+        # TD-342 (spec 2.9 rule 13): the token-free page is a shell with no stored value; the
+        # saved preferences pre-fill the form that its protected fragment serves.
+        assert FICTIONAL_ROLE not in preferences.text, "the token-free page holds no preference"
+        form = run.client.get(f"{PREFERENCES_STEP}/form", headers=run.with_token())
+        assert form.status_code == 200
+        assert FICTIONAL_ROLE in form.text, "saved preferences are pre-filled"
         done = get_ok(run, DONE_STEP)
         assert "Not done yet" not in done.text
 

@@ -7,6 +7,10 @@ pydantic's text); a valid submit saves ``JobPreferences`` with the stored versio
 if it changed elsewhere) and marks the step done through the injected ``mark_done``, which also
 refreshes the setup decision. The text is the user's own and is stored as plain data.
 
+The token-free page of the step is a shell (heading, intro, a loading placeholder): the form,
+filled from the stored preferences, is the protected fragment ``GET /setup/preferences/form``
+(app/api/setup.py; spec 2.9 rule 13), whose context is ``context()``.
+
 The settings service is injected by wiring as a getter, since it needs the workspace's
 database; without one the step asks the user to finish step 1 first.
 """
@@ -80,6 +84,11 @@ class PreferencesStep:
         if settings is None:
             return {**common, "workspace_open": False}
         return {**common, "workspace_open": True, **_prefill(settings.load(JOB_PREFERENCES).value)}
+
+    def shell_context(self) -> Mapping[str, object]:
+        """What the token-free page needs (TD-342; spec 2.9 rule 13): whether there is a
+        workspace to keep preferences in. Nothing is read from the database."""
+        return {"workspace_open": self._settings() is not None}
 
     def submit(self, form: Form) -> StepResult:
         settings = self._settings()

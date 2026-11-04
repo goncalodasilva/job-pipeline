@@ -14,7 +14,7 @@ value is fictional.
 import re
 
 import pytest
-from playwright.sync_api import Browser, Page, expect
+from playwright.sync_api import Browser, Page, Route, expect
 
 from tests.e2e.axe import assert_no_serious_violations
 from tests.e2e.conftest import DESKTOP, PHONE
@@ -34,6 +34,24 @@ CURRENCY = 'select[name="salary_currency"]'
 COUNTRY = 'select[name="cv_country"]'
 CONTINUE = '#setup-step form[hx-post="/setup/preferences"] button[type="submit"]'
 ADD_JOB = 'button[name="then"][value="add_job"]'
+FORM = '#setup-step form[hx-post="/setup/preferences"]'
+SLOT = "#preferences-form-slot"
+FORM_URL = "/setup/preferences/form"
+SKIP_CV = '#setup-step button[name="action"][value="skip"]'
+# The keyboard order of step 5 once the form is there (it must not change, TD-342).
+TAB_ORDER = [
+    "target_roles",
+    "locations",
+    "work_modes=remote",
+    "work_modes=hybrid",
+    "work_modes=on_site",
+    "salary_amount",
+    "salary_currency",
+    "must_haves",
+    "deal_breakers",
+    "cv_country",
+    "button",
+]
 MAX_TABS = 40
 AXE_CASES = [
     pytest.param(DESKTOP, "light", id="desktop-light"),
@@ -57,6 +75,38 @@ def tab_to(page: Page, selector: str) -> None:
     raise AssertionError(f"{selector} never received focus within {MAX_TABS} Tab presses")
 
 
+def wait_for_form(page: Page) -> None:
+    """The form arrives by a protected fragment (TD-342): wait for it, then for the placeholder
+    to be gone (conditions, no sleeps)."""
+    expect(page.locator(FORM)).to_be_visible()
+    expect(page.locator(SLOT)).to_have_count(0)
+
+
+def hold_form(page: Page) -> list[Route]:
+    """Keep the form fragment's request pending so the loading state can be inspected."""
+    held: list[Route] = []
+
+    def keep(route: Route) -> None:
+        held.append(route)
+
+    page.route(f"**{FORM_URL}", keep)
+    return held
+
+
+def wait_for_held(page: Page, held: list[Route]) -> None:
+    for _ in range(5000):  # each round trip lets Playwright deliver pending events
+        if held:
+            return
+        page.evaluate("() => 0")
+    raise AssertionError("the form fragment was never requested")
+
+
+def release(page: Page, held: list[Route]) -> None:
+    for route in held:
+        route.continue_()
+    page.unroute(f"**{FORM_URL}")
+
+
 def assert_fits(page: Page, state: str) -> None:
     fits, scroll_width, inner_width = has_no_horizontal_scroll(page)
     assert fits, f"{state}: scrollWidth {scroll_width} > {inner_width}"
@@ -78,6 +128,7 @@ def test_preferences_and_done_keyboard_add_a_job(running_app: RunningApp, browse
         expect(page.locator('[aria-current="step"]')).to_contain_text("Job preferences")
         expect(page.locator("#step-heading")).to_have_text("Job preferences")
 
+        wait_for_form(page)  # TD-342: the form arrives by its protected fragment
         tab_to(page, ROLES)
         page.keyboard.type("Fictional Archivist")
         page.keyboard.press("Enter")  # a new line inside the textarea, not a submit
@@ -181,3 +232,118 @@ def test_done_axe(
         expect(page.locator(ADD_JOB)).to_be_visible()
         assert_no_serious_violations(page)
         assert_fits(page, "done (loaded)")
+
+
+def top_of(page: Page, selector: str) -> float:
+    box = page.locator(selector).bounding_box()
+    assert box is not None, selector
+    return box["y"]
+
+
+def test_td342_form_loads_by_a_token_fragment_without_moving_focus_or_layout(
+    running_app: RunningApp, browser: Browser
+) -> None:
+    """The page is a shell with a visible loading line; the form (empty here: nothing is stored)
+    arrives from GET /setup/preferences/form with the launch token, in the place of the
+    placeholder. Focus stays where the user put it, nothing above the form moves and nothing is
+    announced."""
+    with new_page(browser, DESKTOP) as page:
+        held = hold_form(page)
+        requests: list[dict[str, str]] = []
+        page.on("request", lambda r: requests.append(r.headers) if FORM_URL in r.url else None)
+        open_app(page, running_app, "/setup/preferences")
+        wait_for_held(page, held)
+        expect(page.locator(SLOT)).to_be_visible()
+        expect(page.locator(SLOT)).to_contain_text("Loading")
+        expect(page.locator("#setup-step form")).to_have_count(0)
+        assert requests and requests[0].get("x-jp-token"), "the launch token travels"
+
+        page.keyboard.press("Tab")  # the user is somewhere while the form loads
+        page.evaluate("() => { window.__focused = document.activeElement; }")
+        heading_top = top_of(page, "#step-heading")
+        slot_top = top_of(page, SLOT)
+
+        release(page, held)
+        wait_for_form(page)
+
+        assert page.evaluate("() => document.activeElement === window.__focused"), "focus jumped"
+        expect(page.locator("#setup-step form :focus")).to_have_count(0)
+        assert top_of(page, "#step-heading") == heading_top, "the heading moved"
+        assert abs(top_of(page, FORM) - slot_top) <= 4, "the form replaces the placeholder"
+        expect(page.locator("#announcer")).to_have_text("")
+        expect(page).to_have_url(f"{running_app.base_url}/setup/preferences")
+        expect(page.locator(ROLES)).to_have_value("")  # nothing stored: the empty form
+        expect(page.locator(COUNTRY)).to_have_value("")
+
+
+def test_td342_tab_order_after_the_fragment_is_the_forms_order(
+    running_app: RunningApp, browser: Browser
+) -> None:
+    with new_page(browser, DESKTOP) as page:
+        open_app(page, running_app, "/setup/preferences")
+        wait_for_form(page)
+        tab_to(page, ROLES)
+        seen = ["target_roles"]
+        for _ in range(len(TAB_ORDER) - 1):
+            page.keyboard.press("Tab")
+            seen.append(
+                page.evaluate(
+                    """() => {
+                      const e = document.activeElement;
+                      if (e.tagName === 'BUTTON') return 'button';
+                      return e.type === 'checkbox' ? e.name + '=' + e.value : e.name;
+                    }"""
+                )
+            )
+        assert seen == TAB_ORDER, seen
+        assert has_focus(page, CONTINUE)
+        # The placeholder offered nothing to tab to, and nothing is left behind.
+        expect(page.locator(SLOT)).to_have_count(0)
+
+
+def test_td342_keyboard_arrival_from_the_previous_step_keeps_focus_and_announcement(
+    running_app: RunningApp, browser: Browser
+) -> None:
+    """ "Skip for now" on the CV step swaps the guide to step 5: the heading takes focus and the
+    step is announced; the form arriving afterwards changes neither."""
+    said = "CV import skipped. Step 5 of 6: Job preferences"
+    with new_page(browser, DESKTOP) as page:
+        open_app(page, running_app, "/setup/cv_import")
+        held = hold_form(page)
+        tab_to(page, SKIP_CV)
+        page.keyboard.press("Enter")
+        expect(page).to_have_url(f"{running_app.base_url}/setup/preferences")
+        wait_for_held(page, held)
+        expect(page.locator("#step-heading")).to_be_focused()
+        expect(page.locator("#announcer")).to_have_text(said)
+        expect(page.locator(SLOT)).to_be_visible()
+
+        release(page, held)
+        wait_for_form(page)
+        expect(page.locator("#step-heading")).to_be_focused()
+        expect(page.locator("#announcer")).to_have_text(said)
+        expect(page).to_have_title(re.compile(r"^Job preferences"))
+
+
+@pytest.mark.parametrize(("viewport", "scheme"), AXE_CASES)
+def test_td342_loading_and_prefilled_states_axe_and_fit(
+    running_app: RunningApp, browser: Browser, viewport: dict[str, int], scheme: str
+) -> None:
+    """The shell while the fragment loads, and the form filled from stored values, at desktop
+    and 390x844, in light and dark: no serious axe findings, no horizontal scroll."""
+    with new_page(browser, viewport, color_scheme=scheme) as page:
+        held = hold_form(page)
+        open_app(page, running_app, "/setup/preferences")
+        wait_for_held(page, held)
+        expect(page.locator(SLOT)).to_be_visible()
+        assert_no_serious_violations(page)
+        assert_fits(page, "preferences loading")
+        release(page, held)
+        wait_for_form(page)
+
+        fill_minimal_and_continue(page, running_app)  # stores Fictional Archivist and PT
+        open_app(page, running_app, "/setup/preferences")
+        expect(page.locator(ROLES)).to_have_value("Fictional Archivist")
+        expect(page.locator(COUNTRY)).to_have_value("PT")
+        assert_no_serious_violations(page)
+        assert_fits(page, "preferences prefilled")

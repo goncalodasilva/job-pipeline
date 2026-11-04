@@ -929,8 +929,10 @@ body.layout-guide {
   font-weight: 400;
 }
 
-/* Forms */
-.step-form {
+/* Forms. The placeholder of a form that loads by a fragment (the preferences step, TD-342)
+   takes the form's margins, so the form replaces it without moving anything. */
+.step-form,
+.step-form-slot {
   margin-block: var(--space-6);
 }
 
