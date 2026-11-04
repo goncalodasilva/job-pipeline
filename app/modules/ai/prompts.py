@@ -22,7 +22,7 @@ import secrets
 import stat
 import threading
 import unicodedata
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Generator, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,6 +80,12 @@ MAX_POWER_OPERAND: Final = 1_000
 MAX_SET_STATEMENTS: Final = 8  # per section
 MAX_LOOP_DEPTH: Final = 2
 MAX_JOIN_SEPARATOR: Final = 64
+# Compiling a template costs memory and time in proportion to its size (20,000 outputs took
+# about 215 MB), so the size is bounded on the parsed source, before anything is compiled. The
+# shipped prompts use at most 7 outputs and 32 nodes per section; the output bound is ten times
+# that, at least 200, and the node bound is roomier so an edit doesn't hit it by accident.
+MAX_OUTPUT_NODES: Final = 200  # ``{{ ... }}`` outputs per section
+MAX_TEMPLATE_NODES: Final = 1000  # all syntax tree nodes per section
 # Filters that cannot make a result much larger than their input. Anything else (``center``,
 # ``indent``, ``wordwrap``, ``format``, ``truncate``, ``replace``, ``map``, ...) is refused.
 ALLOWED_FILTERS: Final[frozenset[str]] = frozenset(
@@ -155,6 +161,12 @@ _LT_LIKE_PATTERN = re.compile("[" + re.escape("".join(sorted(LT_LIKE))) + "]")
 _SAFE_CONTAINERS: Final = (nodes.Template, nodes.Output, nodes.If, nodes.For)
 # Templates are self-contained: no loading other templates.
 _BANNED_NODES: Final = (nodes.Include, nodes.Import, nodes.FromImport, nodes.Extends)
+# Definitions that serve no purpose in a prompt and, with ``self``, make rendering exponential.
+_BANNED_DEFINITIONS: Final = (nodes.Block, nodes.Macro, nodes.CallBlock)
+# The only ``loop`` attributes a template may read (plain counters and flags).
+LOOP_ATTRS: Final[frozenset[str]] = frozenset(
+    {"index", "index0", "revindex", "revindex0", "first", "last", "length"}
+)
 
 
 class UntrustedFilterError(ValueError):
@@ -704,9 +716,12 @@ def render_prompt(template: PromptTemplate, inputs: Mapping[str, object]) -> Ren
         key: value.text if isinstance(value, FactPromptBlock) else value
         for key, value in inputs.items()
     }
+    budget = _RenderBudget(task)
     try:
-        system = env.from_string(template.system_source).render(values)
-        user = env.from_string(template.user_source).render(values)
+        system = budget.render(env, template.system_source, values)
+        user = budget.render(env, template.user_source, values)
+    except PromptError:
+        raise
     except SecurityError:
         raise PromptError(f"Prompt {task!r}: the template tried an unsafe operation.") from None
     except UndefinedError:
@@ -730,6 +745,30 @@ def render_prompt(template: PromptTemplate, inputs: Mapping[str, object]) -> Ren
         system=system,
         user=user,
     )
+
+
+class _RenderBudget:
+    """Renders sections by streaming and stops as soon as the output of all sections together
+    passes ``MAX_RENDERED_BYTES``, so a template can never build the full oversized text."""
+
+    def __init__(self, task: str) -> None:
+        self._task = task
+        self._used = 0
+
+    def render(self, env: "_PromptEnvironment", source: str, values: Mapping[str, object]) -> str:
+        pieces: list[str] = []
+        stream = cast(Generator[str, None, None], env.from_string(source).generate(values))
+        try:
+            for piece in stream:
+                self._used += len(piece.encode("utf-8"))
+                if self._used > MAX_RENDERED_BYTES:
+                    raise PromptError(
+                        f"Prompt {self._task!r}: the rendered prompt is larger than allowed."
+                    )
+                pieces.append(piece)
+        finally:
+            stream.close()
+        return "".join(pieces)
 
 
 # --- Environment -----------------------------------------------------------------------------
@@ -1001,11 +1040,15 @@ def _refuse(task: str, label: str, reason: RefusalReason) -> NoReturn:
 
 @contextmanager
 def _within_limits(task: str, label: str) -> Iterator[None]:
-    """Text too deeply nested (``RecursionError``) or too large (``MemoryError``) to check is a
-    refusal of the text, whichever step ran out."""
+    """Text the checks can't handle is a refusal of the text, whichever step failed: too deeply
+    nested (``RecursionError``), too large (``MemoryError``), a number literal the lexer can't
+    convert (``ValueError``), and the like. A refusal the checks raise themselves passes
+    through unchanged; the exception text is never used."""
     try:
         yield
-    except (RecursionError, MemoryError):
+    except PromptError:
+        raise
+    except Exception:
         _refuse(task, label, "invalid_template")
 
 
@@ -1027,22 +1070,89 @@ def _check_costs(ast: nodes.Template, task: str, label: str, inputs: frozenset[s
     - ``*``, ``**`` and ``%`` only between written numbers (no string repetition or format
       width), and no string ``+`` or ``~`` inside ``{% set %}``;
     - only the filters in ``ALLOWED_FILTERS``, and a short written separator for ``join``;
-    - only the methods in ``SAFE_METHODS`` may be called, and nothing else (no macros);
+    - only the methods in ``SAFE_METHODS`` may be called, and only on a name that is an input, a
+      loop variable or a ``{% set %}`` name (an attribute, item, filter or earlier call of one);
+      nothing else is called;
+    - at most ``MAX_OUTPUT_NODES`` outputs and ``MAX_TEMPLATE_NODES`` nodes per section (a
+      template that would take huge memory to compile is refused unbuilt);
+    - no ``{% block %}``, ``{% macro %}`` or ``{% call %}`` and no ``self`` (a block named like a
+      safe method, called through ``self``, grows exponentially); ``loop`` only for
+      ``loop.index`` and the like;
     - at most ``MAX_SET_STATEMENTS`` ``{% set %}`` statements, none reading a name that is set;
     - a loop runs over an input (or, nested, over its enclosing loop's item), at most
       ``MAX_LOOP_DEPTH`` deep.
     """
+    _check_size(ast, task, label)
     for operation in ast.find_all((nodes.Mul, nodes.Pow, nodes.Mod)):
         if not (_is_number(operation.left) and _is_number(operation.right)):
             _refuse(task, label, "unsupported_expression")
     for filtered in ast.find_all(nodes.Filter):
         if filtered.name not in ALLOWED_FILTERS or not _filter_is_bounded(filtered):
             _refuse(task, label, "unsupported_expression")
+    if any(True for _ in ast.find_all(_BANNED_DEFINITIONS)):
+        _refuse(task, label, "unsupported_expression")
+    _check_special_names(ast, task, label)
+    readable = inputs | _all_store_names(ast)
     for call in ast.find_all(nodes.Call):
         if not (isinstance(call.node, nodes.Getattr) and call.node.attr in SAFE_METHODS):
             _refuse(task, label, "unsupported_expression")
+        if _read_root(call.node.node) not in readable:
+            _refuse(task, label, "unsupported_expression")
     _check_assignments(ast, task, label)
     _check_loops(ast, task, label, inputs, frozenset(), 0)
+
+
+def _check_size(ast: nodes.Template, task: str, label: str) -> None:
+    """Bound the section's size on the parsed tree, counting without building anything."""
+    outputs = 0
+    for output in ast.find_all(nodes.Output):
+        outputs += sum(1 for part in output.nodes if not isinstance(part, nodes.TemplateData))
+        if outputs > MAX_OUTPUT_NODES:
+            _refuse(task, label, "unsupported_expression")
+    for count, _ in enumerate(ast.find_all(nodes.Node), start=1):
+        if count > MAX_TEMPLATE_NODES:
+            _refuse(task, label, "unsupported_expression")
+
+
+def _all_store_names(ast: nodes.Template) -> frozenset[str]:
+    """Every name a loop or ``{% set %}`` in the template stores."""
+    found: set[str] = set()
+    for statement in ast.find_all((nodes.Assign, nodes.AssignBlock, nodes.For)):
+        found |= _store_names(statement.target)  # type: ignore[attr-defined]
+    return frozenset(found)
+
+
+def _check_special_names(ast: nodes.Template, task: str, label: str) -> None:
+    """``self`` is never allowed. ``loop`` only as ``loop.<attribute>`` for the plain counters
+    (so never called, passed around or read through ``previtem``)."""
+    allowed: set[int] = set()
+    for loop in ast.find_all(nodes.For):  # ``loop`` exists in a loop's body and filter only
+        for part in (*loop.body, *([loop.test] if loop.test is not None else [])):
+            for access in part.find_all(nodes.Getattr):
+                target = access.node
+                if (
+                    isinstance(target, nodes.Name)
+                    and target.name == "loop"
+                    and access.attr in LOOP_ATTRS
+                ):
+                    allowed.add(id(target))
+    for name in ast.find_all(nodes.Name):
+        if name.name == "self" or (name.name == "loop" and id(name) not in allowed):
+            _refuse(task, label, "unsupported_expression")
+
+
+def _read_root(node: nodes.Node) -> str | None:
+    """The name an expression reads from through attributes, items, calls and filters; ``None``
+    for anything made up in the template (a literal, a condition, an operation)."""
+    if isinstance(node, nodes.Name):
+        return node.name
+    if isinstance(node, (nodes.Getattr, nodes.Getitem)):
+        return _read_root(node.node)
+    if isinstance(node, nodes.Call):
+        return _read_root(node.node)
+    if isinstance(node, nodes.Filter) and node.node is not None:
+        return _read_root(node.node)
+    return None
 
 
 def _filter_is_bounded(node: nodes.Filter) -> bool:

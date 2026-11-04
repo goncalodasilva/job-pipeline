@@ -1337,6 +1337,7 @@ DEEP_TEXT = {
     "ifs": "{% if job_id %}" * 3000 + "x" + "{% endif %}" * 3000,
     "unary_minus": "{{ " + "-" * 5000 + "1 }}",
     "brackets": "{{ " + "[" * 5000 + "]" * 5000 + " }}",
+    "huge_number_literal": "{{ " + "9" * 5000 + " }}",  # past Python's 4300 digit limit
 }
 BOMB_TEXT = {
     "percent_width": "{{ '%2000000000d' % 1 }}",
@@ -1346,6 +1347,13 @@ BOMB_TEXT = {
         "{% for a in [1, 2, 3] %}{% for b in [1, 2, 3] %}{% for c in [1, 2, 3] %}x"
         "{% endfor %}{% endfor %}{% endfor %}"
     ),
+    "block_self_chain": (
+        "{% block count %}x{% endblock %}"
+        "{% block find %}{{ self.count() }}{{ self.count() }}{{ self.count() }}{% endblock %}"
+        "{{ self.find() }}"
+    ),
+    "macro": "{% macro m() %}x{% endmacro %}",
+    "call_block": "{% call m() %}x{% endcall %}",
 }
 
 

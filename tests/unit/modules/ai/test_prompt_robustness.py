@@ -11,9 +11,11 @@ the default's. Everything is fictional; a temporary data folder, no network.
 import dataclasses
 import errno
 import os
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
+import jinja2.environment
 import pytest
 from jinja2 import nodes
 from jinja2.exceptions import SecurityError
@@ -81,6 +83,13 @@ class RenderedAnyway(BaseException):
 
 def never_render(*args: object, **kwargs: object) -> None:
     raise RenderedAnyway
+
+
+def forbid_rendering(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Any render, by ``render()`` or by streaming with ``generate()``, escapes the renderer's
+    catch-all (the renderer streams since fix pass 3, so both entry points are guarded)."""
+    monkeypatch.setattr("jinja2.environment.Template.render", never_render)
+    monkeypatch.setattr("jinja2.environment.Template.generate", never_render)
 
 
 def fixed(reason: str) -> str:
@@ -239,7 +248,7 @@ BOMBS = {
 def test_resource_bomb_is_refused_at_save_with_a_fixed_message(
     folders: Folders, name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("jinja2.environment.Template.render", never_render)
+    forbid_rendering(monkeypatch)
     before = snapshot(folders.overrides)
 
     with pytest.raises(PromptRefused) as refused:
@@ -254,7 +263,7 @@ def test_resource_bomb_is_refused_at_save_with_a_fixed_message(
 def test_resource_bomb_file_reports_an_error_without_rendering_anything(
     folders: Folders, name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("jinja2.environment.Template.render", never_render)
+    forbid_rendering(monkeypatch)
     write_override_bytes(
         folders.overrides, prompt_file(EDIT_SYSTEM, EDIT_USER + "\n" + BOMBS[name])
     )
@@ -276,7 +285,7 @@ def test_render_prompt_refuses_a_bomb_in_a_template_built_by_hand(
     """``render_prompt`` runs the same static checks, so a template that skipped the loader
     still renders nothing."""
 
-    monkeypatch.setattr("jinja2.environment.Template.render", never_render)
+    forbid_rendering(monkeypatch)
     template = dataclasses.replace(folders.library.load(TASK), user_source=BOMBS[name])
 
     with pytest.raises(PromptError, match=TASK):
@@ -303,6 +312,12 @@ ALLOWED = {
     "numeric_filters": '{{ "3" | int }}{{ "3" | float }}',
     "eight_sets": "".join(f"{{% set v{n} = preferences | length %}}" for n in range(8)),
     "escape": "{{ preferences | e }}",
+    "loop_attributes": "{% for role in preferences.target_roles %}{{ loop.index }}{{ loop.index0 }}"
+    "{{ loop.revindex }}{{ loop.revindex0 }}{{ loop.length }}"
+    "{% if loop.first or loop.last %}x{% endif %}{% endfor %}",
+    "method_on_a_set_name": "{% set text = preferences | string %}{{ text.strip().title() }}",
+    "method_after_a_filter": "{{ (preferences | string).strip() }}",
+    "method_on_a_subscript": '{{ preferences["target_roles"][0].strip() }}',
 }
 
 
@@ -623,3 +638,393 @@ def test_a_render_that_runs_out_of_resources_is_a_prompt_error(
 
     with pytest.raises(PromptError, match="could not be rendered"):
         render_prompt(template, INPUTS)
+
+
+# --- fix pass 3: blocks, macros and `self` (exponential cost), number literals, output cap -----
+
+SAFE_NAMES = sorted(prompts.SAFE_METHODS)  # 17 names; a block may be named like any of them
+
+
+def block_chain(depth: int, calls: int) -> str:
+    """``depth`` blocks named like safe methods; each one writes the previous one ``calls``
+    times through ``self``, so rendering the last costs ``calls ** depth`` steps."""
+    names = SAFE_NAMES[:depth]
+    parts = ["{% block " + names[0] + " %}x{% endblock %}"]
+    for index in range(1, depth):
+        body = "{{ self." + names[index - 1] + "() }}" * calls
+        parts.append("{% block " + names[index] + " %}" + body + "{% endblock %}")
+    parts.append("{{ self." + names[-1] + "() }}")
+    return "".join(parts)
+
+
+CHAINS = [(8, 2), (12, 5), (17, 10)]
+FORBIDDEN = {
+    "block_alone": "{% block intro %}x{% endblock %}",
+    "block_named_like_a_method": "{% block count %}x{% endblock %}",
+    "macro_alone": "{% macro m() %}x{% endmacro %}",
+    "call_block": "{% call m() %}x{% endcall %}",
+    "macro_and_call_block": (
+        "{% macro m() %}{{ caller() }}{% endmacro %}{% call m() %}x{% endcall %}"
+    ),
+    "self_name": "{{ self }}",
+    "self_method": "{{ self.count() }}",
+    "self_in_a_filter": "{{ self | string }}",
+    "self_set": "{% set s = self %}{{ s }}",
+    "loop_bare": "{% for role in preferences.target_roles %}{{ loop }}{% endfor %}",
+    "loop_previtem": "{% for r in preferences.target_roles %}{{ loop.previtem }}{% endfor %}",
+    "loop_cycle": "{% for r in preferences.target_roles %}{{ loop.cycle('a') }}{% endfor %}",
+    "loop_method_chain": "{% for r in preferences.target_roles %}{{ loop.index.count() }}"
+    "{% endfor %}",
+    "loop_outside_a_loop": "{{ loop.index }}",
+    "method_on_a_literal": "{{ 'abc'.strip() }}",
+    "method_on_a_list_literal": "{{ [1].count(1) }}",
+    "method_on_a_condition": "{{ (preferences if job_text else job_text).strip() }}",
+}
+
+
+@pytest.mark.parametrize(("depth", "calls"), CHAINS)
+def test_a_block_self_chain_is_refused_at_save_with_a_fixed_message(
+    folders: Folders, depth: int, calls: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_rendering(monkeypatch)
+    before = snapshot(folders.overrides)
+
+    with pytest.raises(PromptRefused) as refused:
+        folders.save(EDIT_SYSTEM, EDIT_USER + "\n" + block_chain(depth, calls))
+
+    assert refused.value.reason == "unsupported_expression"
+    assert str(refused.value) == fixed("unsupported_expression")
+    assert snapshot(folders.overrides) == before and not folders.task_folder.exists()
+
+
+@pytest.mark.parametrize("section", ["system", "user"])
+@pytest.mark.parametrize(("depth", "calls"), CHAINS)
+def test_a_block_self_chain_file_reports_an_error_without_rendering(
+    folders: Folders, depth: int, calls: int, section: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_rendering(monkeypatch)
+    chain = block_chain(depth, calls)
+    system = EDIT_SYSTEM + "\n" + chain if section == "system" else EDIT_SYSTEM
+    user = EDIT_USER + "\n" + chain if section == "user" else EDIT_USER
+    write_override_bytes(folders.overrides, prompt_file(system, user))
+
+    status = folders.library.status(TASK)
+    assert status.overridden is True and status.error == fixed("unsupported_expression")
+    with pytest.raises(PromptError) as raised:
+        folders.library.load(TASK)
+    assert str(raised.value) == fixed("unsupported_expression")
+    folders.library.reset_override(TASK)
+    assert folders.library.status(TASK).overridden is False
+
+
+@pytest.mark.parametrize(("depth", "calls"), CHAINS)
+def test_render_prompt_refuses_a_block_self_chain_in_a_template_built_by_hand(
+    folders: Folders, depth: int, calls: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_rendering(monkeypatch)
+    template = dataclasses.replace(
+        folders.library.load(TASK), user_source=block_chain(depth, calls)
+    )
+
+    with pytest.raises(PromptError, match=TASK):
+        render_prompt(template, INPUTS)
+
+
+@pytest.mark.parametrize("name", sorted(FORBIDDEN))
+def test_blocks_macros_self_and_loose_calls_are_refused(
+    folders: Folders, name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_rendering(monkeypatch)
+    before = snapshot(folders.overrides)
+
+    with pytest.raises(PromptRefused) as refused:
+        folders.save(EDIT_SYSTEM, EDIT_USER + "\n" + FORBIDDEN[name])
+
+    assert refused.value.reason == "unsupported_expression"
+    assert str(refused.value) == fixed("unsupported_expression")
+    assert snapshot(folders.overrides) == before
+
+
+def test_every_shipped_prompt_still_passes_the_checks() -> None:
+    root = Path(prompts.__file__).resolve().parents[3] / "prompts"
+    library = PromptLibrary(root)
+    tasks = sorted(path.name for path in root.iterdir() if path.is_dir())
+    assert tasks
+    for task in tasks:
+        assert library.load(task).task == task
+
+
+HUGE_NUMBER = "9" * 5000  # more digits than Python turns into a number (4300)
+NUMBERS = {
+    "output": "{{ " + HUGE_NUMBER + " }}",
+    "set": "{% set n = " + HUGE_NUMBER + " %}{{ n }}",
+    "product": "{{ " + HUGE_NUMBER + " * 2 }}",
+    "negative": "{{ -" + HUGE_NUMBER + " }}",
+}
+
+
+@pytest.mark.parametrize("section", ["system", "user"])
+@pytest.mark.parametrize("name", sorted(NUMBERS))
+def test_a_number_literal_over_the_digit_limit_is_refused_at_save(
+    folders: Folders, name: str, section: str
+) -> None:
+    before = snapshot(folders.overrides)
+    system, user = EDIT_SYSTEM, EDIT_USER
+    if section == "system":
+        system += "\n" + NUMBERS[name]
+    else:
+        user += "\n" + NUMBERS[name]
+
+    with pytest.raises(PromptRefused) as refused:
+        folders.save(system, user)
+
+    assert refused.value.reason == "invalid_template"
+    assert str(refused.value) == fixed("invalid_template")
+    assert HUGE_NUMBER not in str(refused.value)
+    assert snapshot(folders.overrides) == before and not folders.task_folder.exists()
+
+
+@pytest.mark.parametrize("name", sorted(NUMBERS))
+def test_a_number_literal_over_the_digit_limit_in_a_file_is_an_error_not_a_crash(
+    folders: Folders, name: str
+) -> None:
+    write_override_bytes(
+        folders.overrides, prompt_file(EDIT_SYSTEM, EDIT_USER + "\n" + NUMBERS[name])
+    )
+
+    status = folders.library.status(TASK)
+    assert status.overridden is True and status.error == fixed("invalid_template")
+    with pytest.raises(PromptError) as raised:
+        folders.library.load(TASK)
+    assert not isinstance(raised.value, ValueError)
+    assert str(raised.value) == fixed("invalid_template")
+    assert folders.library.override_text(TASK) is not None
+    folders.library.reset_override(TASK)
+    assert folders.library.status(TASK).overridden is False
+    assert folders.library.load(TASK).overridden is False
+
+
+def test_render_prompt_maps_a_huge_number_literal_to_a_prompt_error(folders: Folders) -> None:
+    template = dataclasses.replace(folders.library.load(TASK), user_source=NUMBERS["output"])
+
+    with pytest.raises(PromptError, match=TASK) as raised:
+        render_prompt(template, INPUTS)
+
+    assert not isinstance(raised.value, ValueError)
+
+
+@pytest.mark.parametrize(
+    "error", [ValueError, OverflowError, RecursionError, MemoryError, ZeroDivisionError]
+)
+def test_any_failure_while_checking_is_a_refusal_never_the_exception_text(
+    folders: Folders, monkeypatch: pytest.MonkeyPatch, error: type[Exception]
+) -> None:
+    real = prompts.find_undeclared_variables
+
+    def fails_on_the_marker(ast: Any) -> Any:
+        if any(node.value == "marker-0042" for node in ast.find_all(nodes.Const)):
+            raise error("kestrel-secret-text")
+        return real(ast)
+
+    monkeypatch.setattr(prompts, "find_undeclared_variables", fails_on_the_marker)
+    marked = EDIT_USER + '\n{{ "marker-0042" }}'
+
+    with pytest.raises(PromptRefused) as refused:
+        folders.save(EDIT_SYSTEM, marked)
+    assert refused.value.reason == "invalid_template"
+    assert str(refused.value) == fixed("invalid_template")
+    write_override_bytes(folders.overrides, prompt_file(EDIT_SYSTEM, marked))
+    assert folders.library.status(TASK).error == fixed("invalid_template")
+
+
+def test_the_checks_do_not_swallow_a_refusal_they_raise_themselves(folders: Folders) -> None:
+    with pytest.raises(PromptRefused) as refused:
+        folders.save(EDIT_SYSTEM, EDIT_USER + "\n{{ undeclared_name }}")
+    assert refused.value.reason == "undeclared_input"
+
+
+# --- the rendered size is capped while rendering ----------------------------------------------
+
+
+REPEATS = 20_000
+NOTES = "n" * 10_000  # 20,000 copies would be 200 MB
+
+
+def spy_on_streaming(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Record the size of every piece the renderer streams out of a template."""
+    real_generate = jinja2.environment.Template.generate
+    yielded: list[int] = []
+
+    def spy(self: Any, *args: Any, **kwargs: Any) -> Any:
+        for piece in real_generate(self, *args, **kwargs):
+            yielded.append(len(piece))
+            yield piece
+
+    monkeypatch.setattr("jinja2.environment.Template.generate", spy)
+    return yielded
+
+
+def test_a_template_repeating_an_input_stops_rendering_at_the_cap(
+    folders: Folders, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    yielded = spy_on_streaming(monkeypatch)
+    template = dataclasses.replace(
+        folders.library.load(TASK),
+        inputs=("job_text", "notes"),
+        user_source="{{ notes }}\n" * 150,  # as many as the output bound allows, 3 MB in all
+    )
+
+    with pytest.raises(PromptError, match="larger than allowed") as raised:
+        render_prompt(template, {"job_text": "x", "notes": "n" * 20_000})
+
+    assert str(raised.value) == f"Prompt {TASK!r}: the rendered prompt is larger than allowed."
+    assert yielded, "rendered by streaming"
+    assert sum(yielded) < 2 * prompts.MAX_RENDERED_BYTES, "stopped while rendering"
+
+
+def test_a_loop_repeating_an_input_never_builds_the_whole_text(
+    folders: Folders, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Peak memory while rendering stays far below the 200 MB the full text would take."""
+    yielded = spy_on_streaming(monkeypatch)
+    template = dataclasses.replace(
+        folders.library.load(TASK),
+        inputs=("job_text", "notes", "rows"),
+        user_source="{% for row in rows %}{{ notes }}{% endfor %}",
+    )
+    inputs = {"job_text": "x", "notes": NOTES, "rows": list(range(REPEATS))}
+
+    tracemalloc.start()
+    try:
+        with pytest.raises(PromptError, match="larger than allowed") as raised:
+            render_prompt(template, inputs)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert str(raised.value) == f"Prompt {TASK!r}: the rendered prompt is larger than allowed."
+    assert yielded and sum(yielded) < 2 * prompts.MAX_RENDERED_BYTES
+    assert peak < 50 * 1024 * 1024, peak
+
+
+def test_the_cap_counts_both_sections_together(folders: Folders) -> None:
+    template = dataclasses.replace(
+        folders.library.load(TASK),
+        system_source="{{ preferences }}",
+        user_source="{{ preferences }}",
+    )
+    big = "a" * (prompts.MAX_RENDERED_BYTES // 2 + 1000)
+
+    with pytest.raises(PromptError, match="larger than allowed"):
+        render_prompt(template, {"job_text": "x", "preferences": big})
+
+
+def test_a_prompt_just_under_the_cap_still_renders(folders: Folders) -> None:
+    template = dataclasses.replace(
+        folders.library.load(TASK), system_source="s", user_source="{{ preferences }}"
+    )
+    text = "é" * (prompts.MAX_RENDERED_BYTES // 2 - 1000)  # two bytes each
+
+    rendered = render_prompt(template, {"job_text": "x", "preferences": text})
+
+    assert rendered.user == text
+
+
+# --- the template's size is bounded before anything is compiled ---------------------------------
+
+MAX_OUTPUTS = 200  # the shipped prompts use at most 7 per section; see prompts.MAX_OUTPUT_NODES
+REPEATED = {
+    "outputs_12000": "{{ preferences }}\n" * 12_000,  # about the most a 256 KiB file holds
+    "outputs_201": "{{ preferences }}\n" * (MAX_OUTPUTS + 1),
+    "many_nodes": "{% if preferences %}x{% endif %}" * 600,
+}
+
+
+def forbid_compiling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compiling a template is where the cost of a big one lands; nothing may start it."""
+    monkeypatch.setattr("jinja2.Environment.from_string", never_render)
+    monkeypatch.setattr("jinja2.Environment.compile", never_render)
+
+
+def test_the_output_and_node_bounds_are_the_measured_ones() -> None:
+    assert prompts.MAX_OUTPUT_NODES == MAX_OUTPUTS
+    assert prompts.MAX_TEMPLATE_NODES == 1000
+
+
+@pytest.mark.parametrize("section", ["system", "user"])
+@pytest.mark.parametrize("name", sorted(REPEATED))
+def test_a_template_with_too_many_outputs_is_refused_at_save_without_compiling(
+    folders: Folders, name: str, section: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_compiling(monkeypatch)
+    forbid_rendering(monkeypatch)
+    before = snapshot(folders.overrides)
+    system, user = EDIT_SYSTEM, EDIT_USER
+    if section == "system":
+        system += "\n" + REPEATED[name]
+    else:
+        user += "\n" + REPEATED[name]
+
+    with pytest.raises(PromptRefused) as refused:
+        folders.save(system, user)
+
+    assert refused.value.reason == "unsupported_expression"
+    assert str(refused.value) == fixed("unsupported_expression")
+    assert snapshot(folders.overrides) == before and not folders.task_folder.exists()
+
+
+@pytest.mark.parametrize("name", sorted(REPEATED))
+def test_a_template_with_too_many_outputs_in_a_file_is_an_error_without_compiling(
+    folders: Folders, name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_compiling(monkeypatch)
+    write_override_bytes(
+        folders.overrides, prompt_file(EDIT_SYSTEM, EDIT_USER + "\n" + REPEATED[name])
+    )
+
+    status = folders.library.status(TASK)
+    assert status.overridden is True and status.error == fixed("unsupported_expression")
+    with pytest.raises(PromptError):
+        folders.library.load(TASK)
+    folders.library.reset_override(TASK)
+    assert folders.library.status(TASK).overridden is False
+
+
+def test_render_prompt_refuses_a_template_with_too_many_outputs_without_compiling(
+    folders: Folders, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    template = dataclasses.replace(
+        folders.library.load(TASK), user_source="{{ preferences }}\n" * 20_000
+    )
+    forbid_compiling(monkeypatch)
+
+    with pytest.raises(PromptError, match=TASK):
+        render_prompt(template, INPUTS)
+
+
+def test_refusing_a_template_with_too_many_outputs_stays_small(folders: Folders) -> None:
+    """Compiling 20,000 outputs takes about 215 MB; the refusal comes before that."""
+    template = dataclasses.replace(
+        folders.library.load(TASK), user_source="{{ preferences }}\n" * 20_000
+    )
+
+    tracemalloc.start()
+    try:
+        with pytest.raises(PromptError, match=TASK):
+            render_prompt(template, INPUTS)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert peak < 50 * 1024 * 1024, peak
+
+
+def test_exactly_the_most_outputs_per_section_is_still_allowed(folders: Folders) -> None:
+    line = "{{ preferences | length }}\n"
+    system = EDIT_SYSTEM + "\n" + line * MAX_OUTPUTS
+    user = EDIT_USER + "\n" + line * (MAX_OUTPUTS - 2)  # EDIT_USER already has two outputs
+
+    saved = folders.save(system, user)
+
+    assert saved.error is None
+    render_prompt(folders.library.load(TASK), INPUTS)
