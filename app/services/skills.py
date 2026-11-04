@@ -135,3 +135,39 @@ class SkillService:
             ):
                 raise VersionConflict(detail=f"skill {skill_id} changed elsewhere")
             return replace(skill, aliases=aliases, version=expected_version + 1)
+
+    def set_aliases(
+        self, skill_id: str, aliases: Sequence[str], *, expected_version: int
+    ) -> SkillView:
+        """Replace a skill's other spellings with ``aliases``, each trimmed and single-spaced as
+        ``display_skill`` does; blank ones, repeats and the skill's own name are dropped. The
+        stored version is checked first (``VersionConflict``), then each spelling against the
+        other skills (``SkillAliasTaken``); an unknown id is ``FactNotFound``."""
+        now = self._clock.now().isoformat()
+        with self._db.transaction() as conn:
+            known = _all(conn)
+            skill = next((found for found in known if found.id == skill_id), None)
+            if skill is None:
+                raise FactNotFound(detail=f"skill {skill_id} not found")
+            if skill.version != expected_version:
+                raise VersionConflict(detail=f"skill {skill_id} changed elsewhere")
+            spellings: dict[str, str] = {}
+            for alias in aliases:
+                spelling = display_skill(alias)
+                if normalize_skill(spelling) and not skill_matches(
+                    spelling, skill.name, spellings.values()
+                ):
+                    spellings[normalize_skill(spelling)] = spelling
+            others = [found for found in known if found.id != skill.id]
+            if any(
+                skill_matches(spelling, other.name, other.aliases)
+                for spelling in spellings.values()
+                for other in others
+            ):
+                raise SkillAliasTaken(detail=f"an alias names another skill than {skill_id}")
+            stored = tuple(spellings.values())
+            if not skills_repo.set_aliases(
+                conn, skill.id, json.dumps(stored), expected_version=expected_version, now=now
+            ):
+                raise VersionConflict(detail=f"skill {skill_id} changed elsewhere")
+            return replace(skill, aliases=stored, version=expected_version + 1)

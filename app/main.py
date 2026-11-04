@@ -71,6 +71,7 @@ from app.api.settings_areas import register_settings_area_pages
 from app.api.settings_board import register_board_settings_routes
 from app.api.settings_data import register_data_routes
 from app.api.settings_details import register_details_routes
+from app.api.settings_lists import register_lists_routes
 from app.api.settings_sessions import register_session_settings_routes
 from app.api.settings_task_tiers import register_task_tier_routes
 from app.api.settings_templates import register_template_routes
@@ -145,6 +146,7 @@ from app.services.capture import CaptureService
 from app.services.companies import CompaniesService
 from app.services.company_brief import BRIEF, BRIEF_LABEL, BriefService
 from app.services.contacts import ContactsService
+from app.services.controlled_lists import ControlledLists
 from app.services.coverage_views import CoverageViews
 from app.services.cv_import import (
     EXTRACT_CV,
@@ -1652,6 +1654,7 @@ def create_app(
     app.state.reminders = ReminderService(lambda: _current_db(app), app_clock, app_ids, app_tz)
     app.state.today = TodayService(lambda: _current_db(app), app_clock, app.state.reminders, app_tz)
     app.state.reminder_rules = ReminderRules(lambda: _current_db(app), app_clock, app_ids)
+    app.state.controlled_lists = ControlledLists(lambda: _current_db(app), app_clock, app_ids)
     cv_import = _cv_import(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.cv_import = cv_import
     app.state.fact_views = _fact_views(app, cv_import=cv_import, tz=app_tz)
@@ -1703,6 +1706,7 @@ def create_app(
     register_data_routes(app)
     register_usage_settings(app)
     register_board_settings_routes(app)
+    register_lists_routes(app)
     register_session_settings_routes(app)
     register_task_tier_routes(app)
     register_appearance_routes(app)

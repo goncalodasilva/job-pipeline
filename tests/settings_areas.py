@@ -10,7 +10,9 @@ controls are protected fragments and POSTs (spec 2.9 rules 2, 3, 12 and 13):
 - budgets: ``/settings/budgets``, "Usage budgets": ``#usage-budgets`` (panel, budget forms,
   background tasks).
 - preferences: ``/settings/preferences``, "Job preferences": ``#preferences-settings``.
-- lists: ``/settings/lists``, "Lists and statuses": ``#board-settings`` (statuses, reminders).
+- lists: `/settings/lists`, "Lists and statuses": `#board-settings` (statuses, reminders) and
+  `#lists-editor` (controlled values, skill aliases, removal reasons; M9.2 part D,
+  `tests/lists_pages.py`).
 - sessions: ``/settings/sessions``, "Sessions": ``#sessions-settings``.
 - your-details: ``/settings/your-details``, "Your details and CV templates":
   ``#details-settings`` and ``#templates-settings``.
@@ -76,7 +78,9 @@ AREAS: Final[tuple[SettingsArea, ...]] = (
         "Job preferences",
         ("preferences-settings", "preferences-summary", "preferences-guide-link"),
     ),
-    SettingsArea("lists", "/settings/lists", "Lists and statuses", ("board-settings",)),
+    SettingsArea(
+        "lists", "/settings/lists", "Lists and statuses", ("board-settings", "lists-editor")
+    ),
     SettingsArea("sessions", "/settings/sessions", "Sessions", ("sessions-settings",)),
     SettingsArea(
         "your-details",

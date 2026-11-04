@@ -35,6 +35,7 @@ from fastapi.responses import HTMLResponse
 
 from app.api.appearance_forms import AppearanceState, appearance_context
 from app.api.board_settings_forms import BoardSettingsState, board_context
+from app.api.lists_forms import ListsState, lists_context
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
 from app.api.session_settings_forms import SessionSettingsState, sessions_context
@@ -55,6 +56,7 @@ from app.onboarding.steps.preferences import WORK_MODE_LABELS
 from app.services.job_preferences import JobPreferencesView
 
 BOARD_FRAGMENT: Final = "fragments/settings/_board.html"
+LISTS_FRAGMENT: Final = "fragments/settings/_lists.html"
 SESSIONS_FRAGMENT: Final = "fragments/settings/_sessions.html"
 APPEARANCE_FRAGMENT: Final = "fragments/settings/_appearance.html"
 PREFERENCES_STEP: Final = "preferences"
@@ -97,6 +99,12 @@ def render_board_settings(request: Request, state: BoardSettingsState) -> HTMLRe
     return render_area(request, "lists", fragment=BOARD_FRAGMENT, board=state)
 
 
+def render_lists_settings(request: Request, state: ListsState) -> HTMLResponse:
+    """The answer to one of the lists editor's forms: the editor section for htmx, the whole
+    page otherwise, with ``state`` saying what happened. Blocking."""
+    return render_area(request, "lists", fragment=LISTS_FRAGMENT, lists=state)
+
+
 def render_session_settings(request: Request, state: SessionSettingsState) -> HTMLResponse:
     """The answer to the Sessions form: the section for htmx, the whole page otherwise, with
     ``state`` saying what happened. Blocking."""
@@ -116,6 +124,7 @@ def render_area(
     fragment: str | None = None,
     usage: UsageFormState | None = None,
     board: BoardSettingsState | None = None,
+    lists: ListsState | None = None,
     sessions: SessionSettingsState | None = None,
     appearance: AppearanceState | None = None,
 ) -> HTMLResponse:
@@ -134,6 +143,9 @@ def render_area(
         if whole or board is not None:
             ctx["board"] = board_context(request, board)
             focus = not ctx["board"]["attention"]
+        if whole or lists is not None:
+            ctx["lists"] = lists_context(request, lists)
+            focus = focus and not ctx["lists"]["attention"]
     elif slug == "sessions":
         if whole or sessions is not None:
             ctx["sessions"] = sessions_context(request, sessions)

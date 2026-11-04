@@ -594,6 +594,44 @@ class SkillAliasTaken(AppError):
     message = "Another skill already uses this name. Choose a different name."
 
 
+class ControlledValueNotFound(AppError):
+    """The id names no editable controlled value (unknown, or a work mode row)."""
+
+    kind = "ControlledValueNotFound"
+    message = "This value wasn't found."
+
+
+class ControlledValueInvalid(AppError):
+    """A value or a list of other spellings the Lists editor refuses. ``fields`` holds one
+    message per form field (``value`` or ``aliases``); the messages are fixed copy and never
+    contain the typed text."""
+
+    kind = "ControlledValueInvalid"
+    message = "This can't be saved as it is. Check the highlighted field."
+
+    def __init__(self, fields: dict[str, str] | None = None, *, detail: str | None = None) -> None:
+        self.fields: dict[str, str] = dict(fields or {})
+        super().__init__(detail=detail)
+
+
+class ControlledValueInUse(AppError):
+    """A value some jobs still hold, so it can't be deleted. ``jobs`` is how many."""
+
+    kind = "ControlledValueInUse"
+    message = "This value is used by jobs, so it can't be deleted."
+
+    def __init__(self, jobs: int = 0, *, detail: str | None = None) -> None:
+        self.jobs = jobs
+        super().__init__(detail=detail)
+
+    @property
+    def user_message(self) -> str:
+        if self.jobs < 1:
+            return self.message
+        count = "1 job" if self.jobs == 1 else f"{self.jobs} jobs"
+        return f"Used by {count}, so it can't be deleted."
+
+
 BUDGET_MESSAGE = (
     "A monthly usage limit was reached. Open Settings > Usage budgets to see when it resets."
 )

@@ -1,0 +1,122 @@
+{# Settings > Lists (M9.2 part D; ADR-131 items 6-7; ADR-125 item 5): the controlled values for
+   industry, seniority and employment type (add, replace the other spellings, delete only while no
+   job holds the value), work mode read only, the skills' other spellings and the fixed removal
+   reasons. Needs `lists` (app/api/lists_forms.py). Every group is a native <details>, closed on a
+   plain load (one Tab stop each, so the Lists tab budget holds) and open in the answer to a form of
+   that group. Every form posts to its own route and swaps this whole section (outerHTML). Exactly
+   one element of an answer is marked data-autofocus: the changed row (add, save), the group's
+   summary (delete), the refused field, the in-use message or the reload prompt. Stored and typed
+   text is escaped. #}
+<section id="lists-editor" class="settings-section" aria-labelledby="lists-editor-heading">
+  <h2 id="lists-editor-heading" tabindex="-1">Lists</h2>
+  {% if lists.conflict %}
+  {% set reload_id = "lists-editor-conflict" %}
+  {% set reload_message = lists.conflict_message %}
+  {% set reload_detail = "Your change was not saved. This list changed in another tab and now shows the latest. Check it and try again." %}
+  {% set reload_url = lists.area_url %}
+  {% set reload_link = "Reload" %}
+  {% include "fragments/shell/_reload_prompt.html" %}
+  {% endif %}
+  {% if lists.message %}<p id="lists-editor-done" class="budget-done">{{ lists.message }}</p>{% endif %}
+  <p class="field-hint">These lists decide how the words in a job post become the values you filter by. Each value can have other spellings that mean the same thing, one per line. A value can be deleted only while no job holds it. Text that matches no value yet waits in <a id="values-to-map-link" href="{{ lists.values_to_map_url }}">Values to map</a>.</p>
+
+  {% for g in lists.groups %}
+  <details id="list-{{ g.key }}" class="settings-disclosure list-group"{% if g.open %} open{% endif %}>
+    <summary id="list-{{ g.key }}-summary"{% if g.focus_summary %} data-autofocus{% endif %}>{{ g.name }}</summary>
+    <ul id="list-{{ g.key }}-values" class="board-settings-list">
+      {% for v in g.rows %}
+      <li id="value-{{ v.id }}" data-value-id="{{ v.id }}" data-field="{{ g.key }}" data-value="{{ v.value }}" tabindex="-1"{% if v.focus_row %} data-autofocus{% endif %}>
+        <p class="board-status-line"><span class="board-status-name">{{ v.label }}</span> <span class="board-status-phase">{{ v.jobs_text }}</span></p>
+        {% if v.safe %}
+        <div class="board-status-forms list-forms">
+          <form id="value-{{ v.id }}-aliases-form" class="board-status-form list-form" method="post" action="{{ lists.values_url }}/{{ v.id }}/aliases"
+                hx-post="{{ lists.values_url }}/{{ v.id }}/aliases" hx-target="#lists-editor" hx-swap="outerHTML"
+                hx-disabled-elt="find button" novalidate>
+            <input type="hidden" name="version" value="{{ v.version }}">
+            <div class="field">
+              <label for="value-{{ v.id }}-aliases">Other spellings of {{ v.label }}</label>
+              <textarea id="value-{{ v.id }}-aliases" name="aliases" rows="3" autocomplete="off" spellcheck="false"{% if v.alias_error %} aria-invalid="true" aria-describedby="value-{{ v.id }}-aliases-error" data-autofocus{% endif %}>{{ v.aliases_text }}</textarea>
+              {% if v.alias_error %}<p id="value-{{ v.id }}-aliases-error" class="field-error">{{ v.alias_error }}</p>{% endif %}
+            </div>
+            <button type="submit" class="button" aria-label="Save aliases for {{ v.label }}">Save aliases</button>
+          </form>
+          <form id="value-{{ v.id }}-delete-form" class="board-status-form list-form" method="post" action="{{ lists.values_url }}/{{ v.id }}/delete"
+                hx-post="{{ lists.values_url }}/{{ v.id }}/delete" hx-target="#lists-editor" hx-swap="outerHTML"
+                hx-disabled-elt="find button" novalidate>
+            <input type="hidden" name="version" value="{{ v.version }}">
+            <button type="submit" class="button" aria-label="Delete {{ v.label }}"{% if v.delete_error %} aria-describedby="value-{{ v.id }}-delete-error"{% endif %}>Delete</button>
+          </form>
+        </div>
+        {% if v.delete_error %}<p id="value-{{ v.id }}-delete-error" class="field-error" tabindex="-1" data-autofocus>{{ v.delete_error }}</p>{% endif %}
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <form id="value-add-form-{{ g.key }}" class="step-form list-form" method="post" action="{{ lists.values_url }}"
+          hx-post="{{ lists.values_url }}" hx-target="#lists-editor" hx-swap="outerHTML"
+          hx-disabled-elt="find button" novalidate>
+      <input type="hidden" name="field" value="{{ g.key }}">
+      <div class="field">
+        <label for="value-add-{{ g.key }}">New {{ g.lower }} value</label>
+        <input id="value-add-{{ g.key }}" name="value" type="text" autocomplete="off" value="{{ g.add_typed }}"{% if g.add_error %} aria-invalid="true" aria-describedby="value-add-{{ g.key }}-error" data-autofocus{% endif %}>
+        {% if g.add_error %}<p id="value-add-{{ g.key }}-error" class="field-error">{{ g.add_error }}</p>{% endif %}
+      </div>
+      <div class="form-actions"><button type="submit" class="button" aria-label="Add {{ g.lower }} value">Add value</button></div>
+    </form>
+  </details>
+  {% endfor %}
+
+  <details id="list-work_mode" class="settings-disclosure list-group"{% if lists.work_mode_open %} open{% endif %}>
+    <summary id="list-work_mode-summary">Work mode</summary>
+    <p id="work-mode-fixed-note" class="field-hint">This list is fixed. It matches the work modes you can choose in your job preferences, so it can't be changed here.</p>
+    <ul id="list-work_mode-values" class="board-settings-list">
+      {% for m in lists.work_mode %}
+      <li data-field="work_mode" data-value="{{ m.value }}">
+        <span class="board-status-name">{{ m.label }}</span>
+        {% if m.aliases %}<span class="board-status-phase">Also written: {{ m.aliases | join(", ") }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+
+  <details id="list-skills" class="settings-disclosure list-group"{% if lists.skills_open %} open{% endif %}>
+    <summary id="list-skills-summary">Skills</summary>
+    {% if lists.skills %}
+    <ul id="skill-list" class="board-settings-list">
+      {% for s in lists.skills %}
+      <li id="skill-{{ s.id }}" data-skill-id="{{ s.id }}" tabindex="-1"{% if s.focus_row %} data-autofocus{% endif %}>
+        <p class="board-status-line"><span class="board-status-name">{{ s.name }}</span></p>
+        {% if s.safe %}
+        <form id="skill-{{ s.id }}-aliases-form" class="board-status-form list-form" method="post" action="{{ lists.skills_url }}/{{ s.id }}/aliases"
+              hx-post="{{ lists.skills_url }}/{{ s.id }}/aliases" hx-target="#lists-editor" hx-swap="outerHTML"
+              hx-disabled-elt="find button" novalidate>
+          <input type="hidden" name="version" value="{{ s.version }}">
+          <div class="field">
+            <label for="skill-{{ s.id }}-aliases">Other spellings of {{ s.name }}</label>
+            <textarea id="skill-{{ s.id }}-aliases" name="aliases" rows="3" autocomplete="off" spellcheck="false"{% if s.alias_error %} aria-invalid="true" aria-describedby="skill-{{ s.id }}-aliases-error" data-autofocus{% endif %}>{{ s.aliases_text }}</textarea>
+            {% if s.alias_error %}<p id="skill-{{ s.id }}-aliases-error" class="field-error">{{ s.alias_error }}</p>{% endif %}
+          </div>
+          <button type="submit" class="button" aria-label="Save aliases for {{ s.name }}">Save aliases</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p id="skill-list-empty" class="field-hint">No skills yet. Skills appear here once your CV or your facts mention them.</p>
+    {% endif %}
+  </details>
+
+  <section id="removal-reasons" class="list-reasons" aria-labelledby="removal-reasons-heading">
+    <h3 id="removal-reasons-heading">Removal reasons</h3>
+    <p class="field-hint">These are the reasons you can give when you remove a job from the inbox. The list is fixed. Each reason says which job preference it speaks about.</p>
+    <ul id="removal-reasons-list" class="board-settings-list">
+      {% for r in lists.reasons %}
+      <li id="removal-reason-{{ r.key }}" data-reason="{{ r.key }}" data-maps-to="{{ r.maps_to }}">
+        <span class="board-status-name">{{ r.label }}</span>
+        <span class="board-status-phase">{{ r.words }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+</section>

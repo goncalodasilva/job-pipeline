@@ -31,7 +31,11 @@ AREA_TAB_BUDGET: Final[dict[str, int]] = {
     "providers": 70,
     "budgets": 80,  # the panel and four service forms plus background tasks: 34 on the old page
     "preferences": 50,  # a read-only summary and the guide link (removal rules arrive in M9.4)
-    "lists": 110,  # Board statuses and reminders: 54 on the old page, then the lists editor
+    # Board statuses and reminders (54 on the old page) plus the lists editor (M9.2 part D). The
+    # editor's groups (industry, seniority, employment type, work mode, skills) are collapsed
+    # <details>, one Tab stop each, like Sessions and the tier list, so the cap stays 110 and is
+    # not raised (tests/e2e/test_settings_lists.py pins that the groups are collapsed).
+    "lists": 110,
     "sessions": 45,  # one collapsed disclosure (ADR-125)
     "your-details": 50,  # one collapsed disclosure and the template list
     "appearance": 40,  # theme and density
@@ -44,7 +48,7 @@ AREA_READY: Final[dict[str, tuple[str, ...]]] = {
     "providers": ("#providers", "#task-tiers"),
     "budgets": ("#usage-budgets", "#usage-panel"),
     "preferences": ("#preferences-settings",),
-    "lists": ("#board-settings",),
+    "lists": ("#board-settings", "#lists-editor"),
     "sessions": ("#sessions-settings",),
     "your-details": ("#details-summary", "#templates-settings"),
     "appearance": ("#appearance-settings",),

@@ -3031,6 +3031,14 @@ kbd,
 .board-rule-form .field-error { margin: 0; }
 #status-add-form h4 { margin: 0 0 var(--space-3); }
 
+/* Settings > Lists editor (M9.2 part D): the groups are disclosures; the spelling boxes and the add
+   fields fill their row and never push the page sideways on a phone. */
+.list-group { margin-block: var(--space-2); }
+.list-form .field { margin-bottom: 0; min-width: 0; flex: 1 1 16rem; }
+.list-form textarea, .list-form input[type="text"] { width: 100%; max-width: 100%; box-sizing: border-box; min-width: 0; }
+.list-group .board-status-line { overflow-wrap: anywhere; }
+#lists-editor { overflow-wrap: anywhere; }
+
 /* The Tailoring tab of the application workspace (M6.5). State is always a word in the link,
    never colour alone; the open step also gets a heavier border. Lists stack on phones. */
 #tailoring { overflow-wrap: anywhere; max-width: 48rem; }
