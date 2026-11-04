@@ -38,6 +38,8 @@ M9.2 sweep (2026-11-04): TD-337 to TD-343 added in section 14 (Settings areas, t
 
 M9.2 follow-up (2026-11-04): TD-342 closed (listed under "Checked and closed"). TD-344 and TD-345 added in section 14 from the security review (report only).
 
+M9.3 sweep (2026-11-04): TD-346 to TD-355 added in section 15 (prompt overrides: rendering limits, allowlists, editor gaps, reset, compare view and follow-up docs). No existing entry changed.
+
 M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolved the table drawer links, due markers and reminder response refreshes; this task documents the local-page/privacy boundaries and HX-Current-URL. Prior checkpoints are recorded in PROGRESS. Remaining M5 limits are TD-266–TD-276 below; TD-257 also covers contacts and application history.
 
 ## 1. Security and hardening
@@ -444,6 +446,23 @@ Added at M9.2. Sections 12 to 14 are listed by milestone, not by impact.
 | TD-343 | `.htmx-indicator` paragraphs stay in the accessibility tree while idle. | M9.1 Evidence (c); planned for the M9.6 audit | low: screen readers may read idle status text | Fix in the M9.6 audit, with an accessibility test. |
 | TD-344 | Some token-free setup steps still render stored configuration, which spec 2.9 rule 13 does not name. The welcome step shows the absolute data-folder path, which contains the OS user name and home path. The web-search step shows the stored monthly allowance and budget fields and the settings version. The provider step shows the chosen provider kind, the environment-variable name in use, the models and the task tiers. The provider step shows no secret. | M9.2 follow-up security review (report only); TD-342; spec 2.9 rule 13 | low: local configuration only (the reviewer rated the welcome path low to medium) | Decide with the user whether rule 13 extends to configuration. If it does, record an ADR, then move these values behind a protected fragment, as TD-342 did, with tests. |
 | TD-345 | If the preferences fragment fails to load, the slot stays on "Loading…". Only the global htmx error messages show; the slot has no error state of its own. | M9.2 follow-up security review (report only); TD-342 | low: a failed load looks like a slow one | Give the slot its own error state, with a test, and check the copy with the UX reviewer. |
+
+## 15. Prompt overrides (M9.3)
+
+Added at M9.3. Sections 12 to 15 are listed by milestone, not by impact.
+
+| ID | Item | Origin | Impact | When / fix |
+| --- | --- | --- | --- | --- |
+| TD-346 | Amplification by written repetition: a template can repeat its own text up to the output, size and node caps, and every AI task that uses it does that work. | ADR-134 (c); M9.3 Evidence | medium: the caps bound the work but do not make it small | Measure a worst case per task, then lower the caps or record the limit with the user's decision. A cap change needs tests and an ADR. |
+| TD-347 | CPU time inside one render chunk is not bounded, and rendering and loading run on the event loop. A worker thread needs a larger worker stack on macOS first. | ADR-134 (c); M9.3 Evidence | medium: a slow template can hold the event loop | Set a larger worker stack on macOS and measure, then move rendering and loading to a thread, with tests and an ADR. |
+| TD-348 | The allowlists (`ALLOWED_FILTERS`, `SAFE_METHODS`, the banned nodes and the `loop` attributes) must be revisited on every Jinja2 upgrade. | ADR-134 (b); M9.3 Evidence | medium: a Jinja2 release can change what an allowed filter or method does, or what the sandbox allows | Review the lists and the sandbox behaviour on each Jinja2 upgrade, with the guard tests. |
+| TD-349 | A declared input named `loop` or `self` cannot be used in a template. | ADR-134 (b); M9.3 Evidence | low: a future prompt input with either name is unusable | Have the front-matter rule reject these names when a prompt is added, with a test. |
+| TD-350 | The editor has no unsaved-changes guard. Leaving the page loses typed text without a warning. | M9.3 Evidence | low: typed text can be lost | Add a guard with an e2e test, and check the copy with the UX reviewer. |
+| TD-351 | Reset needs script. The native confirmation dialog cannot run without JavaScript, so there is no no-script reset. | ADR-134 (g); M9.3 Evidence | low: a person without script cannot reset an override from the app | Accept and record it with the user's decision, or add a no-script confirmation with tests. |
+| TD-352 | The compare view shows the current default against the override. The default an override was written against is not stored, so an older default cannot be shown. | ADR-134 (h); M9.3 Evidence | low: the compare can show default changes the person did not make | Store the base default with the override if the user wants it. That needs an ADR and tests. |
+| TD-353 | A directory in place of `prompt.md` makes Reset return 500. The only fix is manual. | M9.3 Evidence | low: rare, but Reset fails with no fix in the app | Give this case a fixed message and a test, and decide with the user whether Reset may remove a directory. |
+| TD-354 | The `data-open-modal` and `data-modal-manual` dialog variant is not yet recorded in the htmx-ui skill. | M9.3 Evidence | low: the skill is incomplete for dialogs | Record the variant in the htmx-ui skill (`.agents/skills/htmx-ui/SKILL.md`), with the docs-keeper or the user. |
+| TD-355 | Spec 3.3 and 3.6 do not mention the prompt editor, its interface or its routes. | M9.3 Evidence; ADR-134 | low: the spec is behind the built editor | Apply the proposed one-line additions when the user approves a spec change. |
 
 ## Checked and closed (not listed)
 
