@@ -79,16 +79,19 @@ else, otherwise a plain-text 400 "This request isn't valid."; ``version`` a whol
   industry, seniority or employment_type (``work_mode`` and unknown names) writes nothing and is
   a 400 or a 422.
 - ``/settings/lists/values/{id}/aliases`` replaces the alias list (``version``, ``aliases``: one
-  per line, CR LF or LF; blank lines dropped; each alias trimmed and lower-cased; duplicates
-  by ``value_key`` dropped). The version is checked first (409); then an alias whose
-  ``value_key`` equals the key of another value or alias of the same field, or is over
-  ``OVER_LENGTH`` characters, is 422 on ``aliases``. The same text may be an alias in another
-  field.
+  per line, CR LF or LF; blank lines dropped; each alias trimmed and lower-cased; exact repeats
+  and the value's own text dropped, but spellings that differ only in punctuation or spacing are
+  kept, so the seeded lists survive a save; at most 50 lines; no control characters). The
+  version is checked first (409); then an alias whose ``value_key`` equals the key of another
+  value or alias of the same field, or is over ``OVER_LENGTH`` characters, more than 50 lines or
+  one with a control character, is 422 on ``aliases``. The same text may be an alias in another
+  field. A new value with a control character is 422 on ``value``.
 - ``/settings/lists/values/{id}/delete`` (``version``) deletes only a value no ``jobs`` row holds
   for its field (any triage state, user-corrected or not): stale version -> 409 (checked first);
   in use -> ``IN_USE_STATUSES`` with ``<p id="value-<id>-delete-error" tabindex="-1"
   data-autofocus>`` naming the count of jobs ("3 jobs", "1 job"), the delete button
-  ``aria-describedby`` it, nothing deleted.
+  ``aria-describedby`` it (first, then the group's "This can't be undone." hint), nothing
+  deleted.
 - ``/settings/lists/skills/{id}/aliases`` replaces a skill's aliases (``version``, ``aliases``:
   one per line) through ``SkillService.set_aliases``; stale -> 409 first; an alias that means
   another skill (``skill_matches``) -> 422 on ``aliases``.
@@ -282,11 +285,13 @@ def invalid_controls(markup: str) -> list[Element]:
 
 
 def error_text(markup: str, field: Element) -> str:
-    """The visible text the refused control names with ``aria-describedby``."""
+    """The visible text of the one error the refused control names with ``aria-describedby``
+    (a ``field-error`` element; a hint it also names, such as "One spelling per line.", is not an
+    error)."""
     texts = []
     for identifier in (field.attrs.get("aria-describedby") or "").split():
         found = by_id(markup, identifier)
-        if found is not None and found.text:
+        if found is not None and found.text and "field-error" in str(found.attrs.get("class")):
             texts.append(found.text)
     assert len(texts) == 1, f"#{field.attrs.get('id')} has no single error tied to it"
     return texts[0]

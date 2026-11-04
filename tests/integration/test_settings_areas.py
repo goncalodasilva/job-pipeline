@@ -220,8 +220,8 @@ def test_settings_area_nav_marks_current(tmp_path: Path, slug: str) -> None:
             headings = [e for e in main_of(text) if e.tag == "h1"]
             assert len(headings) == 1, f"{label}: one <h1>"
             assert headings[0].attrs.get("id") == "page-heading"
-            accepted = {area.label, "Settings"} if slug == "providers" else {area.label}
-            assert headings[0].text in accepted, (headings[0].text, accepted)
+            wanted = "Settings" if slug == "providers" else area.label
+            assert headings[0].text == wanted, (headings[0].text, wanted)
             focused = [e for e in main_of(text) if "data-autofocus" in e.attrs]
             assert focused == headings, f"{label}: a plain load focuses the <h1> only"
 
@@ -434,12 +434,22 @@ def test_stale_shortcuts_save_reloads_the_keyboard_area(tmp_path: Path) -> None:
         assert [e.attrs.get("href") for e in reloads] == ["/settings/keyboard"]
 
 
-# --- Job preferences: a read-only summary ------------------------------------------------------
+# --- Job preferences: a read-only summary, loaded protected ------------------------------------
+
+SUMMARY = "/settings/preferences/summary"
 
 
-def test_job_preferences_page_shows_the_stored_summary_and_the_guide_link(tmp_path: Path) -> None:
-    """The area shows the stored preferences read only, with a link to the setup guide's
-    preferences step; it holds no form and a read writes nothing."""
+def summary_text(markup: str) -> str:
+    summary = by_id(markup, "preferences-summary")
+    assert summary is not None and summary.tag == "dl"
+    return " ".join(e.text for e in elements(markup) if e.within(summary) and e.text)
+
+
+def test_job_preferences_page_is_a_shell_that_loads_the_summary_protected(tmp_path: Path) -> None:
+    """Spec 2.9 rule 13: the token-free page carries no preference value. It holds the heading,
+    the guide link and a placeholder that fetches ``GET /settings/preferences/summary`` as soon
+    as it loads; the page's htmx content is the same shell. It has no form and a read writes
+    nothing. (Before the fix pass the summary was in the page itself; see the Evidence.)"""
     root = tmp_path / "root"
     with area_app(root) as run:
         before = state_of(run, root / "data")
@@ -448,41 +458,67 @@ def test_job_preferences_page_shows_the_stored_summary_and_the_guide_link(tmp_pa
             ("htmx", get_token(run, "/settings/preferences", htmx=True)),
         ):
             assert response.status_code == 200
-            summary = by_id(response.text, "preferences-summary")
-            assert summary is not None and summary.tag == "dl", label
-            inner = " ".join(
-                e.text for e in elements(response.text) if e.within(summary) and e.text
-            )
+            holder = by_id(response.text, "preferences-settings")
+            assert holder is not None and holder.tag == "section", label
+            assert holder.attrs.get("hx-get") == SUMMARY, label
+            assert "load" in str(holder.attrs.get("hx-trigger")), label
+            assert holder.attrs.get("hx-swap") == "outerHTML", label
+            assert by_id(response.text, "preferences-summary") is None, label
+            assert by_id(response.text, "preferences-empty") is None, label
+            assert by_id(response.text, "preferences-heading") is not None, label
+            link = by_id(response.text, "preferences-guide-link")
+            assert link is not None and link.tag == "a", label
+            assert link.attrs.get("href") == GUIDE_PREFERENCES
+            assert not link.within(holder), "the link stays when the section is replaced"
+            assert not [e for e in main_of(response.text) if e.tag in ("form", "input", "textarea")]
+            text = page_text(response.text)
+            for value in (*PREFERENCES.target_roles, *PREFERENCES.locations):
+                assert value not in text, f"{label}: {value!r} is not on the token-free page"
+        assert state_of(run, root / "data") == before
+
+
+def test_job_preferences_summary_fragment_shows_the_stored_summary(tmp_path: Path) -> None:
+    """The protected fragment holds the stored preferences as words, read only and with no
+    form, and keeps the ids of the section; it writes nothing and is not a full page."""
+    root = tmp_path / "root"
+    with area_app(root) as run:
+        before = state_of(run, root / "data")
+        for htmx in (False, True):
+            response = get_token(run, SUMMARY, htmx=htmx)
+            assert response.status_code == 200 and "<html" not in response.text
+            section = by_id(response.text, "preferences-settings")
+            assert section is not None and section.tag == "section"
+            assert "hx-get" not in section.attrs, "the answer must not reload itself"
+            inner = summary_text(response.text)
             for value in (
                 *PREFERENCES.target_roles,
                 *PREFERENCES.locations,
                 *PREFERENCES.must_haves,
                 *PREFERENCES.deal_breakers,
             ):
-                assert value in inner, f"{label}: {value!r} is shown"
+                assert value in inner, f"{value!r} is shown"
             assert re.search(r"45[,.\s]?000", inner) and "EUR" in inner, inner
             assert re.search(r"remote", inner, re.IGNORECASE), "a work mode is shown"
             assert re.search(r"on[\s_-]?site", inner, re.IGNORECASE), "a work mode is shown"
             assert "PT" in inner or "Portugal" in inner, "the CV country is shown"
             assert by_id(response.text, "preferences-empty") is None
-            link = by_id(response.text, "preferences-guide-link")
-            assert link is not None and link.tag == "a", label
-            assert link.attrs.get("href") == GUIDE_PREFERENCES
-            assert not [e for e in main_of(response.text) if e.tag in ("form", "input", "textarea")]
+            assert not [e for e in elements(response.text) if e.tag in ("form", "input")]
+            assert run.token not in response.text
         assert state_of(run, root / "data") == before
 
 
-def test_job_preferences_page_without_preferences_says_so_and_keeps_the_link(
-    tmp_path: Path,
-) -> None:
+def test_job_preferences_summary_fragment_without_preferences_says_so(tmp_path: Path) -> None:
     with area_app(tmp_path / "root", preferences=None) as run:
-        response = run.client.get("/settings/preferences")
+        page_response = run.client.get("/settings/preferences")
+        assert page_response.status_code == 200
+        link = by_id(page_response.text, "preferences-guide-link")
+        assert link is not None and link.attrs.get("href") == GUIDE_PREFERENCES
+        response = get_token(run, SUMMARY)
         assert response.status_code == 200
         empty = by_id(response.text, "preferences-empty")
         assert empty is not None and empty.text, "an empty state in words"
         assert by_id(response.text, "preferences-summary") is None
-        link = by_id(response.text, "preferences-guide-link")
-        assert link is not None and link.attrs.get("href") == GUIDE_PREFERENCES
+        assert by_id(response.text, "preferences-settings") is not None
 
 
 def test_job_preferences_summary_is_escaped(tmp_path: Path) -> None:
@@ -493,13 +529,78 @@ def test_job_preferences_summary_is_escaped(tmp_path: Path) -> None:
         minimum_salary=Salary(amount=1, currency="EUR"),
     )
     with area_app(tmp_path / "root", preferences=hostile) as run:
-        for response in (
-            run.client.get("/settings/preferences"),
-            get_token(run, "/settings/preferences", htmx=True),
-        ):
+        for response in (get_token(run, SUMMARY), get_token(run, SUMMARY, htmx=True)):
             assert "<script>alert(1)</script>" not in response.text
             assert "<b>Fictional</b>" not in response.text
             assert "Fictional" in page_text(response.text)
+
+
+SALARY_MARKER = 91_377
+LOCATION_MARKER = "Fictional-Fjordtown-4417"
+ROLE_MARKER = "Fictional Glacier Surveyor 5521"
+MUST_MARKER = "fictional-must-have-6633"
+BREAKER_MARKER = "fictional-deal-breaker-7745"
+
+
+def test_preferences_values_never_reach_a_token_free_page_only_the_protected_fragment(
+    tmp_path: Path,
+) -> None:
+    """Spec 2.9 rule 13: plant distinctive values in the stored preferences. Every token-free page
+    of the app (each area page and every other page route, plain, which is what the leak scan
+    visits) is free of them; the same pages' htmx content with the token is too; the protected
+    fragment holds them; and without the token the fragment is refused."""
+    planted = JobPreferences(
+        target_roles=(ROLE_MARKER,),
+        locations=(LOCATION_MARKER,),
+        work_modes=("remote",),
+        minimum_salary=Salary(amount=SALARY_MARKER, currency="EUR"),
+        must_haves=(MUST_MARKER,),
+        deal_breakers=(BREAKER_MARKER,),
+        cv_country="PT",
+    )
+    needles = (
+        ROLE_MARKER,
+        LOCATION_MARKER,
+        MUST_MARKER,
+        BREAKER_MARKER,
+        str(SALARY_MARKER),
+        f"{SALARY_MARKER:,}",
+    )
+    with area_app(tmp_path / "root", preferences=planted) as run:
+        # The fragment holds every marker; it is refused without the token.
+        for headers in ({}, HTMX):
+            refused = run.client.get(SUMMARY, headers=headers)
+            assert refused.status_code == 403, headers
+            assert not any(n in refused.text for n in needles)
+        loaded = get_token(run, SUMMARY)
+        assert loaded.status_code == 200
+        for needle in (ROLE_MARKER, LOCATION_MARKER, MUST_MARKER, BREAKER_MARKER):
+            assert needle in loaded.text, f"the protected fragment shows {needle!r}"
+        assert f"{SALARY_MARKER:,}" in summary_text(loaded.text), "the salary is shown in words"
+
+        # Every token-free page route, as the leak scan visits them.
+        paths = sorted(
+            {
+                route.path
+                for route in run.app.routes
+                if isinstance(route, APIRoute)
+                and PAGE_TAG in (route.tags or [])
+                and "GET" in route.methods
+                and "{" not in route.path
+            }
+            | {area.path for area in AREAS}
+        )
+        assert "/settings/preferences" in paths and "/settings" in paths, paths
+        for path in paths:
+            for label, response in (
+                ("plain", run.client.get(path, follow_redirects=True)),
+                ("token only", get_token(run, path)),
+                ("htmx", get_token(run, path, htmx=True)),
+            ):
+                for needle in needles:
+                    assert needle not in response.text, f"{path} ({label}) holds {needle!r}"
+                for name, value in response.headers.items():
+                    assert not any(n in value for n in needles), f"{path} header {name}"
 
 
 def test_sessions_page_and_save_share_a_path_but_not_the_token_rule(tmp_path: Path) -> None:
@@ -537,3 +638,55 @@ def test_shortcuts_help_links_to_the_keyboard_area_in_both_states(tmp_path: Path
             links = [e for e in found if e.tag == "a" and e.text == "Settings"]
             hrefs = [e.attrs.get("href") for e in links if "shortcuts-settings" in str(e.attrs)]
             assert hrefs == [target], (state, hrefs)
+
+
+# --- the page title keeps "Settings"; hash links land on the heading ---------------------------
+
+
+@pytest.mark.parametrize("slug", SLUGS)
+def test_settings_area_page_title_names_the_area_and_keeps_settings(
+    tmp_path: Path, slug: str
+) -> None:
+    """``<Area> · Settings · Job Search Pipeline`` (``/settings`` is "Settings · Job Search
+    Pipeline"), so a tab or history entry of any area is still found under Settings."""
+    area = BY_SLUG[slug]
+    wanted = (
+        "Settings · Job Search Pipeline"
+        if slug == "providers"
+        else f"{area.label} · Settings · Job Search Pipeline"
+    )
+    with area_app(tmp_path / "root") as run:
+        for response in (run.client.get(area.path), get_token(run, area.path)):
+            titles = re.findall(r"<title>(.*?)</title>", response.text, re.DOTALL)
+            assert titles == [wanted], (area.path, titles)
+
+
+@pytest.mark.parametrize(
+    ("path", "section"),
+    [
+        ("/settings", "providers"),
+        ("/settings/keyboard", "shortcuts-settings"),
+        ("/settings/your-details", "details-settings"),
+        ("/settings/budgets", "usage-budgets"),
+    ],
+)
+def test_sections_that_other_pages_link_to_are_marked_for_hash_focus(
+    tmp_path: Path, path: str, section: str
+) -> None:
+    """A link such as ``/settings#providers`` or ``/settings/keyboard#shortcuts-settings`` puts
+    focus on the section's heading (``data-hash-focus``, app.js), as the budgets link does."""
+    with area_app(tmp_path / "root") as run:
+        for response in (run.client.get(path), get_token(run, path, htmx=True)):
+            found = by_id(response.text, section)
+            assert found is not None and "data-hash-focus" in found.attrs, (path, section)
+            assert found.attrs.get("aria-labelledby"), "the heading is what takes focus"
+
+
+def test_your_details_keeps_hash_focus_after_the_lazy_load_swaps_it(tmp_path: Path) -> None:
+    with area_app(tmp_path / "root") as run:
+        for response in (
+            get_token(run, "/settings/details"),
+            get_token(run, "/settings/details", htmx=True),
+        ):
+            found = by_id(response.text, "details-settings")
+            assert found is not None and "data-hash-focus" in found.attrs

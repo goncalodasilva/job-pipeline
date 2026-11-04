@@ -6,7 +6,9 @@
    that group. Every form posts to its own route and swaps this whole section (outerHTML). Exactly
    one element of an answer is marked data-autofocus: the changed row (add, save), the group's
    summary (delete), the refused field, the in-use message or the reload prompt. Stored and typed
-   text is escaped. #}
+   text is escaped. The first other-spellings box of each group is described by "One spelling per
+   line." (after its error, when it has one); each Delete button is described by its group's
+   "This can't be undone." hint (after the in-use message, when there is one). #}
 <section id="lists-editor" class="settings-section" aria-labelledby="lists-editor-heading">
   <h2 id="lists-editor-heading" tabindex="-1">Lists</h2>
   {% if lists.conflict %}
@@ -23,6 +25,7 @@
   {% for g in lists.groups %}
   <details id="list-{{ g.key }}" class="settings-disclosure list-group"{% if g.open %} open{% endif %}>
     <summary id="list-{{ g.key }}-summary"{% if g.focus_summary %} data-autofocus{% endif %}>{{ g.name }}</summary>
+    <p id="list-{{ g.key }}-delete-hint" class="field-hint">Delete removes a value from this list. This can't be undone.</p>
     <ul id="list-{{ g.key }}-values" class="board-settings-list">
       {% for v in g.rows %}
       <li id="value-{{ v.id }}" data-value-id="{{ v.id }}" data-field="{{ g.key }}" data-value="{{ v.value }}" tabindex="-1"{% if v.focus_row %} data-autofocus{% endif %}>
@@ -33,9 +36,11 @@
                 hx-post="{{ lists.values_url }}/{{ v.id }}/aliases" hx-target="#lists-editor" hx-swap="outerHTML"
                 hx-disabled-elt="find button" novalidate>
             <input type="hidden" name="version" value="{{ v.version }}">
+            {% set alias_described = (("value-" ~ v.id ~ "-aliases-error") if v.alias_error else "") ~ " " ~ (("value-" ~ v.id ~ "-aliases-hint") if loop.first else "") %}
             <div class="field">
               <label for="value-{{ v.id }}-aliases">Other spellings of {{ v.label }}</label>
-              <textarea id="value-{{ v.id }}-aliases" name="aliases" rows="3" autocomplete="off" spellcheck="false"{% if v.alias_error %} aria-invalid="true" aria-describedby="value-{{ v.id }}-aliases-error" data-autofocus{% endif %}>{{ v.aliases_text }}</textarea>
+              <textarea id="value-{{ v.id }}-aliases" name="aliases" rows="3" autocomplete="off" spellcheck="false"{% if alias_described | trim %} aria-describedby="{{ alias_described | trim }}"{% endif %}{% if v.alias_error %} aria-invalid="true" data-autofocus{% endif %}>{{ v.aliases_text }}</textarea>
+              {% if loop.first %}<p id="value-{{ v.id }}-aliases-hint" class="field-hint">One spelling per line.</p>{% endif %}
               {% if v.alias_error %}<p id="value-{{ v.id }}-aliases-error" class="field-error">{{ v.alias_error }}</p>{% endif %}
             </div>
             <button type="submit" class="button" aria-label="Save aliases for {{ v.label }}">Save aliases</button>
@@ -44,7 +49,7 @@
                 hx-post="{{ lists.values_url }}/{{ v.id }}/delete" hx-target="#lists-editor" hx-swap="outerHTML"
                 hx-disabled-elt="find button" novalidate>
             <input type="hidden" name="version" value="{{ v.version }}">
-            <button type="submit" class="button" aria-label="Delete {{ v.label }}"{% if v.delete_error %} aria-describedby="value-{{ v.id }}-delete-error"{% endif %}>Delete</button>
+            <button type="submit" class="button" aria-label="Delete {{ v.label }}" aria-describedby="{% if v.delete_error %}value-{{ v.id }}-delete-error {% endif %}list-{{ g.key }}-delete-hint">Delete</button>
           </form>
         </div>
         {% if v.delete_error %}<p id="value-{{ v.id }}-delete-error" class="field-error" tabindex="-1" data-autofocus>{{ v.delete_error }}</p>{% endif %}
@@ -91,9 +96,11 @@
               hx-post="{{ lists.skills_url }}/{{ s.id }}/aliases" hx-target="#lists-editor" hx-swap="outerHTML"
               hx-disabled-elt="find button" novalidate>
           <input type="hidden" name="version" value="{{ s.version }}">
+          {% set alias_described = (("skill-" ~ s.id ~ "-aliases-error") if s.alias_error else "") ~ " " ~ (("skill-" ~ s.id ~ "-aliases-hint") if loop.first else "") %}
           <div class="field">
             <label for="skill-{{ s.id }}-aliases">Other spellings of {{ s.name }}</label>
-            <textarea id="skill-{{ s.id }}-aliases" name="aliases" rows="3" autocomplete="off" spellcheck="false"{% if s.alias_error %} aria-invalid="true" aria-describedby="skill-{{ s.id }}-aliases-error" data-autofocus{% endif %}>{{ s.aliases_text }}</textarea>
+            <textarea id="skill-{{ s.id }}-aliases" name="aliases" rows="3" autocomplete="off" spellcheck="false"{% if alias_described | trim %} aria-describedby="{{ alias_described | trim }}"{% endif %}{% if s.alias_error %} aria-invalid="true" data-autofocus{% endif %}>{{ s.aliases_text }}</textarea>
+            {% if loop.first %}<p id="skill-{{ s.id }}-aliases-hint" class="field-hint">One spelling per line.</p>{% endif %}
             {% if s.alias_error %}<p id="skill-{{ s.id }}-aliases-error" class="field-error">{{ s.alias_error }}</p>{% endif %}
           </div>
           <button type="submit" class="button" aria-label="Save aliases for {{ s.name }}">Save aliases</button>

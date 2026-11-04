@@ -1,0 +1,28 @@
+{# Settings > Job preferences, the protected summary (M9.2 fix pass; spec 2.9 rule 13): fetched
+   with the launch token by the placeholder in _area_preferences.html and never part of the
+   token-free page. Needs `preferences` (app/api/settings_areas.py: None when nothing is stored).
+   Read only, no form. Stored text is data: autoescaped. A plain load takes no focus. #}
+<section id="preferences-settings" class="settings-section" aria-labelledby="preferences-heading">
+  <h2 id="preferences-heading">Job preferences</h2>
+  <p class="field-hint">What the app uses to judge how well a job fits you, and the country your CV follows. You change them in the setup guide.</p>
+  {% if preferences %}
+  <dl id="preferences-summary" class="preferences-summary">
+    <dt>Target roles</dt>
+    <dd>{{ preferences.target_roles | join(", ") }}</dd>
+    <dt>Locations</dt>
+    <dd>{{ preferences.locations | join(", ") if preferences.locations else "None given" }}</dd>
+    <dt>Work modes</dt>
+    <dd>{{ preferences.work_modes | join(", ") if preferences.work_modes else "None given" }}</dd>
+    <dt>Minimum salary</dt>
+    <dd>{{ preferences.minimum_salary or "None given" }}</dd>
+    <dt>Must-haves</dt>
+    <dd>{{ preferences.must_haves | join(", ") if preferences.must_haves else "None given" }}</dd>
+    <dt>Deal-breakers</dt>
+    <dd>{{ preferences.deal_breakers | join(", ") if preferences.deal_breakers else "None given" }}</dd>
+    <dt>CV country</dt>
+    <dd>{{ preferences.cv_country }}</dd>
+  </dl>
+  {% else %}
+  <p id="preferences-empty">No job preferences are saved yet. Add them in the setup guide.</p>
+  {% endif %}
+</section>

@@ -72,7 +72,7 @@ def test_settings_heading_then_providers_and_no_coming_later_card(
     headings = [e for e in elements if e.tag == "h1"]
     assert len(headings) == 1, "one <h1>"
     (heading,) = headings
-    assert heading.text in ("Settings", "Providers and AI"), heading.text
+    assert heading.text == "Settings", heading.text
     providers = next(e for e in elements if e.attrs.get("id") == "providers")
     sections = [e for e in elements if e.tag == "section" and "settings-section" in class_tokens(e)]
     assert sections and sections[0] is providers, "Providers and AI is the first section"

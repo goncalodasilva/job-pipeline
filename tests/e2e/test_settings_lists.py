@@ -246,7 +246,11 @@ def test_lists_editor_by_keyboard_phone_axe(
         message = page.locator(f"#value-{farm}-delete-error")
         expect(message).to_contain_text("3 jobs")
         expect(message).to_be_focused()
-        expect(in_use).to_have_attribute("aria-describedby", f"value-{farm}-delete-error")
+        # The refusal first, then the group's "can't be undone" hint (M9.2 fix pass, item 5e).
+        expect(in_use).to_have_attribute(
+            "aria-describedby",
+            re.compile(rf"^value-{re.escape(farm)}-delete-error list-industry-delete-hint$"),
+        )
         assert rows(app, "SELECT 1 FROM controlled_values WHERE value='agriculture'") == [(1,)]
         assert rows(app, "SELECT count(*) FROM jobs WHERE industry='agriculture'") == [(3,)]
 

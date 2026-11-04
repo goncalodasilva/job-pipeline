@@ -2,7 +2,7 @@
    itself carries no contact detail and no photo: this placeholder fetches the protected section
    (GET /settings/details) as soon as it loads, with the launch token htmx sends on every
    request, and the answer replaces it. Loading takes no focus and announces nothing. #}
-<section id="details-settings" class="settings-section" aria-labelledby="details-heading"
+<section id="details-settings" class="settings-section" aria-labelledby="details-heading" data-hash-focus
          hx-get="/settings/details" hx-trigger="load" hx-swap="outerHTML">
   <h2 id="details-heading">Your details</h2>
   <p class="field-hint">Loading your details…</p>

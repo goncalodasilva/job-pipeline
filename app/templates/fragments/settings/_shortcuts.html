@@ -2,7 +2,7 @@
    (WCAG 2.1.4). Saved: the line "Saved." and focus on the heading, announced through the
    "announce" trigger. A stale version answers 409 inside this block with the reload prompt
    and no form, so a second Save can't overwrite what changed elsewhere. #}
-<section id="shortcuts-settings" class="settings-section" aria-labelledby="shortcuts-heading">
+<section id="shortcuts-settings" class="settings-section" aria-labelledby="shortcuts-heading" data-hash-focus>
   <h2 id="shortcuts-heading" tabindex="-1"{% if shortcuts_saved %} data-autofocus{% endif %}>Keyboard shortcuts</h2>
   {% if shortcuts_conflict %}
   {% set reload_id = "shortcuts-conflict" %}

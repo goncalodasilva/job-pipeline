@@ -1,5 +1,6 @@
 /* App shell styles (M0.18). No build step. Colours are tokens; meaning never relies on colour
-   alone (spec 3.9). Light and dark follow the system; data-theme can override it later. */
+   alone (spec 3.9). Light and dark follow the system until Settings > Appearance sets
+   data-theme (and data-density) on <html>. */
 
 :root {
   color-scheme: light dark;
@@ -775,6 +776,12 @@ body.layout-guide {
 .budget-done {
   margin: var(--space-2) 0 0;
   font-weight: 600;
+}
+
+/* The saved line of Appearance and of the tier list follows a hint or a heading: set it apart. */
+#appearance-done,
+#task-tiers-done {
+  margin-top: var(--space-3);
 }
 
 #usage-budgets-notice .notice {

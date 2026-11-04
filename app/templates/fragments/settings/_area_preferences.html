@@ -1,28 +1,15 @@
 {# Settings > Job preferences (M9.2): the stored preferences, read only, and the way to change
-   them (the setup guide's preferences step). Needs `preferences` (app/api/settings_areas.py:
-   None when nothing is stored). Stored text is data: autoescaped. #}
-<section id="preferences-settings" class="settings-section" aria-labelledby="preferences-heading">
+   them (the setup guide's preferences step). Roles, locations, salary, must-haves and
+   deal-breakers are personal job-search data, so this token-free page holds none of them (spec 2.9
+   rule 13): the section is a placeholder that fetches the protected summary
+   (GET /settings/preferences/summary) as soon as it loads, with the launch token htmx sends on
+   every request, and the answer replaces it. Loading takes no focus and announces nothing. The
+   guide link stays outside the section, so it is there before and after the swap. Needs
+   `preferences_guide_url` and `preferences_summary_url` (app/api/settings_areas.py). #}
+<section id="preferences-settings" class="settings-section" aria-labelledby="preferences-heading"
+         hx-get="{{ preferences_summary_url }}" hx-trigger="load" hx-swap="outerHTML">
   <h2 id="preferences-heading">Job preferences</h2>
-  <p class="field-hint">What the app uses to judge how well a job fits you, and the country your CV follows. You change them in the setup guide.</p>
-  {% if preferences %}
-  <dl id="preferences-summary" class="preferences-summary">
-    <dt>Target roles</dt>
-    <dd>{{ preferences.target_roles | join(", ") }}</dd>
-    <dt>Locations</dt>
-    <dd>{{ preferences.locations | join(", ") if preferences.locations else "None given" }}</dd>
-    <dt>Work modes</dt>
-    <dd>{{ preferences.work_modes | join(", ") if preferences.work_modes else "None given" }}</dd>
-    <dt>Minimum salary</dt>
-    <dd>{{ preferences.minimum_salary or "None given" }}</dd>
-    <dt>Must-haves</dt>
-    <dd>{{ preferences.must_haves | join(", ") if preferences.must_haves else "None given" }}</dd>
-    <dt>Deal-breakers</dt>
-    <dd>{{ preferences.deal_breakers | join(", ") if preferences.deal_breakers else "None given" }}</dd>
-    <dt>CV country</dt>
-    <dd>{{ preferences.cv_country }}</dd>
-  </dl>
-  {% else %}
-  <p id="preferences-empty">No job preferences are saved yet. Add them in the setup guide.</p>
-  {% endif %}
-  <p><a id="preferences-guide-link" href="{{ preferences_guide_url }}">{% if preferences %}Change your job preferences in the setup guide{% else %}Add your job preferences in the setup guide{% endif %}</a></p>
+  <p class="field-hint">Loading your job preferences…</p>
+  <noscript><p class="field-hint">Your job preferences need scripts to load here. Open the setup guide to see them.</p></noscript>
 </section>
+<p><a id="preferences-guide-link" href="{{ preferences_guide_url }}">Add or change your job preferences in the setup guide</a></p>

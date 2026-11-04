@@ -26,6 +26,12 @@ class SettingsArea:
     def title(self) -> str:
         return self.heading or self.label
 
+    @property
+    def page_title(self) -> str:
+        """The ``<title>`` text before the app name: the area, then "Settings" (so a tab or a
+        history entry of any area is found under Settings); ``/settings`` is just "Settings"."""
+        return self.title if self.title == "Settings" else f"{self.title} · Settings"
+
 
 SETTINGS_AREAS: Final[tuple[SettingsArea, ...]] = (
     # /settings is also the landing page of Settings, so its heading stays "Settings".

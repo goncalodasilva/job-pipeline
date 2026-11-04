@@ -528,7 +528,8 @@ def test_controlled_value_in_use_cannot_be_deleted(tmp_path: Path, field: str, v
         button = button_named(
             refused.text, row_of(refused.text, field, value), f"Delete {label(value)}"
         )
-        assert button.attrs.get("aria-describedby") == error.attrs.get("id")
+        # The refusal first, then the group's "can't be undone" hint (M9.2 fix pass, item 5e).
+        assert str(button.attrs.get("aria-describedby")).split()[0] == error.attrs.get("id")
         assert jobs_phrase(3) in said(refused.headers)
         assert done_text(refused.text) is None
         assert group_open(refused.text, field)
@@ -1119,3 +1120,172 @@ def test_the_values_to_map_page_is_unaffected_by_the_editor(tmp_path: Path) -> N
         assert shown.status_code == 200 and "Fictional cultivation" in shown.text
         assert "aerospace" in shown.text.lower(), "a value added here can be a target there"
         assert sql(run, "SELECT status FROM field_value_queue") == [("pending",)]
+
+
+# --- M9.2 fix pass: seeded spellings survive, caps, control characters, hints ---------------------
+
+MANY = "Too many other spellings. Keep up to 50."
+NO_CONTROL_COPY = "Use plain text, without control characters."
+BELL = chr(7)
+BIDI_OVERRIDE = chr(0x202E)
+
+
+def test_saving_every_seeded_value_unchanged_keeps_its_other_spellings(tmp_path: Path) -> None:
+    """Open the form of each seeded industry, seniority and employment-type value, save it as
+    shown, and the stored spellings are identical: nothing the migration seeded vanishes on the
+    first save ("full-time" and "full time" differ from ``full_time`` only in punctuation)."""
+    with area_app(tmp_path / "root") as run:
+        seeded = sql(
+            run,
+            "SELECT field, value, id, aliases, version FROM controlled_values "
+            "WHERE field IN ('industry', 'seniority', 'employment_type') ORDER BY field, value",
+        )
+        assert len(seeded) > 20 and any(json.loads(row[3]) for row in seeded)
+        assert ("employment_type", "full_time") in {(r[0], r[1]) for r in seeded}
+        for field, value, value_id, aliases, version in seeded:
+            markup = page(run)
+            li = row_of(markup, field, value)
+            shown = alias_lines(markup, li)
+            assert shown == json.loads(aliases), (field, value, "the form shows what is stored")
+            saved = post(
+                run,
+                value_path(value_id, "aliases"),
+                version=hidden_version(markup, li),
+                aliases="\n".join(shown),
+            )
+            assert saved.status_code == 200, (field, value, saved.status_code)
+            found = stored(run, field, value)
+            assert found is not None and found["aliases"] == json.loads(aliases), (field, value)
+            assert found["version"] == version + 1
+
+
+def test_a_typed_spelling_that_differs_only_in_punctuation_is_kept(tmp_path: Path) -> None:
+    with area_app(tmp_path / "root") as run:
+        value_id = seed_id("employment_type", "full_time")
+        answer = post(
+            run,
+            value_path(value_id, "aliases"),
+            version="1",
+            aliases="Full-Time\nfull time\nFULL-TIME",
+        )
+        assert answer.status_code == 200
+        found = stored(run, "employment_type", "full_time")
+        assert found is not None and found["aliases"] == ["full-time", "full time"]
+        # Another value's spelling is still refused whatever its punctuation.
+        refused = post(
+            run,
+            value_path(seed_id("employment_type", "contract"), "aliases"),
+            version="1",
+            aliases="Part Time",
+        )
+        assert refused.status_code == 422
+
+
+def test_aliases_of_a_value_are_capped_at_fifty_lines(tmp_path: Path) -> None:
+    with area_app(tmp_path / "root") as run:
+        value_id = seed_id("industry", "construction")
+        fifty = "\n".join(f"fictional spelling {n}" for n in range(50))
+        before = tables(run)
+        refused = post(run, value_path(value_id, "aliases"), version="1", aliases=fifty + "\nmore")
+        assert refused.status_code == 422, refused.text[:300]
+        assert invalid_names(refused.text) == ["aliases"]
+        [bad] = invalid_controls(refused.text)
+        assert error_text(refused.text, bad) == MANY
+        assert focus_targets(refused.text)[0] is bad
+        assert said(refused.headers) == aliases_refused(1)
+        shown = alias_lines(refused.text, row_of(refused.text, "industry", "construction"))
+        assert len(shown) == 51, "what was typed is kept"
+        assert tables(run) == before
+        # Fifty is allowed.
+        allowed = post(run, value_path(value_id, "aliases"), version="1", aliases=fifty)
+        assert allowed.status_code == 200
+        found = stored(run, "industry", "construction")
+        assert found is not None and len(found["aliases"]) == 50
+
+
+def test_skill_aliases_are_capped_at_fifty_lines(tmp_path: Path) -> None:
+    with area_app(tmp_path / "root") as run:
+        python = run.app.state.skills.add("Python")
+        fifty = "\n".join(f"snake {n}" for n in range(50))
+        before = tables(run)
+        refused = post(run, skill_path(python.id), version="1", aliases=fifty + "\nmore")
+        assert refused.status_code == 422
+        [bad] = invalid_controls(refused.text)
+        assert error_text(refused.text, bad) == MANY
+        assert tables(run) == before
+        assert post(run, skill_path(python.id), version="1", aliases=fifty).status_code == 200
+
+
+@pytest.mark.parametrize("bad", [f"x{BELL}y", f"x{BIDI_OVERRIDE}y", "x\x1by", "x\ty"])
+def test_control_characters_are_refused_in_values_and_spellings_with_fixed_copy(
+    tmp_path: Path, bad: str
+) -> None:
+    with area_app(tmp_path / "root") as run:
+        python = run.app.state.skills.add("Python")
+        construction = seed_id("industry", "construction")
+        before = tables(run)
+        cases = [
+            (VALUES_PATH, {"field": "industry", "value": bad}, "value-add-industry"),
+            (
+                value_path(construction, "aliases"),
+                {"version": "1", "aliases": f"fine\n{bad}"},
+                f"value-{construction}-aliases",
+            ),
+            (
+                skill_path(python.id),
+                {"version": "1", "aliases": f"fine\n{bad}"},
+                f"skill-{python.id}-aliases",
+            ),
+        ]
+        for path, data, control_id in cases:
+            refused = post(run, path, **data)
+            assert refused.status_code == 422, (path, refused.text[:200])
+            [control] = invalid_controls(refused.text)
+            assert control.attrs.get("id") == control_id
+            assert error_text(refused.text, control) == NO_CONTROL_COPY
+            assert focus_targets(refused.text)[0] is control
+            assert tables(run) == before, "nothing is written"
+
+
+def test_the_first_alias_box_of_each_group_says_one_spelling_per_line(tmp_path: Path) -> None:
+    """Each group's first other-spellings box is described by a hint, so the one-per-line rule is
+    heard where it is needed (also in a refused answer, next to the error)."""
+    with area_app(tmp_path / "root") as run:
+        run.app.state.skills.add("Python", aliases=("py",))
+        markup = page(run)
+        for key in (*EDITABLE, "skills"):
+            areas = [e for e in inside(markup, group(markup, key)) if e.tag == "textarea"]
+            assert areas, key
+            hints = [
+                by_id(markup, i) for i in str(areas[0].attrs.get("aria-describedby") or "").split()
+            ]
+            assert [h.text for h in hints if h is not None] == ["One spelling per line."], key
+        refused = post(
+            run,
+            value_path(seed_id("industry", "agriculture"), "aliases"),
+            version="1",
+            aliases="energy",
+        )
+        [bad] = invalid_controls(refused.text)
+        described = [by_id(refused.text, i) for i in str(bad.attrs["aria-describedby"]).split()]
+        texts = [e.text for e in described if e is not None]
+        assert "One spelling per line." in texts and len(texts) == 2
+
+
+def test_each_editable_group_says_delete_cannot_be_undone_and_ties_it_to_delete(
+    tmp_path: Path,
+) -> None:
+    with area_app(tmp_path / "root") as run:
+        markup = page(run)
+        for key in EDITABLE:
+            hint = by_id(markup, f"list-{key}-delete-hint")
+            assert hint is not None and hint.within(group(markup, key)), key
+            assert "This can't be undone." in hint.text
+            deletes = [
+                e
+                for e in inside(markup, group(markup, key))
+                if e.tag == "button" and str(e.attrs.get("aria-label", "")).startswith("Delete ")
+            ]
+            assert deletes, key
+            for button in deletes:
+                assert hint.attrs["id"] in str(button.attrs.get("aria-describedby")).split()

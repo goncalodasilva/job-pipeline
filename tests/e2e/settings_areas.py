@@ -47,7 +47,8 @@ AREA_TAB_BUDGET: Final[dict[str, int]] = {
 AREA_READY: Final[dict[str, tuple[str, ...]]] = {
     "providers": ("#providers", "#task-tiers"),
     "budgets": ("#usage-budgets", "#usage-panel"),
-    "preferences": ("#preferences-settings",),
+    # The summary arrives by a protected fragment: wait for what only it holds.
+    "preferences": ("#preferences-summary, #preferences-empty", "#preferences-guide-link"),
     "lists": ("#board-settings", "#lists-editor"),
     "sessions": ("#sessions-settings",),
     "your-details": ("#details-summary", "#templates-settings"),

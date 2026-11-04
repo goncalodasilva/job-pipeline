@@ -1,4 +1,4 @@
 {% extends "base.html" %}
 {% set live_updates = true %}
-{% block title %}{% if errors is defined and errors %}Error: {% endif %}{{ settings_area.title }}{% endblock %}
+{% block title %}{% if errors is defined and errors %}Error: {% endif %}{{ settings_area.page_title }}{% endblock %}
 {% block content %}{% include "fragments/settings/_area.html" %}{% endblock %}

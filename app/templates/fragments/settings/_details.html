@@ -42,7 +42,7 @@
   {% if details.after %}<p id="details-after" class="field-hint">{{ details.after }}</p>{% endif %}
 {% endmacro %}
 {% set oob = not details.conflict %}
-<section id="details-settings" class="settings-section" aria-labelledby="details-heading">
+<section id="details-settings" class="settings-section" aria-labelledby="details-heading" data-hash-focus>
   <h2 id="details-heading" tabindex="-1"{% if details.message and details.scope == "details" %} data-autofocus{% endif %}>Your details</h2>
   <p{% if oob %} id="details-contents"{% endif %} class="field-hint">Name, email, phone, links and photo. A name is needed to export your CV. Name: {{ "Saved" if details.name_saved else "Not set yet" }}. Photo: {{ "Saved" if details.photo else "Not set yet" }}.</p>
   <details id="details-disclosure" class="settings-disclosure"{% if details.opened %} open{% endif %}>

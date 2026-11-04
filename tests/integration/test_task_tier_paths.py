@@ -3,8 +3,10 @@ budget gate's plan and the run agree (AC-M9.2; ADR-089 item 9; spec 3.7; TD-165)
 
 A task's tier is the user's override in ``AIProviderSettings.task_tiers``, else the default in
 ``app.domain.tiers.DEFAULT_TIERS`` (``task_tier``). The paths that ignored an override before
-M9.2 are ``extract_cv`` (``EXTRACT_CV_TIER``, TD-165), ``refine_fact`` (``FAST``) and the session
-questions and answers (``tier="fast"`` on every call); the ones that already read the setting keep
+M9.2 are ``extract_cv`` (a tier constant of its own, TD-165, now removed), ``refine_fact`` (a
+fixed ``FAST``) and the session questions and answers (``tier="fast"`` on every call); every path
+now reads ``task_tier`` (``tests/unit/modules/ai/test_default_tiers_match_prompts.py`` guards
+that); the ones that already read the setting keep
 their pins here (``summarize_job``, the debrief's ``structure_answer``). Without an override every
 default is unchanged. The real runner, the fake provider through the spy, a temp database and a
 frozen clock; no network. Every value is fictional.

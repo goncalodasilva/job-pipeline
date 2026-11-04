@@ -8,8 +8,11 @@ changes data, and every part of a page that is loaded as a fragment, is a separa
 route that keeps its path (spec 2.9 rules 2, 3 and 13):
 
 - ``/settings/budgets`` Usage budgets (``app/api/settings_usage.py``).
-- ``/settings/preferences`` Job preferences: the stored preferences, read only, and a link to
-  the setup guide's preferences step. It has no form.
+- ``/settings/preferences`` Job preferences: a shell (heading, a loading section and a link to
+  the setup guide's preferences step). The stored preferences are personal job-search data, so
+  the page holds none of them (spec 2.9 rule 13): the section fetches the protected, read-only
+  ``GET /settings/preferences/summary``, which answers the summary and needs the token. There
+  is no form.
 - ``/settings/lists`` Lists and statuses (``app/api/settings_board.py``).
 - ``/settings/sessions`` Sessions (the ``POST`` on the same path is in
   ``app/api/settings_sessions.py``; the route that is dispatched decides whether the token
@@ -48,7 +51,7 @@ from app.api.settings_nav import (
 )
 from app.api.settings_templates import section_context
 from app.api.setup_redirect import setup_step_path
-from app.api.templating import render, renders_fragment
+from app.api.templating import render, renders_fragment, templates
 from app.api.usage_forms import UsageFormState, panel_context, usage_context
 from app.domain.locales import COUNTRIES
 from app.domain.settings import JobPreferences
@@ -60,6 +63,8 @@ LISTS_FRAGMENT: Final = "fragments/settings/_lists.html"
 SESSIONS_FRAGMENT: Final = "fragments/settings/_sessions.html"
 APPEARANCE_FRAGMENT: Final = "fragments/settings/_appearance.html"
 PREFERENCES_STEP: Final = "preferences"
+PREFERENCES_SUMMARY_PATH: Final = "/settings/preferences/summary"
+PREFERENCES_SUMMARY_FRAGMENT: Final = "fragments/settings/_preferences_summary.html"
 # Providers and AI and Data and privacy register their own pages.
 OTHER_MODULES: Final = frozenset({"providers", "data"})
 COUNTRY_NAMES: Final = dict(COUNTRIES)
@@ -78,6 +83,14 @@ def register_settings_area_pages(app: FastAPI) -> None:
             response_class=HTMLResponse,
             name=f"page_settings_{item.slug.replace('-', '_')}",
         )
+    # Not a page (no PAGE_TAG): the token is required, and nothing is written.
+    app.add_api_route(
+        PREFERENCES_SUMMARY_PATH,
+        show_preferences_summary,
+        methods=["GET"],
+        response_class=HTMLResponse,
+        name="settings_preferences_summary",
+    )
 
 
 def _page_for(item: SettingsArea) -> Callable[[Request], HTMLResponse]:
@@ -162,11 +175,19 @@ def render_area(
             shortcuts_conflict=False,
             conflict_message="",
         )
-    elif slug == "preferences":
-        ctx["preferences"] = preferences_context(request)
+    elif slug == "preferences":  # a shell: the values come with the protected fragment
         ctx["preferences_guide_url"] = setup_step_path(PREFERENCES_STEP)
+        ctx["preferences_summary_url"] = PREFERENCES_SUMMARY_PATH
     ctx.update(area_ctx(slug, heading_focus=focus))
     return render(request, page=AREA_PAGE, fragment=fragment or AREA_FRAGMENT, ctx=ctx)
+
+
+def show_preferences_summary(request: Request) -> HTMLResponse:
+    """The protected summary section that replaces the placeholder on the Job preferences page.
+    A plain function: FastAPI runs it in its thread pool (it reads the database)."""
+    return templates.TemplateResponse(
+        request, PREFERENCES_SUMMARY_FRAGMENT, {"preferences": preferences_context(request)}
+    )
 
 
 def preferences_context(request: Request) -> dict[str, Any] | None:

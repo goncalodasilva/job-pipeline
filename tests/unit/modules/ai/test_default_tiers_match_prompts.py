@@ -30,12 +30,44 @@ def test_service_default_tiers_match_prompt_front_matter() -> None:
     assert {name for name, tier in from_prompts.items() if tier == "fast"} == FAST_TASKS
 
 
+DIRECT_READ = re.compile(
+    r"task_tiers\s*\.\s*get\s*\(|task_tiers\s*\[|\bEXTRACT_CV_TIER\b|\bTIER_FALLBACK\b"
+)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'tier = settings.task_tiers.get("x", "fast")',
+        'tier = settings.task_tiers . get ("x")',
+        'tier = settings.task_tiers["summarize_job"]',
+        "tier = provider.task_tiers [name]",
+        "tier = EXTRACT_CV_TIER",
+        "tier = TIER_FALLBACK",
+    ],
+)
+def test_the_guard_flags_every_direct_read_of_task_tiers(line: str) -> None:
+    assert DIRECT_READ.search(line), line
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'tier = task_tier("summarize_job", settings)',
+        "for name, tier in settings.task_tiers.items():",
+    ],
+)
+def test_the_guard_leaves_the_one_reader_alone(line: str) -> None:
+    assert DIRECT_READ.search(line) is None, line
+
+
 @pytest.mark.parametrize("folder", ["app/services", "app/api"])
 def test_services_read_task_tiers_only_through_task_tier(folder: str) -> None:
-    """One place for defaults: no service or route reads ``task_tiers`` with a default of its
-    own, and the per-service constants (``EXTRACT_CV_TIER``, ``TIER_FALLBACK``) are gone."""
+    """One place for defaults: no service or route reads ``task_tiers`` directly (``.get(...)``
+    with a default of its own, or ``task_tiers[...]``), and the per-service constants
+    (``EXTRACT_CV_TIER``, ``TIER_FALLBACK``) are gone."""
     offenders: list[str] = []
-    pattern = re.compile(r"task_tiers\s*\.\s*get\s*\(|\bEXTRACT_CV_TIER\b|\bTIER_FALLBACK\b")
+    pattern = DIRECT_READ
     for path in sorted((REPO_ROOT / folder).rglob("*.py")):
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if pattern.search(line):

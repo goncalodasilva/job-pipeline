@@ -37,11 +37,7 @@ SIDEBAR_SETTINGS = 'nav[aria-label="Main"] a[aria-current="page"]'
 
 def expect_area_shown(page: Page, app: RunningApp, area: SettingsArea) -> None:
     expect(page).to_have_url(f"{app.base_url}{area.path}")
-    wanted = re.compile(
-        rf"^({re.escape(area.label)}|Settings)$"
-        if area.slug == "providers"
-        else rf"^{re.escape(area.label)}$"
-    )
+    wanted = re.compile(rf"^{re.escape('Settings' if area.slug == 'providers' else area.label)}$")
     expect(page.get_by_role("heading", level=1, name=wanted)).to_be_visible()
     expect(page.locator(f'{NAV} [aria-current="page"]')).to_have_count(1)
     expect(nav_link(page, area.label)).to_have_attribute("aria-current", "page")

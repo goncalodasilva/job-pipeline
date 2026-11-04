@@ -29,9 +29,10 @@ Contract the tests rely on (the routes and templates implement it)
   A request with ``HX-Request: true`` needs the token (403 without) and answers the main
   content only (no ``<html>``, no token in it), the same content the full page puts in
   ``<main>``. Reading writes nothing.
-- The page's one ``<h1 id="page-heading">`` names the area (``/settings`` keeps "Settings" or
-  says "Providers and AI": the tests accept both). On a plain load only the ``<h1>`` has
-  ``data-autofocus``.
+- The page's one ``<h1 id="page-heading">`` names the area (``/settings`` keeps "Settings").
+  On a plain load only the ``<h1>`` has ``data-autofocus``. The page ``<title>`` is the area's
+  name, then "Settings", then the app name ("Appearance · Settings · Job Search Pipeline");
+  ``/settings`` is "Settings · Job Search Pipeline".
 - A side list ``<nav aria-label="Settings areas">`` is part of the main content (so an htmx
   answer carries it). It has one link per area in the order of ``AREAS``, with the area's label as
   its text and its path as ``href``; the link of the current area has ``aria-current="page"`` and
@@ -42,12 +43,17 @@ Contract the tests rely on (the routes and templates implement it)
   "Your data" card is gone too (the side list links to Data and privacy), so the main content
   holds exactly one link named "Data and privacy".
 - Each control lives on its owning page only (``OWNED`` below).
-- Job preferences shows the stored ``JOB_PREFERENCES`` read only: ``<section
-  id="preferences-settings">`` with ``<h2>Job preferences</h2>`` and ``<dl
-  id="preferences-summary">`` holding the target roles, locations, work modes, minimum salary,
-  must-haves, deal-breakers and CV country as visible text, and ``<a id="preferences-guide-link"
-  href="/setup/preferences">`` (the guide's preferences step). With nothing stored the summary is
-  replaced by ``<p id="preferences-empty">`` and the link stays. The page has no form.
+- Job preferences shows the stored ``JOB_PREFERENCES`` read only, but not on the token-free page
+  (spec 2.9 rule 13: roles, locations, salary, must-haves and deal-breakers are personal job-search
+  data). The page is a shell: ``<section id="preferences-settings">`` with ``<h2>Job
+  preferences</h2>`` and a loading line, which fetches the protected fragment ``GET
+  /settings/preferences/summary`` (``hx-get``, ``hx-trigger="load"``, ``outerHTML``), and ``<a
+  id="preferences-guide-link" href="/setup/preferences">`` (the guide's preferences step) outside
+  that section. The fragment is the same ``<section id="preferences-settings">`` holding ``<dl
+  id="preferences-summary">`` with the target roles, locations, work modes, minimum salary,
+  must-haves, deal-breakers and CV country as visible text; with nothing stored the summary is
+  replaced by ``<p id="preferences-empty">``. Neither has a form. The fragment needs the token
+  (403 without) and writes nothing.
 - Plain-form fallbacks answer 303 to the owning area; the in-app links for the budgets are
   ``/settings/budgets#usage-budgets``.
 """
@@ -63,7 +69,7 @@ SIDEBAR_LABEL: Final = "Main"
 class SettingsArea:
     slug: str
     path: str
-    label: str  # the side list's link text and (but for providers) the page's <h1>
+    label: str  # the side list's link text and (but for providers, "Settings") the page's <h1>
     owned: tuple[str, ...] = ()  # ids of the sections that live on this page only
 
 
@@ -76,7 +82,7 @@ AREAS: Final[tuple[SettingsArea, ...]] = (
         "preferences",
         "/settings/preferences",
         "Job preferences",
-        ("preferences-settings", "preferences-summary", "preferences-guide-link"),
+        ("preferences-settings", "preferences-guide-link"),  # the summary is a protected fragment
     ),
     SettingsArea(
         "lists", "/settings/lists", "Lists and statuses", ("board-settings", "lists-editor")
@@ -111,6 +117,7 @@ FRAGMENT_PATHS: Final = (
     "/settings/details",
     "/settings/shortcuts",
     "/settings/cv-templates",
+    "/settings/preferences/summary",
     "/settings/testing-tools",
     "/settings/data/location",
     "/settings/data/delete",
