@@ -94,7 +94,11 @@ def refused_with(response: Any, *needles: str) -> str:
     """The photo error: a 422 tied to the ``file`` control whose text holds every needle."""
     assert response.status_code == 422, (response.status_code, response.text[:200])
     assert invalid_names(response.text) == ["file"], invalid_names(response.text)
-    message = errors_in(response.text)["file"]
+    assert "file" in errors_in(response.text)
+    # The field is described by its hint first, so read the error itself.
+    error = element(response.text, "photo-file-error")
+    assert error is not None, "the file field has no error message"
+    message = error.text
     for needle in needles:
         assert needle in message, (needle, message)
     assert announced(response).startswith("Photo not saved")
@@ -732,6 +736,26 @@ def test_photo_route_reads_the_upload_with_the_photo_cap(
     assert desk.upload(JPEG).status_code == 200
     refused_with(desk.upload(padded_jpeg(6 * MIB)), "5 MB")
     assert seen == [5 * MIB, 5 * MIB]
+
+
+def test_a_stalled_photo_upload_says_so(desk: Desk, monkeypatch: pytest.MonkeyPatch) -> None:
+    """TD-033: an upload that stops arriving is refused with its own words, not as a file
+    that is not a picture, and nothing is stored."""
+    from app.api import settings_details
+    from app.domain.errors import UploadStalled
+
+    async def stalled(request: Any, **kwargs: Any) -> Any:
+        raise UploadStalled(detail="fictional stall")
+
+    monkeypatch.setattr(settings_details, "read_upload", stalled)
+
+    answer = desk.upload(JPEG)
+
+    refused_with(answer)
+    error = element(answer.text, "photo-file-error")
+    assert error is not None
+    assert error.text == "The upload stopped before it finished. Nothing was saved. Try again."
+    assert desk.row() is None and desk.files() == []
 
 
 def test_photo_preview_never_reads_through_an_assets_folder_that_is_a_link(

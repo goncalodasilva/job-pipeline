@@ -111,11 +111,22 @@ __all__ = [
     "build_wiring",
     "clear_ai_temp",
     "local_timezone",
+    "prompts_dir",
 ]
 
 ALLOW_FAKES_VARIABLE: Final = "JOBPIPELINE_ALLOW_FAKE_PROVIDERS"
 AI_TEMP_FOLDER: Final = ("tmp", "ai")  # under the data folder (ADR-057)
-PROMPTS_DIR: Final = Path(__file__).resolve().parent.parent / "prompts"
+
+
+def prompts_dir(app_dir: Path) -> Path:
+    """Where the default prompts are (TD-118; ADR-131 item 9): inside the installed package
+    (``app/prompts``, where the wheel puts them) or, in a source checkout, the repository's
+    ``prompts`` folder next to ``app``."""
+    packaged = app_dir / "prompts"
+    return packaged if packaged.is_dir() else app_dir.parent / "prompts"
+
+
+PROMPTS_DIR: Final = prompts_dir(Path(__file__).resolve().parent)
 OVERRIDES_FOLDER: Final = ("prompts", "overrides")
 # The overall limit on one provider run: M2.13 injects it into the Claude provider's
 # ``run``. Every task type's watchdog timeout must be longer (spec 5 M2 reliability rule 5),

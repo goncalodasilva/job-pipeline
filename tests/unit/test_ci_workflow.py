@@ -353,6 +353,22 @@ def test_mypy_checks_app_and_scripts() -> None:
     assert load_pyproject()["tool"]["mypy"]["files"] == ["app", "scripts"]
 
 
+WHEEL_COMMAND = "uv run python scripts/check_wheel.py"
+
+
+def test_wheel_contents_checked_in_ci_and_full_verification() -> None:
+    """M9.6 part C (ADR-131 item 9; TD-118): the built wheel is checked on every push and in
+    ``verify.sh full``."""
+    wheel = get_job(load_workflow(), "wheel")
+    assert wheel.get("runs-on") == "ubuntu-latest"
+    lines = command_lines(wheel)
+    assert SYNC_COMMAND in lines and WHEEL_COMMAND in lines, lines
+    assert EXCLUDES_PUSH not in str(wheel.get("if", "")), "the wheel job must run on every push"
+    text = VERIFY_SCRIPT.read_text(encoding="utf-8")
+    full = text[text.index('if [ "$MODE" = "full" ]') :]
+    assert WHEEL_COMMAND in full, "verify.sh full must check the wheel"
+
+
 def test_verify_script_aligned_with_spec_4_5() -> None:
     """verify.sh runs bare mypy and the spec 4.5 coverage selection (smoke included)."""
     text = VERIFY_SCRIPT.read_text(encoding="utf-8")

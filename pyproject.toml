@@ -1,6 +1,6 @@
 [project]
 name = "jobpipeline"
-version = "0.1.0"
+version = "1.0.0"
 description = "A local web app that helps one person run an honest, organized job search."
 readme = "README.md"
 license = "MIT"
@@ -53,6 +53,19 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+# The default prompts ship inside the package as ``app/prompts`` (TD-118; ADR-131 item 9):
+# ``app.wiring.prompts_dir`` finds them there when installed and in ``prompts/`` in a checkout.
+# ``app/demo_data`` is part of the ``app`` package already; listing it here too would add its
+# file twice, which hatchling refuses. ``scripts/check_wheel.py`` checks the built wheel for both
+# (verify.sh full and CI).
+[tool.hatch.build.targets.wheel.force-include]
+"prompts" = "app/prompts"
+
+# A source archive holds only what a build needs: no local caches, editor settings or test
+# data, which can hold local paths (M9.6 security review).
+[tool.hatch.build.targets.sdist]
+only-include = ["app", "prompts", "pyproject.toml", "uv.lock", "README.md", "LICENSE"]
 
 [tool.ruff]
 target-version = "py311"

@@ -13,11 +13,12 @@ The tests call a small app as a server would (raw ASGI messages), so they can co
 bytes the app asked for. The new names are imported inside the tests.
 """
 
+import asyncio
 import dataclasses
 import importlib
 import json
 import tempfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -100,9 +101,11 @@ async def _post(
     *,
     content_type: str | None = CONTENT_TYPE,
     content_length: int | None = None,
+    pause: Callable[[int], Awaitable[None]] | None = None,
 ) -> Answer:
     """Send a POST as a server would: one ``http.request`` message per chunk, only when the
-    app asks for it."""
+    app asks for it. ``pause(n)``, when given, is awaited before the n-th message (from 0), as a
+    slow or silent client would make the app wait."""
     headers = [(b"host", b"127.0.0.1:8000")]
     if content_type is not None:
         headers.append((b"content-type", content_type.encode("ascii")))
@@ -123,12 +126,15 @@ async def _post(
         "server": ("127.0.0.1", 8000),
     }
     remaining: Iterator[bytes] = iter(chunks)
-    state = {"delivered": 0, "ended": False}
+    state = {"delivered": 0, "ended": False, "calls": 0}
     sent: list[dict[str, Any]] = []
 
     async def receive() -> dict[str, Any]:
         if state["ended"]:
             return {"type": "http.disconnect"}
+        if pause is not None:
+            await pause(state["calls"])
+        state["calls"] += 1
         chunk = next(remaining, None)
         if chunk is None:
             state["ended"] = True
@@ -301,6 +307,108 @@ async def test_a_lower_cap_accepts_a_file_of_exactly_the_cap_and_refuses_one_byt
     assert accepted.status == 200, accepted.text
     assert len(probe.uploads) == 1 and len(probe.uploads[0].data) == FIVE_MB
     assert refused.status == 413 and refused.text == _message("UploadTooLarge")
+
+
+# --- slow bodies (TD-033) ------------------------------------------------------------------
+# Each wait for the next part of the body has a read timeout, and the whole body a deadline, so
+# a client that goes silent or trickles bytes is answered instead of holding the request. The
+# two limits are module attributes read at request time, so these tests can shorten them.
+# Every call is bounded by ``asyncio.wait_for`` so a missing limit fails instead of hanging.
+
+BOUND_S = 10.0
+
+
+def test_upload_limits_are_a_30_second_read_timeout_and_a_2_minute_deadline() -> None:
+    assert _uploads().READ_TIMEOUT_S == 30.0
+    assert _uploads().UPLOAD_DEADLINE_S == 120.0
+
+
+async def test_a_silent_client_is_refused_after_the_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_uploads(), "READ_TIMEOUT_S", 0.2)
+    probe = _probe()
+    body = multipart_body(FilePart("cv.pdf", PDF_BYTES * 2000))
+
+    async def silent_after_the_first_chunk(call: int) -> None:
+        if call >= 1:
+            await asyncio.Event().wait()  # never sends the rest
+
+    answer = await asyncio.wait_for(
+        _post(
+            probe.app,
+            _in_chunks(body),
+            content_length=len(body),
+            pause=silent_after_the_first_chunk,
+        ),
+        BOUND_S,
+    )
+
+    _assert_refused(answer, 400, "UploadStalled", probe)
+    assert answer.delivered < len(body)
+
+
+async def test_a_trickling_client_is_refused_at_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_uploads(), "UPLOAD_DEADLINE_S", 0.3)
+    probe = _probe()
+    body = multipart_body(FilePart("cv.pdf", PDF_BYTES * 200))
+    chunks = [body[start : start + 64] for start in range(0, len(body), 64)]
+
+    async def trickle(_call: int) -> None:
+        await asyncio.sleep(0.02)  # well inside the read timeout, every time
+
+    answer = await asyncio.wait_for(
+        _post(probe.app, chunks, content_length=len(body), pause=trickle), BOUND_S
+    )
+
+    _assert_refused(answer, 400, "UploadStalled", probe)
+    assert answer.delivered < len(body)
+
+
+async def test_a_client_silent_near_the_deadline_is_refused_at_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each wait is cut to the time left before the deadline, so silence just before it is not
+    granted a whole read timeout (30 s, longer than this test's bound)."""
+    monkeypatch.setattr(_uploads(), "UPLOAD_DEADLINE_S", 0.3)
+    probe = _probe()
+    body = multipart_body(FilePart("cv.pdf", PDF_BYTES * 2000))
+
+    async def silent_after_the_first_chunk(call: int) -> None:
+        if call >= 1:
+            await asyncio.Event().wait()  # never sends the rest
+
+    answer = await asyncio.wait_for(
+        _post(
+            probe.app,
+            _in_chunks(body),
+            content_length=len(body),
+            pause=silent_after_the_first_chunk,
+        ),
+        BOUND_S,
+    )
+
+    _assert_refused(answer, 400, "UploadStalled", probe)
+
+
+async def test_a_steady_upload_inside_the_limits_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_uploads(), "READ_TIMEOUT_S", 0.5)
+    probe = _probe()
+    body = multipart_body(FilePart("cv.pdf", PDF_BYTES))
+
+    async def brief(_call: int) -> None:
+        await asyncio.sleep(0.01)
+
+    answer = await asyncio.wait_for(
+        _post(probe.app, _in_chunks(body), content_length=len(body), pause=brief), BOUND_S
+    )
+
+    assert answer.status == 200, answer.text
+    assert probe.uploads[0].data == PDF_BYTES
 
 
 # --- what is accepted ------------------------------------------------------------------------

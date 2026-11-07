@@ -44,6 +44,7 @@ from app.domain.errors import (
     DetailsNotSaved,
     PhotoNotSaved,
     UploadNotAccepted,
+    UploadStalled,
     UploadTooLarge,
     VersionConflict,
 )
@@ -215,6 +216,8 @@ async def save_photo(request: Request) -> Response:
         data = (await read_upload(request, fields=fields, max_bytes=PHOTO_MAX_BYTES)).data
     except UploadTooLarge:
         refusal = TOO_BIG
+    except UploadStalled as error:
+        refusal = error.user_message
     except UploadNotAccepted:
         refusal = NOT_A_PICTURE
     version = _posted_photo_version(fields) if not refusal else None

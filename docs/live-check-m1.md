@@ -10,9 +10,11 @@ Record each result as a short line under M1.25 in `docs/PROGRESS.md` (or in a ne
 
 The live tests build the app's real wiring and Claude provider, save the credential under the app's own keychain item in an in-memory keychain (never your system keychain), call "Test connection" once per mode with the Fast model, and scan the files the Claude CLI wrote plus logs and output for the credential. They never read your own `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` or keychain.
 
+Run each `read -rs` line, paste its value and press Enter: first the token from `claude setup-token`, then, optionally, an API key (press Enter alone to skip it). The lines have no `# ...` comments because macOS's zsh would pass a comment to `read`.
+
 ```bash
-read -rs JOBPIPELINE_LIVE_CLAUDE_OAUTH_TOKEN   # paste the token from `claude setup-token`, then Enter
-read -rs JOBPIPELINE_LIVE_ANTHROPIC_API_KEY    # optional: paste an API key, then Enter
+read -rs JOBPIPELINE_LIVE_CLAUDE_OAUTH_TOKEN
+read -rs JOBPIPELINE_LIVE_ANTHROPIC_API_KEY
 export JOBPIPELINE_LIVE_CLAUDE_OAUTH_TOKEN JOBPIPELINE_LIVE_ANTHROPIC_API_KEY
 JOBPIPELINE_LIVE_TESTS=1 uv run pytest -m live tests/live -s
 unset JOBPIPELINE_LIVE_CLAUDE_OAUTH_TOKEN JOBPIPELINE_LIVE_ANTHROPIC_API_KEY

@@ -3,7 +3,7 @@
 # Usage: verify.sh [quick|full]
 #   quick: format, lint, types, module boundaries, fast tests, smoke run
 #   full:  quick (fast and smoke tests run once, with coverage), plus end-to-end tests,
-#          coverage thresholds and all pre-commit hooks
+#          coverage thresholds, the built wheel's contents and all pre-commit hooks
 # Prints "VERIFY <mode>: PASS" or "VERIFY <mode>: FAIL (...)" as its last line.
 set -u
 MODE="${1:-quick}"
@@ -70,6 +70,7 @@ fi
 
 if [ "$MODE" = "full" ]; then
   pytest_step "end-to-end" -q -m e2e
+  if [ -f scripts/check_wheel.py ]; then step "wheel contents" uv run python scripts/check_wheel.py; fi
   if [ -f .pre-commit-config.yaml ]; then step "pre-commit (all files)" uv run pre-commit run --all-files; fi
   if [ -f .pre-commit-config.yaml ] && grep -q "gitleaks-history" .pre-commit-config.yaml; then
     step "secrets in git history" uv run pre-commit run --hook-stage manual gitleaks-history

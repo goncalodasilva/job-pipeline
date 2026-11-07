@@ -1,10 +1,14 @@
 """Read one uploaded file or a pasted text, with a hard size cap (spec 2.9 rule 5).
 
 The body is streamed and counted as it arrives, whatever ``Content-Length`` says, and reading
-stops once the cap is passed. The parts are held in memory only, and the client's file name is
-never kept or used. What the bytes are is decided later, by content, behind a service.
+stops once the cap is passed. Each wait for the next part of the body has a read timeout and
+the whole body a deadline (TD-033), so a client that goes silent or trickles bytes is refused
+with ``UploadStalled`` instead of holding the request. The parts are held in memory only, and
+the client's file name is never kept or used. What the bytes are is decided later, by
+content, behind a service.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass
 from typing import Final, Literal
@@ -15,7 +19,7 @@ from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 from starlette.requests import ClientDisconnect
 
-from app.domain.errors import UploadNotAccepted, UploadTooLarge
+from app.domain.errors import UploadNotAccepted, UploadStalled, UploadTooLarge
 
 MAX_UPLOAD_BYTES: Final = 10 * 1024 * 1024
 FILE_FIELD: Final = "file"
@@ -26,6 +30,9 @@ _MAX_BODY_BYTES: Final = MAX_UPLOAD_BYTES + _ENVELOPE_BYTES
 # A browser sends the file input and the text field; a few more parts are tolerated.
 _MAX_FILE_PARTS: Final = 2
 _MAX_FIELD_PARTS: Final = 8
+# Read at request time, so tests can shorten them. The restore upload has its own (M9.1).
+READ_TIMEOUT_S = 30.0  # each wait for the next part of the body
+UPLOAD_DEADLINE_S = 120.0  # the whole body, however steadily the bytes trickle in
 # The parser decodes field values with the charset the client names; only UTF-8 is taken.
 _CHARSETS: Final = (b"utf-8", b"utf8")
 # The detail of the refusal when one file and a pasted text came together: a page can then
@@ -96,7 +103,19 @@ def _charset(content_type: str) -> bytes:
 
 async def _capped(stream: AsyncIterator[bytes], cap: int) -> AsyncGenerator[bytes, None]:
     received = 0
-    async for chunk in stream:
+    clock = asyncio.get_running_loop().time
+    deadline = clock() + UPLOAD_DEADLINE_S
+    chunks = stream.__aiter__()
+    while True:
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise UploadStalled(detail="the upload passed its deadline")
+        try:
+            chunk = await asyncio.wait_for(anext(chunks), min(READ_TIMEOUT_S, remaining))
+        except StopAsyncIteration:
+            return
+        except TimeoutError:
+            raise UploadStalled(detail="the upload stalled or passed its deadline") from None
         received += len(chunk)
         if received > cap:
             raise UploadTooLarge(detail="the request body passed the cap")

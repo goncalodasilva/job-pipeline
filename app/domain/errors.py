@@ -267,6 +267,13 @@ class UploadNotAccepted(AppError):
     message = "Upload one file (PDF, Word or plain text), or paste the text instead."
 
 
+class UploadStalled(UploadNotAccepted):
+    """The upload stopped arriving, or took longer than its deadline (TD-033)."""
+
+    kind = "UploadStalled"
+    message = "The upload stopped before it finished. Nothing was saved. Try again."
+
+
 class CvTextTooLong(AppError):
     """The CV's text is longer than one import takes. It is refused whole, never cut."""
 

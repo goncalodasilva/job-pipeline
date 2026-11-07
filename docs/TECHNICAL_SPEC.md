@@ -302,6 +302,8 @@ def clean_render_text(text: str) -> str: ...   # drops control characters except
 
 Interview prep services (M8, ADR-124, ADR-128 to ADR-132). `PrepService` (question bank, practice, narrative cards and adapted answers, prep state), `BriefService` (company brief) and `DebriefService` (debrief save, draft facts and the confirmed status move) are constructed in `app/main.py` from the wiring and their injected parts: the factory, `Clock`, `IdFactory`, the workspace, the settings, the task and usage services and the application service. `PrepService` and `BriefService` also take a search-provider lookup and the transient holder. `DebriefService` takes neither, because its only AI calls are the structured-answer requests. `SearchProvider` (above) is the interface of the search module: `DelegatedAISearch` (`app/modules/search/providers/delegated.py`) serves the built-in Claude search, and `FakeSearchProvider` (`app/modules/search/providers/fake.py`) serves tests and the demo. `TransientSearchResults` (`app/modules/search/__init__.py`) is the bounded, lock-protected, process-local holder for a result whose storage rule is unclear or forbidden. It keeps at most 100 entries and drops the oldest written first. It is never written to SQLite, and it is cleared when the app stops. `app/wiring.py` creates it once and passes it on.
 
+Data, prompts, removals, the palette and the demo (M9; ADR-131, ADR-134, ADR-137, ADR-138). `DataPortabilityService` (`app/services/data_portability.py`) writes an export of the open workspace to `exports/` (`export(include_usage_snapshots=False)`), returns a stored export (`download(name)`), says whether the workspace can take a restore (`can_restore()`: it has no content) and restores an export file (`restore(path)`). It works through `app.modules.storage.portability` (`export_tables`, `import_tables`, `is_empty`), and `parse_export(raw)` is the importer's own parser. `DataErasureService` (`app/services/data_erasure.py`) lists and runs Delete all data (`plan()`, `erase(confirmation)`). It raises `ErasureRefused` before anything changes and `ErasureIncomplete` when a step fails part way. The prompt editor is the `PromptEditor` protocol (`app/modules/ai/__init__.py`: `status`, `default_text`, `override_text`, `save_override`, `reset_override`, with the types in `prompt_types.py`). `PromptLibrary` implements it, and services reach it through `PromptSettings` (`app/services/prompt_settings.py`; ADR-134). `RemovalLearning` (`app/services/removal_learning.py`: suggestions, rules, the threshold and the Hidden view) and `RemovalGrouping` (`removal_grouping.py`: the user-started `group_removal_reasons` task) hold the M9.4 logic, with the pure rules in `app/domain/removal_learning.py`. `PaletteService` (`search(text)`, `recent(paths)`) answers the command palette. `seed_demo` and `shifted_dataset` (`app/services/demo.py`) fill the designated demo workspace from `app/demo_data/workspace.json`. `app.wiring.prompts_dir(app_dir)` finds the default prompts inside the installed package (`app/prompts`) or, in a checkout, in `prompts/` (TD-118).
+
 ### 2.5 Runtime flows
 
 Page and fragment requests: route → service → repository → template. Full pages render the app shell; htmx requests (`HX-Request: true`) receive fragments only.
@@ -354,8 +356,9 @@ Data folder layout:
   imports/                  uploaded CV files
   assets/                   the CV photo, photo-<generated id>.jpg or .png (M6; 0600)
   prompts/overrides/        user-edited prompt templates
-  exports/                  JSON exports
+  exports/                  JSON exports of the whole workspace (M9.1)
   logs/                     rotating logs (redacted)
+  .restore-*/               a restore's staging folder, removed when it ends or at the next start
 ```
 
 SQLite settings: `journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`. Transactions are short and use `BEGIN IMMEDIATE` for writes.
@@ -372,6 +375,8 @@ M7 storage (ADR-120, ADR-122). Migration `0007_sessions.sql` adds three `WITHOUT
 
 M8 storage (ADR-124 item 5, ADR-129, ADR-130, ADR-132). Migration `0008_interview_prep.sql` adds twelve `WITHOUT ROWID` tables with explicit keys, created/updated/version columns, replacement guards and bounded text: `bank_questions` (with `bank_questions_fts` and its triggers), `bank_question_requirements`, `bank_question_sightings`, `prep_items`, `practice_attempts`, `prep_documents`, `prep_document_versions`, `prep_units`, `prep_unit_facts`, `debriefs`, `debrief_drafts` and `company_briefs`. It recreates `applications_delete_only_untouched`, so prep rows make an application "touched". Migration `0009_prep_version_facts.sql` (M8.2, approved by the user) adds `prep_version_facts`, which records the facts sent with each narrative and adapted version. Every bank question keeps one row per observation in `bank_question_sightings`, so a merge keeps each source, date, model, prompt and task. Debriefs refer to an event of the same application. A debrief row is `done` (text, next round and status confirmation) or `dismissed` (no text), and a saved debrief is never edited. Debrief drafts link a debrief to a fact (source `debrief`). "How it went" is stored only in the debrief row. Company briefs keep a row only when the search provider's storage rule allows it (3.7). M8.3 added no migration.
 
+M9 storage (ADR-131 items 2 to 5, ADR-135 to ADR-137). Migration `0010_removal_learning.sql` adds `job_removals` (append-only removal and restore events, backfilled from the jobs already removed when it runs; closes TD-234), `removal_rules`, `removal_suggestion_dismissals` and `removal_theme_runs`. That last table holds validated `group_removal_reasons` results: rule conditions, evidence job ids and removal versions, with task and prompt provenance. It holds no model prose and no copies of removal notes. Rules are applied when the inbox is read and never change a stored job. An export (`format: 1`) is one JSON object. It holds the app version, the `schema_version`, the rows of every table except the full-text tables and `schema_migrations`, and the app's files (documents, the photo, CV uploads and prompt overrides) as base64 with size and SHA-256. Usage snapshots are included only when the user ticks the box (TD-012). Logs, backups, earlier exports and keys never are. A restore goes only into a workspace with no content, after the whole file has been checked. An older schema version is migrated up, and a newer one is refused. The tables are written in one transaction, with the guard triggers dropped and recreated, the full-text tables rebuilt and foreign keys checked. Files are staged in a `.restore-*` folder inside the data folder and then moved into place. `saved_sign_ins` is cleared, and `schema_migrations.applied_at` differs; these are the only differences from an exact round trip (AC-M9.3). Delete all data removes the entries the app owns: `backups/`, `documents/`, `imports/`, `assets/`, `prompts/`, `exports/` and `logs/`, then `app.db` with its WAL and SHM files last, so a half-finished run can be retried. It refuses links. When the setup file names this folder, or there is none, it also removes the saved keys and the setup file; the demo removes only its own keys and never touches the setup file. Entries it does not know are left in place and listed (ADR-131 item 2). Per-item erase of append-only text is out of scope (TD-010, TD-011, TD-264 and TD-300 are closed for whole-data erase only). The demo dataset is an export file seeded through the same importer (ADR-138 items 5 to 7).
+
 ### 2.8 Configuration
 
 - **Bootstrap config:** `config.toml` in the platform config folder (`platformdirs.user_config_dir("jobpipeline")`), holding `data_dir` (absolute path; `~` is expanded) and the app version that created it. Its absence means first run (see M1). The file is parsed even with `--data-dir`, so malformed TOML is reported then; `--demo` never reads it, because on macOS it sits in the real data folder (AC-M9.4; ADR-138 item 4 amends ADR-025).
@@ -385,7 +390,7 @@ M8 storage (ADR-124 item 5, ADR-129, ADR-130, ADR-132). Migration `0008_intervie
 2. A random launch token (32 bytes, URL-safe) is generated at startup and embedded in the base template. htmx sends it on every request as `X-JP-Token` via `hx-headers`. Every fragment, JSON and state-changing endpoint MUST require it. Full-page GETs, static files and `GET /health` MAY omit it (ADR-023).
 3. State-changing requests MUST also carry an `Origin` or `Referer` matching the app's own origin.
 4. Jinja2 autoescaping stays on. AI output and job text MUST NOT be marked safe. Where Markdown from AI is rendered, it is converted and then sanitized with nh3.
-5. Uploads: 10 MB limit, type checked by content (PDF, DOCX, plain text), stored under the data folder with generated names, parsed with timeouts. The CV photo is a separate image upload: JPEG or PNG by content, at most 5 MB (the cap is enforced while the upload streams), with its metadata removed and its headers checked (M6, ADR-112).
+5. Uploads: 10 MB limit, type checked by content (PDF, DOCX, plain text), stored under the data folder with generated names, parsed with timeouts. Each part of an upload's body must arrive within 30 s and the whole body within two minutes; a stalled upload is refused as `UploadStalled` (M9.6, TD-033), and a restore upload has its own limits (M9.1). The CV photo is a separate image upload: JPEG or PNG by content, at most 5 MB (the cap is enforced while the upload streams), with its metadata removed and its headers checked (M6, ADR-112).
 6. Job URL fetching: http and https only; the resolved address MUST NOT be private, loopback, link-local or multicast, checked again after each redirect; 5 MB and 15 s limits; no cookies. This module never crawls: one user-supplied URL at a time. As built (M4.1, ADR-098): a URL is refused when any of its DNS answers is not a global unicast address; at most 5 redirects, each checked again; the connection goes to the address that was checked, with the original host as `Host` and TLS server name; proxy settings and `.netrc` are ignored; the size cap counts decoded bytes; only text content types are read; the fetched URL is never logged. Fetched text is untrusted content (3.3). Known gaps are listed in `docs/TECH_DEBT.md` (TD-225 to TD-233).
 7. Untrusted content (job text, web results, CV text) is delimited and treated as data (3.3). Plain AI tasks run with no tools allowed; only explicitly requested web questions allow the provider's web search tool.
 8. When the app calls the Agent SDK, it MUST isolate the call from any developer configuration: run in an empty temporary working directory and disable loading of filesystem settings (the SDK's `setting_sources` option at the time of writing; verify against the installed SDK version).
@@ -423,7 +428,9 @@ M7 session text (rule 13 extended; ADR-121 item 5, ADR-122, ADR-123). Session qu
 
 M8 routes (ADR-124 item 11, ADR-129, ADR-130, ADR-132). Token-free, read-only pages: `GET` and `HEAD /applications/{id}?tab=prep` (the third tab; no token is needed for the page), and `GET` and `HEAD /applications/{id}/debriefs/{event_id}`, which answers only a shell: heading, time and the privacy line, with a placeholder that loads the saved text from a protected fragment. The interview's id is checked for its safe shape, and an unknown id, an event of another application or an event that is not an interview gets the fixed plain-text 404. The company page (`/companies/{id}`) is a page as before. Protected GET fragments, which need the launch token and write nothing: the Prep tab (`/applications/{id}/prep`, with its type filters and the question bank search), the narrative cards (`/applications/{id}/prep/cards`), a question's practice view (`/applications/{id}/prep/practice/{question_id}`), `GET /applications/{id}/debriefs/{event_id}` (the saved text, and with `?active=1` a 204 while a draft task runs) and `GET /companies/{id}/brief`. Protected POSTs, which need the token and the origin (rule 3) and carry the version they change: the Prep tab's starts (`/applications/{id}/prep/{action}`, through the budget gate), `.../prep/questions/{question id}/ready`, the card routes under `/prep/cards`, the practice answer and claim routes under `/prep/practice/{question_id}`, the adapt routes under the same practice prefix, `POST /applications/{id}/debriefs/{event_id}/save`, `.../dismiss`, `.../drafts` (the draft facts start, through the budget gate) and `.../status` (the confirmed status move, which checks the application's version), and `POST /companies/{id}/brief` (the company brief start, through the budget gate, with the company's version). A stale version is a 409 with the reload prompt. Form bodies are read with a size cap and a fixed field list. Writes are refused for a cancelled interview.
 
-M9.2 Settings routes: `/settings` shows Providers and AI; the area pages are `/settings/budgets`, `/settings/preferences`, `/settings/lists`, `/settings/sessions`, `/settings/your-details`, `/settings/appearance`, `/settings/data` and `/settings/keyboard`.
+M9.2 Settings routes: `/settings` shows Providers and AI; the area pages are `/settings/budgets`, `/settings/preferences`, `/settings/lists`, `/settings/sessions`, `/settings/your-details`, `/settings/appearance`, `/settings/data` and `/settings/keyboard`, and `/settings/prompts` (M9.3).
+
+M9 data, prompt and removal routes (ADR-131, ADR-134, ADR-137). Token-free, read-only pages: `GET` and `HEAD /settings/data` (Data and privacy) and `GET` and `HEAD /settings/prompts/{task}`. A prompt page is a shell that shows no prompt text, and a task name the app doesn't list gets a fixed 404 that echoes nothing. Protected GET fragments, which need the launch token and write nothing: `/settings/data/location`, `/settings/data/delete` (the confirmation dialog with the list of unknown entries), `/settings/prompts/{task}/editor` (the default and override text, the compare view and the forms), `/inbox/removal-suggestions` and `/settings/preferences/removal-rules`. Protected POSTs, which also need the origin (rule 3) and carry the version they change: `/settings/data/export`, `/settings/data/import`, `/settings/data/delete` (with the typed word), `/setup/welcome/restore`, `/settings/prompts/{task}` (save) and `.../reset`, `/inbox/removal-suggestions` (flag, hide or dismiss), `/inbox/removal-suggestions/group` (through the budget gate), `/settings/preferences/removal-rules/threshold` and `/settings/preferences/removal-rules/{rule_id}`. The export download `GET /settings/data/exports/{name}` is an approved exception to rule 12's wording on exports, as the document download is. It reads one file the app named, writes nothing, needs the token header and answers an attachment with `Cache-Control: no-store`. While a rule is active, and in the Hidden view, the `/inbox` page is a token-free shell whose queue loads from the protected fragment, so a page load never shows which jobs the rules matched. A restore upload streams to a staging file: at most 200 MB, 30 s for each read, 15 minutes in all, a part header of at most 8 KiB, and one import at a time. Every other upload is read in memory under its cap, with a 30 s read timeout and a two-minute deadline (TD-033).
 
 Access records (2.10) lose every query string, so the bank search, the Prep tab's `tab` and filter values and the debrief's `active` flag never reach a log.
 
@@ -444,6 +451,8 @@ M6 extends the same rule to document text (CV and letter lines and paragraphs, a
 M7 extends AC-M1.4 to session answers, generated questions, why lines, session drafts and coverage labels. None of them may appear in logs, `tasks` or usage rows, live-update events, error copy or access-record query strings. The M7 leak checks (`tests/integration/test_m7_cross_cutting.py`) plant one marker of each kind, then scan the stored tables against an explicit allow-list of where that kind may live (rule 13), the logs, the task and usage rows, the event frames, error copy and access records. The named checks are `test_session_text_never_in_logs_task_rows_usage_or_events`, `test_session_query_strings_not_in_access_log` and `test_session_errors_carry_no_answer_text`. Session refusals name the state, never the text: `SessionAlreadyOpen` carries only the open session's safe id. A task's input row holds ids, a tier and an opaque snapshot fingerprint, never the wording (ADR-121 item 1, ADR-122 item 1).
 
 M8 extends AC-M1.4 to practice answers, practice feedback, bank questions, debrief text (the questions asked, how it went and the experiences), narrative and adapted text, brief text and brief source URLs. None may appear in logs, `tasks` or usage rows, live-update events, error copy or access-record query strings. The M8 leak checks (`tests/integration/test_m8_cross_cutting.py`) plant one marker of each kind and scan the stored tables against an allow-list, then the logs, the task and usage rows, the event frames, error copy and access records. The named checks are `test_prep_text_never_in_logs_task_rows_usage_or_events`, `test_prep_query_strings_not_in_access_log` and `test_prep_errors_carry_no_answer_text`. A task's input row holds the debrief or company id with the tier (`<id>/<tier>`), never the text. A brief task's `result_ref` holds the company id on success, or the bit `none` for a run that kept no section (ADR-132 item 10). Refusal messages name the field or the storage rule, never the text.
+
+M9 extends AC-M1.4 to prompt override text, removal notes and themes, palette queries and export contents. Override text is never logged (ADR-134 item i), and a refused override gets a fixed message per reason that never repeats the text. Export, import, restore and erase failures log a fixed sentence with the exception's class, never a path inside the export, file content or typed text. The palette's query never reaches a log, an error or a stored row (2.9). `group_removal_reasons` sends removal notes as one untrusted block; its themes stay in `removal_theme_runs`, and the task row holds only ids and a digest (ADR-137; `test_removal_themes_never_in_logs_task_rows_or_events`). The `httpx2` and `httpcore2` client loggers are reduced like `httpx` and `httpcore` (ADR-138 item 11).
 
 ### 2.11 Errors
 
@@ -580,6 +589,20 @@ M8 interview prep, debrief and company brief errors and notices (ADR-124, ADR-12
 | Storage notices (not errors) | Web questions, company brief | "Not saved: this search provider's terms on keeping results are unclear", or "... does not allow keeping results". The result is shown only until the app closes |
 | Nothing found (not an error) | Company brief | "Nothing with a source was found this time." (the run succeeded with `none`, ADR-132 item 10) |
 
+M9 errors and refusals (ADR-131, ADR-134, ADR-137, ADR-138):
+
+| Error | Raised by | User-facing message pattern |
+| --- | --- | --- |
+| `ErasureRefused` | Delete all data | "Type the word delete to confirm.", or for a known entry that holds a link: "<entry> contains a link (symbolic or hard), which this app never follows, so nothing was deleted. Remove the link yourself, then try again." Nothing is changed |
+| `ErasureIncomplete` | Delete all data | "Delete all data stopped: <what failed>, then run it again. What was already deleted stays deleted." |
+| Import and restore refusals (fixed text per reason) | Settings > Data and privacy, setup step 1 | "That file is too large. An export can be up to 200 MB." (413); "The upload stopped before it finished." or "The upload took too long." with "Try again."; "This file can't be restored. It may not be a Job Pipeline export, may be damaged, or may come from a newer version of the app."; "Another import is still running. Wait for it to finish, then try again." Every other message says "Nothing was imported." in Settings, or "Nothing was restored." at setup |
+| `PromptRefused` | Prompt editor | One fixed message per reason, never the typed text, for example "The text can't include, import or extend other templates." (422; the typed text stays in its box) |
+| `PromptConflict` | Prompt editor | The shared reload prompt (409); the typed text comes back read-only |
+| `VersionConflict` | Removal suggestions and rules | "This suggestion changed. Review it again." or "The removal notes changed. Review the inbox again." (409) |
+| `UploadStalled` (an `UploadNotAccepted`) | Uploads | "The upload stopped before it finished. Nothing was saved. Try again." (400; the photo form shows it on its file field; TD-033) |
+
+The palette has no error copy: a long query is cut at 200 characters and 8 words, and the answer is always 200 (ADR-138 item 8).
+
 Each error has a stable `kind` (a class attribute, by default the class name); tasks store the kind, never the message or detail (M2.7).
 
 Refusals of a start answer 409, for htmx and for a plain request, with the reason: a blocking point, a tier cap without a free Fast tier, or unreadable budgets (ADR-086). A warning that isn't confirmed answers 200 with the warning dialog for htmx, and 409 as text for a plain request (ADR-086). A stale version of a budget form, or of the guide's budget step, answers 409 with the reload prompt (`fragments/shell/_reload_prompt.html`, `role="alert"`): the form's own explanation, then a "Reload the page" link. In the usage budget forms the message is `VersionConflict`'s copy (ADR-081, ADR-087).
@@ -641,22 +664,29 @@ job-pipeline/
     services/       jobs, companies, applications, facts, sessions, tailoring
                     (steps 1 to 5), documents, letters, exports, CV templates, personal details (M6),
                     prep, usage, settings, reminders, provider setup; M7: session answers, the backlog
-                    (session_backlog), suggestions and preferences, the session screen, coverage views
+                    (session_backlog), suggestions and preferences, the session screen, coverage views;
+                    M8: prep, practice, narratives and adapted answers, company brief, debrief;
+                    M9: data portability and erasure, the demo seed, palette, prompt settings,
+                    removal learning and grouping, appearance, controlled lists
     domain/         models, enums, state machines, honesty checker, budget math,
                     normalization, clock, ids, locales; M6: documents, master CV and diff, CV templates,
                     tailored CV, gap check, angles, cover letter, images, rendering, template draft;
                     M7: enrichment (backlog scores), coverage (clusters and strength), questions (the
-                    question check), quality_hints, structured_answer, and the SESSIONS setting in settings
+                    question check), quality_hints, structured_answer, and the SESSIONS setting in settings;
+                    M8: question_bank, prep_state, answer_feedback, narrative, salary_card, debrief,
+                    company_brief, web_sources; M9: palette, removal_learning, removal_reasons,
+                    controlled_values
     modules/
-      ai/           interface, prompt library, executor.py, schemas, tasks.py,
-                    providers/ (claude_sdk.py, fake.py, session_scripts.py for the M7 fake output)
-      search/       interface, providers/
+      ai/           interface, prompt library and its override editor (prompt_types.py; M9.3),
+                    executor.py, schemas, tasks.py, providers/ (claude_sdk.py, fake.py, and
+                    session_scripts.py and prep_scripts.py for the M7 and M8 fake output)
+      search/       interface, providers/ (delegated.py for the built-in Claude search, fake.py; M8)
       calendar/     frozen EventData/CalendarFile, provider protocol; providers/ics.py
-      storage/      database.py, runner.py, migrations/ (0001 to 0006; 0004_jobs.sql adds companies,
+      storage/      database.py, runner.py, migrations/ (0001 to 0010; 0004_jobs.sql adds companies,
                     jobs, sources, summaries, assessments, requirements, controlled values,
                     the unknown-value queue, saved views and jobs_fts; 0005_applications.sql adds
                     statuses/history, applications, contacts/links/interactions, notes, events,
-                    reminder rules/states; 0006_tailoring.sql adds the 13 M6 tailoring tables; 0007_sessions.sql adds the three M7 session tables), repositories including board, detail, reminders, Today, tailoring, documents and exports, and M7 sessions, enrichment, session sources and coverage
+                    reminder rules/states; 0006_tailoring.sql adds the 13 M6 tailoring tables; 0007_sessions.sql adds the three M7 session tables; 0008 and 0009 the M8 prep tables; 0010_removal_learning.sql the M9 removal tables), repositories including board, detail, reminders, Today, tailoring, documents and exports, M7 sessions, enrichment, session sources and coverage, M8 prep, practice, debriefs and company briefs, and M9 portability.py (export and import), palette and removal learning
       secrets/      interface, providers/ (keyring_store.py, env.py, chained.py,
                     redacting.py, memory.py)
       fetch/        guard.py (SSRF checks), text.py (page_text), content and codings helpers,
@@ -667,30 +697,39 @@ job-pipeline/
                     and providers/word.py (python-docx) (M6; ADR-106, ADR-108)
     tasks/          runner, handler registry, practice, cv_import, fact_refine, job_summary and
                     job_fit handlers, the M6 tailoring, documents and cv_templates handlers, and the M7
-                    sessions handlers for enrichment_question and structure_answer (the event publisher is api/events.py; ADR-077)
+                    sessions handlers for enrichment_question and structure_answer, the M8 prep, practice,
+                    debrief and company brief handlers, and the M9 removal_grouping handler (the event
+                    publisher is api/events.py; ADR-077)
     templates/      Jinja2 pages and fragments
     static/         vendor/ (htmx, SortableJS and licenses), js/ (app.js; shortcuts.js and
                     job-detail.js; board.js, status-menu.js, application-detail.js,
-                    notifications.js, today.js and cv-step.js (M6)), css/
-    wiring.py       builds providers and services from settings (ADR-047, ADR-059)
+                    notifications.js, today.js and cv-step.js (M6); sessions.js; prep.js; palette.js
+                    (M9.5)), css/
+    demo_data/      workspace.json, the fictional demo export seeded into the demo folder (M9.5;
+                    built by tests/demo_builder.py)
+    wiring.py       builds providers and services from settings (ADR-047, ADR-059); prompts_dir
+                    finds the default prompts in a checkout or the installed package (M9.6)
     config.py       runtime config and data folder resolution (ADR-025, ADR-030)
     logging_config.py  logging setup with redaction (ADR-030, ADR-070)
     cli.py          jobpipeline command
     main.py         app factory and lifespan
   prompts/          default prompt templates and output schemas per task (3.6): extract_cv,
                     refine_fact, summarize_job, assess_fit, the M6 tasks gap_check, propose_angles,
-                    draft_cv_template, tailor_cv, draft_cover_letter, and the M7 tasks enrichment_question
-                    and structure_answer
-  demo/             fictional persona, facts and jobs (planned, M9)
+                    draft_cv_template, tailor_cv, draft_cover_letter, the M7 tasks enrichment_question
+                    and structure_answer, the M8 tasks interview_questions, interview_web_questions,
+                    answer_feedback, draft_narrative, adapt_answer and company_brief, the M9 task
+                    group_removal_reasons, and practice; the wheel ships them as app/prompts (M9.6)
   docs/
     PROGRESS.md     milestone tracking and session log
     DECISIONS.md    architecture decision records
     TECHNICAL_SPEC.md  this file
+    user-guide.md   how to use each part of the app (M9.6)
     live-check-m1.md  manual checklist for M1 live tests
     references/     product spec, detailed design
     acceptance/     acceptance reports per milestone
     development/    agent setup, handoffs and shared review notes
-  scripts/          developer scripts (check_critical_coverage.py, linux_render_check.sh (M6.2, a Docker dev check), etc.)
+  scripts/          developer scripts (check_critical_coverage.py, linux_render_check.sh (M6.2, a Docker dev check), check_wheel.py (M9.6: builds the
+                    wheel and checks what it holds), etc.)
   tests/
     unit/           fast unit tests
     integration/    fast integration tests with real SQLite
@@ -709,12 +748,14 @@ job-pipeline/
     page_token.py   reads the launch token a page embeds (spec 2.9 rule 2)
     leak_scan.py    secret and personal-data leak scanner (M1.23, M2.26)
     setup_harness.py  completed setup helper
+    page_inventory.py  every page route with its axe and keyboard case (M9.6)
+    demo_builder.py  builds app/demo_data/workspace.json; demo_audit_child.py proves AC-M9.4 (M9.5)
   .agents/skills/   shared procedures and native Codex workflows
   .claude/          native Claude agents, skill wrappers, rules, hooks, settings
   .codex/           native Codex agents, hooks, configuration and command rules
   AGENTS.md         shared coding-agent contract
   CLAUDE.md         imports AGENTS.md, adds Claude orchestration
-  README.md         user guide and troubleshooting
+  README.md         for a newcomer: install, run, demo, backup, delete all data, troubleshooting
   LICENSE           MIT license
   pyproject.toml    build config and dependencies
   uv.lock           locked dependency versions
@@ -850,6 +891,10 @@ M8 registers six tasks in `TASK_SPECS`, each started by a user action through th
 
 `debrief_facts` is a background task type, not a `TaskSpec` and not a row of the table above (ADR-132 item 4). It reuses `structure_answer` unchanged: one request per experience paragraph, at most three, each through the budget gate, with that paragraph as its only source. Its requests use the `structure_answer` prompt id and version. The drafts are written with the task's success.
 
+M9 registers `group_removal_reasons` (`TaskSpec("group_removal_reasons", kind="summary")`, Fast; ADR-131 item 6, ADR-137). The user starts it from the Inbox's suggestions, through the budget gate; nothing starts it on its own. It receives the latest 100 removal notes with their job ids as one untrusted block, and no facts or personal details. Its closed output names themes as rule conditions from a fixed field list, with the job ids they rest on. `resolve_removal_themes` keeps only the ids that were sent. Each theme then goes through the same suggestion check as a counted one (the threshold and contradicting applications), and nothing changes until the user accepts it.
+
+Prompt overrides (M9.3; ADR-134). Settings > Prompts (`/settings/prompts`) lists every prompt with its version and status. Each task's page is a token-free shell, and its text and forms load from the protected fragment (2.9). An override is saved in `<data folder>/prompts/overrides/<task>/prompt.md` through the `PromptEditor` interface (2.4). It is checked on its parsed source and rendered in a sandbox. It changes only the wording of the system and user sections; the untrusted, honesty and generalize notices, the tier, the schema, the inputs and web search come from code or the default. Output made with an override records `<version>+override`. Reset removes the override. Overrides are exported with the workspace. Spec 3.3 does not yet describe the editor (TD-355).
+
 ### 3.7 Tiers and usage
 
 Settings map two tiers, Fast and Thorough, to models offered by the active AI provider. Each task has a default tier; users can move tasks between tiers. Usage budgets are optional, per service and in requests (ADR-076 items 4 and 5). Token counts are recorded and shown; token budgets are deferred. Each budget has an allowance, a first and a second warning, a blocking point (at most the allowance), a reset day and optional per-tier caps. When a cap blocks a Thorough task, the app offers to run it once on Fast; it never switches silently. As built in M2:
@@ -865,6 +910,7 @@ Settings map two tiers, Fast and Thorough, to models offered by the active AI pr
 - Panel (ADR-085): each service shows its count against its allowance, its reset date, the unfinished calls, the local and provider counts with the one used, and a breakdown by tier and task.
 - Web search in M8 (ADR-124 items 3 and 4, ADR-128, ADR-129, ADR-132): the `web_search` service (`app/domain/usage.py`) is checked by the budget gate (`app/services/budget_gate.py`) with a look-ahead of `max_searches` (five) before a web start, next to the AI service's request look-ahead. At the blocking point the button is disabled with the reset date, and generation keeps working. A debrief's draft facts check a look-ahead of one request per paragraph. Each search tool call is counted by the hook as it happens. Searches the provider reports beyond the hook's count are counted after the call and never blocked (TD-055).
 - The search provider's `storage_allowed` decides where derived output lives. `True` stores it. `None` (unclear) or `False` stores nothing derived: the result is held in memory, shown with a notice, and lost when the app closes. There is no user toggle (ADR-124 item 3, ADR-132 item 9).
+- Per-task tiers in M9.2 (ADR-089 item 9, ADR-131 item 7): Settings > Providers and AI lists every task with its tier, and the user can move any task between Fast and Thorough. The choice is saved in the versioned `task_tiers` setting, and `task_tier()` reads it for every start, the CV import, Refine and sessions included (TD-165 closed). `group_removal_reasons` uses the AI provider's service through the budget gate, like any other start.
 
 ### 3.8 Performance
 
@@ -872,9 +918,13 @@ Lists paginate (50 items). Indexes cover every list filter and sort. The inbox p
 
 M8 adds the Prep tab, the prep columns on the board, Today, the application drawer, the debrief page and the company page. `test_ac_m8_fragments_under_150ms` (`tests/integration/test_m8_cross_cutting.py`, median of five) measures them at 1,000 bank questions, 500 applications and 300 facts. The medians recorded for M8.3 part C are: Prep tab 15.9 ms, board columns 17.1 ms, Today 16.2 ms, drawer 1.6 ms, debrief 0.9 ms and company page 4.9 ms. They are host-specific and are not a guarantee (ADR-132 Consequences).
 
+M9 adds the inbox with removal rules, the Hidden view, the palette's search and recent list, every Settings area and the prompt list. `test_m9_fragments_under_150ms_at_scale` (`tests/integration/test_m9_cross_cutting.py`, slow, median of five) measures them with the earlier milestones' fragments at 1,000 jobs, 300 facts, 500 applications, 1,000 bank questions and 20 removal rules. The slowest median on the M9.6 host was 28.1 ms (Today). An export of that workspace (1.7 MB) took 0.09 s and its import 0.64 s (`test_export_import_at_scale_timed`; ADR-138). A restore holds about four times the file in memory (M9.1). No index or migration was needed.
+
 ### 3.9 Accessibility and responsiveness
 
 WCAG 2.2 AA. Every interactive element is reachable by keyboard; every drag-and-drop has a keyboard alternative; after each htmx swap, focus moves deliberately and status changes are announced through an `aria-live` region; status is never shown by color alone; targets are at least 24 by 24 px; reduced-motion is respected. Layouts work from phone width (360 px) upward.
+
+As built in M9 (AC-M9.5; ADR-138). `tests/page_inventory.py` lists every screen of every page route the app registers, and a test fails when a page route has no case. `tests/e2e/test_m9_pages.py` runs axe on each screen over the shipped demo dataset, in light and dark, at 1280x800 and 390x844, with no serious or critical violation and no sideways scrolling. It also checks that Tab alone reaches each screen's primary action, with the focus visible. Every character-key shortcut can be turned off (WCAG 2.1.4): G, N and `?` follow the single-key switch, and Ctrl/Cmd+K and Esc always work (ADR-138 item 9). The manual keyboard and screen-reader checklist (VoiceOver on macOS, Orca on Linux) is in `docs/acceptance/M9.md`.
 
 ### 3.10 Language and copy
 
@@ -942,7 +992,8 @@ The UI ships in English. User-facing strings live in templates or a messages mod
 | Smoke | `uv run pytest -m smoke` |
 | Coverage | `uv run pytest -m "not e2e and not live" --cov=app --cov-report=term-missing --cov-fail-under=85` then `uv run python scripts/check_critical_coverage.py --from-progress` |
 | Quick verification (all of the above except e2e and coverage) | `bash scripts/verify.sh quick` |
-| Full verification | `bash scripts/verify.sh full` |
+| Full verification (adds e2e, coverage, the wheel check and all hooks) | `bash scripts/verify.sh full` |
+| Wheel contents (M9.6) | `uv run python scripts/check_wheel.py` |
 
 ### 4.6 Continuous integration
 
@@ -952,6 +1003,7 @@ A GitHub Actions workflow (created in M0) runs on every push and pull request:
 2. Unit, integration and contract tests on Ubuntu and macOS, with the oldest and newest supported Python versions; smoke tests on both. macOS runs on pull requests to `main`, manual dispatch and weekly (ADR-032). Windows is suspended (ADR-061): no CI job, no new Windows work; existing Windows code stays as it is.
 3. Smoke and e2e tests on Ubuntu with Playwright Chromium.
 4. Coverage thresholds, with `scripts/check_critical_coverage.py --from-progress`: a critical module due before the current milestone in `docs/PROGRESS.md` that is missing (for example after a rename) fails. The current milestone's own modules are not required in CI while it is in progress (in M0 nothing is); milestone acceptance runs `--milestone M<n>`, which requires them, as the backstop.
+5. The wheel (M9.6; ADR-131 item 9): `scripts/check_wheel.py` builds it and checks what it holds, on Ubuntu, in the `wheel` job.
 
 Keychain access is never exercised in CI; tests use `MemorySecretStore`, and the keyring adapter is tested with a fake keyring backend.
 
@@ -1289,6 +1341,10 @@ Limits (TECH_DEBT section 13): no speech provider (TD-323); no un-merge for bank
 
 **Exit checks:** full verification on all operating systems; the user reviews the README as a newcomer would.
 
+**As built (M9.1 to M9.6; ADR-131, ADR-133 to ADR-138):** export, import and Delete all data (Settings > Data and privacy, and the restore at setup step 1); Settings as area pages, with appearance (theme and density), the per-task tier list and the lists and statuses editor; the prompts editor with overrides; learning from removals (suggestions at or above the threshold, flag by default, visible and reversible rules, the Hidden view, and `group_removal_reasons` on request); the command palette, the global shortcuts and Quick add; the demo dataset; the all-pages accessibility audit; the performance pass; the wheel, with its prompts and demo dataset, checked by `scripts/check_wheel.py` in full verification and CI; the README and the user guide; version 1.0.0. Migration 0010 is the only schema change. AC-M9.4 is proven by a child process that runs the real `jobpipeline --demo` with an audit hook and wrapped `os` functions. It fails on any access under the real data and config folders and on any write outside the test folder, while it opens every page, the palette, an export and Delete all data (ADR-138 item 11). Deviations from the plan above: (1) the threshold is inclusive (ADR-135); (2) salary rules match a repeated annual ceiling (ADR-136); (3) grouping results are stored in `removal_theme_runs` (ADR-137); (4) a prompt page is a token-free shell whose text loads from a protected fragment (ADR-134 item j); (5) `--demo` never reads `config.toml` (ADR-138 item 4, amending ADR-025); (6) `?` follows the single-key switch (ADR-138 item 9, superseding ADR-098 M4.7 item 8); (7) Quick add is three links, not forms (ADR-138 item 10; TD-357); (8) htmx settles swapped content at once (ADR-138 item 1).
+
+Limits (TECH_DEBT sections 14 to 17): the Settings, lists and tier list items (TD-337 to TD-345); the prompt override limits (TD-346 to TD-355); the palette's ARIA structure (TD-356) and Quick add for events (TD-357); and the release items (TD-358 to TD-366: no live test for the grouping schema, two Data and privacy follow-ups, the CI e2e time, the form readers' read timeout, the unpinned build backend, the audit's keyboard walk, the journey's focus checks and palette entries for Quick add and the shortcut list). Per-item erase of append-only text stays out of scope. Linux full verification, the live tests and the manual checks in `docs/acceptance/M9.md` are left for the user; none is recorded as run.
+
 ### M10 — Automated job sourcing (after v1.0)
 
 **Goal:** postings from watched companies arrive in the inbox without manual intake.
@@ -1488,4 +1544,4 @@ Accepted shortcuts to revisit; each names its trigger.
 
 | Item | Why it is accepted now | Revisit when |
 | --- | --- | --- |
-| Tests use `httpx` with `starlette.testclient`, which Starlette deprecates in favour of `httpx2` (a `StarletteDeprecationWarning` in every test run). | Works with the versions locked in `uv.lock`; `httpx` became a runtime dependency in M4.1 for the job page fetcher (ADR-032, ADR-098); switching adds a dev dependency (user decision, 2026-10-03). | A Starlette or FastAPI upgrade drops `httpx` support in `TestClient`, or before M9 release hardening. |
+| Tests use `httpx` with `starlette.testclient`, which Starlette deprecates in favour of `httpx2` (a `StarletteDeprecationWarning` in every test run). | Works with the versions locked in `uv.lock`; `httpx` became a runtime dependency in M4.1 for the job page fetcher (ADR-032, ADR-098); switching adds a dev dependency (user decision, 2026-10-03). Accepted for v1.0 (ADR-131 item 8; TD-111). | A Starlette or FastAPI upgrade drops `httpx` support in `TestClient`. |
