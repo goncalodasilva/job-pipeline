@@ -19,3 +19,12 @@ def fts_query(text: str) -> str | None:
     if not pieces:
         return None
     return " ".join('"' + piece.replace('"', '""') + '"' for piece in pieces)
+
+
+def fts_prefix_query(text: str) -> str | None:
+    """``fts_query`` where each piece also finds the words it starts (``"piece"*``): search as
+    you type, for the command palette (M9.5; ADR-138). Operators stay plain text."""
+    pieces = [piece for piece in map(_piece, text.split()) if piece]
+    if not pieces:
+        return None
+    return " ".join('"' + piece.replace('"', '""') + '"*' for piece in pieces)

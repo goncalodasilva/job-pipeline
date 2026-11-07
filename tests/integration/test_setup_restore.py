@@ -193,7 +193,14 @@ def make_app(root: Path, source: str, data_dir: Path | None = None) -> Any:
         clock=FrozenClock(START),
         demo_workspace=False,
     )
-    return create_app(make_config(root, source, data_dir), clock=FrozenClock(START), wiring=wiring)
+    # A demo starts with no content, as delete all data leaves it: restoring at step 1 needs an
+    # empty workspace, and M9.5 part C seeds a new demo folder (ADR-133).
+    return create_app(
+        make_config(root, source, data_dir),
+        clock=FrozenClock(START),
+        wiring=wiring,
+        demo_dataset=None,
+    )
 
 
 @contextmanager

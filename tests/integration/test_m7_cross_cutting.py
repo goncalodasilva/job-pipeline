@@ -691,6 +691,8 @@ def test_session_drafts_never_use_never_use_facts(tmp_path: Path) -> None:
         run = desk.run
         desk.run.app.state.skills.add("Terraform")
         hidden = desk.typed(NEVER_TEXT, privacy="never_use", skills=("Terraform",))
+        # TD-321: ids come from the sequential factory, so no random id can hold "950".
+        assert hidden.id.startswith("privacy-"), hidden.id
         shown = desk.typed(
             "Wrote Terraform modules for the fictional depot.", skills=("Terraform",)
         )

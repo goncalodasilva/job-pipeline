@@ -40,6 +40,8 @@ M9.2 follow-up (2026-11-04): TD-342 closed (listed under "Checked and closed"). 
 
 M9.3 sweep (2026-11-04): TD-346 to TD-355 added in section 15 (prompt overrides: rendering limits, allowlists, editor gaps, reset, compare view and follow-up docs). No existing entry changed.
 
+M9.5 sweep (2026-11-07): TD-320 and TD-321 closed (listed under "Checked and closed"). TD-356 and TD-357 added in section 16 (palette ARIA structure, Quick add for events).
+
 M5.10 sweep (2026-10-22): checked every M5.1–M5.9 leftover. Later tasks resolved the table drawer links, due markers and reminder response refreshes; this task documents the local-page/privacy boundaries and HX-Current-URL. Prior checkpoints are recorded in PROGRESS. Remaining M5 limits are TD-266–TD-276 below; TD-257 also covers contacts and application history.
 
 ## 1. Security and hardening
@@ -414,8 +416,6 @@ Added at M8.2 and M8.3. Sections 12 and 13 are listed by milestone, not by impac
 | TD-317 | The shared 1,200-character total for narrative cards and adapted answers applies at generation only. Edits are exempt, so the total can be exceeded by editing. | M8.2 Left for the user; ADR-130 item 3 | low: a card can be longer than the stated total | Apply the total on save, with a test, or record the exemption as the user's decision. |
 | TD-318 | Today's "Upcoming interviews" block still lists interviews of closed applications. Only their prep state is hidden. | M8.2 Left for the user; ADR-130 item 5 | low: closed applications still appear in the interview list | Hide closed applications' interviews from that block, or record the choice with the user's decision. |
 | TD-319 | "Draft this card" swaps the whole Prep region, not only the card. | M8.2 Left for the user | low: more of the Prep tab is redrawn than the action needs | Swap only the card, with a test, or record the choice with the user's decision. |
-| TD-320 | Native-submit flake in e2e tests. A key press or click right after an htmx swap can submit the form natively, without the launch token, and the server refuses it (403). Seen in the M5 and M6 journeys and the Tailoring workspace test. Full run `/private/tmp/m8-2-full.log` failed `test_m5_journey_apply_board_drawer_event_ics_today[phone]` ("Today reminders absent" timing). Run `/private/tmp/m8-2-full2.log` failed `test_m6_journey…[desktop]` and `test_workspace_gap_check_and_angle_by_keyboard_announced`. Each failing test passes alone. The identical working tree passed the pair from `m8-2-full2.log` 6 of 6 in a clean copy, and M8.1, part A and part B passed it 28 of 28 in clean worktrees. In the main checkout the pair fails about 40% of runs, always as a native token-less POST or GET after a step swap (the app log shows `POST /settings/cv-templates/PT/draft 403`). A wait for htmx to bind in `open_app` and `press_by_keyboard` did not remove it; those experiments were reverted. Removing three venv-only packages broke the environment and was restored. The M8.3 full run `/private/tmp/m8-3-full.log` also failed e2e `test_cv_delayed_refresh_cannot_replace_an_editor_opened_in_flight` and `test_workspace_gap_check_and_angle_by_keyboard_announced`; the second also failed in `/private/tmp/m8-2-full2.log`. The cause of the two new failures is not checked. | Extends TD-309; M8.2 Evidence | medium: a flaky gate can hide a real fault | Find why the main checkout differs from a clean copy. Until then, add the settle wait TD-309 describes to the affected steps, and check the app's stderr for a 403 first. |
-| TD-321 | `test_session_drafts_never_use_never_use_facts` (M7.10) fails when a random id contains "950". | M8.2 Left for the user | low: a test-only flake on some random ids | Fix how the test builds its random ids, with a test. Do not change the assertion without the user's approval. |
 | TD-322 | The practice attempts view shows the latest 20 attempts only. | M8.2 Left for the user | low: older practice attempts are not listed | Add paging or a "show more" with a test, or record the limit with the user's decision. |
 | TD-323 | No speech provider. The speech gate is a capability check only: disabled "Dictate" and "Read aloud" buttons appear for a provider that declares the flag. There is no speech route or provider method. | ADR-130 item 6; ADR-124 item 10; M8.2 Evidence | low: the speech controls cannot do anything yet | Add a speech provider through the module pattern, with an ADR and the user's decision. |
 | TD-324 | No un-merge for bank duplicates. Near-identical questions merge at Dice ≥ 0.9 within type and company scope, and the sightings are kept, but the app cannot split a merge again. | ADR-124 item 6; ADR-129 item 2; M8.1 Left (d) | low: a wrong merge stays merged | Add an un-merge that restores the question's sightings, with tests, after the user decides how it should behave. |
@@ -464,10 +464,21 @@ Added at M9.3. Sections 12 to 15 are listed by milestone, not by impact.
 | TD-354 | The `data-open-modal` and `data-modal-manual` dialog variant is not yet recorded in the htmx-ui skill. | M9.3 Evidence | low: the skill is incomplete for dialogs | Record the variant in the htmx-ui skill (`.agents/skills/htmx-ui/SKILL.md`), with the docs-keeper or the user. |
 | TD-355 | Spec 3.3 and 3.6 do not mention the prompt editor, its interface or its routes. | M9.3 Evidence; ADR-134 | low: the spec is behind the built editor | Apply the proposed one-line additions when the user approves a spec change. |
 
+## 16. Palette, shortcuts and the demo (M9.5)
+
+Added at M9.5 (ADR-138).
+
+| ID | Item | Origin | Impact | When / fix |
+| --- | --- | --- | --- | --- |
+| TD-356 | The palette's answer has one listbox per kind, and the search field's `aria-controls` names the region that holds them. The ARIA 1.2 combobox pattern is one listbox with a `role="group"` per kind. Each option's name starts with its kind, so options are told apart. | M9.5 code and UX review | low: some screen readers may not speak the group headings | Move to one listbox with groups, with the palette tests, before the screen-reader checklist if it shows a problem. |
+| TD-357 | Quick add's "Log an event" goes to the Board: an event belongs to an application, and no page adds one without it. | ADR-138 item 10 | low: one more step to log an event | Add an application picker to Quick add, with tests, if the user wants it. |
+
 ## Checked and closed (not listed)
 
 So that nobody re-opens them by mistake:
 
+- The native-submit e2e flake (TD-320): closed by M9.5 (pulled forward from M9.6 part A). htmx bound swapped content only when it settled (20 ms), so a press in that window submitted natively without the launch token. The htmx configuration now settles at once (`defaultSettleDelay: 0`), and `app.js` gives each answer one focus target (ADR-138 items 1 and 2). Checked by `tests/e2e/test_swap_binding.py` (fails without the setting), `test_pages_settle_swapped_content_at_once` and `test_no_template_delays_settling`, and by the full e2e suite.
+- The random-id flake of `test_session_drafts_never_use_never_use_facts` (TD-321): closed by M9.5. The test makes its ids with `SequentialIdFactory` through `create_app(id_factory=...)` and checks that it does (ADR-138 item 3); the assertion is unchanged.
 - The M1 `asyncio.run` failure in mixed pytest sessions: fixed by M2.3.
 - The SQLite INTEGER bound for usage counts: `SQLITE_INTEGER_MAX` in `app/domain/usage.py` (ADR-079).
 - The data-folder lock: built in M2.4 (ADR-072 was the deferral).

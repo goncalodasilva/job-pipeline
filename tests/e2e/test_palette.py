@@ -325,3 +325,22 @@ def test_palette_phone_390x844_and_axe(running_app, browser, scheme):
         expect(dialog).not_to_be_visible()
         expect(opener).to_be_focused()
         assert has_no_horizontal_scroll(page)[0]
+
+
+BAR_WIDTHS = """() => Array.from(document.querySelectorAll('#palette-results [role=option]'))
+  .map(option => [option.getAttribute('aria-selected'),
+                  parseFloat(getComputedStyle(option).borderLeftWidth)])"""
+
+
+def test_palette_active_option_shows_in_forced_colors(running_app, browser):
+    """Forced colors (Windows High Contrast) replace the fill: only the active option keeps a
+    bar, in the system highlight color (UX review of M9.5)."""
+    seed(running_app)
+    with new_page(browser, DESKTOP) as page:
+        page.emulate_media(forced_colors="active")
+        open_app(page, running_app, "/board")
+        open_palette(page)
+        expect(page.locator(ACTION)).to_have_count(len(ACTIONS))
+        widths = page.evaluate(BAR_WIDTHS)
+        assert [width for selected, width in widths if selected == "true"] == [4.0], widths
+        assert all(width == 0 for selected, width in widths if selected != "true"), widths

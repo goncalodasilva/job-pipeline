@@ -99,3 +99,60 @@ def test_every_typed_word_must_be_found(words: list[str]) -> None:
         connection.close()
     # The indexed text holds "close", "four" and "nine" and none of the other words.
     assert found == (1 if set(words) <= {"close", "four", "nine"} else 0)
+
+
+# --- prefix queries: search as you type (the command palette, M9.5; ADR-138) -----------------
+
+# Like QUOTED_TOKENS, with a star after each quoted piece.
+PREFIX_TOKENS = re.compile(r'"(?:[^"]|"")*"\*(?: "(?:[^"]|"")*"\*)*')
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected"),
+    [
+        pytest.param("", None, id="empty"),
+        pytest.param("  \t", None, id="blank"),
+        pytest.param("clo", '"clo"*', id="one-start"),
+        pytest.param("clo fo", '"clo"* "fo"*', id="two-starts"),
+        pytest.param('say "hi"', '"say"* """hi"""*', id="quotes-doubled"),
+        pytest.param("budg*", '"budg*"*', id="star-is-text"),
+        pytest.param("text:x OR", '"text:x"* "OR"*', id="operators-are-text"),
+    ],
+)
+def test_fts_prefix_query_builder(typed: str, expected: str | None) -> None:
+    from app.domain.fts import fts_prefix_query
+
+    assert fts_prefix_query(typed) == expected
+
+
+@given(st.text())
+def test_any_text_builds_prefix_tokens_that_fts5_accepts(typed: str) -> None:
+    from app.domain.fts import fts_prefix_query
+
+    built = fts_prefix_query(typed)
+    if built is None:
+        assert typed.strip() == "" or all(not piece.isprintable() for piece in typed.split())
+        return
+    assert PREFIX_TOKENS.fullmatch(built)
+    connection = _index()
+    try:
+        connection.execute("SELECT count(*) FROM notes WHERE notes MATCH ?", (built,)).fetchone()
+    finally:
+        connection.close()
+
+
+@given(st.lists(st.sampled_from(["clo", "fou", "nin", "close", "lose", "zz", "OR"]), min_size=1))
+def test_every_typed_start_must_be_found(words: list[str]) -> None:
+    from app.domain.fts import fts_prefix_query
+
+    built = fts_prefix_query(" ".join(words))
+    assert built is not None
+    connection = _index()
+    try:
+        found = connection.execute(
+            "SELECT count(*) FROM notes WHERE notes MATCH ?", (built,)
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    # Words of the text start with "clo", "fou", "nin" and "close"; "lose" is inside a word.
+    assert found == (1 if set(words) <= {"clo", "fou", "nin", "close"} else 0)

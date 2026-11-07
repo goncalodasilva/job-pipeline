@@ -164,6 +164,7 @@ from app.services.cv_templates import DRAFT_LABEL, CvTemplateService
 from app.services.data_erasure import DataErasureService
 from app.services.data_portability import DataPortabilityService, sweep_restore_staging
 from app.services.debrief import DEBRIEF_FACTS, DEBRIEF_FACTS_LABEL, DebriefService
+from app.services.demo import DATASET as DEMO_DATASET
 from app.services.demo import seed_demo
 from app.services.documents import TAILOR_CV_LABEL, DocumentService
 from app.services.export_files import sweep_orphan_exports
@@ -1155,6 +1156,7 @@ def create_app(
     tz: tzinfo | None = None,
     detach_log_folder: Callable[[], None] | None = None,
     reattach_log_folder: Callable[[Path], None] | None = None,
+    demo_dataset: Path | None = DEMO_DATASET,
 ) -> FastAPI:
     """Build the app. ``open_at_startup`` (default: ``opens_workspace_at_startup(config)``)
     says whether the lifespan opens ``config.data_dir``; the CLI passes the value it used.
@@ -1179,7 +1181,10 @@ def create_app(
     cycles of ``tz`` (default: the computer's time zone; ADR-076 item 8).
     ``reattach_log_folder`` logs into the folder again when delete all data reopens a fixed one.
     ``detach_log_folder`` stops writing the log file (delete all data closes the workspace);
-    ``app.state.data_erasure`` is the delete-all-data service (ADR-131 item 2)."""
+    ``app.state.data_erasure`` is the delete-all-data service (ADR-131 item 2).
+    ``demo_dataset`` is the export the designated demo workspace is seeded from at start-up
+    while it has no content (M9.5 part C); ``None`` starts it empty, as delete all data leaves
+    it. The ``id_factory`` default makes random ids."""
     app_clock = clock if clock is not None else SystemClock()
     app_tz = tz if tz is not None else local_timezone()
     app_wiring = (
@@ -1398,8 +1403,15 @@ def create_app(
 
             def prepare(db: Database) -> None:
                 nonlocal health
-                if is_demo_workspace(config):
-                    seed_demo(config, db, app_clock)
+                if is_demo_workspace(config) and demo_dataset is not None:
+                    seed_demo(
+                        db,
+                        data_dir=config.data_dir,
+                        demo_workspace=True,
+                        clock=app_clock,
+                        zone=app_tz,
+                        dataset=demo_dataset,
+                    )
                 health = _prepare_workspace(
                     config.data_dir,
                     db,
@@ -1707,6 +1719,8 @@ def create_app(
     # Reminders are computed when read; nothing here is scheduled (ADR-013).
     app.state.reminders = ReminderService(lambda: _current_db(app), app_clock, app_ids, app_tz)
     app.state.palette = PaletteService(lambda: _current_db(app))
+    # Every page of the designated demo says it is the demo (M9.5 part C; ADR-138 item 5).
+    app.state.demo_workspace = is_demo_workspace(config)
     app.state.today = TodayService(lambda: _current_db(app), app_clock, app.state.reminders, app_tz)
     app.state.reminder_rules = ReminderRules(lambda: _current_db(app), app_clock, app_ids)
     app.state.controlled_lists = ControlledLists(lambda: _current_db(app), app_clock, app_ids)

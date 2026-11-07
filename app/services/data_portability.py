@@ -173,6 +173,12 @@ def _payload(raw: bytes) -> dict[str, Any]:
         raise PortabilityError("This is not a valid Job Pipeline JSON export.") from error
 
 
+def parse_export(raw: bytes) -> dict[str, Any]:
+    """The checked top level of an export file, as a restore reads it (``PortabilityError``
+    otherwise): the demo dataset goes through the same checks before its dates move."""
+    return _payload(raw)
+
+
 def _decoded_files(value: list[Any]) -> list[tuple[tuple[str, ...], bytes]]:
     if len(value) > MAX_FILES:
         raise PortabilityError("An export can hold at most 10,000 files.")

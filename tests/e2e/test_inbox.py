@@ -432,11 +432,16 @@ def test_question_mark_opens_the_help_and_escape_closes_it(running_app, browser,
         open_app(page, running_app, "/inbox")
         help = page.locator("#shortcut-help")
         page.keyboard.press("?")
-        expect(help).to_have_attribute("open", "")
         if on:
+            expect(help).to_have_attribute("open", "")
             for text in ("Next job", "Previous job", "Mark the job to apply", "Undo"):
                 expect(help).to_contain_text(text)
         else:
+            # Off means every single key, ? too (WCAG 2.1.4; ADR-138 item 9): the Keyboard
+            # shortcuts button opens the list, which says how to turn them on.
+            expect(help).not_to_have_attribute("open", "")
+            page.get_by_role("button", name="Keyboard shortcuts", exact=True).click()
+            expect(help).to_have_attribute("open", "")
             expect(help).to_contain_text("Single-key shortcuts are off")
             expect(help.get_by_role("link", name="Settings")).to_be_visible()
         assert_no_serious_violations(page)

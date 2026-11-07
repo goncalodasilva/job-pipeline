@@ -371,6 +371,9 @@ def test_app_js_moves_focus_to_data_autofocus_after_swap(client: TestClient, app
 
 # --- htmx configuration -----------------------------------------------------------------------
 
+TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "app" / "templates"
+SETTLE_MODIFIER = re.compile(r"settle:\s*([0-9.]+)")
+
 # Hardened htmx settings (security review M0.17): no eval or swapped-in scripts, requests only
 # to this origin, no page HTML copied into browser storage, history restores are page loads.
 HTMX_CONFIG = {
@@ -397,6 +400,29 @@ def test_pages_pin_hardened_htmx_config(client: TestClient, path: str) -> None:
     # htmx reads the meta tag when it loads, so it must come before the htmx script.
     tags = [e for e in elements if e is meta or (e.tag == "script")]
     assert tags[0] is meta
+
+
+@pytest.mark.parametrize("path", PAGE_PATHS, ids=AREA_IDS)
+def test_pages_settle_swapped_content_at_once(client: TestClient, path: str) -> None:
+    """TD-320, ADR-138: htmx binds swapped content when it settles, so with a settle delay a
+    form pressed right after a swap is submitted natively, without the launch token."""
+    meta = find_one(
+        outline(_get_page(client, path)),
+        lambda e: e.tag == "meta" and e.attrs.get("name") == "htmx-config",
+        '<meta name="htmx-config">',
+    )
+    assert json.loads(meta.attrs.get("content") or "")["defaultSettleDelay"] == 0
+
+
+def test_no_template_delays_settling() -> None:
+    """A ``settle:`` modifier above 0 would bring back TD-320's window for that swap."""
+    delays = sorted(
+        f"{path.relative_to(TEMPLATES_DIR)}: {match.group(0)}"
+        for path in TEMPLATES_DIR.rglob("*.html")
+        for match in SETTLE_MODIFIER.finditer(path.read_text(encoding="utf-8"))
+        if float(match.group(1)) != 0
+    )
+    assert not delays, delays
 
 
 def test_history_restore_request_gets_full_page(app: FastAPI, client: TestClient) -> None:

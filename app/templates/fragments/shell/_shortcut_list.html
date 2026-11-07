@@ -1,17 +1,37 @@
-<dl class="shortcut-list">
-  <div><dt><kbd>Ctrl/Cmd+K</kbd></dt><dd>Command palette</dd></div>
-  <div><dt><kbd>G then T</kbd></dt><dd>Go to Today</dd></div>
-  <div><dt><kbd>G then I</kbd></dt><dd>Go to Inbox</dd></div>
-  <div><dt><kbd>G then B</kbd></dt><dd>Go to Board</dd></div>
-  <div><dt><kbd>G then F</kbd></dt><dd>Go to Fact bank</dd></div>
-  <div><dt><kbd>N</kbd></dt><dd>Quick add: job, fact or event</dd></div>
-  <div><dt><kbd>?</kbd></dt><dd>Keyboard shortcuts</dd></div>
-  <div><dt><kbd>Escape</kbd></dt><dd>Close drawer or dialog</dd></div>
-  <div><dt><kbd>J / K</kbd></dt><dd>Next job / Previous job in the inbox</dd></div>
-  <div><dt><kbd>A</kbd></dt><dd>Mark the job to apply</dd></div>
-  <div><dt><kbd>R</kbd></dt><dd>Remove the job</dd></div>
-  <div><dt><kbd>Enter</kbd></dt><dd>Open the job details</dd></div>
-  <div><dt><kbd>Z</kbd></dt><dd>Undo the last move while offered</dd></div>
-</dl>
-<p data-shortcuts-off{% if page_shortcuts(request) %} hidden{% endif %}>Single-key shortcuts are off.</p>
-<p>Single keys are ignored while you type. Change them in <a href="/settings/keyboard">Settings</a>. Ctrl/Cmd+K and ? remain available.</p>
+{# Every keyboard shortcut (M9.5 part B; design "Cross-cutting UX"). The single-key ones (G, N,
+   ? and the inbox letters) follow the Settings switch (WCAG 2.1.4) and are listed only while it
+   has them on; otherwise the list says they are off and where to turn them on. Ctrl/Cmd+K and
+   Esc always work (ADR-138 item 9). The Keyboard shortcuts button opens this list either way.
+   Saving the switch sends this block again, out of band (``single_keys`` is the saved value
+   then; a page reads the setting). #}
+{% set keys_on = single_keys if single_keys is defined else page_shortcuts(request if request is defined else none) %}
+<div id="shortcut-list"{% if oob is defined and oob %} hx-swap-oob="true"{% endif %}>
+  {% if not keys_on %}
+  <p class="shortcut-state">Single-key shortcuts are off. You can turn them on in <a href="/settings/keyboard#shortcuts-settings">Settings</a>.</p>
+  {% endif %}
+  <h3 class="shortcut-group">Everywhere</h3>
+  <dl class="shortcut-list">
+    <div><dt><kbd>Ctrl</kbd>+<kbd>K</kbd> (<kbd>Cmd</kbd>+<kbd>K</kbd> on a Mac)</dt><dd>Command palette: search and actions</dd></div>
+    {% if keys_on %}
+    <div><dt><kbd>G</kbd> then <kbd>T</kbd></dt><dd>Go to Today</dd></div>
+    <div><dt><kbd>G</kbd> then <kbd>I</kbd></dt><dd>Go to Inbox</dd></div>
+    <div><dt><kbd>G</kbd> then <kbd>B</kbd></dt><dd>Go to Board</dd></div>
+    <div><dt><kbd>G</kbd> then <kbd>F</kbd></dt><dd>Go to Fact bank</dd></div>
+    <div><dt><kbd>N</kbd></dt><dd>Quick add: a job, a fact or an event</dd></div>
+    <div><dt><kbd>?</kbd></dt><dd>Show this list</dd></div>
+    {% endif %}
+    <div><dt><kbd>Esc</kbd></dt><dd>Close a drawer or dialog</dd></div>
+  </dl>
+  {% if keys_on %}
+  <h3 class="shortcut-group">In the job inbox</h3>
+  <dl class="shortcut-list">
+    <div><dt><kbd>J</kbd></dt><dd>Next job</dd></div>
+    <div><dt><kbd>K</kbd></dt><dd>Previous job</dd></div>
+    <div><dt><kbd>A</kbd></dt><dd>Mark the job to apply</dd></div>
+    <div><dt><kbd>R</kbd></dt><dd>Remove the job</dd></div>
+    <div><dt><kbd>Enter</kbd></dt><dd>Open the job details</dd></div>
+    <div><dt><kbd>Z</kbd></dt><dd>Undo the last move, while the Undo line is shown</dd></div>
+  </dl>
+  <p class="field-hint">Single-key shortcuts are ignored while you type. You can turn them off in <a href="/settings/keyboard#shortcuts-settings">Settings</a>.</p>
+  {% endif %}
+</div>

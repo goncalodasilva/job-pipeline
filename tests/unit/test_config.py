@@ -404,16 +404,18 @@ def test_bootstrap_data_dir_with_tilde_is_expanded(
     assert loaded.data_dir == tmp_path / "home" / "jp-data"
 
 
-def test_malformed_bootstrap_still_fails_with_demo_or_cli_data_dir(
+def test_malformed_bootstrap_ignored_by_demo_but_fails_with_cli_data_dir(
     platform_dirs: Path,
     tmp_path: Path,
     config_dir: Path,
     make_env: Callable[..., dict[str, str]],
 ) -> None:
-    # ADR-138 / AC-M9.4: demo must not read the real bootstrap, even when malformed.
+    # AC-M9.4, ADR-138 (amends ADR-025): --demo never reads the real settings file, which on
+    # macOS sits in the real data folder; anywhere else a broken file is still reported.
     write_raw(config_dir, MALFORMED["not_toml"])
 
-    assert resolve_config(CliOptions(demo=True), make_env()).demo
+    demo = resolve_config(CliOptions(demo=True), make_env())
+    assert demo.demo and demo.data_dir_source == "demo"
     with pytest.raises(ConfigError):
         resolve_config(CliOptions(data_dir=tmp_path / "chosen"), make_env())
 

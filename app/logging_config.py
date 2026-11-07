@@ -47,8 +47,9 @@ LOG_BACKUP_COUNT = 4  # the live file plus 4 backups: 5 files in total
 ACCESS_LOGGER = "uvicorn.access"
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", ACCESS_LOGGER)
 SDK_LOGGER = "claude_agent_sdk"
-# The HTTP client libraries log URLs, hosts and redirect targets at DEBUG and INFO.
-CLIENT_LOGGERS = ("httpx", "httpcore")
+# The HTTP client libraries log URLs, hosts and redirect targets at DEBUG and INFO (the
+# ``httpx2`` and ``httpcore2`` forks come with an SDK dependency).
+CLIENT_LOGGERS = ("httpx", "httpcore", "httpx2", "httpcore2")
 # Set on an SDK record once reduced, so a later pass (another handler's filter) keeps the
 # exception type it can no longer see. Internal: never treated as an extra or written out.
 SDK_REDUCED_ATTR = "jobpipeline_sdk_reduced"

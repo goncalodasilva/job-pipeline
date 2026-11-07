@@ -524,7 +524,18 @@ def test_letters_and_key_hints_only_while_shortcuts_are_on(tmp_path):
             "aria-keyshortcuts"
             not in post(r, "/inbox/jobs/job-0001/triage", version="3", action="undo").text
         )
-        assert "<kbd>" not in r.client.get("/inbox").text
+        # The list of every shortcut (M9.5 part B) keeps the keys that always work (Ctrl/Cmd+K,
+        # ? and Esc); everything else on the page has no key hint left (ADR-133).
+        page_off = r.client.get("/inbox").text
+        assert "<kbd>" not in without_shortcut_list(page_off)
+        assert "<kbd>J</kbd>" not in page_off and "Single-key shortcuts are off." in page_off
+
+
+def without_shortcut_list(page: str) -> str:
+    """The page without the global list of keyboard shortcuts (``#shortcut-list``)."""
+    start = page.index('<div id="shortcut-list"')
+    end = page.index("</dialog>", start)
+    return page[:start] + page[end:]
 
 
 def test_details_button_and_navigation_in_every_view(tmp_path):

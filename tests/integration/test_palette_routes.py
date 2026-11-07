@@ -129,10 +129,15 @@ def test_palette_results_are_grouped_by_kind_with_headings_and_a_count(tmp_path:
             assert kind in by_kind and result.within(by_kind[kind])
         for kind in ("job", "application", "fact"):
             assert group_heading(by_kind[kind], markup) == GROUP_HEADINGS[kind]
-        # The count is in a status element, for the screen reader (htmx-ui: announce swaps).
+        # The count is shown in the answer, and spoken by the dialog's own live region, which
+        # stays while the answers change (a region swapped in is not reliably announced; UX
+        # review of M9.5, ADR-133): the answer holds no live region of its own.
         status = [e for e in _with_attr(markup, "data-palette-status")]
-        assert len(status) == 1 and status[0].attrs.get("role") == "status"
+        assert len(status) == 1 and "role" not in status[0].attrs
         assert str(len(results(markup))) in status[0].text
+        page = run.client.get("/board").text
+        live = page[page.index('id="palette-status"') - 3 : page.index('id="palette-status"') + 120]
+        assert 'role="status"' in live and 'aria-live="polite"' in live
 
 
 def test_palette_search_returns_at_most_20_results(tmp_path: Path) -> None:
@@ -200,9 +205,19 @@ def test_palette_hostile_query_text_never_fails(tmp_path: Path, query: str) -> N
 
 
 def test_palette_overlong_query_is_bounded_not_a_500(tmp_path: Path) -> None:
-    with palette_app(tmp_path) as (run, _seeded):
+    with palette_app(tmp_path) as (run, seeded):
         response = search(run, "quokka " * 700)
         assert response.status_code == 200
+        assert ("job", item_path("job", seeded.wrangler_job)) in result_pairs(response.text)
+        # The search asks for the first eight words only (ADR-138 item 8): a ninth word that
+        # nothing holds does not empty the answer.
+        nine = search(run, " ".join(["quokka"] * 8 + ["zzzqqq"]))
+        assert ("job", item_path("job", seeded.wrangler_job)) in result_pairs(nine.text)
+        eight = search(run, " ".join(["quokka"] * 7 + ["zzzqqq"]))
+        assert result_pairs(eight.text) == []
+        # And the first 200 characters only: a word after them is not asked for either.
+        cut = search(run, "quokka" + " " * 194 + "zzzqqq")
+        assert ("job", item_path("job", seeded.wrangler_job)) in result_pairs(cut.text)
 
 
 def test_palette_includes_drafts_and_removed_jobs_but_not_discarded_facts(tmp_path: Path) -> None:
@@ -219,8 +234,59 @@ def test_palette_includes_drafts_and_removed_jobs_but_not_discarded_facts(tmp_pa
         assert response.status_code == 200
         assert item_path("fact", draft.id) in response.text
         assert item_path("job", seeded.wrangler_job) in response.text
+        # They say what they are (ADR-138): a removed job and a draft fact, in words.
+        by_href = {str(e.attrs["href"]): e for e in results(response.text)}
+        assert by_href[item_path("job", seeded.wrangler_job)].attrs.get("data-state") == "removed"
+        assert "Removed" in by_href[item_path("job", seeded.wrangler_job)].text
+        assert by_href[item_path("fact", draft.id)].attrs.get("data-state") == "draft"
+        assert "Draft" in by_href[item_path("fact", draft.id)].text
+        assert by_href[item_path("job", seeded.rigger_job)].attrs.get("data-state") is None
+        assert by_href[item_path("fact", seeded.fact)].attrs.get("data-state") is None
+        # The recent list says so too.
+        recent_markup = recent(run, item_path("job", seeded.wrangler_job)).text
+        assert "Removed" in recent_markup
         facts.discard(draft.id, expected_version=draft.version)
         assert item_path("fact", draft.id) not in search(run, WORD).text
+        # What search leaves out, the recent list leaves out too: a discarded fact and a job
+        # merged into another (code review of M9.5).
+        with run.app.state.workspace.db.transaction() as conn:
+            conn.execute(
+                "UPDATE jobs SET merged_into_job_id=? WHERE id=?",
+                (seeded.rigger_job, seeded.wrangler_job),
+            )
+        gone = recent(run, item_path("fact", draft.id), item_path("job", seeded.wrangler_job)).text
+        assert recents(gone) == []
+        assert item_path("job", seeded.wrangler_job) not in search(run, WORD).text
+
+
+def test_palette_marks_archived_facts(tmp_path: Path) -> None:
+    with palette_app(tmp_path) as (run, seeded):
+        with run.app.state.workspace.db.transaction() as conn:
+            conn.execute("UPDATE facts SET status='archived' WHERE id=?", (seeded.fact,))
+        for markup in (search(run, WORD).text, recent(run, item_path("fact", seeded.fact)).text):
+            found = [
+                e
+                for e in results(markup) + recents(markup)
+                if e.attrs["href"] == item_path("fact", seeded.fact)
+            ]
+            assert found and found[0].attrs.get("data-state") == "archived"
+            assert "Archived" in found[0].text
+
+
+def test_palette_finds_words_as_they_are_typed(tmp_path: Path) -> None:
+    """Search as you type (ADR-138): every typed word also finds the words it starts, for jobs,
+    applications and facts as for companies; operators stay plain text."""
+    with palette_app(tmp_path) as (run, seeded):
+        for typed in ("quok", "QUOKK", "quokka wrang", "wrang quok"):
+            pairs = result_pairs(search(run, typed).text)
+            assert ("job", item_path("job", seeded.wrangler_job)) in pairs, typed
+        partial = result_pairs(search(run, "quok").text)
+        assert ("fact", item_path("fact", seeded.fact)) in partial
+        assert ("application", item_path("application", seeded.application)) in partial
+        assert ("job", item_path("job", seeded.rigger_job)) in partial
+        # A word inside another word is not a start, and every typed word must be found.
+        assert result_pairs(search(run, "okka").text) == []
+        assert result_pairs(search(run, "quok zzzq").text) == []
 
 
 def test_palette_query_text_is_never_echoed_unescaped(tmp_path: Path) -> None:
@@ -414,7 +480,7 @@ def test_palette_recent_shows_at_most_8(tmp_path: Path) -> None:
             assert "Fictional Greenhouse Engineer" in e.text
         # A very long list is bounded too (not a 500, still at most 8).
         many = recent(run, *(paths * 20))
-        assert many.status_code in (200, 400, 414)
+        assert many.status_code == 200
         if many.status_code == 200:
             assert len(recents(many.text)) <= MAX_RECENT
 

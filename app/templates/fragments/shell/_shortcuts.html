@@ -1,18 +1,26 @@
-<div class="global-tools">
-  {% if live_updates is defined and live_updates %}<button type="button" data-global-open="quick-add">Quick add</button>{% endif %}
-  <button type="button" data-global-open="shortcut-help">Keyboard shortcuts</button>
-</div>
-<dialog id="shortcut-help" class="palette" data-global-dialog aria-labelledby="shortcut-help-title">
-  <h2 id="shortcut-help-title">Keyboard shortcuts</h2>
-  <div class="palette-results">{% include "fragments/shell/_shortcut_list.html" %}</div>
-  <button type="button" data-global-close>Close</button>
+{# Quick add and the list of keyboard shortcuts on every app page (M9.5 part B; design
+   "Cross-cutting UX"). The two buttons open the same dialogs as the N and ? keys
+   (shortcuts.js), so nothing needs a key, and the list stays reachable with single-key
+   shortcuts off. The row is the page's footer, after the main content in the layout and in the
+   Tab order. Both dialogs use the page's modal behaviour (app.js, data-modal-manual: Tab and
+   Shift+Tab wrap inside, Esc and Close close) and shortcuts.js gives focus back to what had it.
+   Shown only when scripts run (html.js). #}
+<footer class="global-tools">
+  <button type="button" class="button" data-global-open="quick-add" aria-haspopup="dialog" aria-controls="quick-add">Quick add</button>
+  <button type="button" class="button" data-global-open="shortcut-help" aria-haspopup="dialog" aria-controls="shortcut-help">Keyboard shortcuts</button>
+</footer>
+<dialog id="quick-add" class="palette global-dialog" data-modal data-modal-manual data-global-dialog aria-labelledby="quick-add-title">
+  <h2 id="quick-add-title" class="palette-dialog-title">Quick add</h2>
+  <ul class="quick-add-list">
+    <li><a class="palette-item" href="/inbox#add-job" autofocus><span class="palette-title">Add a job</span><span class="palette-meta">Paste its link or its text in the Inbox</span></a></li>
+    <li><a class="palette-item" href="/facts/new"><span class="palette-title">Jot a fact</span><span class="palette-meta">A new fact for your Fact bank</span></a></li>
+    <li><a class="palette-item" href="/board"><span class="palette-title">Log an event</span><span class="palette-meta">Open an application on the Board, then add the event there</span></a></li>
+  </ul>
+  <div class="palette-foot"><button type="button" class="button" data-modal-close>Close</button></div>
 </dialog>
-{% if live_updates is defined and live_updates %}
-<dialog id="quick-add" class="palette" data-global-dialog aria-labelledby="quick-add-title">
-  <h2 id="quick-add-title">Quick add</h2>
-  <a href="/inbox#add-job">Add job</a>
-  <a href="/facts/new">New fact</a>
-  <a href="/board">New event — choose an application</a>
-  <button type="button" data-global-close>Close</button>
+<dialog id="shortcut-help" class="palette global-dialog" data-modal data-modal-manual data-global-dialog aria-labelledby="shortcut-help-title">
+  <h2 id="shortcut-help-title" class="palette-dialog-title">Keyboard shortcuts</h2>
+  {# A long list scrolls here: the region is a Tab stop, so the arrow keys can scroll it. #}
+  <div class="palette-results" role="region" tabindex="0" aria-labelledby="shortcut-help-title">{% include "fragments/shell/_shortcut_list.html" %}</div>
+  <div class="palette-foot"><button type="button" class="button" data-modal-close autofocus>Close</button></div>
 </dialog>
-{% endif %}

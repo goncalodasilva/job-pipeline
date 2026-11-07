@@ -1,55 +1,103 @@
-// Global shortcuts (M9.5): visible actions and their keys share the same links.
+// Global keyboard shortcuts (M9.5 part B; design "Cross-cutting UX"). Plain browser JS.
+//
+// - G then T, I, B or F goes to Today, Inbox, Board or Fact bank; N opens Quick add. These are
+//   single-key shortcuts: they follow the Settings switch (<body data-single-keys="on|off">,
+//   updated when the switch is saved on this page) and are ignored while the user types in a
+//   field, holds Ctrl, Cmd or Alt, or has a dialog open.
+// - ? opens the list of every shortcut. It is a single key too, so it follows the switch
+//   (WCAG 2.1.4; ADR-138 item 9); the "Keyboard shortcuts" button opens the list either way,
+//   and the list then says how to turn the keys on. Esc closes the dialog (the browser does) or
+//   a drawer (its own script). Ctrl/Cmd+K is the command palette's (palette.js), always on.
+// - The "Quick add" and "Keyboard shortcuts" buttons open the same dialogs. The dialogs are
+//   data-modal (app.js wraps Tab inside and closes them); focus goes back to what had it.
+// - Pages without these dialogs (the setup guide) have no global keys.
 (function () {
   "use strict";
+
+  if (!document.getElementById("shortcut-help")) return;
+
+  var GO_WAIT_MS = 1500;
+  var GO_PATHS = { t: "/", i: "/inbox", b: "/board", f: "/facts" };
   var goAt = 0;
-  var returnFocus = null;
-  function open(id) {
+  var returnTo = null;
+
+  function singleKeysOn() {
+    return document.body.getAttribute("data-single-keys") === "on";
+  }
+
+  function typing(target) {
+    return target instanceof Element &&
+      target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])") !== null;
+  }
+
+  function openDialog(id) {
     if (document.querySelector("dialog[open]")) return;
     var dialog = document.getElementById(id);
-    if (!dialog) return;
-    returnFocus = document.activeElement;
+    if (!(dialog instanceof HTMLDialogElement) || typeof dialog.showModal !== "function") return;
+    returnTo = document.activeElement;
     dialog.showModal();
-    var first = dialog.querySelector("button, a[href]");
-    if (first) first.focus();
+    var first = dialog.querySelector("[autofocus]");
+    if (first && typeof first.focus === "function") first.focus({ preventScroll: true });
+    dialog.scrollTop = 0;
   }
+
   document.addEventListener("click", function (event) {
-    var target = event.target instanceof Element ? event.target : null;
-    if (!target) return;
-    var opener = target.closest("[data-global-open]");
-    if (opener) open(opener.getAttribute("data-global-open"));
-    var closer = target.closest("[data-global-close]");
-    if (closer) closer.closest("dialog").close();
+    var opener = event.target instanceof Element ? event.target.closest("[data-global-open]") : null;
+    if (opener) openDialog(opener.getAttribute("data-global-open") || "");
   });
+
+  // "close" doesn't bubble, so it is caught on its way down (after app.js has read data-leaving:
+  // a followed link moves on by itself).
   document.addEventListener("close", function (event) {
-    if (!event.target.matches || !event.target.matches("[data-global-dialog]")) return;
-    if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+    var dialog = event.target;
+    if (!(dialog instanceof Element) || !dialog.hasAttribute("data-global-dialog")) return;
+    var leaving = dialog.hasAttribute("data-leaving");
+    dialog.removeAttribute("data-leaving");
+    var back = returnTo;
+    returnTo = null;
+    // Focus that has gone somewhere meanwhile (the Inbox's add panel, the palette) stays there.
+    var current = document.activeElement;
+    var lost = !current || current === document.body || dialog.contains(current);
+    if (!leaving && lost && back instanceof HTMLElement && back !== document.body && back.isConnected) {
+      back.focus();
+    }
   }, true);
+
   document.body.addEventListener("shortcuts:changed", function (event) {
-    document.body.dataset.globalShortcuts = event.detail.enabled ? "true" : "false";
-    document.querySelectorAll("[data-shortcuts-off]").forEach(function (p) { p.hidden = event.detail.enabled; });
+    var on = !!(event.detail && event.detail.enabled);
+    document.body.setAttribute("data-single-keys", on ? "on" : "off");
   });
+
   document.addEventListener("keydown", function (event) {
     if (event.defaultPrevented || event.isComposing) return;
-    var dialog = document.querySelector("dialog[data-global-dialog][open]");
-    if (dialog && event.key === "Tab") {
-      var items = Array.from(dialog.querySelectorAll("button, a[href]"));
-      var first = items[0], last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target) ||
+        document.querySelector("dialog[open]")) {
+      goAt = 0;
       return;
     }
-    var typing = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])");
-    if (event.ctrlKey || event.metaKey || event.altKey || typing || document.querySelector("dialog[open]")) { goAt = 0; return; }
-    if (event.key === "?") { event.preventDefault(); open("shortcut-help"); return; }
-    if (document.body.dataset.globalShortcuts !== "true" || event.repeat) return;
-    var key = event.key.toLowerCase();
-    var paths = {t: "/", i: "/inbox", b: "/board", f: "/facts"};
-    if (goAt && performance.now() - goAt < 1500 && paths[key]) {
-      event.preventDefault(); goAt = 0; window.location.assign(paths[key]); return;
+    var key = event.key.length === 1 ? event.key.toLowerCase() : "";
+    if (!singleKeysOn() || event.repeat || !key) {
+      goAt = 0;
+      return;
     }
-    goAt = key === "g" ? performance.now() : 0;
-    if (key === "g") event.preventDefault();
-    if (key === "n") { event.preventDefault(); open("quick-add"); }
+    if (key === "?") {
+      goAt = 0;
+      event.preventDefault();
+      openDialog("shortcut-help");
+      return;
+    }
+    var going = goAt && performance.now() - goAt < GO_WAIT_MS;
+    goAt = 0;
+    if (going && Object.prototype.hasOwnProperty.call(GO_PATHS, key)) {
+      event.preventDefault();
+      window.location.assign(GO_PATHS[key]);
+    } else if (key === "g") {
+      goAt = performance.now();
+      event.preventDefault();
+    } else if (key === "n") {
+      event.preventDefault();
+      openDialog("quick-add");
+    }
   });
 }());
 
@@ -57,11 +105,13 @@
 // of the screen. No build step; plain browser JS. User-facing words live in the templates
 // (spec 3.10); this script only places them.
 //
-// - Shortcuts: J next, K previous, A mark to apply, R remove, Enter details, Z undo, ? help and
-//   Esc to close. They are ignored while the user types, with a modifier key, or while a dialog
-//   is open, and the versioned Settings switch turns them all off (data-shortcuts on the page);
-//   only "?" still opens the help, which then says how to turn them on. Each key presses the
-//   button the screen shows, so the keyboard and the mouse share one path to the server.
+// - Shortcuts: J next, K previous, A mark to apply, R remove, Enter details, Z undo and Esc to
+//   close. They are ignored while the user types, with a modifier key, or while a dialog is
+//   open, and the versioned Settings switch turns them all off (data-shortcuts on the page).
+//   "?" opens the list of every shortcut (the global part above), which then says how to turn
+//   them on. Each key presses the button the screen shows, so the keyboard and the mouse share
+//   one path to the server.
+// - Quick add's "Add a job" (/inbox#add-job) opens the add panel, also from the inbox itself.
 // - The queue stays as it was when the page loaded while the user moves through it, so J then
 //   K always come back. The card that J would show is fetched ahead of time with a GET, which
 //   marks nothing; a card is marked seen by the POST it sends itself once it is displayed.
@@ -75,8 +125,6 @@
 
   var page = document.getElementById("inbox-page");
   if (!page) return;
-
-  if (location.hash === "#add-job") setAdd(true, true);
 
   var CACHE_MS = 30000;
   var SEEN_WAIT_MS = 5000;
@@ -578,23 +626,37 @@
     if (!panel || !toggle) return;
     panel.classList.toggle("is-open", open);
     toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    if (!open && window.location.hash === "#add-job") {
+      // The next "Add a job" link must work again, though it names the same address.
+      window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+    }
     if (open && focus) {
       var heading = byId("job-intake-heading");
       if (heading) heading.focus();
     }
   }
 
+  function openAddFromAddress() {
+    if (window.location.hash === "#add-job") setAdd(true, true);
+  }
+  openAddFromAddress();
+  window.addEventListener("hashchange", openAddFromAddress);
+
+  // Quick add's "Add a job" and the palette's "Add job", used on the Inbox itself: the dialog
+  // they sit in closes and the add panel opens here, with focus on its heading (ADR-138 item 8).
+  document.addEventListener("click", function (event) {
+    var link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+    if (!link || link.pathname !== window.location.pathname || link.hash !== "#add-job") return;
+    event.preventDefault();
+    var holder = link.closest("dialog");
+    if (holder && holder.open) holder.close();
+    setAdd(true, true);
+  }, true);
+
   // --- keys -----------------------------------------------------------------------------------
 
   function help() {
     return byId("inbox-help");
-  }
-
-  function toggleHelp() {
-    var details = help();
-    if (!details) return;
-    details.open = !details.open;
-    if (details.open) details.querySelector("summary").focus();
   }
 
   function escape(event) {
@@ -633,11 +695,6 @@
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (typing(event.target) || document.querySelector("dialog[open]")) return;
     var key = event.key;
-    if (key === "?") { // the help stays reachable with shortcuts off: it says how to turn them on
-      toggleHelp();
-      event.preventDefault();
-      return;
-    }
     if (!shortcutsOn()) return;
     var handled = true;
     if (key === "j" || key === "J") go("next");

@@ -9,8 +9,9 @@
   <title>{% block title %}{{ area.name }}{% endblock %} · Job Search Pipeline</title>
   {# Read by htmx when it loads, so it comes first. Hardened settings: ADR-041. 422 (a refused
      form) is swapped so field errors show, and 409 (a refused task retry, M2.19) so the task
-     shows as it is with the reason; other 4xx/5xx stay errors (M1.16). #}
-  <meta name="htmx-config" content='{"selfRequestsOnly":true,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0,"refreshOnHistoryMiss":true,"historyRestoreAsHxRequest":false,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"409","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
+     shows as it is with the reason; other 4xx/5xx stay errors (M1.16). Swapped content settles
+     at once, so a form is bound before it can be pressed (TD-320, ADR-138). #}
+  <meta name="htmx-config" content='{"selfRequestsOnly":true,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0,"refreshOnHistoryMiss":true,"historyRestoreAsHxRequest":false,"defaultSettleDelay":0,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"409","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
   {# Lets CSS collapse the phone sidebar only when scripts run. #}
   <script>document.documentElement.classList.add("js");</script>
   {# A declared icon stops browsers asking for /favicon.ico, which the token guard refuses
@@ -31,13 +32,14 @@
 {# A page opens the live-update stream only if it opts in with `set live_updates = true`
    after its extends line (ADR-077): data-events-url makes app.js read the stream. The pages
    that keep the top bar's tasks slot opt in; the setup guide, with its own top bar, doesn't. #}
-<body hx-headers="{{ hx_headers }}" data-global-shortcuts="{{ 'true' if page_shortcuts(request) else 'false' }}"{% block body_attrs %}{% endblock %}{% if live_updates is defined and live_updates %} data-events-url="/events"{% endif %}>
+<body hx-headers="{{ hx_headers }}" data-single-keys="{{ 'on' if page_shortcuts(request if request is defined else none) else 'off' }}"{% block body_attrs %}{% endblock %}{% if live_updates is defined and live_updates %} data-events-url="/events"{% endif %}>
   <a class="skip-link" href="#main">Skip to main content</a>
   {% block navigation %}
   {% include "fragments/shell/_topbar.html" %}
   {% include "fragments/shell/_sidebar.html" %}
   {% endblock %}
   <div class="page-status">
+  {% if page_demo(request if request is defined else none) %}<p class="demo-note">Demo workspace: everything here is fictional and kept apart from your own data.</p>{% endif %}
   {# Problems found at start-up once setup is done: one banner each (AC-M1.1 case 4). #}
   {% block banners %}{% include "fragments/shell/_banners.html" %}{% endblock %}
   <div id="app-status" class="app-status" hidden
@@ -53,7 +55,8 @@
   </main>
   {# The command palette searches the workspace; the setup guide runs before there is one. #}
   {% block palette %}{% include "fragments/shell/_palette.html" %}{% endblock %}
-  {% include "fragments/shell/_shortcuts.html" %}
+  {# Global keys, their list and Quick add (M9.5 part B); the setup guide has none of them. #}
+  {% block global_tools %}{% include "fragments/shell/_shortcuts.html" %}{% endblock %}
   <div id="announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

@@ -69,8 +69,23 @@ def page_appearance(request: Request | None) -> AppearanceSettings:
 
 
 def page_shortcuts(request: Request | None) -> bool:
-    service = getattr(request.app.state, "inbox_views", None) if request else None
-    return bool(service.shortcuts().value.enabled) if service else True
+    """Whether the single-key shortcuts are on (Settings > Keyboard shortcuts, M4.7): read by
+    ``base.html`` for the global keys and their list (M9.5 part B), the default (on) when there
+    is no request or no workspace, and cached on the request so a page reads it once."""
+    if request is None:
+        return True
+    cached: bool | None = getattr(request.state, "single_keys", None)
+    if cached is None:
+        service = getattr(request.app.state, "inbox_views", None)
+        cached = bool(service.shortcuts().value.enabled) if service is not None else True
+        request.state.single_keys = cached
+    return cached
+
+
+def page_demo(request: Request | None) -> bool:
+    """Whether the page belongs to the designated demo workspace (``--demo`` on its own folder):
+    every page then says so (M9.5 part C; ADR-138 item 5)."""
+    return bool(request is not None and getattr(request.app.state, "demo_workspace", False))
 
 
 def _environment() -> Environment:
@@ -84,6 +99,7 @@ def _environment() -> Environment:
     env.globals["session_offer_length"] = session_offer_length
     env.globals["page_appearance"] = page_appearance
     env.globals["page_shortcuts"] = page_shortcuts
+    env.globals["page_demo"] = page_demo
     env.globals["contact_limits"] = {**CONTACT_LIMITS, "interaction_note": NOTE_LIMIT}
     return env
 

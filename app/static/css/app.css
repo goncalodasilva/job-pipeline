@@ -114,11 +114,12 @@ body {
   line-height: 1.5;
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto 1fr auto;
   grid-template-areas:
     "top top"
     "nav status"
-    "nav main";
+    "nav main"
+    "nav tools";
 }
 
 a {
@@ -1954,12 +1955,13 @@ a.button {
 @media (max-width: 767.98px) {
   body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto 1fr;
+    grid-template-rows: auto auto auto 1fr auto;
     grid-template-areas:
       "top"
       "nav"
       "status"
-      "main";
+      "main"
+      "tools";
   }
 
   .sidebar {
@@ -3383,5 +3385,51 @@ blockquote.practice-answer { margin: var(--space-2) 0; }
   margin: 0;
 }
 
+/* Quick add and Keyboard shortcuts (M9.5 part B): two buttons after the page's content, shown
+   only when scripts run (they open dialogs). The dialogs reuse the palette's frame. */
 .global-tools { display: none; }
-.js .global-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); padding: var(--space-3); }
+.js .global-tools { grid-area: tools; display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); padding: var(--space-3); border-top: 1px solid var(--color-border); }
+.quick-add-list { margin: 0; padding: 0; list-style: none; }
+.shortcut-group { margin: var(--space-3) 0 var(--space-1); font-size: 1rem; }
+.shortcut-state { margin: 0 0 var(--space-2); }
+
+/* Forced colors (Windows High Contrast): the fill and the bar colors are replaced, so only the
+   active option keeps a bar, in the system highlight color, with an outline. */
+@media (forced-colors: active) {
+  .palette-item {
+    border-left: 0;
+    padding-left: calc(var(--space-3) + 4px);
+  }
+
+  .palette-item[aria-selected="true"] {
+    border-left: 4px solid Highlight;
+    padding-left: var(--space-3);
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+
+/* A short window (a phone held sideways, or a page zoomed to 400%): the dialog scrolls as a
+   whole, so its list is never squeezed to a sliver, and the key hint gives way. */
+@media (max-height: 30rem) {
+  .palette {
+    overflow-y: auto;
+  }
+
+  .palette-results {
+    flex: none;
+    overflow: visible;
+  }
+
+  .palette-hint {
+    display: none;
+  }
+}
+
+/* The designated demo workspace says so on every page (ADR-138 item 5). */
+.demo-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent-soft);
+  border-bottom: 1px solid var(--color-border);
+}

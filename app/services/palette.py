@@ -9,7 +9,7 @@ only if it is the exact page of one item with a safe id that exists.
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from app.domain.fts import fts_query
+from app.domain.fts import fts_prefix_query
 from app.domain.ids import is_safe_id
 from app.domain.palette import (
     ACTIONS,
@@ -59,7 +59,7 @@ class PaletteService:
         one group per kind) and the actions it names. Blank text lists the actions only."""
         query = clean_query(text)
         actions = matching_actions(query)
-        match = fts_query(query)
+        match = fts_prefix_query(query)
         groups: list[PaletteGroup] = []
         count = 0
         if match is not None:

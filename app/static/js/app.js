@@ -3,12 +3,6 @@
 (function () {
   "use strict";
 
-  // Visible swapped controls must already be bound: Enter must not navigate natively
-  // without the token during htmx's settle delay (TD-320).
-  document.body.addEventListener("htmx:afterSwap", function (event) {
-    if (event.target instanceof Element && window.htmx) window.htmx.process(event.target);
-  });
-
   var status = document.getElementById("app-status");
 
   function announce(message, shown) {
@@ -181,10 +175,20 @@
   document.querySelectorAll("[data-autofocus]").forEach(function (element) {
     element.removeAttribute("data-autofocus");
   });
-  document.body.addEventListener("htmx:afterSettle", function () {
-    var target = document.querySelector("[data-autofocus]");
+  document.body.addEventListener("htmx:afterSettle", function (event) {
+    // The answer that settled gets one focus target: its own mark first (else, as before, the
+    // first mark on the page), and its other marks are cleared, so a nested fragment's mark
+    // can't take focus later at an unrelated swap (TD-320 review; ADR-138).
+    var settled = event.target instanceof Element ? event.target : null;
+    var own = settled && (settled.matches("[data-autofocus]") ? settled : settled.querySelector("[data-autofocus]"));
+    var target = own || document.querySelector("[data-autofocus]");
     if (!target) return;
     target.removeAttribute("data-autofocus");
+    if (settled) {
+      settled.querySelectorAll("[data-autofocus]").forEach(function (other) {
+        other.removeAttribute("data-autofocus");
+      });
+    }
     // Only elements that can't take focus get tabindex="-1"; controls keep their Tab order.
     if (target.tabIndex < 0 && !target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     target.focus();
@@ -940,9 +944,10 @@
       }
       if (!next || document.activeElement !== next) tasksToggle.focus();
     }
-    // htmx wires up swapped-in content only when the swap settles, 20 ms later; until then a
-    // new Cancel or Retry would ignore a click or key press, and focus would wait on <body>.
-    // In the panel both happen at once, and again at the settle in case that changed things.
+    // htmx wires up swapped-in content when the swap settles. That is at once now (ADR-138
+    // item 1; it used to be 20 ms later, when a new Cancel or Retry ignored a press and focus
+    // waited on <body>). The panel still binds and restores focus at the swap, and again at the
+    // settle in case that changed things.
     document.body.addEventListener("htmx:afterSwap", function (event) {
       if (!(event.target instanceof Element) || !tasksPopover.contains(event.target)) return;
       if (window.htmx) window.htmx.process(event.target);

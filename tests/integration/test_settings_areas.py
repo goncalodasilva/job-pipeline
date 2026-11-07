@@ -641,7 +641,8 @@ def test_shortcuts_help_links_to_the_keyboard_area_in_both_states(tmp_path: Path
             found = elements(run.client.get("/inbox").text)
             links = [e for e in found if e.tag == "a" and e.text == "Settings"]
             hrefs = [e.attrs.get("href") for e in links if "shortcuts-settings" in str(e.attrs)]
-            assert hrefs == [target], (state, hrefs)
+            # One in the inbox's own help, one in the list of every shortcut (M9.5 part B).
+            assert hrefs == [target, target], (state, hrefs)
 
 
 # --- the page title keeps "Settings"; hash links land on the heading ---------------------------

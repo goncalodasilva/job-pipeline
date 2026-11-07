@@ -154,7 +154,9 @@ def running(
         no_browser=False,
         data_dir_source=source,  # type: ignore[arg-type]
     )
-    app = create_app(config, clock=FrozenClock(START), wiring=wiring)
+    # A demo starts with no content, as delete all data leaves it (M9.5 part C seeds a new demo
+    # folder; these setup tests predate it; ADR-133).
+    app = create_app(config, clock=FrozenClock(START), wiring=wiring, demo_dataset=None)
     with TestClient(app, base_url=BASE_URL, follow_redirects=False) as client:
         yield Running(app=app, client=client, hits=Counter())
 

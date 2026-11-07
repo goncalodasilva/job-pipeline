@@ -40,7 +40,7 @@ Markup (fragment: no ``<html>``, no launch token in it)
 - An action: ``<a data-palette-action data-action="add-job|new-fact|start-session|new-event"
   href="...">`` with the labels in ``ACTIONS``. The href is a same-origin path (one slash first);
   new fact is ``/facts/new`` and start session is ``/sessions/new``.
-- A search answer holds ``<p data-palette-status role="status">`` with the number of results in
+- A search answer holds ``<p data-palette-status>`` with the number of results in
   its text; a search with no match holds no result and an element ``data-palette-empty`` with
   text (the empty state).
 

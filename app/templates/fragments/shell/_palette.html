@@ -7,8 +7,12 @@
   <h2 id="palette-title" class="palette-dialog-title">Command palette</h2>
   <label for="palette-input" class="visually-hidden">Search jobs, companies, applications and facts</label>
   <input id="palette-input" class="palette-input" type="search" role="combobox" aria-expanded="true" aria-controls="palette-results" aria-autocomplete="list" autocomplete="off" spellcheck="false" maxlength="200" enterkeyhint="go" placeholder="Search jobs, companies, applications and facts">
-  {# The failure line is made by palette.js from this text, as an alert, only when a request fails. #}
-  <div id="palette-results" class="palette-results" data-msg-failed="Couldn't load results. Nothing was lost; type again to retry."><p class="palette-loading">Loading…</p></div>
+  {# The failure line is made by palette.js from this text, as an alert, only when a request fails.
+     The answers scroll here; the options are not Tab stops (the arrow keys in the field choose
+     them), so the region itself takes focus, and the arrow keys then scroll it (WCAG 2.1.1). #}
+  <div id="palette-results" class="palette-results" tabindex="0" role="region" aria-label="Results" data-msg-failed="Couldn't load results. Nothing was lost; type again to retry."><p class="palette-loading">Loading…</p></div>
+  {# The count of each answer is spoken here; this region stays while the answers change. #}
+  <p id="palette-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
   <div class="palette-foot">
     <p class="palette-hint">Up and down arrows choose, Enter opens, Esc closes.</p>
     <button type="button" class="button" data-palette-close>Close</button>

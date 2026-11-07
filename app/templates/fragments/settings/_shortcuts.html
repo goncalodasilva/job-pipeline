@@ -19,8 +19,9 @@
       <input id="shortcuts-enabled" type="checkbox" name="enabled" value="1"{% if shortcuts.value.enabled %} checked{% endif %} aria-describedby="shortcuts-hint">
       <label for="shortcuts-enabled">Use single-key shortcuts</label>
     </div>
-    <p id="shortcuts-hint" class="field-hint">In the job inbox, J and K move between jobs, A marks a job to apply, R removes it and Enter opens its details. They are ignored while you type. Turn them off if single keys clash with your speech input or assistive technology.</p>
+    <p id="shortcuts-hint" class="field-hint">G then T, I, B or F go to Today, Inbox, Board or Fact bank, N opens Quick add and ? lists every shortcut. In the job inbox, J and K move between jobs, A marks a job to apply, R removes it and Enter opens its details. They are ignored while you type. Turn them off if single keys clash with your speech input or assistive technology. Ctrl+K (Cmd+K on a Mac) for the command palette and Esc always work, and the Keyboard shortcuts button at the foot of every page lists them all.</p>
     <div class="form-actions"><button type="submit" class="button button-primary">Save</button></div>
   </form>
   {% endif %}
 </section>
+{% if shortcuts_saved %}{% with single_keys = shortcuts.value.enabled, oob = true %}{% include "fragments/shell/_shortcut_list.html" %}{% endwith %}{% endif %}

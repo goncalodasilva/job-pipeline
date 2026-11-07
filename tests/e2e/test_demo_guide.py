@@ -1,9 +1,14 @@
 """The demo's setup guide, step 2, in a real browser (M2.26 review; user decision of
 2026-10-11): in the demo the practice provider needs nothing pasted.
 
-The real app runs as a subprocess with ``--demo`` alone (no ``JOBPIPELINE_DATA_DIR``, no
+The real app runs as a subprocess with ``--demo --setup`` (no ``JOBPIPELINE_DATA_DIR``, no
 ``JOBPIPELINE_ALLOW_FAKE_PROVIDERS``) on a folder that doesn't exist yet: the demo folder the
-app chooses under the test's temporary home (``tests/running_app.py``).
+app chooses under the test's temporary home (``tests/running_app.py``). Since M9.5 a new demo
+folder is seeded with the demo dataset, which already holds the practice provider and a
+finished setup, so ``--setup`` reopens the guide over it: here "already chosen" and "the step
+is done" come from the dataset. The rule that the fake is preselected while nothing is saved
+(ADR-088 item 2) is covered on an emptied demo, as Delete all data leaves it, by
+``tests/integration/test_demo_guide_provider.py`` (``demo_dataset=None``; ADR-138 item 5).
 
 By keyboard only:
 

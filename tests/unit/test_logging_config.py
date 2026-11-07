@@ -1403,7 +1403,10 @@ def test_a_route_error_under_real_uvicorn_never_logs_its_message(
     assert "ERROR from uvicorn.error (RuntimeError)" in messages
 
 
-@pytest.mark.parametrize("name", ["httpx", "httpcore", "httpcore.connection", "httpcore.http11"])
+@pytest.mark.parametrize(
+    "name",
+    ["httpx", "httpcore", "httpcore.connection", "httpcore.http11", "httpx2", "httpcore2.http11"],
+)
 def test_http_client_records_below_warning_never_reach_a_handler(
     name: str,
     make_logging: Callable[..., LoggingSetup],

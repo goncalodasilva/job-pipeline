@@ -30,12 +30,14 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class PaletteItem:
-    """One job, company, application or fact: its title, and a second line when there is one."""
+    """One job, company, application or fact: its title, a second line when there is one,
+    and its state when it is not the usual one."""
 
     kind: str
     id: str
     title: str
     meta: str = ""
+    state: str = ""  # "removed" (a job), "draft" or "archived" (a fact); said in words
 
     @property
     def href(self) -> str:
@@ -90,7 +92,9 @@ def recent_targets(paths: Sequence[str]) -> list[tuple[str, str]]:
 
 
 def clean_query(text: str) -> str:
-    return text[:MAX_QUERY_CHARS].strip()
+    """At most ``MAX_QUERY_CHARS`` characters and ``MAX_WORDS`` words of ``text``, so the full-text
+    search asks for a bounded number of words (ADR-138 item 8)."""
+    return " ".join(text[:MAX_QUERY_CHARS].split()[:MAX_WORDS])
 
 
 def words(text: str) -> list[str]:

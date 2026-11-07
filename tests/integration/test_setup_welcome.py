@@ -79,7 +79,10 @@ def make_config(tmp_path: Path, source: str, *, data_dir: Path | None = None) ->
 
 @contextmanager
 def started(config: RuntimeConfig) -> Iterator[Running]:
-    app = create_app(config, clock=FrozenClock(START))
+    """The app on ``config``. A demo starts with no content, as delete all data leaves it: these
+    setup-guide tests predate the demo dataset, which a new demo folder now gets at start-up
+    (M9.5 part C; its own tests are in ``test_demo_seed.py``; ADR-133)."""
+    app = create_app(config, clock=FrozenClock(START), demo_dataset=None)
     with TestClient(app, base_url=BASE_URL, follow_redirects=False) as client:
         yield Running(app=app, client=client, hits=Counter())
 
