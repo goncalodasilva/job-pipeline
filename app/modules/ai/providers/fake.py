@@ -273,6 +273,8 @@ class FakeAIProvider:
                     return ScriptedResponse(
                         data=brief_data(), tool_calls=1, searched_urls=(FICTIONAL_SOURCE,)
                     )
+                if task == "group_removal_reasons":
+                    return ScriptedResponse(data={"themes": []})
                 raise InvalidModelOutput(detail="fake provider: no script for this task")
             raise LookupError(f"No scripted response for task {task!r}.")
         return queue.popleft() if len(queue) > 1 else queue[0]

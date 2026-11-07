@@ -604,7 +604,9 @@ def test_ac_m7_1_related_jobs_removed_or_closed_expire_questions(tw: Tailoring):
     assert len(tw.rows("SELECT id FROM enrichment_questions WHERE kind='cluster'")) == 1
 
     # Removing the saved job expires its cluster on the next read, cooldown or not.
-    tw.r.run.execute("UPDATE jobs SET triage_state='removed' WHERE id='expire-saved'")
+    tw.r.run.execute(
+        "UPDATE jobs SET triage_state='removed',version=version+1 WHERE id='expire-saved'"
+    )
     assert ROUTES not in {i.label for i in service.backlog()}
     assert TERRAFORM in {i.label for i in service.backlog()}
 
@@ -623,7 +625,7 @@ def test_ac_m7_1_related_jobs_removed_or_closed_expire_questions(tw: Tailoring):
     assert {r["status"] for r in tw.rows("SELECT status FROM enrichment_questions")} == {"open"}
 
     # Demand that returns makes the item eligible again.
-    tw.r.run.execute("UPDATE jobs SET triage_state='new' WHERE id='expire-saved'")
+    tw.r.run.execute("UPDATE jobs SET triage_state='new',version=version+1 WHERE id='expire-saved'")
     assert ROUTES in {i.label for i in service.backlog()}
 
 

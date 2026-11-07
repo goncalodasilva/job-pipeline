@@ -17,6 +17,7 @@ from app.domain.jobs import Triage, TriageState, effective_state, local_today
 from app.domain.settings import SHORTCUTS, ShortcutSettings
 from app.modules.storage import Database, inbox_card_repo
 from app.services.inbox import PAGE_SIZE, InboxQuery
+from app.services.removal_learning import flag_labels
 from app.services.settings import SettingsService, Versioned
 
 _DASH = chr(0x2013)  # an en dash between the ends of a range
@@ -91,6 +92,8 @@ class InboxViews:
             "selected": focused,
             "position": offset + index + 1,
             "total": results.total,
+            "hidden_count": snapshot.hidden_count,
+            "rules_active": snapshot.rules_active,
             "previous_id": ids[index - 1] if index > 0 else "",
             "following_id": ids[index + 1] if index + 1 < len(ids) else "",
             "offset": offset,
@@ -107,6 +110,8 @@ class InboxViews:
             raise JobNotFound()
         with db.read() as conn:
             found = inbox_card_repo.card(conn, job_id)
+            today = local_today(self._clock.now(), self._zone)
+            found["rule_flags"] = flag_labels(conn, job_id, today)
         return self._present_card(found)
 
     def _present_card(self, found: dict[str, Any]) -> dict[str, Any]:

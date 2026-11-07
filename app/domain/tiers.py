@@ -29,6 +29,7 @@ DEFAULT_TIERS: Final[Mapping[str, Tier]] = MappingProxyType(
         "draft_narrative": "thorough",
         "adapt_answer": "thorough",
         "company_brief": "thorough",
+        "group_removal_reasons": "fast",
     }
 )
 

@@ -1565,3 +1565,21 @@ The drawer and page share the timeline and editors; drawer status moves use the 
   - Known limits are listed in TD-346 to TD-355 (`docs/TECH_DEBT.md`, section 15).
   - Spec 3.3 and 3.6 do not yet mention the editor. The proposed lines need the user's spec approval; none are applied.
   - A stored `<default>+override` version does not identify the override text (item h).
+
+## ADR-135 — The removal suggestion threshold is inclusive (2026-11-04)
+
+- Context: AC-M9.1 said above the threshold. The detailed design and the approved M9.4 plan specify a minimum evidence count.
+- Decision: The user confirmed the inclusive threshold in chat. With a threshold of three, three qualifying removals are enough when no application or to-apply job contradicts the suggestion.
+- Consequences: AC-M9.1 now says at or above the threshold. Tests cover both the minimum and one below it.
+
+## ADR-136 — Salary removal rules match a repeated annual pay ceiling (2026-11-04)
+
+- Context: M9.4 maps salary removals to the minimum salary field. The existing fit check compares advertised pay against a preference floor.
+- Decision: The user chose exact matching for learned rules. A salary rule matches the repeated advertised annual maximum and currency. A lower ceiling, another currency or a nonannual period does not match.
+- Consequences: The rule preview and contradiction check use the same condition as the rule. The existing minimum salary preference remains independent.
+
+## ADR-137 — Store validated removal grouping results (2026-11-04)
+
+- Context: ADR-131 approves user-started AI grouping of removal notes. The runner requires results and provenance to be saved in the same transaction as success. Removal history, accepted rules and dismissals each have a separate purpose.
+- Decision: The user approved the private `removal_theme_runs` table in migration 0010. Store the derived rule conditions, evidence job IDs and removal versions, and task and prompt provenance. Raw model prose and copies of removal notes are excluded. Task rows carry a result reference and a digest identifying the input snapshot.
+- Consequences: Review each theme against current removals and existing applications before showing a preview and again before accepting it. The table participates in workspace export and import like other persisted results.

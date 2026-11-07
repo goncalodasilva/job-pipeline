@@ -1,0 +1,42 @@
+<section id="removal-suggestions" aria-labelledby="removal-suggestions-heading"
+         {% if grouping.active %}hx-get="/inbox/removal-suggestions"
+         hx-trigger="tasks:resync from:body, tasks:updated from:body, every 2s" hx-swap="outerHTML"{% endif %}
+         {% if not previews and not message and not grouping.available and not grouping.status %}hidden{% endif %}>
+  <h2 id="removal-suggestions-heading" tabindex="-1"{% if message %} data-autofocus{% endif %}>Removal suggestions</h2>
+  {% if message %}<p{% if conflict %} role="alert"{% endif %}>{{ message }}</p>{% endif %}
+  {% if grouping.practice %}<p><span class="badge badge-practice">Practice data</span></p>{% endif %}
+  {% for item in previews %}
+  <div class="inbox-card">
+    <p id="removal-suggestion-{{ loop.index }}">{{ item.explanation }}</p>
+    <p>{{ item.affected }} inbox {{ "job matches" if item.affected == 1 else "jobs match" }} this rule.</p>
+    <form hx-post="/inbox/removal-suggestions" hx-target="#removal-suggestions"
+          hx-swap="outerHTML" hx-disabled-elt="find button"
+          aria-labelledby="removal-suggestion-{{ loop.index }}">
+      <p class="field-hint">The rule will apply to future matches too.</p>
+      <input type="hidden" name="signature" value="{{ item.signature }}">
+      <input type="hidden" name="preview_version" value="{{ item.version }}">
+      <div class="card-actions">
+        <button type="submit" name="action" value="accept" class="button button-primary">Flag them</button>
+        <button type="submit" name="action" value="hide" class="button">Hide them</button>
+        <button type="submit" name="action" value="dismiss" class="button">Dismiss</button>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
+  {% if grouping.active %}
+  <p role="status">Grouping your removal notes…</p>
+  {% elif grouping.available %}
+  {% if grouping_error %}<p>{{ grouping_error }}</p>{% endif %}
+  {% if grouping.status == "succeeded" and not previews %}<p>No new suggestions from those notes.</p>{% endif %}
+  <form hx-post="/inbox/removal-suggestions/group" hx-target="#removal-suggestions"
+        hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="input_version" value="{{ grouping.input_version }}">
+    <p id="removal-group-description">Send up to 100 recent removal notes and their job IDs to your AI provider to look for common reasons.</p>
+    {% if budget_blocked %}{% include "fragments/budget/_blocked.html" %}{% endif %}
+    <button type="submit" id="removal-group-start" class="button"
+            aria-describedby="removal-group-description{% if budget_blocked %} {{ budget_blocked.id }}{% endif %}"
+            {% if budget_blocked %}aria-disabled="true"{% endif %}>Group removal notes with AI</button>
+  </form>
+  {% endif %}
+  {% if dialog %}{% set budget_dialog = dialog %}{% include "fragments/budget/_dialog.html" %}{% endif %}
+</section>

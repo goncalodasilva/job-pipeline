@@ -126,8 +126,12 @@ def test_companies_list_to_apply_sort(tmp_path):
 def test_open_roles_counts_follow_triage_not_a_stored_number(tmp_path):
     with refining(tmp_path) as r:
         sort_seeded(r)
-        r.run.execute("UPDATE jobs SET triage_state='removed' WHERE id='company-b-job-1'")
-        r.run.execute("UPDATE jobs SET triage_state='new' WHERE id='company-d-job-1'")
+        r.run.execute(
+            "UPDATE jobs SET triage_state='removed',version=version+1 WHERE id='company-b-job-1'"
+        )
+        r.run.execute(
+            "UPDATE jobs SET triage_state='new',version=version+1 WHERE id='company-d-job-1'"
+        )
         shown = get(r, "/companies?sort=name&dir=asc")
         counts = {
             row["hrefs"][0].rsplit("/", 1)[1]: row["cells"][1] for row in table_rows(shown.text)[1:]

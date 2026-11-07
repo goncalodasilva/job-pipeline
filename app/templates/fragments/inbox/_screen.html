@@ -13,5 +13,14 @@
     {% endwith %}
   </div>
   {% include "fragments/inbox/_help.html" %}
+  {% if protected_inbox %}
+  {% from "fragments/inbox/_macros.html" import queue_url with context %}
+  <section id="inbox" aria-label="Inbox queue" hx-get="{{ queue_url(selected) }}"
+           hx-trigger="load" hx-swap="outerHTML settle:0ms">
+    <p role="status">Loading your inbox…</p>
+    <noscript><p>Enable scripts to load your inbox with removal rules.</p></noscript>
+  </section>
+  {% else %}
   {% include "fragments/inbox/_inbox.html" %}
+  {% endif %}
 </div>

@@ -260,7 +260,7 @@ def test_query_count_is_constant_and_reads_never_write(desk):
     finally:
         db.connection.set_trace_callback(None)
     selects = [s for s in statements if s.startswith("SELECT")]
-    assert len(selects) == 2
+    assert len(selects) == 3  # Count, page and the fixed active-rule lookup (AC-M9.1).
     assert not any(
         s.startswith(("UPDATE", "INSERT", "DELETE", "BEGIN IMMEDIATE")) for s in statements
     )

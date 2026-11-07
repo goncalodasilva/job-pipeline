@@ -21,7 +21,7 @@
     </form>
     {% endif %}
   </div>
-  <div id="inbox-notice"></div>
+  <div id="inbox-notice">{% if rule_message %}<p>{{ rule_message }}</p>{% endif %}</div>
   <div id="inbox-stale-card" class="field-error" role="alert" hidden>
     <p>This job changed while you were working. Your typing has been kept. Reload the inbox to see the current jobs; unsaved edits on this card will be discarded.</p>
     <button type="button" class="button" data-reload-inbox>Reload inbox</button>
@@ -29,10 +29,16 @@
   <div class="inbox-views" role="group" aria-label="Inbox views">
     <ul>
       {% for key, label in views.items() %}
-      <li><a href="/inbox?view={{ key }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" hx-get="/inbox/queue?view={{ key }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}&amp;focus=1" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-push-url="/inbox?view={{ key }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}"{% if key == view %} aria-current="page"{% endif %}>{{ label }}</a></li>
+      <li><a href="/inbox?view={{ key }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" hx-get="/inbox/queue?view={{ key }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}&amp;focus=1" hx-target="#inbox" hx-swap="outerHTML settle:0ms" hx-push-url="/inbox?view={{ key }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}"{% if key == view %} aria-current="page"{% endif %}>{{ label }}{% if key == "hidden" %} ({{ hidden_count }}){% endif %}</a></li>
       {% endfor %}
     </ul>
   </div>
+  {% if view == "queue" %}
+  <section id="removal-suggestions" aria-labelledby="removal-suggestions-heading"
+           hx-get="/inbox/removal-suggestions" hx-trigger="load" hx-swap="outerHTML">
+    <h2 id="removal-suggestions-heading" class="visually-hidden">Removal suggestions</h2>
+  </section>
+  {% endif %}
   <div class="inbox-organise">
     {% if pending_count %}<p class="values-notice"><a href="/inbox/values">{{ pending_count }} new value{{ "s" if pending_count != 1 }} to map</a></p>{% endif %}
     {% set active = filter_query.split("&") | length if filter_query else 0 %}
@@ -81,7 +87,11 @@
     {% elif view == "to_apply" %}
     <p>No jobs marked to apply. Press Apply on a job you want to go for.</p>
     {% else %}
+    {% if view == "hidden" %}
+    <p>No jobs are hidden by your rules.</p>
+    {% else %}
     <p>No removed jobs. A job you remove stays here, so you can bring it back.</p>
+    {% endif %}
     {% endif %}
   </section>
   {% endif %}

@@ -103,16 +103,18 @@ def test_0008_upgrade_keeps_0007_rows_and_backs_up(tmp_path):
     assert (MIGRATIONS_DIR / "0008_interview_prep.sql").is_file()
     previous = tmp_path / "previous"
     previous.mkdir()
+    through_0009 = tmp_path / "through-0009"
+    through_0009.mkdir()
     for path in MIGRATIONS_DIR.glob("*.sql"):
         if path.name < "0008":
             shutil.copy(path, previous / path.name)
+        if path.name < "0010":
+            shutil.copy(path, through_0009 / path.name)
     with Database.open(tmp_path / "data/app.db") as database:
         apply_migrations(database, previous, tmp_path / "backups", FrozenClock(START))
         seed_base(database)
         before = database.connection.execute("SELECT * FROM facts ORDER BY id").fetchall()
-        result = apply_migrations(
-            database, MIGRATIONS_DIR, tmp_path / "backups", FrozenClock(START)
-        )
+        result = apply_migrations(database, through_0009, tmp_path / "backups", FrozenClock(START))
         assert result.applied == (8, 9)
         assert result.backup.is_file()
         assert database.connection.execute("SELECT * FROM facts ORDER BY id").fetchall() == before
@@ -121,7 +123,7 @@ def test_0008_upgrade_keeps_0007_rows_and_backs_up(tmp_path):
             assert backup.execute("SELECT * FROM facts ORDER BY id").fetchall() == before
             assert backup.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 7
     with Database.open(tmp_path / "fresh/app.db") as fresh:
-        apply_migrations(fresh, MIGRATIONS_DIR, tmp_path / "fresh-backups", FrozenClock(START))
+        apply_migrations(fresh, through_0009, tmp_path / "fresh-backups", FrozenClock(START))
         assert schema_snapshot(fresh.connection) == upgraded
 
 

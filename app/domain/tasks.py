@@ -27,6 +27,7 @@ TERMINAL: Final = frozenset(
 )
 # Retry (ADR-076 item 11) re-queues a finished row from these; never from succeeded.
 RETRY_FROM: Final = frozenset({TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.INTERRUPTED})
+GROUP_REMOVAL_REASONS: Final = "group_removal_reasons"
 
 _TASK_ID: Final = re.compile(r"[A-Za-z0-9_-]{1,64}")
 

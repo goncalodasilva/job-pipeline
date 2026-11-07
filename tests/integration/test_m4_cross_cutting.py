@@ -522,7 +522,9 @@ def test_job_text_notes_and_reasons_never_in_logs_task_rows_or_events(
 
         # Control: the flows stored the text, and only in the tables that hold job data.
         for marker in TEXT_MARKERS:
-            assert_stored_only_in(run, marker, JOB_TABLES)
+            allowed = JOB_TABLES | {"job_removals"} if marker == REASON_MARKER else JOB_TABLES
+            assert_stored_only_in(run, marker, allowed)
+        assert "job_removals" in tables_containing(run, REASON_MARKER)
         assert "jobs" in tables_containing(run, JOB_MARKER)
         assert "companies" in tables_containing(run, COMPANY_MARKER)
         failed_errors = {

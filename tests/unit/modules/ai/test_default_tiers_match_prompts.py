@@ -16,7 +16,14 @@ from app.modules.ai.tasks import TASK_SPECS
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 FAST_TASKS = frozenset(
-    {"summarize_job", "assess_fit", "enrichment_question", "structure_answer", "refine_fact"}
+    {
+        "summarize_job",
+        "assess_fit",
+        "enrichment_question",
+        "structure_answer",
+        "refine_fact",
+        "group_removal_reasons",
+    }
 )
 
 

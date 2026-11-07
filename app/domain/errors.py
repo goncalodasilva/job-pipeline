@@ -327,6 +327,10 @@ class TaskNotRetryable(AppError):
     )
 
 
+class GroupingRetryFromInbox(TaskNotRetryable):
+    message = "Start grouping again from the Inbox to review your current usage."
+
+
 class TaskFailed(AppError):
     """A task handler raised something other than an ``AppError``. ``detail`` names the
     exception type only, never its text."""

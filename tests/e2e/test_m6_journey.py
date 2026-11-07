@@ -43,7 +43,7 @@ from tests.e2e.axe import assert_no_serious_violations, wait_for_settled_styles
 from tests.e2e.conftest import DESKTOP, PHONE
 from tests.e2e.test_board import rows
 from tests.e2e.test_cv_template_screens import expand_details, png_file, seeded_in_portugal
-from tests.e2e.test_facts_page import RECORD_ANNOUNCEMENTS, press_by_keyboard, tab_until, wait_said
+from tests.e2e.test_facts_page import RECORD_ANNOUNCEMENTS, tab_until, wait_said
 from tests.e2e.test_shell import has_no_horizontal_scroll, new_page, open_app
 from tests.e2e.test_tailoring_workspace import RESULT_TIMEOUT_MS, heading, region, stepper_link
 from tests.export_pages import (
@@ -92,26 +92,31 @@ def checked(page: Page, label: str) -> None:
     assert_no_serious_violations(page)
 
 
+def press_by_keyboard(page: Page, locator: Locator) -> None:
+    """Wait for htmx to bind the activated control or form (TD-320)."""
+    tab_until(page, locator)
+    page.wait_for_function(
+        """(element) => {
+            const selector = '[hx-get], [hx-post]';
+            const trigger = element.matches(selector) ? element : element.form;
+            return element === document.activeElement
+                && (!trigger?.matches(selector) || !!trigger['htmx-internal-data']);
+        }""",
+        arg=locator.element_handle(),
+    )
+    page.keyboard.press("Enter")
+
+
 def start_task_by_keyboard(page: Page, app: RunningApp, locator: Locator, task_type: str) -> None:
-    """Press a start button by keyboard once it is shown and enabled, and wait (on a condition,
-    no sleeps) until the app has recorded the task. Enter pressed while the step is still being
-    swapped in is swallowed; the button is then pressed again, but only while no task of that type
-    exists, so nothing is ever started twice."""
     count = "SELECT count(*) FROM tasks WHERE type=?"
-    for _ in range(3):
-        expect(locator).to_be_visible()
-        expect(locator).to_be_enabled()
-        press_by_keyboard(page, locator)
-        try:
-            wait_until(
-                lambda: rows(app, count, (task_type,))[0][0] > 0,
-                timeout=5,
-                message=f"{task_type} recorded",
-            )
-            return
-        except AssertionError:
-            continue
-    raise AssertionError(f"{task_type} was not started by keyboard after three presses")
+    expect(locator).to_be_visible()
+    expect(locator).to_be_enabled()
+    press_by_keyboard(page, locator)
+    wait_until(
+        lambda: rows(app, count, (task_type,))[0][0] == 1,
+        timeout=5,
+        message=f"{task_type} recorded once",
+    )
 
 
 def upload_photo(page: Page, app: RunningApp) -> None:

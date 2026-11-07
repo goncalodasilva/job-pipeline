@@ -21,8 +21,13 @@ from dataclasses import dataclass
 from datetime import datetime, tzinfo
 
 from app.domain.clock import Clock
-from app.domain.errors import TaskNotRetryable, format_day_time, message_for_kind
-from app.domain.tasks import RETRY_FROM, TaskStatus, is_task_id
+from app.domain.errors import (
+    GroupingRetryFromInbox,
+    TaskNotRetryable,
+    format_day_time,
+    message_for_kind,
+)
+from app.domain.tasks import GROUP_REMOVAL_REASONS, RETRY_FROM, TaskStatus, is_task_id
 from app.services.tasks import TaskRow, TaskService
 
 PANEL_LIMIT = 20
@@ -203,6 +208,8 @@ def _attention(ended: list[TaskRow]) -> tuple[str, ...]:
 
 
 def _reason(row: TaskRow) -> str | None:
+    if row.type == GROUP_REMOVAL_REASONS and row.status in RETRY_FROM:
+        return GroupingRetryFromInbox.message
     if row.status == TaskStatus.FAILED:
         return message_for_kind(row.error)
     if row.status == TaskStatus.INTERRUPTED:
@@ -232,7 +239,7 @@ def task_view(
         reason=reason if reason is not None else _reason(row),
         has_result=row.status == TaskStatus.SUCCEEDED and row.result_ref is not None,
         can_cancel=active and not cancelling,
-        can_retry=row.status in RETRY_FROM,
+        can_retry=row.status in RETRY_FROM and row.type != GROUP_REMOVAL_REASONS,
         time=time,
         attention=_key(row) if row.status in NEEDS_ATTENTION else None,
     )

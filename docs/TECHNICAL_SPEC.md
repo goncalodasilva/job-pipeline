@@ -1277,7 +1277,7 @@ Limits (TECH_DEBT section 13): no speech provider (TD-323); no un-merge for bank
 
 **Acceptance criteria:**
 
-- AC-M9.1 Removal suggestions appear only above the threshold and without contradicting applications; flag is the default; rules are visible, editable and reversible; hidden jobs remain reachable.
+- AC-M9.1 Removal suggestions appear only at or above the threshold and without contradicting applications; flag is the default; rules are visible, editable and reversible; hidden jobs remain reachable.
 - AC-M9.2 Prompt overrides survive updated defaults; reset restores the default.
 - AC-M9.3 Export then import into a fresh data folder reproduces the data exactly (round-trip test), without keys.
 - AC-M9.4 Demo mode never reads or writes the real data folder.

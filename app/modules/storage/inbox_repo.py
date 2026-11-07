@@ -1,5 +1,6 @@
 """Bounded inbox reads. SQL fragments and column names are code-owned; values are bound."""
 
+import json
 import sqlite3
 from datetime import date
 
@@ -14,14 +15,20 @@ _MOVED_ON = (
 )
 
 
-def _where(filters: InboxFilters, today: date) -> tuple[str, list[object]]:
+def _where(filters: InboxFilters, today: date, hidden: frozenset[str]) -> tuple[str, list[object]]:
     clauses = ["j.merged_into_job_id IS NULL"]
     params: list[object] = []
-    if filters.view == "queue":
+    if filters.view == "hidden":
+        clauses.append("j.id IN (SELECT value FROM json_each(?))")
+        params.append(json.dumps(sorted(hidden)))
+    elif filters.view == "queue":
         clauses.append(
             "(j.triage_state IN ('new','seen') OR (j.triage_state='snoozed' AND j.snooze_until<=?))"
         )
         params.append(today.isoformat())
+        if hidden:
+            clauses.append("j.id NOT IN (SELECT value FROM json_each(?))")
+            params.append(json.dumps(sorted(hidden)))
     elif filters.view == "snoozed":
         clauses.append("j.triage_state='snoozed' AND j.snooze_until>?")
         params.append(today.isoformat())
@@ -48,8 +55,10 @@ def _where(filters: InboxFilters, today: date) -> tuple[str, list[object]]:
     return " AND ".join(clauses), params
 
 
-def page_statement(filters: InboxFilters, today: date, page: int) -> tuple[str, list[object]]:
-    where, params = _where(filters, today)
+def page_statement(
+    filters: InboxFilters, today: date, page: int, *, hidden: frozenset[str] = frozenset()
+) -> tuple[str, list[object]]:
+    where, params = _where(filters, today, hidden)
     order = {
         "newest": "j.found_at DESC",
         "posting_age": "j.posted_date IS NULL,j.posted_date DESC,j.found_at DESC",
@@ -75,10 +84,17 @@ def page_statement(filters: InboxFilters, today: date, page: int) -> tuple[str, 
     return statement, [today.isoformat(), *params, (page - 1) * 50]
 
 
-def page(conn: sqlite3.Connection, filters: InboxFilters, today: date, number: int) -> InboxPage:
-    where, params = _where(filters, today)
+def page(
+    conn: sqlite3.Connection,
+    filters: InboxFilters,
+    today: date,
+    number: int,
+    *,
+    hidden: frozenset[str] = frozenset(),
+) -> InboxPage:
+    where, params = _where(filters, today, hidden)
     total = int(conn.execute("SELECT count(*) FROM jobs j WHERE " + where, params).fetchone()[0])  # noqa: S608
-    sql, params = page_statement(filters, today, number)
+    sql, params = page_statement(filters, today, number, hidden=hidden)
     cursor = conn.execute(sql, params)
     columns = [c[0] for c in cursor.description]
     rows = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
@@ -86,7 +102,12 @@ def page(conn: sqlite3.Connection, filters: InboxFilters, today: date, number: i
 
 
 def groups(
-    conn: sqlite3.Connection, filters: InboxFilters, today: date, by: str
+    conn: sqlite3.Connection,
+    filters: InboxFilters,
+    today: date,
+    by: str,
+    *,
+    hidden: frozenset[str] = frozenset(),
 ) -> tuple[InboxGroup, ...]:
     column = {
         "company": "j.company_id",
@@ -96,7 +117,7 @@ def groups(
         "seniority": "j.seniority",
     }[by]
     label = "c.name" if by == "company" else column
-    where, params = _where(filters, today)
+    where, params = _where(filters, today, hidden)
     sql = (
         f"SELECT {column},{label},count(*) FROM jobs j "  # noqa: S608
         "LEFT JOIN companies c ON c.id=j.company_id "
@@ -108,6 +129,12 @@ def groups(
     )
 
 
-def explain(conn: sqlite3.Connection, filters: InboxFilters, today: date) -> tuple[str, ...]:
-    sql, params = page_statement(filters, today, 1)
+def explain(
+    conn: sqlite3.Connection,
+    filters: InboxFilters,
+    today: date,
+    *,
+    hidden: frozenset[str] = frozenset(),
+) -> tuple[str, ...]:
+    sql, params = page_statement(filters, today, 1, hidden=hidden)
     return tuple(str(row[3]) for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params))

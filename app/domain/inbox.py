@@ -17,7 +17,7 @@ class InboxFilters:
     sort: str = "newest"
 
     def __post_init__(self) -> None:
-        if self.view not in ("queue", "snoozed", "removed", "to_apply"):
+        if self.view not in ("queue", "snoozed", "removed", "to_apply", "hidden"):
             raise ValueError("unknown inbox view")
         if self.sort not in ("newest", "posting_age", "band"):
             raise ValueError("unknown inbox sort")

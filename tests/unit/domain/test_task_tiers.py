@@ -12,7 +12,14 @@ from app.domain.settings import AIProviderSettings
 from app.modules.ai.tasks import PRACTICE_SPEC, TASK_SPECS
 
 FAST_TASKS = frozenset(
-    {"summarize_job", "assess_fit", "enrichment_question", "structure_answer", "refine_fact"}
+    {
+        "summarize_job",
+        "assess_fit",
+        "enrichment_question",
+        "structure_answer",
+        "refine_fact",
+        "group_removal_reasons",
+    }
 )
 
 

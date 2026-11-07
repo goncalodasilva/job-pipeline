@@ -32,7 +32,7 @@ Every unknown or unsafe job id answers the fixed 404 text, which never repeats t
 import json
 from datetime import date
 from typing import Any
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
@@ -43,7 +43,7 @@ from app.api.forms import posted_version, single_value_form
 from app.api.job_summary import summary_context
 from app.api.pages import AREAS, area
 from app.api.security import PAGE_TAG
-from app.api.templating import render, templates
+from app.api.templating import render, renders_fragment, templates
 from app.domain.errors import (
     JobNotFound,
     JobTriageInputInvalid,
@@ -64,6 +64,7 @@ VIEWS = {
     "snoozed": "Snoozed",
     "to_apply": "To apply",
     "removed": "Removed",
+    "hidden": "Hidden by your rules",
 }
 SCREEN_FRAGMENT = "fragments/inbox/_screen.html"
 CARD_FRAGMENT = "fragments/inbox/_card.html"
@@ -194,6 +195,7 @@ def _inbox_context(
         "areas": AREAS,
         "views": VIEWS,
         "message": message,
+        "rule_message": "",
         "undo": undo,
         "after_action": after_action,
         "focus": focus,
@@ -263,6 +265,12 @@ def _queue_context(request: Request, *, focus: bool) -> dict[str, Any]:
 
 def inbox_page(request: Request) -> Response:
     ctx = _queue_context(request, focus=False)
+    protected = not renders_fragment(request) and (ctx["rules_active"] or ctx["view"] == "hidden")
+    ctx["protected_inbox"] = protected
+    if protected:
+        # The placeholder URL may echo the validated request, never a job selected by the rules.
+        ctx["selected"] = _safe(request.query_params.get("selected", ""))
+        ctx["page"] = _page_number(request.query_params.get("page", "1"))
     return render(request, page="pages/inbox.html", fragment=SCREEN_FRAGMENT, ctx=ctx)
 
 
@@ -284,6 +292,31 @@ def show_queue(request: Request) -> Response:
                 f", grouped by {ctx['group_by']}." if ctx["group_by"] else "."
             )
         response.headers["HX-Trigger-After-Settle"] = json.dumps({"announce": message})
+    return response
+
+
+def removal_rule_saved(request: Request, message: str) -> Response:
+    """Refresh the filtered queue and focus its current card after a rule takes effect."""
+    try:
+        current = urlsplit(request.headers.get("HX-Current-URL", ""))
+        query = dict(parse_qsl(current.query)) if current.path == "/inbox" else {}
+    except ValueError:
+        query = {}
+    picked = selection(query)
+    context = _inbox_context(
+        request,
+        view=picked.filters.view,
+        filters=picked.filters,
+        group_by=picked.group_by,
+        page=_page_number(query.get("page", "1")),
+        selected=query.get("selected", ""),
+        focus=True,
+    )
+    response = templates.TemplateResponse(
+        request, INBOX_FRAGMENT, {**context, "rule_message": message}
+    )
+    response.headers["HX-Retarget"] = "#inbox"
+    response.headers["HX-Trigger-After-Settle"] = json.dumps({"announce": message})
     return response
 
 

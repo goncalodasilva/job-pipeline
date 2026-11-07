@@ -67,7 +67,14 @@ pytestmark = pytest.mark.integration
 
 TASKS_PATH = "/settings/tiers/tasks"
 FAST_TASKS = frozenset(
-    {"summarize_job", "assess_fit", "enrichment_question", "structure_answer", "refine_fact"}
+    {
+        "summarize_job",
+        "assess_fit",
+        "enrichment_question",
+        "structure_answer",
+        "refine_fact",
+        "group_removal_reasons",
+    }
 )
 DEFAULT = {name: "fast" if name in FAST_TASKS else "thorough" for name in TASK_SPECS}
 SAVE = "Save task tiers"

@@ -67,5 +67,6 @@ _SPECS: Final = (
     # industry only; no fact, job text, CV text or personal detail reaches it, so it is a plain
     # summary (no honesty notice). Web search is allowed, five searches at most.
     TaskSpec("company_brief", kind="summary", allow_web_search=True, max_searches=5),
+    TaskSpec("group_removal_reasons", kind="summary"),
 )
 TASK_SPECS: Final[Mapping[str, TaskSpec]] = MappingProxyType({spec.name: spec for spec in _SPECS})

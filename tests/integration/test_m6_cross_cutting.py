@@ -381,10 +381,17 @@ def drive_adapt_answer(desk: Exporting) -> None:
     assert desk.r.run.wait_terminal(ref.id).status.value == "succeeded"
 
 
+def drive_removal_grouping(desk: Exporting) -> None:
+    from tests.integration.test_removal_learning import run_grouping
+
+    run_grouping(desk.r)
+
+
 DRIVERS: dict[str, Callable[[Exporting], None]] = {
     "adapt_answer": drive_adapt_answer,
     "answer_feedback": drive_answer_feedback,
     "company_brief": drive_company_brief,
+    "group_removal_reasons": drive_removal_grouping,
     "draft_narrative": drive_draft_narrative,
     "extract_cv": drive_extract_cv,
     "refine_fact": drive_refine_fact,

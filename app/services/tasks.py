@@ -12,9 +12,10 @@ from datetime import timedelta
 from typing import cast
 
 from app.domain.clock import Clock
-from app.domain.errors import AppError, TaskNotRetryable
+from app.domain.errors import AppError, GroupingRetryFromInbox, TaskNotRetryable
 from app.domain.ids import IdFactory
 from app.domain.tasks import (
+    GROUP_REMOVAL_REASONS,
     RETRY_FROM,
     TERMINAL,
     CancelFlag,
@@ -166,6 +167,8 @@ class TaskService:
             row = tasks_repo.get(conn, task_id)
             if row is None:
                 return None
+            if row.type == GROUP_REMOVAL_REASONS:
+                raise GroupingRetryFromInbox()
             if row.status not in RETRY_FROM:
                 raise TaskNotRetryable(detail=f"task is {row.status.value}")
             changed = tasks_repo.requeue_for_retry(conn, task_id, now)

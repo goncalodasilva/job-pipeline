@@ -1,0 +1,97 @@
+<section id="removal-rules" class="settings-section" aria-labelledby="removal-rules-heading">
+  <h2 id="removal-rules-heading">Removal rules</h2>
+  {% set reload_url = "/settings/preferences" %}
+  {% set reload_message = message %}
+  {% set reload_detail = "" %}
+  <div id="removal-threshold-editor">
+    {% if target_threshold and conflict %}
+    {% set reload_id = "removal-threshold-reload" %}
+    {% include "fragments/shell/_reload_prompt.html" %}
+    {% else %}
+    <form hx-post="/settings/preferences/removal-rules/threshold" hx-target="#removal-threshold-editor"
+          hx-select="#removal-threshold-editor" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="version" value="{{ settings.version }}">
+      <div class="field">
+        <label for="removal-threshold">Minimum matching removals for a suggestion</label>
+        <input id="removal-threshold" name="threshold" type="number" min="1" max="100"
+               value="{{ submitted_threshold if threshold_error else settings.threshold }}" required
+               {% if threshold_error %}aria-invalid="true" aria-describedby="removal-threshold-error" data-autofocus{% endif %}>
+        {% if threshold_error %}<p id="removal-threshold-error" class="field-error">{{ message }}</p>{% endif %}
+      </div>
+      <button class="button" type="submit">Save threshold</button>
+    </form>
+    {% if target_threshold and not threshold_error %}<p tabindex="-1" data-autofocus>{{ message }}</p>{% endif %}
+    {% endif %}
+  </div>
+  {% for item in settings.rules %}
+  {% set rule = item.rule %}
+  {% set edited = target_rule_id == rule.id %}
+  {% set row_id = "removal-rule-" ~ rule.id %}
+  {% set delete_id = "delete-removal-rule-" ~ rule.id %}
+  <div id="{{ row_id }}">
+    <details{% if edited %} open{% endif %}>
+      <summary{% if edited and not conflict %} data-autofocus{% endif %}>{{ item.label }} · {{ ("Hide" if rule.mode == "hide" else "Flag") if rule.active else "Off" }}</summary>
+      {% if edited and conflict %}
+      {% set reload_id = row_id ~ "-reload" %}
+      {% include "fragments/shell/_reload_prompt.html" %}
+      {% else %}
+      {% if edited %}<p>{{ message }}</p>{% endif %}
+      <p>Removals behind this rule</p>
+      <ul>
+        {% for id, title in item.evidence %}
+        <li>{% if is_safe_id(id) %}<a href="/jobs/{{ id }}">{{ title }}</a>{% else %}{{ title }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+      <form hx-post="/settings/preferences/removal-rules/{{ rule.id }}" hx-target="#{{ row_id }}"
+            hx-select="#{{ row_id }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="version" value="{{ rule.version }}">
+        <input type="hidden" name="action" value="save">
+        <div class="field">
+          <label for="{{ row_id }}-mode">When a job matches</label>
+          <select id="{{ row_id }}-mode" name="mode">
+            <option value="flag"{% if rule.mode == "flag" %} selected{% endif %}>Flag it</option>
+            <option value="hide"{% if rule.mode == "hide" %} selected{% endif %}>Hide it</option>
+          </select>
+        </div>
+        <div class="field field-check">
+          <input id="{{ row_id }}-active" type="checkbox" name="active" value="1"{% if rule.active %} checked{% endif %}>
+          <label for="{{ row_id }}-active">Rule is on</label>
+        </div>
+        <div class="card-actions">
+          <button class="button" type="submit">Save rule</button>
+          <button id="{{ delete_id }}" class="button" type="button" aria-haspopup="dialog"
+                  data-open-modal="#{{ delete_id }}-dialog">Delete rule</button>
+        </div>
+      </form>
+      <dialog id="{{ delete_id }}-dialog" class="modal" role="dialog" aria-modal="true"
+              aria-labelledby="{{ delete_id }}-title" aria-describedby="{{ delete_id }}-description"
+              data-modal data-modal-manual data-return-focus="#{{ delete_id }}">
+        <h2 id="{{ delete_id }}-title">Delete removal rule?</h2>
+        <p id="{{ delete_id }}-description">Jobs will stop matching this rule. The removal history stays available.</p>
+        <div class="modal-actions">
+          <button type="button" class="button" data-modal-close autofocus>Keep rule</button>
+          <form hx-post="/settings/preferences/removal-rules/{{ rule.id }}" hx-target="#{{ row_id }}"
+                hx-select="#{{ row_id }}" hx-select-oob="#removal-rules-empty"
+                hx-swap="outerHTML" hx-disabled-elt="find button">
+            <input type="hidden" name="version" value="{{ rule.version }}">
+            <input type="hidden" name="action" value="delete">
+            <button type="submit" class="button">Delete rule</button>
+          </form>
+        </div>
+      </dialog>
+      {% endif %}
+    </details>
+  </div>
+  {% endfor %}
+  {% if target_rule_id and target_rule_id not in (settings.rules | map(attribute="rule.id") | list) %}
+  <div id="removal-rule-{{ target_rule_id }}">
+    {% if conflict %}
+    {% set reload_id = "removal-rule-" ~ target_rule_id ~ "-reload" %}
+    {% include "fragments/shell/_reload_prompt.html" %}
+    {% else %}
+    <p tabindex="-1" data-autofocus>{{ message }}</p>
+    {% endif %}
+  </div>
+  {% endif %}
+  <p id="removal-rules-empty"{% if settings.rules %} hidden{% endif %}>No removal rules yet. When a suggestion appears in the inbox, you can choose whether to use it.</p>
+</section>

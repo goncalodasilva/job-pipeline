@@ -63,6 +63,7 @@ from app.api.prep_adapt import register_adapt_routes
 from app.api.prep_cards import register_card_routes
 from app.api.prep_practice import register_practice_routes
 from app.api.reminders import register_reminder_routes
+from app.api.removal_learning import register_removal_learning
 from app.api.security import SecurityMiddleware, generate_launch_token, page_route_matcher
 from app.api.sessions import register_session_routes
 from app.api.settings import register_settings_pages
@@ -102,7 +103,7 @@ from app.domain.errors import ConfigError, DataFolderNotYours, DataFolderUnavail
 from app.domain.ids import IdFactory, UuidIdFactory
 from app.domain.redaction import Redactor
 from app.domain.settings import AI_PROVIDER, TASK_RUNNER, AIProviderSettings
-from app.domain.tasks import TaskChange, TaskStatus, TaskTypeSpec
+from app.domain.tasks import GROUP_REMOVAL_REASONS, TaskChange, TaskStatus, TaskTypeSpec
 from app.modules.ai import ProviderHealth
 from app.modules.extract import extract_text, sniff_type
 from app.modules.secrets import KNOWN_SECRET_KEYS
@@ -196,6 +197,8 @@ from app.services.prep_documents import (
 from app.services.prompt_settings import PromptSettings
 from app.services.provider_setup import ProviderSetupService
 from app.services.reminders import ReminderRules, ReminderService
+from app.services.removal_grouping import GROUP_LABEL, RemovalGrouping
+from app.services.removal_learning import RemovalLearning
 from app.services.roles import RoleService
 from app.services.session_preferences import SessionPreferences
 from app.services.session_screen import SessionScreens
@@ -241,6 +244,7 @@ from app.tasks.job_summary import job_summary_handler
 from app.tasks.practice import practice_handler
 from app.tasks.prep import prep_handler
 from app.tasks.prep_documents import adapt_answer_handler, draft_narrative_handler
+from app.tasks.removal_grouping import removal_grouping_handler
 from app.tasks.sessions import enrichment_question_handler, structure_answer_handler
 from app.tasks.tailoring import gap_check_handler, propose_angles_handler
 from app.wiring import (
@@ -1522,7 +1526,25 @@ def create_app(
         )
     app.state.job_summary = _job_summary(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
     app.state.job_fit = _job_fit(app, wiring=app_wiring, clock=app_clock, ids=app_ids)
+    app.state.removal_grouping = RemovalGrouping(
+        factory=app_wiring,
+        clock=app_clock,
+        zone=app_tz,
+        workspace=lambda: getattr(app.state, "workspace", None),
+        settings=lambda: (
+            SettingsService(db, app_clock).load(AI_PROVIDER).value
+            if (db := _current_db(app)) is not None
+            else None
+        ),
+        tasks=lambda: getattr(app.state, "task_service", None),
+        usage=_open_usage(app),
+    )
     if task_registry is None:
+        handlers.register(
+            GROUP_REMOVAL_REASONS,
+            TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), GROUP_LABEL),
+            removal_grouping_handler(app.state.removal_grouping),
+        )
         handlers.register(
             SUMMARIZE_JOB,
             TaskTypeSpec(TASK_TIMEOUT_FLOOR + timedelta(seconds=30), SUMMARIZE_LABEL),
@@ -1656,6 +1678,9 @@ def create_app(
     # The computer's IANA time zone (a name, or None when it can't be read safely): read once
     # here, it is the interview dialog's default (ADR-102 item 6).
     app.state.system_time_zone = system_time_zone_name()
+    app.state.removal_learning = RemovalLearning(
+        lambda: _current_db(app), app_clock, app_ids, app_tz
+    )
     app.state.inbox_views = InboxViews(
         lambda: _current_db(app),
         InboxQuery(lambda: _current_db(app), app_clock, app_tz),
@@ -1740,6 +1765,7 @@ def create_app(
     register_fact_capture_routes(app)
     register_fact_coverage_routes(app)
     register_inbox_routes(app)
+    register_removal_learning(app)
     register_inbox_organisation_routes(app)
     register_job_intake_routes(app)
     register_job_summary_routes(app)

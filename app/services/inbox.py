@@ -1,15 +1,17 @@
 """Snapshot inbox reads: two queries per page, one for grouped counts."""
 
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import tzinfo
+from datetime import date, tzinfo
 from typing import Any
 
 from app.domain.clock import Clock
 from app.domain.inbox import InboxFilters, InboxGroup, InboxPage
 from app.domain.jobs import local_today
-from app.modules.storage import Database, inbox_card_repo
+from app.modules.storage import Database, inbox_card_repo, removal_learning_repo
 from app.modules.storage import inbox_repo as repo
+from app.services.removal_learning import flag_labels, hidden_jobs
 
 PAGE_SIZE = 50
 # SQLite binds offsets as signed 64-bit integers. Keep the whole last page representable.
@@ -21,6 +23,21 @@ class InboxSnapshot:
     results: InboxPage
     groups: tuple[InboxGroup, ...]
     card: dict[str, Any] | None
+    hidden_count: int = 0
+    rules_active: bool = False
+
+
+def _hidden(
+    conn: sqlite3.Connection,
+    today: date,
+    rules: tuple[removal_learning_repo.Rule, ...] | None = None,
+) -> frozenset[str]:
+    active = removal_learning_repo.rules(conn, active_only=True) if rules is None else rules
+    return (
+        hidden_jobs(removal_learning_repo.signals(conn, today), active)
+        if any(rule.mode == "hide" for rule in active)
+        else frozenset()
+    )
 
 
 class InboxQuery:
@@ -37,7 +54,7 @@ class InboxQuery:
             return InboxPage((), 0, page, None)
         today = local_today(self._clock.now(), self._zone)
         with db.read() as conn:
-            return repo.page(conn, filters, today, page)
+            return repo.page(conn, filters, today, page, hidden=_hidden(conn, today))
 
     def groups(self, filters: InboxFilters, *, by: str) -> tuple[InboxGroup, ...]:
         if by not in ("company", "industry", "band", "work_mode", "seniority"):
@@ -47,7 +64,7 @@ class InboxQuery:
             return ()
         today = local_today(self._clock.now(), self._zone)
         with db.read() as conn:
-            return repo.groups(conn, filters, today, by)
+            return repo.groups(conn, filters, today, by, hidden=_hidden(conn, today))
 
     def snapshot(
         self, filters: InboxFilters, *, page: int = 1, selected: str = "", group_by: str = ""
@@ -66,11 +83,13 @@ class InboxQuery:
             return InboxSnapshot(InboxPage((), 0, page, None), (), None)
         today = local_today(self._clock.now(), self._zone)
         with db.read() as conn:
-            results = repo.page(conn, filters, today, page)
+            rules = removal_learning_repo.rules(conn, active_only=True)
+            hidden = _hidden(conn, today, rules)
+            results = repo.page(conn, filters, today, page, hidden=hidden)
             if not results.items and page > 1 and results.total > 0:
                 page = (results.total + PAGE_SIZE - 1) // PAGE_SIZE
-                results = repo.page(conn, filters, today, page)
-            groups = repo.groups(conn, filters, today, group_by) if group_by else ()
+                results = repo.page(conn, filters, today, page, hidden=hidden)
+            groups = repo.groups(conn, filters, today, group_by, hidden=hidden) if group_by else ()
             if group_by:
                 field = {"company": "company_id", "band": "fit_band"}.get(group_by, group_by)
                 results = replace(
@@ -85,7 +104,9 @@ class InboxQuery:
             ids = [item["id"] for item in results.items]
             focused = selected if selected in ids else (ids[0] if ids else "")
             card = inbox_card_repo.card(conn, focused) if focused else None
-            return InboxSnapshot(results, groups, card)
+            if card is not None:
+                card["rule_flags"] = flag_labels(conn, focused, today)
+            return InboxSnapshot(results, groups, card, len(hidden), bool(rules))
 
     def explain(self, filters: InboxFilters) -> tuple[str, ...]:
         db = self._database()
@@ -93,4 +114,4 @@ class InboxQuery:
             return ()
         today = local_today(self._clock.now(), self._zone)
         with db.read() as conn:
-            return repo.explain(conn, filters, today)
+            return repo.explain(conn, filters, today, hidden=_hidden(conn, today))

@@ -39,6 +39,10 @@
     "sha256": "dc87db671844ee66040879983291828588e5df6861e7ef4bcda4e3007ec7d609",
     "version": 2
   },
+  "group_removal_reasons": {
+    "sha256": "24a3af67a92f8e80d3219219829020cd721aba1eb6d945e5836577a91391ff0b",
+    "version": 1
+  },
   "interview_questions": {
     "sha256": "32d036388391d7ca64b0a6fcc03ac9cd65136b13c38ca028c11ea40170561286",
     "version": 3

@@ -48,6 +48,8 @@
     {% endif %}
   </ul>
   {% if job.fit_band %}<p class="card-fit"><strong>Fit: {{ job.fit_band | capitalize }}</strong></p>{% endif %}
+  {% for label in card.rule_flags %}<p class="card-conflict">Matches your rule: {{ label }}</p>{% endfor %}
+  {% if view == "hidden" %}<p><a href="/settings/preferences">Manage removal rules</a></p>{% endif %}
   {% if job.deal_breaker %}<p class="card-conflict">Conflicts with your preferences</p>{% endif %}
   {% if (card.summary and card.summary.practice) or card.fit_practice %}<p><span class="badge badge-practice">Practice data</span></p>{% endif %}
   {% if card.processing %}

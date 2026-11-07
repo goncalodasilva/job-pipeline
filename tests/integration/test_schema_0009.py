@@ -71,7 +71,7 @@ def test_0009_is_one_new_migration_and_0008_is_untouched() -> None:
         "0008_interview_prep.sql",
     ]
     assert len([n for n in names if n.startswith("0009_")]) == 1
-    assert not [n for n in names if n > "0009_zzz"], "M8.2 part B adds exactly one migration"
+    assert names[8] == "0009_prep_version_facts.sql"
 
 
 def test_0009_table_has_an_explicit_key_without_rowid_and_the_versioned_columns(db) -> None:
@@ -204,9 +204,13 @@ def test_a_version_with_sent_facts_still_cannot_be_deleted(db) -> None:
 def test_0009_upgrade_from_0008_keeps_every_row_and_backs_up(tmp_path) -> None:
     previous = tmp_path / "previous"
     previous.mkdir()
+    through_0009 = tmp_path / "through-0009"
+    through_0009.mkdir()
     for path in MIGRATIONS_DIR.glob("*.sql"):
         if path.name < "0009":
             shutil.copy(path, previous / path.name)
+        if path.name < "0010":
+            shutil.copy(path, through_0009 / path.name)
     with Database.open(tmp_path / "data/app.db") as database:
         apply_migrations(database, previous, tmp_path / "backups", FrozenClock(START))
         seed_base(database)
@@ -219,9 +223,7 @@ def test_0009_upgrade_from_0008_keeps_every_row_and_backs_up(tmp_path) -> None:
             "SELECT 1 FROM sqlite_master WHERE name=?", (TABLE,)
         ).fetchone()
 
-        result = apply_migrations(
-            database, MIGRATIONS_DIR, tmp_path / "backups", FrozenClock(START)
-        )
+        result = apply_migrations(database, through_0009, tmp_path / "backups", FrozenClock(START))
 
         assert result.applied == (9,)
         assert result.backup is not None and result.backup.is_file()
@@ -239,7 +241,7 @@ def test_0009_upgrade_from_0008_keeps_every_row_and_backs_up(tmp_path) -> None:
             for table, rows in before.items():
                 assert backup.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() == rows  # noqa: S608
     with Database.open(tmp_path / "fresh/app.db") as fresh:
-        apply_migrations(fresh, MIGRATIONS_DIR, tmp_path / "fresh-backups", FrozenClock(START))
+        apply_migrations(fresh, through_0009, tmp_path / "fresh-backups", FrozenClock(START))
         assert schema_snapshot(fresh.connection) == upgraded
 
 

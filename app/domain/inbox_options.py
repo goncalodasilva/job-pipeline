@@ -58,7 +58,7 @@ def selection(values: Mapping[str, str], *, strict: bool = False) -> InboxSelect
                 raise ValueError("Use up to 500 visible characters per filter.")
             clean.pop(field, None)
     for field, choices, default in (
-        ("view", ("queue", "snoozed", "removed", "to_apply"), "queue"),
+        ("view", ("queue", "snoozed", "removed", "to_apply", "hidden"), "queue"),
         ("sort", ("newest", "posting_age", "band"), "newest"),
         ("band", ("", "strong", "possible", "stretch"), ""),
         ("flagged", ("", "0", "1"), ""),

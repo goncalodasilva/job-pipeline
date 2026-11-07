@@ -110,6 +110,43 @@ def seed_every_table(db: Database) -> None:
 
                 insert(conn, "jobs", job_row("job-0002"))
             insert(conn, name, row)
+        conn.execute(
+            "UPDATE jobs SET triage_state='removed', removal_reason='other', "
+            "removal_text='Fictional reason', updated_at=?, version=version+1 WHERE id='job-0002'",
+            (STAMP,),
+        )
+        insert(
+            conn,
+            "removal_rules",
+            dict(
+                id="rule-0001",
+                field="work_mode",
+                condition='{"value":"on_site"}',
+                evidence_job_ids='["job-0002"]',
+                origin="pattern",
+                **common,
+            ),
+        )
+        insert(
+            conn,
+            "removal_suggestion_dismissals",
+            dict(signature="fictional-signature", evidence_count=3, **common),
+        )
+        task_id = "task-removal-grouping"
+        insert(conn, "tasks", task_row(task_id) | {"type": "group_removal_reasons"})
+        insert(
+            conn,
+            "removal_theme_runs",
+            dict(
+                task_id=task_id,
+                themes='[{"field":"work_mode","value":"on_site","evidence":[["job-0002",2]]}]',
+                provider="fake",
+                model="fake-fast",
+                prompt_id="group_removal_reasons",
+                prompt_version="1",
+                created_at=STAMP,
+            ),
+        )
         insert_notice(conn, "notice-1")
         insert_usage(conn, "usage-1", service="fake", task_id="task-0001")
         for name in ("contacts", "application_notes", "interactions"):

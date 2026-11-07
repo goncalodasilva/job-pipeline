@@ -1,0 +1,8 @@
+{
+  "data": {
+    "themes": [
+      {"field": "work_mode", "job_ids": ["job-0001", "job-0002", "job-0003"]}
+    ]
+  },
+  "usage": {"input_tokens": 35, "output_tokens": 14}
+}

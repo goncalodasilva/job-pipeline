@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["themes"],
+  "properties": {
+    "themes": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "job_ids"],
+        "properties": {
+          "field": {
+            "enum": ["seniority", "location", "work_mode", "minimum_salary", "industry", "company"]
+          },
+          "job_ids": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}
+          }
+        }
+      }
+    }
+  }
+}

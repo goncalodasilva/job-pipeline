@@ -43,6 +43,7 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
         "interview_questions",
         "interview_web_questions",
         "company_brief",
+        "group_removal_reasons",
     }
     with refining(tmp_path) as r:
         hidden = r.typed(HIDDEN, privacy="never_use")
@@ -91,6 +92,10 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
             cid = company_id(r)
             ref = brief.start(cid, version=brief.view(cid).version)
             assert r.run.wait_terminal(ref.id).status.value == "succeeded"
+        elif task == "group_removal_reasons":
+            from tests.integration.test_removal_learning import run_grouping
+
+            run_grouping(r)
         elif task == "answer_feedback":
             # M8.2: the calling service over the real prompt and the app's provider. This task
             # sends confirmed facts, so the hidden-fact assertions below apply in full.
@@ -172,7 +177,12 @@ def test_ac_m3_4_every_ai_task_has_a_never_use_request_log_case(tmp_path: Path, 
         for request in requests:
             assert HIDDEN not in repr(request)
             assert f"F{hidden.number}@" not in repr(request)
-            if task in {"interview_questions", "interview_web_questions", "company_brief"}:
+            if task in {
+                "interview_questions",
+                "interview_web_questions",
+                "company_brief",
+                "group_removal_reasons",
+            }:
                 fact_texts = [row["text"] for row in r.run.rows("SELECT text FROM fact_versions")]
                 assert TARGET in fact_texts and HIDDEN in fact_texts
                 assert not [text for text in fact_texts if text and text in repr(request)]

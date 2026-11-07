@@ -95,6 +95,10 @@ TASK_COPY: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
             "Briefing you on a company",
             "Writes a short sourced brief about one company, using a web search.",
         ),
+        "group_removal_reasons": (
+            "Grouping removal notes",
+            "Groups your removal notes into suggestions when you ask from the inbox.",
+        ),
     }
 )
 _NOTHING: Mapping[str, str] = MappingProxyType({})
