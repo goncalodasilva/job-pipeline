@@ -1,3 +1,58 @@
+// Global shortcuts (M9.5): visible actions and their keys share the same links.
+(function () {
+  "use strict";
+  var goAt = 0;
+  var returnFocus = null;
+  function open(id) {
+    if (document.querySelector("dialog[open]")) return;
+    var dialog = document.getElementById(id);
+    if (!dialog) return;
+    returnFocus = document.activeElement;
+    dialog.showModal();
+    var first = dialog.querySelector("button, a[href]");
+    if (first) first.focus();
+  }
+  document.addEventListener("click", function (event) {
+    var target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    var opener = target.closest("[data-global-open]");
+    if (opener) open(opener.getAttribute("data-global-open"));
+    var closer = target.closest("[data-global-close]");
+    if (closer) closer.closest("dialog").close();
+  });
+  document.addEventListener("close", function (event) {
+    if (!event.target.matches || !event.target.matches("[data-global-dialog]")) return;
+    if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+  }, true);
+  document.body.addEventListener("shortcuts:changed", function (event) {
+    document.body.dataset.globalShortcuts = event.detail.enabled ? "true" : "false";
+    document.querySelectorAll("[data-shortcuts-off]").forEach(function (p) { p.hidden = event.detail.enabled; });
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.defaultPrevented || event.isComposing) return;
+    var dialog = document.querySelector("dialog[data-global-dialog][open]");
+    if (dialog && event.key === "Tab") {
+      var items = Array.from(dialog.querySelectorAll("button, a[href]"));
+      var first = items[0], last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      return;
+    }
+    var typing = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])");
+    if (event.ctrlKey || event.metaKey || event.altKey || typing || document.querySelector("dialog[open]")) { goAt = 0; return; }
+    if (event.key === "?") { event.preventDefault(); open("shortcut-help"); return; }
+    if (document.body.dataset.globalShortcuts !== "true" || event.repeat) return;
+    var key = event.key.toLowerCase();
+    var paths = {t: "/", i: "/inbox", b: "/board", f: "/facts"};
+    if (goAt && performance.now() - goAt < 1500 && paths[key]) {
+      event.preventDefault(); goAt = 0; window.location.assign(paths[key]); return;
+    }
+    goAt = key === "g" ? performance.now() : 0;
+    if (key === "g") event.preventDefault();
+    if (key === "n") { event.preventDefault(); open("quick-add"); }
+  });
+}());
+
 // The job inbox screen (M4.7, htmx-ui skill): single-key shortcuts and the small client parts
 // of the screen. No build step; plain browser JS. User-facing words live in the templates
 // (spec 3.10); this script only places them.
@@ -20,6 +75,8 @@
 
   var page = document.getElementById("inbox-page");
   if (!page) return;
+
+  if (location.hash === "#add-job") setAdd(true, true);
 
   var CACHE_MS = 30000;
   var SEEN_WAIT_MS = 5000;

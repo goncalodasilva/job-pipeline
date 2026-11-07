@@ -2013,6 +2013,8 @@ a.button {
 /* Small phones: the count alone is the button's visible label; "Tasks:" stays in its name. */
 @media (max-width: 429.98px) {
   .sidebar-toggle, .tasks-toggle, #notifications-toggle { padding-inline: var(--space-2); }
+  /* The Search button joined the bar (M9.5): tighter gaps keep the worst-case count on one row. */
+  .topbar { gap: var(--space-1); }
   .tasks-word {
     position: absolute;
     width: 1px;
@@ -3239,3 +3241,147 @@ blockquote.practice-answer { margin: var(--space-2) 0; }
 .prompt-compare h4 { margin-block: var(--space-3) var(--space-2); }
 /* The failure note of a placeholder that could not load: its link is a target of its own. */
 [data-failed-note] a { display: inline-flex; align-items: center; min-height: var(--target-min); }
+
+/* Command palette (M9.5 part A): a modal dialog on every page, opened by Ctrl/Cmd+K or the top
+   bar's Search button (which needs scripts, like the Tasks button). It never grows past the
+   screen: the answers scroll inside it. The active option is marked by a bar and a fill, not by
+   color alone. */
+.palette-open {
+  display: none;
+}
+
+.js .palette-open {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* On a phone only the magnifier shows, so the top bar stays one row; the word stays the name. */
+@media (max-width: 767.98px) {
+  .palette-open {
+    gap: 0;
+    padding-inline: var(--space-1);
+  }
+
+  .palette-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+.palette {
+  box-sizing: border-box;
+  display: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(40rem, calc(100% - 2 * var(--space-2)));
+  max-height: min(36rem, calc(100dvh - 2 * var(--space-2)));
+  margin: var(--space-2) auto auto;
+  padding: var(--space-3);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+}
+
+.palette[open] {
+  display: flex;
+}
+
+.palette::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.palette-dialog-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.palette-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius);
+}
+
+.palette-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.palette-group {
+  margin-block: var(--space-2);
+}
+
+.palette-heading {
+  margin: 0 0 var(--space-1);
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.palette-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: var(--target-min);
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-text);
+  text-decoration: none;
+  border-left: 4px solid transparent;
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+.palette-item[aria-selected="true"],
+.palette-item:hover {
+  background: var(--color-accent-soft);
+}
+
+.palette-item[aria-selected="true"] {
+  border-left-color: var(--color-accent);
+}
+
+.palette-title {
+  font-weight: 600;
+}
+
+.palette-meta {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.palette-status,
+.palette-empty,
+.palette-loading,
+.palette-hint {
+  margin: var(--space-1) 0;
+  color: var(--color-text-muted);
+}
+
+.palette-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.palette-foot .palette-hint {
+  margin: 0;
+}
+
+.global-tools { display: none; }
+.js .global-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); padding: var(--space-3); }

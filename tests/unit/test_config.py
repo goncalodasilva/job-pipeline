@@ -410,11 +410,10 @@ def test_malformed_bootstrap_still_fails_with_demo_or_cli_data_dir(
     config_dir: Path,
     make_env: Callable[..., dict[str, str]],
 ) -> None:
-    # Intended: a broken settings file is reported once, wherever it would be ignored.
+    # ADR-138 / AC-M9.4: demo must not read the real bootstrap, even when malformed.
     write_raw(config_dir, MALFORMED["not_toml"])
 
-    with pytest.raises(ConfigError):
-        resolve_config(CliOptions(demo=True), make_env())
+    assert resolve_config(CliOptions(demo=True), make_env()).demo
     with pytest.raises(ConfigError):
         resolve_config(CliOptions(data_dir=tmp_path / "chosen"), make_env())
 

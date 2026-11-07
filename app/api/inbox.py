@@ -533,5 +533,7 @@ async def save_shortcuts(request: Request) -> Response:
     except VersionConflict:
         return await run_in_threadpool(_shortcuts_answer, request, conflict=True)
     response = await run_in_threadpool(_shortcuts_answer, request, saved=True)
-    response.headers["HX-Trigger"] = json.dumps({"announce": "Saved."})
+    response.headers["HX-Trigger"] = json.dumps(
+        {"announce": "Saved.", "shortcuts:changed": {"enabled": form.get("enabled") == "1"}}
+    )
     return response

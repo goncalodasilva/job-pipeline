@@ -107,7 +107,14 @@ WATCH_TESTING_NOTE_JS = """() => {
 def demo_app(tmp_path: Path) -> Iterator[RunningApp]:
     """``--demo`` alone, on a demo folder that doesn't exist yet."""
     try:
-        app = start_app(tmp_path, demo=True, setup="fresh", allow_fakes=False, output_name="demo")
+        app = start_app(
+            tmp_path,
+            demo=True,
+            setup="fresh",
+            allow_fakes=False,
+            cli_args=("--setup",),
+            output_name="demo",
+        )
     except AppDidNotStart as error:
         pytest.fail(f"the demo did not start: {error}", pytrace=False)
     try:

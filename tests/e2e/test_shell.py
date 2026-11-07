@@ -381,6 +381,7 @@ def test_focus_is_visible_on_keyboard_focus(running_app: RunningApp, desktop_pag
     page = desktop_page
     open_app(page, running_app)
     page.keyboard.press("Tab")  # skip link
+    page.keyboard.press("Tab")  # the top bar's Search button (command palette, M9.5)
     page.keyboard.press("Tab")  # the top bar's Tasks button (M2.20)
     page.keyboard.press("Tab")  # Notifications (M5.8)
     page.keyboard.press("Tab")  # first nav link

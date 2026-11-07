@@ -210,7 +210,8 @@ def owned_by_another_user(folder: Path) -> bool:
 
 def resolve_config(cli: CliOptions, env: Mapping[str, str]) -> RuntimeConfig:
     config_dir = resolve_config_dir(env)
-    bootstrap = load_bootstrap(config_dir)
+    # Demo mode must not inspect the real bootstrap file (AC-M9.4, ADR-138).
+    bootstrap = None if cli.demo else load_bootstrap(config_dir)
     data_dir, source = _resolve_data_dir(cli, env, bootstrap)
     return RuntimeConfig(
         data_dir=data_dir,

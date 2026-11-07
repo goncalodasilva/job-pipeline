@@ -175,7 +175,11 @@ def says_number(text: str, number: int) -> bool:
 
 
 def dialogs(elements: list[Element]) -> list[Element]:
-    return [e for e in elements if e.attrs.get("role") == "dialog"]
+    """The dialogs a page or answer holds besides the command palette (M9.5), which every app
+    page carries in its layout and which is not a budget question."""
+    return [
+        e for e in elements if e.attrs.get("role") == "dialog" and e.attrs.get("id") != "palette"
+    ]
 
 
 def the_dialog(response: Response) -> tuple[list[Element], Element]:

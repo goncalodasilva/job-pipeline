@@ -3,6 +3,12 @@
 (function () {
   "use strict";
 
+  // Visible swapped controls must already be bound: Enter must not navigate natively
+  // without the token during htmx's settle delay (TD-320).
+  document.body.addEventListener("htmx:afterSwap", function (event) {
+    if (event.target instanceof Element && window.htmx) window.htmx.process(event.target);
+  });
+
   var status = document.getElementById("app-status");
 
   function announce(message, shown) {

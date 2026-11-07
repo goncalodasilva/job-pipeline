@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import Response
 
+from app.domain.ids import IdFactory
 from app.domain.settings import AIProviderSettings
 from app.main import create_app
 from app.modules.ai import AIProvider, AIRequest, AIResponse, CancelToken
@@ -320,6 +321,7 @@ def importing(
     provider: AIProviderSettings | None = None,
     environ: dict[str, str] | None = None,
     hold_timeout: float | None = DEADLINE_S,
+    ids: IdFactory | None = None,
 ) -> Iterator[Importing]:
     """The running app on ``tmp_path`` with a finished setup (the fake saved unless
     ``provider`` says otherwise). ``seed=False`` starts on the folders as they are."""
@@ -331,6 +333,7 @@ def importing(
     app = create_app(
         make_config(tmp_path),
         clock=clock,
+        id_factory=ids,
         wiring=SpyWiring(make_wiring(environ), spy),  # type: ignore[arg-type]
     )
     try:

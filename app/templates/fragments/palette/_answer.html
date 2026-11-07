@@ -1,0 +1,28 @@
+{# The command palette's answer (M9.5 part A): the count of a search, the empty state, then one
+   group per kind. Every value is escaped (never |safe); an id is linked only if it is safe. The
+   items are options of a listbox that the search field drives with aria-activedescendant
+   (palette.js), so they are not Tab stops. #}
+{% set headings = {"job": "Jobs", "company": "Companies", "application": "Applications", "fact": "Facts", "recent": "Recent", "actions": "Actions"} %}
+{% set kind_words = {"job": "Job", "company": "Company", "application": "Application", "fact": "Fact"} %}
+{% if answer.searched %}
+<p class="palette-status" data-palette-status role="status">{% if answer.results == 0 %}No results{% elif answer.results == 1 %}1 result{% else %}{{ answer.results }} results{% endif %}{% if answer.actions %}, {% if answer.actions == 1 %}1 action{% else %}{{ answer.actions }} actions{% endif %}{% endif %}</p>
+{% endif %}
+{% if answer.empty %}
+<p class="palette-empty" data-palette-empty>Nothing found. Try another word, or fewer words.</p>
+{% endif %}
+{% for group in answer.groups %}
+<section class="palette-group" data-palette-group="{{ group.kind }}" aria-labelledby="palette-group-{{ group.kind }}">
+  <h3 class="palette-heading" id="palette-group-{{ group.kind }}">{{ headings[group.kind] }}</h3>
+  <div class="palette-list" role="listbox" aria-labelledby="palette-group-{{ group.kind }}">
+    {% if group.kind == "actions" %}
+    {% for action in group.actions %}
+    <a class="palette-item" role="option" aria-selected="false" tabindex="-1" data-palette-action data-action="{{ action.key }}" href="{{ action.href }}"><span class="palette-title">{{ action.label }}</span></a>
+    {% endfor %}
+    {% else %}
+    {% for item in group.items %}
+    <a class="palette-item" role="option" aria-selected="false" tabindex="-1" {% if group.kind == "recent" %}data-palette-recent{% else %}data-palette-result{% endif %} data-kind="{{ item.kind }}" href="{{ item.href }}"><span class="palette-title">{{ item.title }}</span>{% if group.kind == "recent" %}<span class="palette-meta">{{ kind_words[item.kind] }}{% if item.meta %} · {{ item.meta }}{% endif %}</span>{% elif item.meta %}<span class="palette-meta">{{ item.meta }}</span>{% endif %}</a>
+    {% endfor %}
+    {% endif %}
+  </div>
+</section>
+{% endfor %}

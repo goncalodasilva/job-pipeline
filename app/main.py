@@ -58,6 +58,7 @@ from app.api.job_summary import register_job_summary_routes
 from app.api.letter_step import register_letter_routes
 from app.api.notifications import register_notification_routes
 from app.api.pages import register_pages
+from app.api.palette import register_palette_routes
 from app.api.prep import register_prep_routes
 from app.api.prep_adapt import register_adapt_routes
 from app.api.prep_cards import register_card_routes
@@ -163,6 +164,7 @@ from app.services.cv_templates import DRAFT_LABEL, CvTemplateService
 from app.services.data_erasure import DataErasureService
 from app.services.data_portability import DataPortabilityService, sweep_restore_staging
 from app.services.debrief import DEBRIEF_FACTS, DEBRIEF_FACTS_LABEL, DebriefService
+from app.services.demo import seed_demo
 from app.services.documents import TAILOR_CV_LABEL, DocumentService
 from app.services.export_files import sweep_orphan_exports
 from app.services.exports import ExportService
@@ -186,6 +188,7 @@ from app.services.job_summary import SUMMARIZE_JOB, SUMMARIZE_LABEL, JobSummaryS
 from app.services.job_triage import JobTriageService
 from app.services.letters import DRAFT_COVER_LETTER_LABEL, LetterService
 from app.services.narrative_ai import DRAFT_NARRATIVE
+from app.services.palette import PaletteService
 from app.services.personal_details import PersonalDetailsService, sweep_orphan_photos
 from app.services.practice import PRACTICE, PRACTICE_LABEL, PracticeService
 from app.services.prep import QUESTIONS, WEB_QUESTIONS, PrepService
@@ -383,7 +386,7 @@ def _current_db(app: FastAPI) -> Database | None:
 
 def _startup_inputs(config: RuntimeConfig) -> StartupInputs:
     return StartupInputs(
-        bootstrap_exists=(config.config_dir / BOOTSTRAP_FILE).exists(),
+        bootstrap_exists=not config.demo and (config.config_dir / BOOTSTRAP_FILE).exists(),
         data_dir_explicit=data_dir_is_explicit(config),
         demo=config.demo,
         force_setup=config.setup,
@@ -601,7 +604,7 @@ def _step_handlers(
         onboarding=onboarding,
         workspace_folder=workspace_folder,
         open_workspace=open_workspace,
-        bootstrap_exists=lambda: (config.config_dir / BOOTSTRAP_FILE).exists(),
+        bootstrap_exists=lambda: not config.demo and (config.config_dir / BOOTSTRAP_FILE).exists(),
         write_bootstrap=save_bootstrap,
         progress=lambda: _progress(registry, _current_db(app), clock),
     )
@@ -1139,6 +1142,7 @@ def create_app(
     config: RuntimeConfig,
     *,
     clock: Clock | None = None,
+    id_factory: IdFactory | None = None,
     migrations_dir: Path = MIGRATIONS_DIR,
     attach_log_folder: Callable[[Path], None] | None = None,
     open_at_startup: bool | None = None,
@@ -1195,7 +1199,7 @@ def create_app(
     server_loop: list[asyncio.AbstractEventLoop] = []  # set by the lifespan
     erased_folder: list[Path] = []  # the folder a half-finished erase still has to empty
     erasing = threading.Event()  # delete all data is running: no other open meanwhile
-    app_ids = UuidIdFactory()
+    app_ids = id_factory if id_factory is not None else UuidIdFactory()
     shutdown_signal = ShutdownSignal()
     task_events = TaskEvents(shutdown_signal, queue_size=event_queue_size)  # ValueError: no bound
     handlers = task_registry if task_registry is not None else HandlerRegistry()
@@ -1311,7 +1315,10 @@ def create_app(
             if detach_log_folder is not None:
                 detach_log_folder()
             onboarding: OnboardingState = app.state.onboarding
-            onboarding.refresh(None, bootstrap_exists=(config.config_dir / BOOTSTRAP_FILE).exists())
+            onboarding.refresh(
+                None,
+                bootstrap_exists=not config.demo and (config.config_dir / BOOTSTRAP_FILE).exists(),
+            )
 
     def after_erase() -> None:
         """Run once everything was removed: the setup file is gone, so the guide starts at step
@@ -1319,7 +1326,9 @@ def create_app(
         as a fresh workspace (reusing the lock the command line holds on it)."""
         erased_folder.clear()
         onboarding: OnboardingState = app.state.onboarding
-        onboarding.refresh(None, bootstrap_exists=(config.config_dir / BOOTSTRAP_FILE).exists())
+        onboarding.refresh(
+            None, bootstrap_exists=not config.demo and (config.config_dir / BOOTSTRAP_FILE).exists()
+        )
         if data_dir_is_explicit(config):
             held = data_folder_lock is not None and data_folder_lock.held
             open_folder(
@@ -1389,6 +1398,8 @@ def create_app(
 
             def prepare(db: Database) -> None:
                 nonlocal health
+                if is_demo_workspace(config):
+                    seed_demo(config, db, app_clock)
                 health = _prepare_workspace(
                     config.data_dir,
                     db,
@@ -1695,6 +1706,7 @@ def create_app(
     app.state.contacts = ContactsService(lambda: _current_db(app), app_clock, app_ids)
     # Reminders are computed when read; nothing here is scheduled (ADR-013).
     app.state.reminders = ReminderService(lambda: _current_db(app), app_clock, app_ids, app_tz)
+    app.state.palette = PaletteService(lambda: _current_db(app))
     app.state.today = TodayService(lambda: _current_db(app), app_clock, app.state.reminders, app_tz)
     app.state.reminder_rules = ReminderRules(lambda: _current_db(app), app_clock, app_ids)
     app.state.controlled_lists = ControlledLists(lambda: _current_db(app), app_clock, app_ids)
@@ -1788,6 +1800,7 @@ def create_app(
     register_application_contact_routes(app)
     register_reminder_routes(app)
     register_notification_routes(app)
+    register_palette_routes(app)
     register_today_routes(app)
     register_setup_pages(app)
     register_setup_restore(app)

@@ -1,0 +1,16 @@
+{# The command palette (M9.5 part A; ADR-098 item 7), on every app page (the base layout includes it).
+   A native modal dialog, opened by Ctrl/Cmd+K or the top bar's Search button (palette.js). It
+   holds no launch token: the script reads the token from <body hx-headers> for each request.
+   The search field drives the results as a combobox (aria-activedescendant), so the arrow
+   keys move the active option while focus stays in the field. #}
+<dialog id="palette" class="palette" data-palette role="dialog" aria-modal="true" aria-labelledby="palette-title">
+  <h2 id="palette-title" class="palette-dialog-title">Command palette</h2>
+  <label for="palette-input" class="visually-hidden">Search jobs, companies, applications and facts</label>
+  <input id="palette-input" class="palette-input" type="search" role="combobox" aria-expanded="true" aria-controls="palette-results" aria-autocomplete="list" autocomplete="off" spellcheck="false" maxlength="200" enterkeyhint="go" placeholder="Search jobs, companies, applications and facts">
+  {# The failure line is made by palette.js from this text, as an alert, only when a request fails. #}
+  <div id="palette-results" class="palette-results" data-msg-failed="Couldn't load results. Nothing was lost; type again to retry."><p class="palette-loading">Loading…</p></div>
+  <div class="palette-foot">
+    <p class="palette-hint">Up and down arrows choose, Enter opens, Esc closes.</p>
+    <button type="button" class="button" data-palette-close>Close</button>
+  </div>
+</dialog>

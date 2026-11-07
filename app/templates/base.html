@@ -20,6 +20,8 @@
   <script src="{{ static('vendor/htmx.min.js') }}" defer></script>
   <script src="{{ static('js/app.js') }}" defer></script>
   <script src="{{ static('js/notifications.js') }}" defer></script>
+  <script src="{{ static('js/palette.js') }}" defer></script>
+  <script src="{{ static('js/shortcuts.js') }}" defer></script>
   <script src="{{ static('js/today.js') }}" defer></script>
   <script src="{{ static('js/status-menu.js') }}" defer></script>
   <script src="{{ static('js/application-detail.js') }}" defer></script>
@@ -29,7 +31,7 @@
 {# A page opens the live-update stream only if it opts in with `set live_updates = true`
    after its extends line (ADR-077): data-events-url makes app.js read the stream. The pages
    that keep the top bar's tasks slot opt in; the setup guide, with its own top bar, doesn't. #}
-<body hx-headers="{{ hx_headers }}"{% block body_attrs %}{% endblock %}{% if live_updates is defined and live_updates %} data-events-url="/events"{% endif %}>
+<body hx-headers="{{ hx_headers }}" data-global-shortcuts="{{ 'true' if page_shortcuts(request) else 'false' }}"{% block body_attrs %}{% endblock %}{% if live_updates is defined and live_updates %} data-events-url="/events"{% endif %}>
   <a class="skip-link" href="#main">Skip to main content</a>
   {% block navigation %}
   {% include "fragments/shell/_topbar.html" %}
@@ -49,6 +51,9 @@
   <main id="main" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
+  {# The command palette searches the workspace; the setup guide runs before there is one. #}
+  {% block palette %}{% include "fragments/shell/_palette.html" %}{% endblock %}
+  {% include "fragments/shell/_shortcuts.html" %}
   <div id="announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

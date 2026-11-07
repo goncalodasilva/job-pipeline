@@ -687,7 +687,7 @@ NEVER_TEXT = f"Confidential {NEVER_WORDS} for the fictional depot."
 
 
 def test_session_drafts_never_use_never_use_facts(tmp_path: Path) -> None:
-    with refining(tmp_path) as desk:
+    with refining(tmp_path, ids=SequentialIdFactory("privacy")) as desk:
         run = desk.run
         desk.run.app.state.skills.add("Terraform")
         hidden = desk.typed(NEVER_TEXT, privacy="never_use", skills=("Terraform",))

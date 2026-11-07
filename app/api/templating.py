@@ -68,6 +68,11 @@ def page_appearance(request: Request | None) -> AppearanceSettings:
     return cached
 
 
+def page_shortcuts(request: Request | None) -> bool:
+    service = getattr(request.app.state, "inbox_views", None) if request else None
+    return bool(service.shortcuts().value.enabled) if service else True
+
+
 def _environment() -> Environment:
     env = Environment(
         loader=FileSystemLoader(TEMPLATES_DIR),
@@ -78,6 +83,7 @@ def _environment() -> Environment:
     env.globals["is_safe_id"] = is_safe_id
     env.globals["session_offer_length"] = session_offer_length
     env.globals["page_appearance"] = page_appearance
+    env.globals["page_shortcuts"] = page_shortcuts
     env.globals["contact_limits"] = {**CONTACT_LIMITS, "interaction_note": NOTE_LIMIT}
     return env
 

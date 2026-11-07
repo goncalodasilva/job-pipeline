@@ -1,0 +1,18 @@
+<div class="global-tools">
+  {% if live_updates is defined and live_updates %}<button type="button" data-global-open="quick-add">Quick add</button>{% endif %}
+  <button type="button" data-global-open="shortcut-help">Keyboard shortcuts</button>
+</div>
+<dialog id="shortcut-help" class="palette" data-global-dialog aria-labelledby="shortcut-help-title">
+  <h2 id="shortcut-help-title">Keyboard shortcuts</h2>
+  <div class="palette-results">{% include "fragments/shell/_shortcut_list.html" %}</div>
+  <button type="button" data-global-close>Close</button>
+</dialog>
+{% if live_updates is defined and live_updates %}
+<dialog id="quick-add" class="palette" data-global-dialog aria-labelledby="quick-add-title">
+  <h2 id="quick-add-title">Quick add</h2>
+  <a href="/inbox#add-job">Add job</a>
+  <a href="/facts/new">New fact</a>
+  <a href="/board">New event — choose an application</a>
+  <button type="button" data-global-close>Close</button>
+</dialog>
+{% endif %}

@@ -2,7 +2,9 @@
   <button type="button" class="sidebar-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button>
   <span class="topbar-brand">Job Search Pipeline</span>
   {# Reserved for search (command palette), quick add, background tasks and notifications. #}
-  <span class="topbar-slot" data-slot="search"></span>
+  {# The command palette's button (M9.5): Ctrl/Cmd+K does the same; a phone has no such key.
+     Shown only when scripts run (html.js). #}
+  <span class="topbar-slot" data-slot="search"><button type="button" class="button palette-open" data-palette-open aria-haspopup="dialog" aria-controls="palette" aria-keyshortcuts="Control+K Meta+K"><svg class="palette-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M13 13l5 5"/></svg><span class="palette-word">Search</span></button></span>
   <span class="topbar-slot" data-slot="quick-add"></span>
   {# Background tasks (M2.20): a disclosure button with the count of running and queued tasks
      in words (the real count, so it is right before the first event) and the non-modal

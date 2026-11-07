@@ -430,7 +430,7 @@ def test_question_mark_opens_the_help_and_escape_closes_it(running_app, browser,
     with browser.new_context(viewport=DESKTOP) as context:
         page = context.new_page()
         open_app(page, running_app, "/inbox")
-        help = page.locator("#inbox-help")
+        help = page.locator("#shortcut-help")
         page.keyboard.press("?")
         expect(help).to_have_attribute("open", "")
         if on:
